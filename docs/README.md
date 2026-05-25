@@ -1,63 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-05-25
-- 运行时间：2026-05-25 17:16:08 北京时间
+- 最新运行日期：2026-05-26
+- 运行时间：2026-05-26 04:38:09 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-深度聚焦6G脑机接口蓝图与脉冲时间编码重塑千脑架构，速览了表征分析、网格场共现与跨被试情绪识别等新进展。  
-最值得细看：6G如何从需求、用例到未来趋势系统性驱动脑机融合，以及时间编码如何为感知运动推理提供全新的脉冲解释。  
-继读可优先跟进通信与神经的交叉应用，或探索脉冲神经网络在具身智能中的落地可能。
-- 详情：[/202605/25/README](/202605/25/README)
+今日通过高效编码与动态网络双重视角，深入了解了大脑如何自发走向临界态并组织神经元集群。  
+脑视觉区因果表征的发现与脉冲网络动态专家融合的设计，是理解灵活计算的关键突破。  
+建议读者接下来重点关注稀疏激活与因果结构如何帮助人工模型降低能耗、提升泛化。
+- 详情：[/202605/26/README](/202605/26/README)
 
 ### 精读区论文标签
-1. [Toward 6G-enabled Brain Computer Interfaces: Technical Requirements, Use Cases, Challenges, and Future Trends](/202605/25/2605.20939v1-toward-6g-enabled-brain-computer-interfaces-technical-requirements-use-cases-challenges-and-future-trends)  
+1. [Efficient coding under constraint drives neural systems towards criticality and sloppiness](/202605/26/2605.22598v1-efficient-coding-under-constraint-drives-neural-systems-towards-criticality-and-sloppiness)  
    标签：评分：9.0/10、query:sr
-   evidence：6G赋能的脑机接口系统
-2. [Temporal Coding as a Substrate for Sensorimotor Object Inference: A Spiking Reinterpretation of Thousand Brains Architecture](/202605/25/2605.22206v1-temporal-coding-as-a-substrate-for-sensorimotor-object-inference-a-spiking-reinterpretation-of-thousand-brains-architecture)  
+   evidence：使用Fisher信息将高效编码与神经群体临界性联系起来，直接涉及神经群体编码与时序动态
+2. [From Functional Architecture to Organizing Principles of Neuronal Ensembles in Mouse Area V1](/202605/26/biorxiv-10-1101-2024-02-29-582364-v3-from-functional-architecture-to-organizing-principles-of-neuronal-ensembles-in-mouse-area-v1)  
    标签：评分：9.0/10、query:sr
-   evidence：使用脉冲神经网络进行时序编码的感觉运动物体推断
-3. [Sparse Autoencoders Map Brain-LLM Alignment onto Cortical Semantic Topography](/202605/25/2605.23035v1-sparse-autoencoders-map-brain-llm-alignment-onto-cortical-semantic-topography)  
+   evidence：分析V1区神经元集群和功能连接
+3. [Circuit mechanisms to transform neural population dynamics for motor control](/202605/26/biorxiv-10-1101-2025-02-21-639459-v2-circuit-mechanisms-to-transform-neural-population-dynamics-for-motor-control)  
    标签：评分：9.0/10、query:sr
-   evidence：稀疏自编码器分解大模型特征以预测大脑编码
-4. [Beyond Neural Activity Prediction: Probing Latent Representations in Mouse V1 Digital Twins](/202605/25/2605.23122v1-beyond-neural-activity-prediction-probing-latent-representations-in-mouse-v1-digital-twins)  
+   evidence：神经群体动力学的时序分解用于运动控制
+4. [Inherent coupling of perceptual judgments to actions in the mouse cortex](/202605/26/biorxiv-10-1101-2025-10-30-685660-v2-inherent-coupling-of-perceptual-judgments-to-actions-in-the-mouse-cortex)  
    标签：评分：9.0/10、query:sr
-   evidence：通过探针分析神经编码数字孪生的潜在表示以实现可解释性
-5. [STAMBRIDGE: Spectral-Temporal Amplitude-aware Mid-Feature Bridge for EEG Visual Decoding](/202605/25/2605.23137v1-stambridge-spectral-temporal-amplitude-aware-mid-feature-bridge-for-eeg-visual-decoding)  
+   evidence：从小鼠皮层活动解码感知判断
+5. [Brain-wide single-neuron bases of working memory for sounds in humans](/202605/26/biorxiv-10-1101-2025-11-10-687666-v2-brain-wide-single-neuron-bases-of-working-memory-for-sounds-in-humans)  
    标签：评分：9.0/10、query:sr
-   evidence：基于频谱-时间调制的脑电视觉解码
+   evidence：记忆阶段单神经元放电率调节
 
 ### 速读区论文标签
-1. [Stimulus symmetries can confound representational similarity analyses](/202605/25/2605.21324v1-stimulus-symmetries-can-confound-representational-similarity-analyses)  
+1. [SpikingMoE: SDPrompt-Guided Dynamic Expert Fusion in Spiking Neural Networks](/202605/26/2605.23188v1-spikingmoe-sdprompt-guided-dynamic-expert-fusion-in-spiking-neural-networks)  
    标签：评分：8.0/10、query:sr
-   evidence：识别了由于刺激对称性导致的表征相似性分析中的混淆
-2. [A simple model of co-emergence of grid and place fields](/202605/25/2605.21356v1-a-simple-model-of-co-emergence-of-grid-and-place-fields)  
+   evidence：脉冲驱动神经网络与生物启发式路由
+2. [From Activation to Causality: Discovery of Causal Visual Representations in the Human Brain](/202605/26/2605.23895v1-from-activation-to-causality-discovery-of-causal-visual-representations-in-the-human-brain)  
    标签：评分：8.0/10、query:sr
-   evidence：统一循环网络模型用于网格细胞和位置细胞的共同涌现
-3. [Cross-Subject EEG Emotion Recognition Based on Temporal Asynchronous Alignment Contrastive Learning](/202605/25/2605.22379v1-cross-subject-eeg-emotion-recognition-based-on-temporal-asynchronous-alignment-contrastive-learning)  
+   evidence：神经表征的因果测试框架
+3. [NiCLIP: Neuroimaging contrastive language-image pretraining model for predicting text from brain activation images](/202605/26/biorxiv-10-1101-2025-06-14-659706-v3-niclip-neuroimaging-contrastive-language-image-pretraining-model-for-predicting-text-from-brain-activation-images)  
    标签：评分：8.0/10、query:sr
-   evidence：基于EEG情感识别的时序解码算法应用于脑机接口
-4. [BioFormer: Rethinking Cross-Subject Generalization via Spectral Structural Alignment in Biomedical Time-Series](/202605/25/2605.22468v1-bioformer-rethinking-cross-subject-generalization-via-spectral-structural-alignment-in-biomedical-time-series)  
+   evidence：使用对比学习从脑激活预测文本
+4. [Task-Parametrized Dynamics: Representation of Time and Decisions in Recurrent Neural Networks](/202605/26/biorxiv-10-1101-2025-09-15-676356-v3-task-parametrized-dynamics-representation-of-time-and-decisions-in-recurrent-neural-networks)  
    标签：评分：8.0/10、query:sr
-   evidence：用于生物医学时间序列跨主体泛化的频谱结构对齐，适用于脑机接口时间解码
-5. [Learning sequence timing and control of replay speed in networks of spiking neurons](/202605/25/2605.22523v1-learning-sequence-timing-and-control-of-replay-speed-in-networks-of-spiking-neurons)  
-   标签：评分：8.0/10、query:sr
-   evidence：脉冲神经元网络用于序列时序与回放速度控制
-6. [Causal Discovery in Structural VAR Models Under Equal Noise Variance](/202605/25/2605.21846v1-causal-discovery-in-structural-var-models-under-equal-noise-variance)  
+   evidence：RNN时间动态分析用于决策任务中的时间表征
+5. [Prototype-Guided Classification Sub-Task Decoupling Framework: Enhancing Generalization and Interpretability for Multivariate Time Series](/202605/26/2605.22055v1-prototype-guided-classification-sub-task-decoupling-framework-enhancing-generalization-and-interpretability-for-multivariate-time-series)  
    标签：评分：7.0/10、query:sr
-   evidence：适用于神经科学的时间序列因果发现方法
-7. [Temporal-difference valence-partitioned Bayesian brains work out whether others are caring or uncaring](/202605/25/biorxiv-10-64898-2026-05-19-725657-v1-temporal-difference-valence-partitioned-bayesian-brains-work-out-whether-others-are-caring-or-uncaring)  
+   evidence：原型引导的可解释时间序列分类框架
+6. [Riemannian geometry meets fMRI: the advantages of modeling correlation manifolds and eigenvector subspaces](/202605/26/2605.22334v1-riemannian-geometry-meets-fmri-the-advantages-of-modeling-correlation-manifolds-and-eigenvector-subspaces)  
    标签：评分：7.0/10、query:sr
-   evidence：基于脑电的时间差分推理判断他人意图
-8. [A cognitive map of subjective value space for human risky choice](/202605/25/biorxiv-10-64898-2026-05-19-726239-v1-a-cognitive-map-of-subjective-value-space-for-human-risky-choice)  
+   evidence：fMRI相关矩阵的几何框架
+7. [Mechanistic Identifiability Preservation for Hybrid Neural Differential Equations](/202605/26/biorxiv-10-1101-2024-12-08-627408-v2-mechanistic-identifiability-preservation-for-hybrid-neural-differential-equations)  
    标签：评分：7.0/10、query:sr
-   evidence：fMRI研究显示决策变量在内嗅皮层的网格样表征
-9. [Let EEG Models Learn EEG](/202605/25/2605.21280v1-let-eeg-models-learn-eeg)  
+   evidence：确保混合神经微分方程机制可解释性的理论框架
+8. [Dual pathway architecture in songbirds enables robust sensorimotor learning](/202605/26/biorxiv-10-64898-2026-05-07-723469-v2-dual-pathway-architecture-in-songbirds-enables-robust-sensorimotor-learning)  
+   标签：评分：7.0/10、query:sr
+   evidence：鸣鸟基底节计算模型通过神经表征解释感觉运动学习
+9. [A Causal Argumentation Method for Explainability of Machine Learning Models](/202605/26/2605.21758v1-a-causal-argumentation-method-for-explainability-of-machine-learning-models)  
    标签：评分：6.0/10、query:sr
-   evidence：使用流匹配的EEG生成捕捉神经信号的时间动态
-10. [From Circuit Evidence to Mechanistic Theory: An Inductive Logic Approach](/202605/25/2605.21303v1-from-circuit-evidence-to-mechanistic-theory-an-inductive-logic-approach)  
+   evidence：用于可解释机器学习模型的因果论证方法
+10. [DMFT analysis of Hopfield network with plasticity](/202605/26/2605.22254v1-dmft-analysis-of-hopfield-network-with-plasticity)  
    标签：评分：6.0/10、query:sr
-   evidence：使用归纳逻辑的神经回路机制可解释性
+   evidence：Hopfield网络可塑性动力平均场理论作为神经动力学的数学框架
 
