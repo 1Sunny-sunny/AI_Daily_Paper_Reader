@@ -1,0 +1,323 @@
+Title: BandVQ: Band-Wise Vector-Quantized EEG Foundation Model
+
+URL Source: https://arxiv.org/pdf/2605.24921v1
+
+Published Time: Tue, 26 May 2026 01:24:14 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# BandVQ: Band-Wise Vector-Quantized EEG Foundation Model 
+
+Jamiyan Sukhbaatar, Satoshi Imamura, and Toshihisa Tanaka  
+
+> 1
+
+Tokyo University of Agriculture and Technology, Tokyo, Japan  
+
+> 2
+
+National University of Mongolia, Ulaanbaatar, Mongolia 
+
+tanakat@cc.tuat.ac.jp 
+
+Abstract. A central challenge in electroencephalography (EEG) foun-dation modeling is learning transferable representations across record-ings with diverse tasks, montages, references, and spectral character-istics. Existing masked modeling approaches often rely on broadband continuous patches or a single discrete representation, which may un-derrepresent frequency-specific activity. This paper proposes BandVQ ,a band-wise vector-quantized EEG foundation model that decomposes EEG into delta, theta, alpha, beta, and gamma bands, trains an inde-pendent VQ-VAE tokenizer for each band, and pretrains a shared Trans-former encoder on the resulting discrete VQ code indices. The encoder uses masked code tokens, quantized absolute log-power tokens, chan-nel and temporal embeddings, and metadata prefix tokens representing reference, band, task family, and phase. Region-based masking is also introduced to reduce the trivial reconstruction of spatially adjacent elec-trodes. The model is pretrained on 71 public EEG corpora comprising over 9,200 subjects and 357,000 single-channel hours and evaluated on six subject-independent classification datasets. Under the current evalu-ation setting, the proposed model achieves strong transfer performance, with the highest reported results on three cognitive tasks and competitive performance on three motor imagery tasks. 
+
+Keywords: EEG foundation model · Band-wise quantization · Vector quantization · Metadata conditioning 
+
+# 1 Introduction 
+
+Electroencephalography (EEG) provides a noninvasive measure of neural activ-ity and has become an important modality for brain-computer interfaces, neuro-logical monitoring, cognitive assessment, and affective computing [5]. Learning general-purpose EEG representations remains challenging because EEG record-ings vary substantially across datasets, subjects, tasks, montages, references, sampling rates, and acquisition systems [6, 8]. Such heterogeneity weakens the transferability of task-specific models, which are typically optimized for a par-ticular dataset or experimental condition [14]. Recent EEG foundation models commonly adopt self-supervised masked mod-eling, in which multi-channel EEG is divided into temporal or spatio-temporal  
+
+> arXiv:2605.24921v1 [cs.LG] 24 May 2026 2J. Sukhbaatar et al.
+
+patches, a subset of the input is masked, and a neural network is trained to reconstruct the missing content or predict its latent representation [13, 3]. Two representative strategies have emerged. Continuous reconstruction methods pre-serve waveform-level detail, but sample-wise reconstruction losses, such as mean squared error, can overemphasize high-amplitude components and may bias learning toward dominant low-frequency activity, given the characteristic de-crease in EEG spectral power with frequency. Discrete token methods, including vector-quantized modeling, provide stable classification-like objectives and align naturally with masked token pretraining, but a single discrete bottleneck can discard fine-grained waveform and spectro-temporal details. These limitations suggest that EEG masked modeling should preserve frequency-specific waveform structure while also retaining amplitude information and acquisition context. EEG also presents modality-specific challenges that are particularly impor-tant for masked token pretraining. First, EEG power spectra exhibit strong frequency-dependent amplitude differences, with lower frequency activity typi-cally dominating the signal energy [12]. This imbalance can lead to broadband tokenization underrepresenting high-frequency components unless the spectral structure is explicitly modeled. Second, neighboring EEG electrodes often cap-ture highly correlated activity because of volume conduction and spatial smooth-ing [1]. A masked token model may therefore partially solve the pretext task by exploiting nearby electrodes rather than relying on broader spatial and tempo-ral structures. Third, large-scale EEG corpora combine recordings from vari-ous experimental conditions. Information such as reference scheme, task family, and recording phase can help the model interpret the same signal pattern un-der different acquisition and experimental contexts, but such metadata must be incorporated without making the model overly dependent on dataset-specific identifiers [7]. To address these challenges, we propose BandVQ , a band-wise vector-quantized, metadata-conditioned EEG foundation model. The proposed framework decom-poses EEG into five canonical frequency bands—delta, theta, alpha, beta, and gamma—and trains a separate vector-quantized variational autoencoder (VQ-VAE) [11] for each band. The trained tokenizers convert band-limited waveforms into discrete code sequences. A shared Transformer encoder is then pretrained on these band-wise codes using masked code prediction. The model receives dis-crete code tokens, quantized band power tokens, channel and temporal position embeddings, and metadata prefix tokens that encode the recording context. To reduce trivial reconstruction from spatially adjacent channels, we further intro-duce region-based masking, which masks anatomically related channel groups rather than independent random electrodes. The band-wise design preserves the advantages of discrete masked token pre-training while reducing the information loss caused by broadband quantization. Per-token RMS normalization stabilizes VQ-VAE training across bands, and quantized absolute log-power tokens preserve amplitude information that would otherwise be removed by normalization. The shared Transformer learns a unified representation across all frequency bands while retaining band-specific predic-BandVQ: Band-Wise Vector-Quantized EEG Foundation Model 3
+
+tion heads. This design allows the model to exploit the common temporal and spatial structure in EEG recordings while preserving frequency-specific code vo-cabularies. We pretrain the BandVQ model using the public EEG corpus comprising 71 datasets introduced in SingLEM [10], totaling more than 9,200 subjects and 357,000 single-channel hours. We evaluate the model on six subject-independent downstream classification datasets, including three motor imagery and three cognitive tasks. BandVQ is compared with published results reported in the SingLEM benchmark for SingLEM [10], BENDR [4], BIOT [16], LaBraM [3], and CBraMod [13]. Although the comparison is not fully controlled because the proposed model is fine-tuned while the reported baselines use fixed-feature SVM classifiers, the results show strong downstream performance, and ablations indi-cate that metadata conditioning and band-power tokens improve generalization. The main contributions of this study are summarized as follows: 
+
+– We propose BandVQ , a band-wise vector-quantized EEG foundation model that couples five frequency-specific VQ-VAE tokenizers with a shared Trans-former encoder under a masked-token pretraining objective. 
+
+– We introduce three complementary conditioning mechanisms tailored to EEG heterogeneity: metadata prefix tokens (reference, band, task family, phase), quantized absolute log-power tokens that restore amplitude infor-mation after RMS normalization, and region-based masking that suppresses reconstruction shortcuts from neighboring electrodes. 
+
+– We pretrain the model on 71 public EEG corpora comprising over 9,200 subjects and 357,000 single-channel hours, and evaluate it on six subject-independent downstream classification tasks. The results show strong down-stream performance, including the highest accuracy on three cognitive tasks under the comparison setting considered in this study. 
+
+# 2 Proposed Method 
+
+2.1 Overview 
+
+The proposed framework learns transferable EEG representations through a two-stage self-supervised pipeline. First, EEG signals are decomposed into canonical frequency bands, and an independent vector-quantized variational autoencoder (VQ-VAE) [11] tokenizer is trained for each band. Each tokenizer converts nor-malized band-limited waveform tokens into discrete VQ code indices. Second, a shared Transformer encoder is pretrained on the resulting band-wise sequences of code indices using masked code prediction. The Transformer receives em-beddings of masked code indices, quantized absolute log-power tokens, channel and temporal embeddings, and metadata prefix tokens that encode recording context. Fig. 1 summarizes the two-stage framework, consisting of offline band-wise VQ-VAE tokenizer training and shared Transformer pretraining on masked discrete EEG code indices. 4 J. Sukhbaatar et al. Offline band-wise VQ-VAE training  
+
+> Unlabeled
+> EEG
+> Corpus
+> Bandpass filtering
+> 5x Encoder
+> Frozen VQ-VAE
+> tokenizers
+> Shared Transformer
+> Masked Code
+> Prediction
+> Region-based
+> masking
+> 5x codebook
+> Band-wise VQ-VAE EEG Foundation Model
+> 4 8 21
+> 5x Decoder
+> 5x quantization
+> 5x codebook
+> RMS normalization
+> cross-entropy
+> loss
+> Metadata prefix:
+> Reference
+> Band
+> Task
+> Phase
+> Metadata
+> Power tokens
+> Reconstructed band-
+> limited waveforms
+> Fig. 1.  Overview of  BandVQ , the proposed band-wise vector-quantized EEG foundation model. Band-specific VQ-VAE tokenizers are trained offline and then frozen to produce discrete code indices. A shared Transformer encoder is pretrained with masked code prediction using quantized absolute log-power tokens, metadata prefix tokens, and region-based masking. BandVQ: Band-Wise Vector-Quantized EEG Foundation Model 5
+
+Let X ∈ RC×N denote a multi-channel EEG segment with C channels and 
+
+N time samples. During tokenizer training, each VQ-VAE processes a single-channel band-limited waveform token. During foundation model pretraining, the model processes multi-channel discrete token sequences from one sampled fre-quency band at a time. During downstream adaptation, all five band-specific token streams are extracted from each trial and encoded by the pretrained Trans-former to obtain trial-level representations. Band-specific tokenizers preserve the spectral structure within each frequency range, whereas the shared Transformer learns common temporal, spatial, and contextual regularities across heteroge-neous EEG recordings. 
+
+2.2 Preprocessing and Band Decomposition 
+
+All EEG recordings are processed with a common preprocessing pipeline prior to tokenization. The recordings are notch-filtered at the power-line frequency, bandpass-filtered to 0.5–45 Hz, resampled to a common sampling rate, and con-verted to microvolt units when necessary. Let X(μV) denote the preprocessed EEG segment expressed in microvolts. To improve numerical conditioning dur-ing neural-network training, the signal is scaled by a constant factor s:
+
+Xscaled = X(μV) 
+
+s . (1) Each preprocessed EEG channel is decomposed into five canonical frequency bands: δ (0.5–4 Hz), θ (4–8 Hz), α (8–13 Hz), β (13–30 Hz), and γ (30–45 Hz). Band decomposition is performed in the frequency domain for each channel. Before filtering, the signal is reflect-padded to reduce boundary artifacts. We then compute the real-valued fast Fourier transform of the padded signal, apply a band-specific frequency mask with cosine-tapered boundaries, and transform the filtered spectrum back to the time domain. The padded samples are cropped after filtering. 
+
+2.3 Band-wise VQ-VAE Tokenization Token Construction and RMS Normalization Each band-limited wave-form is partitioned into non-overlapping temporal tokens. Let L denote the length of the token in the samples. For the n-th token xn ∈ RL, the normalized token is given by 
+
+˜xn = xn
+
+rn
+
+. (2) where rn denotes the root mean square (RMS) value defined as 
+
+rn = max 
+
+vuut 1
+
+L
+
+> L
+
+X
+
+> t=1
+
+x2 
+
+> n,t
+
++ ϵ, ρ 
+
+ , (3) 6 J. Sukhbaatar et al. 
+
+where ϵ is a stabilizing offset and ρ is a minimum RMS floor. RMS normaliza-tion stabilizes tokenizer training across frequency bands, where lower-frequency components typically dominate in amplitude. Because this normalization dis-cards absolute amplitude information, we preserve it separately as a quantized log-power token provided to the Transformer, as described in the following sub-section. 
+
+Band-Specific VQ-VAE Tokenizers We train one VQ-VAE tokenizer for each band b ∈ { δ, θ, α, β, γ }. Each tokenizer consists of a convolutional encoder, an exponential moving average vector quantizer, and a convolutional decoder. The encoder maps the normalized waveform token ˜xn to a latent vector ze,n ∈
+
+RD . The quantizer assigns this vector to the nearest codebook entry: 
+
+kn = arg min  
+
+> k∈{ 0,...,K b−1}
+
+ze,n − e(b)
+
+> k
+> 22
+
+, (4) where Kb is the size of the codebook for band b and e(b) 
+
+> k
+
+is the code vector with index k in the corresponding band-specific codebook. The quantized vector is 
+
+zq,n = e(b) 
+
+> kn
+
+. (5) We use a straight-through estimator for the non-differentiable nearest-neighbor quantization step and update the codebook entries using an exponential moving average. The decoder reconstructs the normalized waveform token from the quantized vector. Reconstructed tokens are concatenated in temporal order to form the normalized band-limited waveform reconstruction. The encoder and decoder are implemented with convolutional blocks, with downsampling in the encoder and upsampling in the decoder. 
+
+Tokenizer Training Objective Each tokenizer reconstructs the normalized band-domain waveform. Let ˜x denote the normalized target waveform, and ˆx
+
+denote the reconstruction. The tokenizer loss combines time-domain reconstruc-tion, spectral reconstruction, and commitment terms: 
+
+LVQ = λMAE LMAE + λMSE LMSE + λSTFT LSTFT + λcommit Lcommit , (6) where LMAE and LMSE are time-domain reconstruction losses, LSTFT is a multi-scale STFT magnitude loss, and Lcommit is the VQ-VAE commitment loss. 
+
+2.4 Power and Metadata Token Representation Quantized Absolute Log-Power Tokens RMS normalization removes the absolute amplitude information from the waveform tokens. To preserve this in-formation, we compute a band-power descriptor for each original unnormalized BandVQ: Band-Wise Vector-Quantized EEG Foundation Model 7
+
+token. For token xn, the mean squared amplitude and logarithmic power are 
+
+pn = 1
+
+L
+
+> L
+
+X
+
+> t=1
+
+x2
+
+> n,t
+
+, an = log 10 (max( pn, ϵ p)) , (7) where ϵp prevents numerical instability near zero. The scalar an is clipped to a fixed range [amin , a max ] and uniformly quantized into Bp bins. The same clipping range and quantization scheme are used during pretraining and downstream preparation. This consistency gives the power embedding the same interpretation during self-supervised pretraining and supervised adaptation. 
+
+Metadata Prefix Tokens Large-scale EEG corpora combine recordings ac-quired under different references, task paradigms, and experimental phases. To represent this context, each pretraining sample is associated with reference iden-tifier r, frequency band identifier b, task family identifier q, and phase identifier 
+
+ϕ. If a metadata field is unavailable, a dedicated unknown identifier is used. The task family identifier follows a fixed global taxonomy of coarse categories, including resting or baseline recordings, cognitive tasks, language tasks, senso-rimotor activity, BCI paradigms, sensory perception, affective or social tasks, real-world mobility, clinical EEG, artifact labels, sleep, unknown events, and re-served categories. Dataset-specific event names are assigned to this taxonomy using a prioritized rule-based procedure. Each sequence is also assigned a phase label that describes its temporal role within a trial or recording segment, such as baseline, cue, task, feedback, rest, or unknown. When fine-grained phase annotations are unavailable, the closest available phase is assigned or the unknown label is used. 
+
+2.5 Region-Based Masking 
+
+Standard independent token masking may allow the model to infer a masked EEG token from spatially neighboring electrodes. To reduce this shortcut, we use region-based masking based on channel-region annotations. The channels are grouped by anatomical region and laterality. Anatomical regions include frontal, central, temporal, parietal, and occipital areas. Laterality is defined by the stan-dard electrode-name convention: odd-numbered electrodes correspond to the left hemisphere, even-numbered electrodes correspond to the right hemisphere, and electrodes with suffix “z” to the midline. At each time index, the masking module samples region groups and masks the corresponding EEG tokens from channels whose annotations overlap with the sampled groups. Let Glat and Gmid denote the available lateral and midline region groups in a sampled window, respectively. Given a masking ratio pmask ,the numbers of sampled groups are 
+
+klat = ⌈pmask |G lat |⌉ , kmid = ⌈pmask |G mid |⌉ . (8) 8 J. Sukhbaatar et al. 
+
+The masking operation replaces the discrete code index with a dedicated mask-code identifier and replaces the corresponding power token with a dedi-cated mask-power identifier. The pretraining loss is computed only at the channel-time token locations selected for masking. 
+
+2.6 Shared Transformer Encoder 
+
+The shared Transformer encoder operates on one frequency band at a time. For an EEG segment with C channels and N time samples, let T = N/L denote the number of non-overlapping temporal tokens per channel, where L is the token length. Here, segments are cropped so that N is divisible by L. For a sampled frequency band b ∈ { δ, θ, α, β, γ }, the corresponding band-wise code indices are flattened in time-major order, giving an EEG-token sequence length S = CT .The flattened index i ∈ { 1, . . . , S } corresponds to one channel-time token, with channel identifier χi and temporal-position index τi.For each position i of the EEG-token in this band-specific sequence, the input embedding is formed by summing the embedding of the masked code index, the embedding of the masked power token, the channel embedding, and the temporal-position embedding: 
+
+h(0)  
+
+> i
+
+= ecode (cmi ) + epower (umi ) + ech (χi) + etime (τi), (9) where cmi and umi denote the code index and the power token after masking, respectively. Four metadata prefix tokens representing the reference, frequency band, task family, and phase are prepended to the sequence of EEG-tokens. Thus, the Trans-former receives a sequence of length S + 4 during pretraining. The metadata dropout is applied with probability pmeta to reduce excessive dependence on the recording context. When a metadata field is dropped, its identifier is replaced with the corresponding unknown identifier, or its prefix embedding is set to zero. The encoder applies multi-head self-attention, feed-forward layers with GELU activation, residual connections, and layer normalization. After encoding, the metadata-prefix outputs are discarded, and the EEG-token hidden states are used for masked code prediction and downstream representation. 
+
+2.7 Masked Code Prediction Objective 
+
+Although the Transformer encoder is shared across all frequency bands, each band has a separate prediction head because each VQ-VAE tokenizer has its own codebook and vocabulary size. Let hi denote the final Transformer hidden state at EEG-token position i after removing the metadata-prefix positions. For band 
+
+b, the prediction head maps hi to logits over the local band-specific vocabulary: 
+
+ℓ(b) 
+
+> i
+
+= Wbhi + ab, (10) where Wb ∈ RKb×d and ab ∈ RKb .BandVQ: Band-Wise Vector-Quantized EEG Foundation Model 9
+
+For storage and input embedding, the VQ-code indices across all bands are represented in a unified global vocabulary, with band-specific offsets. Let ob
+
+denote the global offset assigned to band b. For a global target code index ci
+
+from band b, the corresponding local target index is 
+
+˜ci = ci − ob, (11) where ˜ci ∈ { 0, . . . , K b − 1}.The Transformer encoder is pretrained to predict the original VQ code index at masked EEG-token positions. The masked code prediction loss for a sequence from band b is 
+
+LMCP =
+
+PSi=1 mi CE 
+
+
+
+ℓ(b) 
+
+> i
+
+, ˜ci
+
+PSi=1 mi
+
+, (12) where mi ∈ { 0, 1} indicates whether EEG-token position i is masked, and CE( ·, ·)
+
+denotes the cross-entropy loss over the local vocabulary of band b.
+
+2.8 Downstream Representation 
+
+For downstream classification, each trial X ∈ RC×N is converted into five band-wise token streams using the trained VQ-VAE tokenizers. The trial is reflect padded, decomposed into the five frequency bands, center cropped to the original interval, segmented into temporal tokens, and encoded by the corresponding band-specific tokenizer. For each band, the resulting VQ code indices are offset by the band-specific global offset and flattened in the same time-major order used during pretraining. The corresponding quantized log-power tokens, channel identifiers, temporal-position indices, and metadata tokens are constructed using the same procedure as in pretraining. The supervised classifier consists of the pretrained Transformer encoder fol-lowed by a trial-level classification head. For each trial, the five band-specific token sequences are encoded separately by the shared Transformer. Let H(b) ∈
+
+RS×d denote the final EEG-token hidden states for band b after removing the metadata-prefix outputs, where S = CT and d is the Transformer hidden dimen-sion. The hidden states from all five bands are concatenated along the sequence dimension: 
+
+Htrial = Concat b∈{ δ,θ,α,β,γ }H(b) ∈ R5S×d. (13) The trial-level representation is obtained by flattening Htrial , and a two-layer multilayer perceptron maps the resulting vector to class logits. The encoder and classification head are fine-tuned jointly using standard cross-entropy loss. 
+
+# 3 Experiments 
+
+3.1 Pretraining Corpus 
+
+We use the same compilation of 71 public EEG datasets introduced in Sin-gLEM [10] for self-supervised pretraining. The corpus contains more than 10,200 10 J. Sukhbaatar et al.                                            
+
+> Table 1. Summary of downstream evaluation datasets. Trials denotes the number of trials per subject. Dataset Task type Subjects Classes Trials Channels Trial duration Dreyer [2] Motor imagery 21 2160 27 5 s WBCIC-2 [15] Motor imagery 51 2200 59 4 s WBCIC-3 [15] Motor imagery 11 3300 59 4 s N-back [9] Cognitive 26 2108 28 10 s DSR [9] Cognitive 26 272 28 10 s WG [9] Cognitive 26 260 28 10 s
+
+hours of multi-channel recordings, corresponding to more than 357,000 single-channel hours from more than 9,200 subjects. It covers diverse tasks, montages, references, sampling rates, file formats, recording durations, subject populations, and acquisition devices. This diversity supports the objective of learning general-purpose EEG representations rather than features tied to a single task, dataset, or acquisition system. 
+
+3.2 Downstream Datasets 
+
+We evaluate downstream transfer on the six EEG classification datasets used in the SingLEM benchmark [10]. The benchmark contains three motor imagery datasets and three cognitive-task datasets. The motor imagery tasks include two classes: left versus right hand imagery and three classes: left hand, right hand, and foot imagery. The cognitive tasks include working memory, discrimi-nation/selection responses, and word-generation paradigms. Table 1 summarizes the downstream datasets. 
+
+3.3 Baselines and Comparison Setting 
+
+We compare BandVQ with pretrained EEG foundation models, including Sin-gLEM [10], BENDR [4], BIOT [16], LaBraM [3], and CBraMod [13]. The baseline scores are taken from the SingLEM benchmark tables. In that benchmark, the pretrained models were used as fixed feature extractors, and the extracted repre-sentations were classified using an SVM under a leave-one-subject-out protocol. Each baseline was adapted to its required montage by selecting the required channels or, when necessary, substituting missing channels with the physically closest available electrodes. In contrast, the proposed model is fully fine-tuned with a classification head. Therefore, the comparison is not a strictly controlled architecture-only compari-son under identical adaptation settings. Instead, it shows how the proposed fully fine-tuned band-wise model compares with published EEG foundation model results on the same downstream datasets and subject-independent splits. We account for this difference when interpreting the results. BandVQ: Band-Wise Vector-Quantized EEG Foundation Model 11 
+
+3.4 Evaluation Protocol 
+
+We use leave-one-subject-out cross-validation to evaluate subject-independent transfer. For each fold, one subject is held out for testing, and the remaining subjects are used for training and validation. The non-test subjects are split at the subject level into an inner training set and a validation set. In each fold, 20% of the non-test subjects are used for validation. The validation set is used for model selection and early stopping. After selecting the best epoch, the model is retrained on the full non-test set using the selected training duration and evaluated once on the held-out subject. This protocol prevents trial leakage across subjects and evaluates general-ization to unseen subjects. We report the mean performance across leave-one-subject-out folds. 
+
+3.5 Training and Implementation Details 
+
+All EEG recordings are resampled to 128 Hz and segmented into non-overlapping 1-s tokens, yielding L = 128 samples per token. The signal scaling factor is 
+
+s = 100 . For RMS normalization, ϵ = 0 .01 and ρ = 0 .01 . Absolute log-power values are computed with ϵp = 10 −8, clipped to [−0.1, 4.0] , and uniformly quan-tized into 128 bins. The VQ latent dimension is D = 32 , the EMA decay for codebook updates is 0.99, and the codebook sizes for the delta, theta, alpha, beta, and gamma tokenizers are (512 , 512 , 512 , 768 , 1024) , with global offsets 
+
+(0 , 512 , 1024 , 1536 , 2304) .Each band-specific VQ-VAE tokenizer is trained independently with a batch size of 512, a learning rate of 3 × 10 −4, a weight decay of 10 −5, and gradient clipping at 1.0. The tokenizer loss weights are (λMAE , λ MSE , λ STFT , λ commit ) = (1 .25 , 0.5, 0.25 , 1.0) , and the STFT loss uses nfft ∈ { 256 , 512 , 1024 } with a hop length of 0.25 nfft .The Transformer has 12 layers, a model dimension of d = 256 , and 8 attention heads. It is pretrained with AdamW using a batch size of 16, a peak learning rate of 3 × 10 −4, a minimum learning rate of 3 × 10 −5, weight decay of 10 −2,gradient clipping at 1.0, cosine scheduling, and 10,000 warmup updates. Region masking uses pmask = 0 .5, and metadata dropout uses pmeta = 0 .1.For downstream classification, the encoder and classification head are fine-tuned jointly with a batch size of 16. The encoder and classifier learning rates are 3 × 10 −5 and 10 −3, respectively. The classifier uses a hidden size of 256 and a dropout of 0.2. Training runs for at most 30 epochs, with a minimum of 6 epochs and an early-stopping patience of 8. The implementation uses Python 3.12.4, PyTorch 2.4.1, CUDA 12.1, and four A100 80 GB GPUs. 
+
+3.6 Evaluation Metrics 
+
+We report accuracy and the macro-averaged F1 score. Accuracy measures the overall proportion of correctly classified trials, whereas the macro-F1 averages the class-wise F1 scores and therefore gives equal weight to each class. 12 J. Sukhbaatar et al.                                              
+
+> Table 2. Classification results on three motor imagery datasets. Values denote mean performance. Bold indicates the best result, and underline indicates the second-best result for each metric and dataset.
+> Model Dreyer WBCIC-3 WBCIC-2
+> Acc. (%) F1 (%) Acc. (%) F1 (%) Acc. (%) F1 (%) BENDR [4] 50.51 50.24 35.28 34.84 51.32 51.24 BIOT [16] 56.85 52.64 37.04 33.78 51.20 48.25 LaBraM [3] 49.91 34.02 40.04 37.17 56.88 56.15 CBraMod [13] 71.10 70.62 59.93 58.96 77.56 77.26 SingLEM [10] 75.27 75.16 68.26 68.17 79.55 79.45 BandVQ 72.92 72.66 66.29 65.12 79.19 79.02
+
+3.7 Ablation Settings 
+
+We conduct ablation studies to assess the contribution of the key condition-ing components in the proposed framework. The full model uses both metadata prefix tokens and quantized band-power tokens. The first ablation removes the metadata prefix tokens while retaining the band-power tokens. The second ab-lation removes both metadata and band-power tokens. These settings isolate the effect of contextual metadata and test whether the amplitude information restored by power tokens improves downstream transfer after RMS-normalized VQ-VAE tokenization. 
+
+# 4 Results 
+
+4.1 Comparison on Motor Imagery Tasks 
+
+Table 2 reports the classification results on the three motor imagery datasets. BandVQ achieves the second-best performance on all three datasets. It obtains 72.92% accuracy and 72.66% macro-F1 on Dreyer, 66.29% accuracy and 65.12% macro-F1 on WBCIC-3, and 79.19% accuracy and 79.02% macro-F1 on WBCIC-2. SingLEM achieves the best reported results on the motor imagery tasks. BandVQ remains close to SingLEM, particularly on WBCIC-2, where the accu-racy gap is 0.36 percentage points. Under the reported benchmark, fine-tuned BandVQ also outperforms the multi-channel baselines BENDR, BIOT, LaBraM, and CBraMod across all three motor imagery datasets. These results indicate that the band-wise vector-quantized representation provides competitive trans-fer performance for subject-independent motor imagery classification, although it does not surpass the strongest single-channel baseline. 
+
+4.2 Comparison on Cognitive Tasks 
+
+Table 3 reports the results on the three cognitive task datasets. BandVQ achieves the best performance on all three tasks. Compared with SingLEM, the strongest BandVQ: Band-Wise Vector-Quantized EEG Foundation Model 13                                              
+
+> Table 3. Classification results on three cognitive task datasets. Values denote mean performance. Bold indicates the best result, and underline indicates the second-best result for each metric and dataset.
+> Model N-back DSR WG
+> Acc. (%) F1 (%) Acc. (%) F1 (%) Acc. (%) F1 (%) BENDR [4] 52.96 52.75 54.59 54.43 52.24 51.94 BIOT [16] 58.90 54.66 60.84 57.91 56.67 52.54 LaBraM [3] 62.25 59.84 66.83 65.60 60.64 56.44 CBraMod [13] 78.13 76.81 79.59 78.81 69.36 67.93 SingLEM [10] 82.34 81.65 84.72 84.50 69.87 69.58
+> BandVQ 84.58 84.22 86.00 85.56 73.21 72.33
+
+baseline in the table, the proposed model improves accuracy by 2.24 percentage points on N-back, 1.28 percentage points on DSR, and 3.34 percentage points on WG. The corresponding macro-F1 improvements are 2.57, 1.06, and 2.75 percentage points, respectively. The improvement is consistent across the three cognitive datasets, suggesting that the proposed representation is effective for tasks involving distributed and frequency-dependent neural dynamics. The gains over CBraMod and the larger gains over BENDR, BIOT, and LaBraM also suggest that band-wise discrete tokenization, metadata conditioning, and explicit power representation are useful for transferring to cognitive EEG classification tasks. 
+
+4.3 Ablation Results 
+
+Table 4 reports the ablation results across all six downstream datasets. Removing metadata decreases accuracy on five of the six datasets. The accuracy drops are 3.01 percentage points on Dreyer, 1.78 on WBCIC-3, 0.60 on WBCIC-2, 0.61 on N-back, and 1.92 on DSR. WG is the only exception, where removing metadata improves accuracy from 73.21% to 74.29%. Removing both metadata and band-power tokens causes larger and more consistent degradation. Compared with the full model, accuracy decreases by 12.71 percentage points on Dreyer, 6.82 points on WBCIC-3, 2.71 points on WBCIC-2, 10.08 points on N-back, 8.22 points on DSR, and 7.57 points on WG. These results show that the quantized band-power tokens provide a substantial contribution to downstream transfer. The large gap between the metadata-only ablation and the metadata plus power ablation indicates that amplitude infor-mation is particularly important after RMS-normalized tokenization. 
+
+# 5 Discussion 
+
+The results show that the proposed band-wise vector-quantized model, BandVQ, provides strong downstream performance across heterogeneous subject-independent 14 J. Sukhbaatar et al.                          
+
+> Table 4. Ablation study across six datasets. Values denote mean accuracy. Bold indi-cates the best result, and underline indicates the second-best result for each dataset.
+> Method Dreyer WBCIC-3 WBCIC-2 N-back DSR WG
+> Full 72.92 66.29 79.19 84.58 86.00 73.21 w/o metadata 69.91 64.51 78.59 83.97 84.08 74.29
+> w/o meta+power 60.21 59.47 76.48 74.50 77.78 65.64
+
+EEG classification tasks. The model is particularly effective on cognitive tasks, suggesting that frequency-specific waveform structure and explicit band-power information may benefit tasks whose discriminative information is distributed across multiple frequency bands. On motor imagery tasks, the model remains competitive but does not surpass SingLEM, possibly because sensorimotor rhythms and subject-specific spatial patterns are already effectively captured by strong single-channel representations. The ablation results support the importance of the proposed conditioning components. Removing metadata decreases accuracy on five of six datasets, whereas removing both metadata and band-power tokens results in larger and more consistent degradation, supporting the separation of normalized waveform morphology from absolute amplitude information. The WG result, showing that metadata removal improves accuracy, suggests that metadata effects may depend on the task or annotation quality. Several limitations remain. First, the comparison with existing foundation models is not fully controlled, as the proposed model is fine-tuned, whereas the baseline scores are from a fixed-feature benchmark. Second, additional ablations are needed to isolate the effects of region-based masking, band-specific code-book sizes, metadata dropout, and band-fusion strategies. Third, evaluations of clinical EEG, sleep staging, affective computing, seizure-related tasks, and cross-dataset evaluation would provide a broader assessment of general-purpose EEG representation learning. 
+
+# 6 Conclusion 
+
+This paper presented BandVQ , a band-wise vector-quantized EEG founda-tion model that pairs five frequency-specific VQ-VAE tokenizers with a shared Transformer encoder pretrained by masked code prediction. Metadata prefix to-kens, quantized log-power tokens, and region-based masking address spectral imbalance, acquisition heterogeneity, and spatial redundancy in EEG. On six subject-independent downstream tasks, the model achieved the best reported accuracy on three cognitive datasets and competitive results on three motor imagery datasets. These findings suggest that separating frequency-specific tok-enization from shared contextual representation learning is a promising direction for scalable EEG foundation models. BandVQ: Band-Wise Vector-Quantized EEG Foundation Model 15 
+
+# References 
+
+1. Burle, B., Spieser, L., Roger, C., Casini, L., Hasbroucq, T., Vidal, F.: Spatial and temporal resolutions of EEG: Is it really black and white? a scalp current density view. International Journal of Psychophysiology 97 (3), 210–220 (2015) 2. Dreyer, P., Roc, A., Pillette, L., Rimbert, S., Lotte, F.: A large EEG database with users’ profile information for motor imagery brain-computer interface research. Sci. Data 10 (1), 580 (2023) 3. Jiang, W., Zhao, L., Lu, B.: Large brain model for learning generic representations with tremendous EEG data in BCI. In: International Conference on Learning Rep-resentations (2024), https://openreview.net/forum?id=QzTpTRVtrP 4. Kostas, D., Aroca-Ouellette, S., Rudzicz, F.: BENDR: Using transformers and a contrastive self-supervised learning task to learn from massive amounts of EEG data. Frontiers in Human Neuroscience 15 , 653659 (2021) 5. Lotte, F., Bougrain, L., Cichocki, A., Clerc, M., Congedo, M., Rakotomamonjy, A., Yger, F.: A review of classification algorithms for EEG-based brain–computer interfaces: A 10 year update. Journal of Neural Engineering 15 (3), 031005 (2018) 6. Melnik, A., Legkov, P., Izdebski, K., Kärcher, S.M., Hairston, W.D., Ferris, D.P., König, P.: Systems, subjects, sessions: To what extent do these factors influence EEG data? Frontiers in Human Neuroscience 11 , 150 (2017) 7. Pernet, C.R., Appelhoff, S., Gorgolewski, K.J., Flandin, G., Phillips, C., Delorme, A., Oostenveld, R.: EEG-BIDS, an extension to the brain imaging data structure for electroencephalography. Scientific Data 6, 103 (2019) 8. Saha, S., Baumert, M.: Intra- and inter-subject variability in EEG-based senso-rimotor brain computer interface: A review. Frontiers in Computational Neuro-science 13 , 87 (2020) 9. Shin, J., Von Lühmann, A., Kim, D.W., Mehnert, J., Hwang, H.J., Müller, K.R.: Simultaneous acquisition of EEG and NIRS during cognitive tasks for an open access dataset. Sci. Data 5(1), 1–16 (2018) 10. Sukhbaatar, J., Imamura, S., Inoue, I., Murakami, S., Hassan, K.M., Han, S., Chanpornpakdi, I., Tanaka, T.: SingLEM: Single-channel large EEG model (2025), https://arxiv.org/abs/2509.17920 11. Van Den Oord, A., Vinyals, O., et al.: Neural discrete representation learning. Advances in neural information processing systems 30 (2017) 12. Voytek, B., Kramer, M.A., Case, J., Lepage, K.Q., Tempesta, Z.R., Knight, R.T., Gazzaley, A.: Age-related changes in 1/f neural electrophysiological noise. Journal of Neuroscience 35 (38), 13257–13265 (2015) 13. Wang, J., Zhao, S., Luo, Z., Zhou, Y., Jiang, H., Li, S., Li, T., Pan, G.: CBraMod: A criss-cross brain foundation model for EEG de-coding. In: International Conference on Learning Representations (2025), https://openreview.net/forum?id=NPNUHgHF2w 14. Xu, L., Xu, M., Ke, Y., An, X., Liu, S., Ming, D.: Cross-dataset variability problem in EEG decoding with deep learning. Frontiers in Human Neuroscience 14 , 103 (2020) 15. Yang, B., Rong, F., Xie, Y., Li, D., Zhang, J., Li, F., Shi, G., Gao, X.: A multi-day and high-quality EEG dataset for motor imagery brain-computer interface. Sci. Data 12 (1), 488 (2025) 16. Yang, C., Westover, M.B., Sun, J.: BIOT: Biosignal transformer for cross-data learning in the wild. In: Advances in Neural Information Processing Systems. vol. 36, pp. 78240–78260 (2023)

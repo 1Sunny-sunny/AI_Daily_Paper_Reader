@@ -1,63 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-05-26
-- 运行时间：2026-05-26 04:38:09 北京时间
+- 最新运行日期：2026-05-27
+- 运行时间：2026-05-27 05:10:02 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今日通过高效编码与动态网络双重视角，深入了解了大脑如何自发走向临界态并组织神经元集群。  
-脑视觉区因果表征的发现与脉冲网络动态专家融合的设计，是理解灵活计算的关键突破。  
-建议读者接下来重点关注稀疏激活与因果结构如何帮助人工模型降低能耗、提升泛化。
-- 详情：[/202605/26/README](/202605/26/README)
+今日脑机解码双星闪耀：侵入式皮层语音解码实现端到端突破，非侵入式EEG跨模态对齐让零样本视觉解码成为可能。  
+最值得紧盯侵入式语音解码的实时精准方案，以及运用语言-视觉大模型对齐EEG的零样本泛化新范式。  
+建议立刻复现MindAlign的跨模态对齐思路，把零样本解码能力迁移到你的脑机应用里试试。
+- 详情：[/202605/27/README](/202605/27/README)
 
 ### 精读区论文标签
-1. [Efficient coding under constraint drives neural systems towards criticality and sloppiness](/202605/26/2605.22598v1-efficient-coding-under-constraint-drives-neural-systems-towards-criticality-and-sloppiness)  
+1. [End-to-End Intracortical Speech Decoding from Neural Activity](/202605/27/2605.24313v1-end-to-end-intracortical-speech-decoding-from-neural-activity)  
    标签：评分：9.0/10、query:sr
-   evidence：使用Fisher信息将高效编码与神经群体临界性联系起来，直接涉及神经群体编码与时序动态
-2. [From Functional Architecture to Organizing Principles of Neuronal Ensembles in Mouse Area V1](/202605/26/biorxiv-10-1101-2024-02-29-582364-v3-from-functional-architecture-to-organizing-principles-of-neuronal-ensembles-in-mouse-area-v1)  
+   evidence：从皮层内记录进行端到端语音解码
+2. [MindAlign: Bridging EEG, Vision, and Language for Zero-Shot Visual Decoding](/202605/27/2605.24523v1-mindalign-bridging-eeg-vision-and-language-for-zero-shot-visual-decoding)  
    标签：评分：9.0/10、query:sr
-   evidence：分析V1区神经元集群和功能连接
-3. [Circuit mechanisms to transform neural population dynamics for motor control](/202605/26/biorxiv-10-1101-2025-02-21-639459-v2-circuit-mechanisms-to-transform-neural-population-dynamics-for-motor-control)  
+   evidence：用于零样本视觉解码的EEG编码器
+3. [What Are We Actually Decoding? Source Attribution for Non-Invasive Brain-to-Language Retrieval](/202605/27/2605.24524v1-what-are-we-actually-decoding-source-attribution-for-non-invasive-brain-to-language-retrieval)  
    标签：评分：9.0/10、query:sr
-   evidence：神经群体动力学的时序分解用于运动控制
-4. [Inherent coupling of perceptual judgments to actions in the mouse cortex](/202605/26/biorxiv-10-1101-2025-10-30-685660-v2-inherent-coupling-of-perceptual-judgments-to-actions-in-the-mouse-cortex)  
+   evidence：非侵入性脑-语言检索的源归因
+4. [MindAdapter: Few-Shot Parameter-Efficient Residual Calibration of Cross-Subject Brain-to-Visual Decoding Models](/202605/27/2605.24679v1-mindadapter-few-shot-parameter-efficient-residual-calibration-of-cross-subject-brain-to-visual-decoding-models)  
    标签：评分：9.0/10、query:sr
-   evidence：从小鼠皮层活动解码感知判断
-5. [Brain-wide single-neuron bases of working memory for sounds in humans](/202605/26/biorxiv-10-1101-2025-11-10-687666-v2-brain-wide-single-neuron-bases-of-working-memory-for-sounds-in-humans)  
+   evidence：跨被试脑-视觉解码的参数高效校准
+5. [NeurIPS: Neuro-anatomical Inductive Priors for Sphere-based Brain Decoding](/202605/27/2605.24993v1-neurips-neuro-anatomical-inductive-priors-for-sphere-based-brain-decoding)  
    标签：评分：9.0/10、query:sr
-   evidence：记忆阶段单神经元放电率调节
+   evidence：基于fMRI脑解码，利用神经解剖诱导先验
 
 ### 速读区论文标签
-1. [SpikingMoE: SDPrompt-Guided Dynamic Expert Fusion in Spiking Neural Networks](/202605/26/2605.23188v1-spikingmoe-sdprompt-guided-dynamic-expert-fusion-in-spiking-neural-networks)  
+1. [Beyond Fixed Points: Superpolynomial Capacity of Asymmetric Hopfield Networks](/202605/27/2605.24611v1-beyond-fixed-points-superpolynomial-capacity-of-asymmetric-hopfield-networks)  
    标签：评分：8.0/10、query:sr
-   evidence：脉冲驱动神经网络与生物启发式路由
-2. [From Activation to Causality: Discovery of Causal Visual Representations in the Human Brain](/202605/26/2605.23895v1-from-activation-to-causality-discovery-of-causal-visual-representations-in-the-human-brain)  
+   evidence：不对称Hopfield网络中的时序编码
+2. [BandVQ: Band-Wise Vector-Quantized EEG Foundation Model](/202605/27/2605.24921v1-bandvq-band-wise-vector-quantized-eeg-foundation-model)  
    标签：评分：8.0/10、query:sr
-   evidence：神经表征的因果测试框架
-3. [NiCLIP: Neuroimaging contrastive language-image pretraining model for predicting text from brain activation images](/202605/26/biorxiv-10-1101-2025-06-14-659706-v3-niclip-neuroimaging-contrastive-language-image-pretraining-model-for-predicting-text-from-brain-activation-images)  
+   evidence：基于频带VQ-VAE的脑电图基础模型，实现可迁移表示
+3. [GL-LFGNN:A Global-Local Dual-branch Causal Graph Neural Network Based on Liang-Kleeman Information Flow for EEG Emotion Recognition](/202605/27/2605.25061v1-gl-lfgnna-global-local-dual-branch-causal-graph-neural-network-based-on-liang-kleeman-information-flow-for-eeg-emotion-recognition)  
    标签：评分：8.0/10、query:sr
-   evidence：使用对比学习从脑激活预测文本
-4. [Task-Parametrized Dynamics: Representation of Time and Decisions in Recurrent Neural Networks](/202605/26/biorxiv-10-1101-2025-09-15-676356-v3-task-parametrized-dynamics-representation-of-time-and-decisions-in-recurrent-neural-networks)  
+   evidence：基于梁-克利曼信息流的因果图神经网络用于EEG情感识别
+4. [A Quantum-Analogue Formalism for Modeling Supraliminal Information Processing](/202605/27/2605.25214v1-a-quantum-analogue-formalism-for-modeling-supraliminal-information-processing)  
    标签：评分：8.0/10、query:sr
-   evidence：RNN时间动态分析用于决策任务中的时间表征
-5. [Prototype-Guided Classification Sub-Task Decoupling Framework: Enhancing Generalization and Interpretability for Multivariate Time Series](/202605/26/2605.22055v1-prototype-guided-classification-sub-task-decoupling-framework-enhancing-generalization-and-interpretability-for-multivariate-time-series)  
+   evidence：云函数形式学连接感知输入与神经活动
+5. [Contextual Role Modulates Object Representational Geometry in the Human Brain](/202605/27/2605.23111v1-contextual-role-modulates-object-representational-geometry-in-the-human-brain)  
    标签：评分：7.0/10、query:sr
-   evidence：原型引导的可解释时间序列分类框架
-6. [Riemannian geometry meets fMRI: the advantages of modeling correlation manifolds and eigenvector subspaces](/202605/26/2605.22334v1-riemannian-geometry-meets-fmri-the-advantages-of-modeling-correlation-manifolds-and-eigenvector-subspaces)  
+   evidence：fMRI研究物体表征的情境调节
+6. [Distance-Aware Joint Spatio-Temporal Graph Contrastive Learning for Major Depressive Disorder Diagnosis](/202605/27/2605.24066v1-distance-aware-joint-spatio-temporal-graph-contrastive-learning-for-major-depressive-disorder-diagnosis)  
    标签：评分：7.0/10、query:sr
-   evidence：fMRI相关矩阵的几何框架
-7. [Mechanistic Identifiability Preservation for Hybrid Neural Differential Equations](/202605/26/biorxiv-10-1101-2024-12-08-627408-v2-mechanistic-identifiability-preservation-for-hybrid-neural-differential-equations)  
+   evidence：基于fMRI的时空图对比学习用于抑郁症诊断
+7. [Interpretability Transfer from Language to Vision via Sparse Autoencoders](/202605/27/2605.24946v1-interpretability-transfer-from-language-to-vision-via-sparse-autoencoders)  
    标签：评分：7.0/10、query:sr
-   evidence：确保混合神经微分方程机制可解释性的理论框架
-8. [Dual pathway architecture in songbirds enables robust sensorimotor learning](/202605/26/biorxiv-10-64898-2026-05-07-723469-v2-dual-pathway-architecture-in-songbirds-enables-robust-sensorimotor-learning)  
+   evidence：通过稀疏自编码器将可解释性迁移到视觉
+8. [Multi-Objective Optimisation with Oscillatory Dynamics in Spontaneous and Decision Spiking Neural Networks](/202605/27/2605.25224v1-multi-objective-optimisation-with-oscillatory-dynamics-in-spontaneous-and-decision-spiking-neural-networks)  
    标签：评分：7.0/10、query:sr
-   evidence：鸣鸟基底节计算模型通过神经表征解释感觉运动学习
-9. [A Causal Argumentation Method for Explainability of Machine Learning Models](/202605/26/2605.21758v1-a-causal-argumentation-method-for-explainability-of-machine-learning-models)  
+   evidence：利用脉冲神经网络拟合神经数据，优化振荡频率
+9. [Learning partially observed systems with neural Hamiltonian ordinary differential equations](/202605/27/2605.23510v1-learning-partially-observed-systems-with-neural-hamiltonian-ordinary-differential-equations)  
    标签：评分：6.0/10、query:sr
-   evidence：用于可解释机器学习模型的因果论证方法
-10. [DMFT analysis of Hopfield network with plasticity](/202605/26/2605.22254v1-dmft-analysis-of-hopfield-network-with-plasticity)  
+   evidence：利用神经哈密顿常微分方程学习部分观测动力系统
+10. [Feature Lottery? A Bifurcation Theory of Concept Emergence](/202605/27/2605.24057v1-feature-lottery-a-bifurcation-theory-of-concept-emergence)  
    标签：评分：6.0/10、query:sr
-   evidence：Hopfield网络可塑性动力平均场理论作为神经动力学的数学框架
+   evidence：提出分岔理论进行无标签表示动态分析，适用于解释神经编码模型
 
