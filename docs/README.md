@@ -1,63 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-05-28
-- 运行时间：2026-05-28 05:11:55 北京时间
+- 最新运行日期：2026-05-29
+- 运行时间：2026-05-29 05:54:51 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今日精读15篇论文，聚焦EEG神经解码与计算模型，其中两篇9分佳作分别攻克不平衡数据下的听觉注意力鲁棒重建和线性RNN的时间延迟嵌入本质。  
-最值得关注的方向是：用刺激重建范式在极不平衡EEG数据中稳定捕捉听觉注意，以及将线性循环网络重新诠释为动力系统的时延映射。  
-下一步可多留意跨模态听觉注意力实验设计，并结合时序嵌入视角去审视现有EEG基础模型的频域偏差。
-- 详情：[/202605/28/README](/202605/28/README)
+今日聚焦高阶交互与思维解码前沿：从异步事件流推断细胞超图稳定性，以及融合拓扑去噪的神经符号视觉转文本。  
+最值得关注的是多细胞动态网络的统计边界理论，和 SYNAPSE 模型用拓扑语义净化实现思想到文字的直译。  
+下一步不妨留意脑响应层级与反向传播的对齐偏差，这或许能帮你理解当前 AI 和生物智能的真实差距。
+- 详情：[/202605/29/README](/202605/29/README)
 
 ### 精读区论文标签
-1. [Decoding Stimulus Reconstruction-Based Auditory Attention Robustly in Unbalanced EEG Datasets](/202605/28/2605.25605v1-decoding-stimulus-reconstruction-based-auditory-attention-robustly-in-unbalanced-eeg-datasets)  
+1. [Statistical Inference and Stability Boundaries of Multi-cellular Interaction Hypergraphs from Asynchronous Event Streams](/202605/29/2605.26608v1-statistical-inference-and-stability-boundaries-of-multi-cellular-interaction-hypergraphs-from-asynchronous-event-streams)  
    标签：评分：9.0/10、query:sr
-   evidence：通过刺激重建从脑电图解码听觉注意力
-2. [Linear Recurrent Neural Networks as Time-Delay Embeddings](/202605/28/2605.27290v1-linear-recurrent-neural-networks-as-time-delay-embeddings)  
+   evidence：从事件流推断多细胞交互
+2. [SYNAPSE: Neuro-Symbolic Visual Thought-to-Text Decoding via Topological Semantic Denoising](/202605/29/2605.27790v1-synapse-neuro-symbolic-visual-thought-to-text-decoding-via-topological-semantic-denoising)  
    标签：评分：9.0/10、query:sr
-   evidence：提供解释循环神经网络内部动力学的理论框架，适用于时序模型
-3. [Generative enhancement of non-invasive datasets for motor brain-computer interface by synthesizing task-relevant neural signals](/202605/28/biorxiv-10-1101-2025-10-12-681961-v2-generative-enhancement-of-non-invasive-datasets-for-motor-brain-computer-interface-by-synthesizing-task-relevant-neural-signals)  
+   evidence：通过神经符号去噪将EEG解码为自然语言描述
+3. [CaMBRAIN: Real-time, Continuous EEG Inference with Causal State Space Models](/202605/29/2605.28792v1-cambrain-real-time-continuous-eeg-inference-with-causal-state-space-models)  
    标签：评分：9.0/10、query:sr
-   evidence：通过神经信号合成生成增强运动BCI数据集
-4. [Efficient coding characterizes altered neural representations elicited by subtle sensory lesions](/202605/28/biorxiv-10-64898-2026-04-10-717653-v2-efficient-coding-characterizes-altered-neural-representations-elicited-by-subtle-sensory-lesions)  
+   evidence：用于连续脑电实时推断的因果状态空间模型
+4. [Intact early visual representations, not phosphene-adapted features, account for human perceptual behavior with retinal prostheses](/202605/29/biorxiv-10-1101-2025-06-23-660990-v2-intact-early-visual-representations-not-phosphene-adapted-features-account-for-human-perceptual-behavior-with-retinal-prostheses)  
    标签：评分：9.0/10、query:sr
-   evidence：听觉中脑单神经元记录的高效编码分析
-5. [Thalamic input drives co-timed excitation and inhibition to suppress cortical neuronal variability during movement initiation](/202605/28/biorxiv-10-64898-2026-05-21-722630-v1-thalamic-input-drives-co-timed-excitation-and-inhibition-to-suppress-cortical-neuronal-variability-during-movement-initiation)  
+   evidence：视网膜假体脑机接口系统
+5. [Representational Geometries Across Visual Working Memory Encoding and Maintenance](/202605/29/biorxiv-10-1101-2025-09-07-674590-v3-representational-geometries-across-visual-working-memory-encoding-and-maintenance)  
    标签：评分：9.0/10、query:sr
-   evidence：运动起始期间共时兴奋抑制减少皮层变异性
+   evidence：用fMRI解码视觉工作记忆的表征几何
 
 ### 速读区论文标签
-1. [Balancing structure and randomness: maximum entropy networks for context-dependent computations](/202605/28/2605.25607v1-balancing-structure-and-randomness-maximum-entropy-networks-for-context-dependent-computations)  
+1. [Revealing the core dimensions underlying representations in brains, behavior and AI](/202605/29/2605.26921v1-revealing-the-core-dimensions-underlying-representations-in-brains-behavior-and-ai)  
    标签：评分：8.0/10、query:sr
-   evidence：最大熵网络将连接性与上下文相关计算联系起来
-2. [Aperiodic and Low-Frequency Spectral Bias in Reconstruction based EEG Foundation Models](/202605/28/2605.26434v1-aperiodic-and-low-frequency-spectral-bias-in-reconstruction-based-eeg-foundation-models)  
+   evidence：提出可解释方法从神经相似性矩阵中恢复维度
+2. [A Multi-dimensional Framework for Evaluating Generalization in EEG Foundation Models](/202605/29/2605.28563v1-a-multi-dimensional-framework-for-evaluating-generalization-in-eeg-foundation-models)  
    标签：评分：8.0/10、query:sr
-   evidence：分析脑电图基础模型的频谱偏差，影响脑机接口的时序解码
-3. [MSCGC-KAN: Multi-scale Causal Graph Convolution and Kolmogorov-Arnold Feature Mapping for EEG Emotion Recognition](/202605/28/2605.26624v1-mscgc-kan-multi-scale-causal-graph-convolution-and-kolmogorov-arnold-feature-mapping-for-eeg-emotion-recognition)  
+   evidence：评估脑机接口中使用的脑电图基础模型的框架
+3. [Misalignment Between Backpropagation and the Hierarchy of Brain Responses to Images](/202605/29/2605.28693v1-misalignment-between-backpropagation-and-the-hierarchy-of-brain-responses-to-images)  
    标签：评分：8.0/10、query:sr
-   evidence：脑电情绪识别解码随时间变化的神经模式
-4. [EEG-FM-Audit: A Systematic Evaluation and Analysis Pipeline for EEG Foundation Models](/202605/28/2605.26910v1-eeg-fm-audit-a-systematic-evaluation-and-analysis-pipeline-for-eeg-foundation-models)  
+   evidence：将反向传播梯度映射到大脑反应以解释编码模型
+4. [Dynamic imbalances in cell-type-specific striatal ensembles reflect learned coupling between trajectory representations and locomotor dynamics](/202605/29/biorxiv-10-1101-2024-10-29-620847-v3-dynamic-imbalances-in-cell-type-specific-striatal-ensembles-reflect-learned-coupling-between-trajectory-representations-and-locomotor-dynamics)  
    标签：评分：8.0/10、query:sr
-   evidence：用于EEG基础模型解码的系统评估流程
-5. [FM-fMRI: Event Conditioned Flow Matching for Rest-to-Task fMRI Time-Series Synthesis](/202605/28/2605.26423v1-fm-fmri-event-conditioned-flow-matching-for-rest-to-task-fmri-time-series-synthesis)  
+   evidence：纹状体群体编码轨迹和运动动态
+5. [Why Meditation Wearables Fail: Reward Misspecification in Closed-Loop EEG and Biofeedback Systems](/202605/29/2605.28223v1-why-meditation-wearables-fail-reward-misspecification-in-closed-loop-eeg-and-biofeedback-systems)  
    标签：评分：7.0/10、query:sr
-   evidence：事件条件流匹配用于fMRI时间序列合成
-6. [Random neural networks match observed dimensionality of neural population recordings and motivate stronger experimental tests](/202605/28/2605.26551v1-random-neural-networks-match-observed-dimensionality-of-neural-population-recordings-and-motivate-stronger-experimental-tests)  
+   evidence：分析闭环EEG和生物反馈系统中的奖励误指定
+6. [Sensory adaptation and pupil-linked arousal support flexible evidence accumulation during perceptual decision making](/202605/29/biorxiv-10-64898-2026-02-03-703553-v2-sensory-adaptation-and-pupil-linked-arousal-support-flexible-evidence-accumulation-during-perceptual-decision-making)  
    标签：评分：7.0/10、query:sr
-   evidence：随机网络模型解释神经群体记录的低维性
-7. [Hippocampal tangential insertions of high-density silicone probes in head-fixed mice enhance spatial sampling](/202605/28/biorxiv-10-64898-2026-01-22-701007-v2-hippocampal-tangential-insertions-of-high-density-silicone-probes-in-head-fixed-mice-enhance-spatial-sampling)  
+   evidence：MT区单神经元活动和瞳孔相关唤醒建模灵活证据累积
+7. [Random network structure stabilizes neural manifolds](/202605/29/biorxiv-10-64898-2026-05-21-726949-v1-random-network-structure-stabilizes-neural-manifolds)  
    标签：评分：7.0/10、query:sr
-   evidence：海马切线方向电极插入实现密集神经记录
-8. [Estimating mutual information and Pearson correlation on neural evoked responses](/202605/28/biorxiv-10-64898-2026-05-21-727057-v1-estimating-mutual-information-and-pearson-correlation-on-neural-evoked-responses)  
+   evidence：研究神经群体表征在漂移中的稳定性
+8. [Linking time-lagged functional dynamics to spatial constraints in resting-state fMRI](/202605/29/biorxiv-10-64898-2026-05-24-727506-v1-linking-time-lagged-functional-dynamics-to-spatial-constraints-in-resting-state-fmri)  
    标签：评分：7.0/10、query:sr
-   evidence：估计神经诱发响应相似性的互信息方法
-9. [Memory Uncertainty Relation and Harmonic Memory in Random Recurrent Networks](/202605/28/2605.24628v1-memory-uncertainty-relation-and-harmonic-memory-in-random-recurrent-networks)  
+   evidence：静息态fMRI的时间滞后功能动力学
+9. [Probabilistic spike propagation shapes sympathetic output in mouse preganglionic neurons](/202605/29/biorxiv-10-64898-2026-05-20-726575-v2-probabilistic-spike-propagation-shapes-sympathetic-output-in-mouse-preganglionic-neurons)  
    标签：评分：6.0/10、query:sr
-   evidence：在循环网络中建立短期记忆的数学不等式，连接输入与状态波动
-10. [Tiny Brains, Giant Impact: Uncovering the Keystone Neurons of LLM with Just a Few Prompts](/202605/28/2605.24846v1-tiny-brains-giant-impact-uncovering-the-keystone-neurons-of-llm-with-just-a-few-prompts)  
+   evidence：研究概率性尖峰传播和神经表征
+10. [Using Disinhibition versus Direct Control in a Spiking Neural Model of Dopamine-Driven Reinforcement Learning](/202605/29/biorxiv-10-64898-2026-05-22-727086-v1-using-disinhibition-versus-direct-control-in-a-spiking-neural-model-of-dopamine-driven-reinforcement-learning)  
    标签：评分：6.0/10、query:sr
-   evidence：识别大型语言模型中的关键神经元以实现可解释性
+   evidence：在dopamine驱动的强化学习的脉冲神经模型中比较去抑制和直接控制
 
