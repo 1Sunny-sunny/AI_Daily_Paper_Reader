@@ -1,0 +1,1301 @@
+Title: EMAG: Differentiable 4D Gaussian Mixture Splatting for EEG Spatial Super-Resolution
+
+URL Source: https://arxiv.org/pdf/2605.29731v1
+
+Published Time: Fri, 29 May 2026 01:05:35 GMT
+
+Number of Pages: 35
+
+Markdown Content:
+# EMAG: Differentiable 4D Gaussian Mixture Splatting for EEG Spatial Super-Resolution 
+
+Alex Lazarovich Ofir Itzhak Shahar Gur Elkin Ohad Ben-Shahar 
+
+Stein Faculty of Computer and Information Science Ben-Gurion University of the Negev, Israel 
+
+{alexlaz, shofir, gurshal}@post.bgu.ac.il, ben-shahar@cs.bgu.ac.il 
+
+Abstract 
+
+High-density electroencephalography (HD-EEG) enables fine-grained measure-ment of cortical activity but requires expensive hardware and lengthy setup times, limiting its clinical and research accessibility. We propose EMAG (EEG Mixture of Anisotropic Gaussians), a differentiable framework that reconstructs HD-EEG signals from a sparse subset of low-density (LD) electrodes by representing brain electrical sources as a mixture of anisotropic 4D space-time Gaussians. EMAG places a mixture of multiple Gaussians at each point of a spherical brain grid, each parameterized by a full 4 × 4 precision matrix, enabling anisotropic spatial spreads and explicit coupling between spatial and temporal dimensions. The forward model renders scalp EEG via differentiable Gaussian field contributions at electrode loca-tions, enabling end-to-end training without explicit source localization supervision. We evaluate EMAG on three public EEG benchmarks (Localize-MI, SEED, and SEED-IV) at super-resolution factors of 2× through 8/16 ×. EMAG outperforms the current state-of-the-art EEG super-resolution method at most super-resolution factors on three standard benchmarks (Localize-MI, SEED, SEED-IV). The explicit Gaussian parameterization further enables direct visualization and interpretability of learned brain source configurations, potentially opening avenues for clinical and neuroscientific applications, such as source localization or biomarker discovery. 
+
+1 Introduction 
+
+Electroencephalography (EEG) is the most widely used non-invasive neuroimaging modality for measuring cortical electrical activity with millisecond temporal resolution [ 29 , 37 ]. While standard clinical EEG employs 19–32 electrodes, high-density (HD) systems with 128–256 channels are increasingly recognized as essential for accurate source localization [ 8] and brain-computer inter-faces [ 18 ]. And yet, such HD-EEG acquisition remains impractical in many settings due to the cost of electrode caps, extended preparation time, and patient discomfort. Given this gap, EEG super-resolution , the problem of reconstructing HD-EEG from a sparse low-density (LD) subset, has emerged as a practical alternative [ 2]. Existing approaches treat EEG super-resolution as a channel-to-channel mapping problem, using convolutional, adversarial, or diffusion-based architectures that operate directly in electrode space[ 2 , 20 , 36 ]. None of these methods incorporates an explicit forward model of how brain sources project onto scalp electrodes, forgoing the physical inductive bias that could improve both reconstruction accuracy and interpretability. Unrelated to EEG analysis, the computer vision community has developed powerful differentiable rendering frameworks, most notably Neural Radiance Fields (NeRF) [ 25 ] and 3D Gaussian Splat-ting [ 15 ], that represent volumetric scenes as continuous fields and render them via differentiable forward models. Recent extensions to 4D Gaussian Splatting [ 6, 38 ] further incorporate temporal dynamics via deformation fields or native 4D covariance matrices. 
+
+> Preprint.
+> arXiv:2605.29731v1 [cs.LG] 28 May 2026
+
+Figure 1: Overview of EMAG. (1) LD electrodes drive a 1D TemporalEncoder + MLP that outputs amplitude adjustments. (2) The brain volume hosts G anisotropic 4D Gaussians per spherical-grid point. (3) Differentiable rendering at electrode positions yields the HD scalp signal ˆXHD .
+
+Recent work on Neural Brain Fields (NBF) [ 14 ] has drawn on the NeRF analogy for EEG, using implicit neural representations to generate signals at unseen electrode positions. However, NBF uses a per-sample Multilayer Perceptron (MLP) to encode the electromagnetic potential as a continuous function of 3D position and time, without explicit source modeling, and remains fundamentally non-interpretable in terms of neural sources, as it offers no mechanism to localize or characterize the underlying brain sources. While these two fields have been progressing independently, we observe a structural analogy between volumetric scene rendering and the EEG forward problem: both involve a latent volumetric field (radiance vs. source current density) that is projected onto a set of sensors (camera pixels vs. scalp electrodes). This motivates our approach, but requires adaptation: while 4D Gaussian Splatting [ 38 ]handles dynamic scenes via space-time covariance, it lacks EEG’s physics-informed forward model (leadfield-like projection). We thus extend it with anisotropic 4D mixtures on a spherical grid and differentiable Gaussian rendering to scalp potentials, enabling end-to-end SR without explicit inverse supervision—outperforming baselines on most settings. 
+
+Contributions. We introduce EMAG (EEG Mixture of Anisotropic Gaussians), a framework for EEG super-resolution that advances the application of Gaussian splatting to the neuroscience domain (Fig. 1): 1. We formulate EEG super-resolution as differentiable rendering of a 4D source field , where the “scene” is modeled as a mixture of anisotropic Gaussians placed on a spherical brain grid and the “rendering” is a weighted summation of gaussians at electrode positions. 2. We propose an anisotropic 4D Gaussian parameterization in which each component is equipped with a full space-time 4 × 4 precision matrix parameterized via Cholesky decomposition, enabling anisotropic spatial spreads and explicit space-time coupling. 3. We obtain interpretable source representations : each learned Gaussian carries an explicit 3D position, anisotropic shape, and temporal profile, so post-hoc analysis of the trained model can recover source maps without any source-localization supervision (as shown with Localize-MI at Sec. 6). 4. We provide a systematic evaluation on three public EEG benchmarks (Localize-MI [ 24 ], SEED [ 5, 40 ], and SEED-IV[ 41 ]) across super-resolution factors of 2× through 16 ×,including comparison against seven established EEG-SR baselines. 22 Related Work 
+
+EEG source reconstruction. The EEG inverse problem, recovering brain source activity from scalp measurements, is fundamentally ill-posed since the mapping from source to sensor space is many-to-one [ 8, 9]. Like many sampling scenarios, it becomes more severe with fewer or sparser samples. Classical methods such as minimum norm estimation (MNE) [ 3 , 10 ] and standardized low-resolution brain electromagnetic tomography (sLORETA) [ 26 ] impose regularization priors (e.g., 
+
+ℓ2 smoothness) to select among infinitely many solutions. These methods require an explicit forward model (leadfield matrix) derived from structural MRI and head tissue conductivity models[ 10 , 23 ]. Recent work has explored data-driven or deep learning–based EEG source imaging that learns the source-to-sensor mapping end-to-end rather than relying solely on a fixed leadfield [ 11 , 13 , 31 ]. Our approach follows this trend but differs by parameterizing sources as explicit anisotropic 4D Gaussians on an anatomically anchored brain grid and embedding the forward operator as a differentiable Gaussian rendering step. 
+
+EEG super-resolution. Deep learning approaches to EEG channel interpolation include convolutional and adversarial architectures that map LD to HD signals directly [ 2 , 21 , 27 , 30 ]. The Step-Aware Residual Guide [ 20 ] introduces residual learning with temporal step-aware conditioning, achieving strong performance with a lightweight CNN backbone by exploiting temporal structure. While effective, these methods do not model the 3D geometry of the brain and electrodes, limiting physical interpretability. Our method explicitly models sources in 3D brain space and renders to arbitrary electrode configurations. 
+
+Neural fields and Gaussian splatting. Neural Radiance Fields (NeRF) [ 25 ] represent scenes as continuous functions mapping spatial coordinates to radiance, using sinusoidal positional encod-ings [ 32 , 34 ] to capture high-frequency detail. 3D Gaussian Splatting [ 15 ] replaces the MLP with an explicit set of anisotropic 3D Gaussians (each with a full 3 × 3 covariance matrix), achieving real-time rendering. 4D extensions incorporate temporal dynamics: Wu et al. [ 38 ] combine 3D Gaussians with deformation fields, while 4D-Rotor Gaussian Splatting [ 6] uses native 4 × 4 spatiotemporal covariance matrices. 
+
+Neural representations for EEG. Neural Brain Fields (NBF) [ 14 ] draws on the NeRF analogy for EEG, training a per-sample implicit neural representation to generate signals at unseen electrode positions. While NBF demonstrates the potential of neural fields for EEG interpolation, it uses a black-box MLP without explicit source modeling or Gaussian parameterization. Our approach extends this line of work by introducing explicit, interpretable Gaussian source components with full 4D covariance, combined with a physics-informed forward model. 
+
+3 Method 
+
+3.1 Problem formulation 
+
+Let XHD ∈ RM ×T denote an HD-EEG recording with M electrodes and T time steps, and let 
+
+XLD ∈ Rm×T (m < M ) be a low-density subset obtained by selecting m of the M channels. The super-resolution factor is r = M/m . Our goal is to learn a mapping fθ : Rm×T → RM ×T that reconstructs ˆXHD ≈ XHD from XLD alone. Rather than learning this mapping directly in electrode space, we decompose it into two stages: (1) infer a latent 4D source field S(x, t ) for x ∈ R3 and t ∈ { 1, . . . , T }, conditioned on the LD input; and (2) render the HD-EEG via a differentiable forward model that maps S to scalp potentials. Our explicit Gaussian representation of S enables rendering to arbitrary HD electrode montages of any size, without retraining. 
+
+3.2 Forward model: anisotropic 4D Gaussian field rendering 
+
+Gaussian source components are anchored on a discrete brain grid G = {gi}Ni=1 . We generate candidate points on a uniform cubic lattice spanning [−90 , 90] mm in each spatial dimension at resolution R (default R = 12 ) and retain only those within a sphere of radius rbrain = 90 mm: 
+
+G = {gi : ∥gi∥ ≤ rbrain }. (1) This yields N ≈ 826 (at R = 12 ) grid points, constraining sources to the anatomically relevant brain volume while keeping N ≪ M for efficiency. 3At each grid point gi, we place G Gaussian components (default G = 3 ), for a total of Ntotal = N · G
+
+components. Importantly, seeking a realistic setup, we assume time-dependent activation and thus allow time-modulated Gaussian components. The predicted EEG signal at electrode j and time t is computed as a sum of Gaussian field contributions from all source components: 
+
+ˆXj,t =
+
+> Ntotal
+
+X
+
+> n=1
+
+an(t) · exp 
+
+
+
+− 12 d⊤
+
+> j,n,t
+
+Σ−1 
+
+> n
+
+dj,n,t 
+
+
+
+, (2) where an(t) is the modulated amplitude of component n at time t (Section 3.4), dj,n,t = [ ej −
+
+gn; tnorm − μ(t) 
+
+> n
+
+] ∈ R4 is the 4D displacement vector between electrode j and component n at time t,and Σ−1 
+
+> n
+
+is the 4 × 4 precision matrix of the n-th Gaussian. This formulation is analogous to Gaussian splatting in computer vision [ 15 ]: each source “splats” its contribution to nearby electrodes with a weight that decays as an anisotropic Gaussian function of the 4D space-time distance. The full precision matrix enables each component to have different spatial spreads along different directions (anisotropy) and to couple spatial and temporal dimensions, so that a source’s effective spatial extent can change over time. 
+
+3.3 Mixture of anisotropic 4D Gaussians 
+
+The key innovation of EMAG is twofold: (1) placing multiple Gaussian components at each grid point to form a mixture, enabling complex multi-modal source patterns, and (2) parameterizing each component with a full 4 × 4 precision matrix, enabling anisotropic spatial fields and explicit space-time coupling. 
+
+Cholesky parameterization. A precision matrix must be symmetric positive-definite (SPD) to define a valid Gaussian shape. We ensure this by construction via the Cholesky decomposition: we parameterize Σ−1 
+
+> n
+
+as LnL⊤ 
+
+> n
+
+, where Ln is a lower-triangular matrix with positive diagonal entries. Since any product LL ⊤ is automatically SPD, the network can learn unconstrained values for L and the result is always a valid precision matrix: 
+
+Σ−1 
+
+> n
+
+= LnL⊤ 
+
+> n
+
+, Ln =
+
+
+
+d0 0 0 0
+
+c0 d1 0 0
+
+c1 c2 d2 0
+
+c3 c4 c5 d3
+
+ , (3) where di = exp( ℓi) are positive diagonal entries (stored as log-values ℓi for unconstrained opti-mization) and cj are free off-diagonal entries. The diagonal entries control the precision (inverse of spread) along each axis: d0, d 1, d 2 for the three spatial dimensions and d3 for time. The off-diagonal entries c0, . . . , c 5 control coupling between dimensions: for example, c3, c 4, c 5 couple the spatial and temporal axes, allowing a Gaussian’s spatial shape to vary with time. This yields 10 learnable parameters per component (4 diagonal + 6 off-diagonal) and guarantees that Σ−1 
+
+> n
+
+is always SPD. Each of the Ntotal Gaussian components thus carries 12 learnable scalars: a signed base amplitude wn
+
+(overall source strength); a temporal center μ(t) 
+
+> n
+
+∈ [0 , 1] (time of peak activation); the Cholesky log-diagonal (ℓ0, ℓ 1, ℓ 2, ℓ 3) controlling per-axis precision; and the Cholesky off-diagonals (c0, . . . , c 5)
+
+encoding spatial anisotropy and space-time coupling. 
+
+Efficient Mahalanobis decomposition. The exponent in Eq. 2 requires computing the Mahalanobis distance d⊤Σ−1d = ∥L⊤d∥2, which measures the distance from an electrode to a Gaussian center through the Gaussian’s precision matrix. Naïvely computing this for every (electrode, component, timestep) triple requires materializing a (B, T, M, N total , 4) tensor, which is computationally expen-sive. We exploit the fact that electrode and grid positions are fixed across time to decompose the distance into precomputable spatial terms and cheap per-timestep temporal terms: 
+
+∥L⊤d∥2 = A(ej , gn)
+
+| {z }
+
+> spatial only
+
++2 τ C (ej , gn)
+
+| {z }
+
+> coupling
+
++τ 2 Dn
+
+|{z} 
+
+> temporal only
+
+, (4) where τ = tnorm − μ(t) 
+
+> n
+
+and: 
+
+z0 = d0∆x + c0∆y + c1∆z, z1 = d1∆y + c2∆z, z2 = d2∆z, (5) 
+
+A = z20 + z21 + z22 , C = z0c3 + z1c4 + z2c5, D = c23 + c24 + c25 + d23. (6) 4The terms A, C, and D are precomputed once per forward pass for all electrode–component pairs by combining the fixed spatial offsets (∆ x, ∆y, ∆z) with the current Cholesky parameters (di, c j )
+
+of each component. Within a forward pass these quantities stay constant across time, while only the temporal displacement τ changes, so at each timestep we obtain the Mahalanobis distance by evaluating ∥L⊤d∥2 = A(ej , gn) + 2 τ C (ej , gn) + τ 2Dn, rather than recomputing a full 4D product for every time step. 
+
+3.4 Low-density conditioning 
+
+Rather than predicting source activity directly from space–time coordinates, we use the LD signals to drive a low-dimensional temporal code that modulates the amplitudes of Gaussians anchored on the brain grid, so that spatial structure is encoded in the grid while per-sample dynamics are driven only by the observations. To condition the source field on the observed LD-EEG, we then need a mechanism that tells the Gaussian sources “how active to be” at each time step based on the sparse input. We extract per-timestep features from XLD using a lightweight 1D temporal encoder: 
+
+ht = TemporalEncoder (XLD  
+
+> ·,t
+
+) ∈ Rdf , (7) where df is the feature dimension. This encoder reads the LD electrode values at time t and compresses them into a feature vector. A modulation network then maps this feature into a per-grid-point amplitude adjustment: 
+
+∆wi(t) = MLP mod (ht)i, i = 1 , . . . , N. (8) The modulation is shared across all G Gaussians at the same grid point, preserving the structural relationship between co-located components. The final amplitude for the g-th Gaussian at grid point i
+
+at time t is: 
+
+ai,g (t) = wi,g + ∆ wi(t). (9) In other words, each Gaussian has a fixed base amplitude wi,g (learned during training) plus a time-varying adjustment ∆wi(t) driven by the LD input. This separates the static source layout (base amplitudes, spatial-temporal covariance) from the dynamic modulation driven by the observed signal, analogous to how 4D Gaussian splatting separates static geometry from per-frame deformations [ 38 ]. 
+
+3.5 Training objective 
+
+The model is trained end-to-end by minimizing the mean squared error between predicted and ground-truth HD-EEG, plus a small L2 penalty on the source covariance and amplitude parameters that keeps the precision matrices well-conditioned: 
+
+L = 1
+
+M · T
+
+> M
+
+X
+
+> j=1
+> T
+
+X
+
+> t=1
+
+  ˆXj,t − XHD 
+
+> j,t
+
+2 + λ X
+
+> θ∈Θreg
+
+1
+
+|θ| ∥θ∥22, (10) where Θreg = {ℓn, cn, w n}n collects the Cholesky log-diagonal, off-diagonal, and base-amplitude parameters of every Gaussian, and λ = 2 × 10 −4. We optimize with Adam [ 17 ] (learning rate 10 −3,
+
+β1=0 .9, β2=0 .999 ), gradient clipping at ∥∇∥ 2 ≤ 1, and early stopping on validation loss (patience 
+
+20 epochs, minimum improvement 10 −4). 
+
+4 Experimental evaluations 
+
+4.1 Datasets 
+
+We evaluate EMAG on three public EEG benchmarks that span different experimental paradigms (preprocessing details in App. B): 
+
+Localize-MI. The Localize-MI dataset [ 24 ] provides 256-channel HD-EEG recordings from 7 human subjects during intracerebral electrical stimulation. Intracranial electrodes are used for stimulation only (not measurement); the scalp HD-EEG captures the brain’s response. The known stimulation sites provide ground-truth source locations, which we use for post-hoc validation of learned source configurations (Section 6). Each subject has approximately 74 stimulation epochs at a sampling rate of 8 kHz. Given M = 256 HD electrodes, we construct LD subsets by uniformly subsampling channels at factors r ∈ { 2, 4, 8, 16 }, yielding m ∈ { 128 , 64 , 32 , 16 } LD electrodes respectively. 5Table 1: EEG super-resolution results across three datasets: Localize-MI (256 channels), SEED , and 
+
+SEED-IV (62 channels). Best in bold , second-best underlined . Metrics: NMSE ( ↓), PCC ( ↑), SNR (↑, dB). All baseline results are from [20].                                                                                                                                                                                                                                                              
+
+> Model Metric Localize-MI (256 ch.) SEED (62 ch.) SEED-IV (62 ch.)
+> 2×4×8×16 ×2×4×8×2×4×8×
+> SaSDim NMSE 0.2675 0.3427 0.4174 0.4613 0.4399 0.6234 0.7767 0.3633 0.5543 0.7122
+> PCC 0.8194 0.7246 0.6926 0.6476 0.7341 0.5649 0.4349 0.7249 0.6211 0.5009
+> SNR 5.7443 4.3796 3.5549 2.7678 4.1154 2.2940 1.1349 4.5940 2.6004 1.6211
+> SADI NMSE 0.2637 0.3442 0.4164 0.4566 0.4439 0.6049 0.8106 0.3557 0.5349 0.6844
+> PCC 0.8243 0.7391 0.6944 0.6554 0.7234 0.5819 0.4064 0.7624 0.6293 0.5243
+> SNR 5.7511 4.3724 3.5498 2.8942 4.2419 2.5160 1.0137 4.7093 2.6044 1.6610
+> RDPI NMSE 0.2561 0.3562 0.4076 0.4531 0.4064 0.6134 0.7916 0.3491 0.5416 0.6915
+> PCC 0.8246 0.7396 0.7062 0.6549 0.7416 0.5716 0.4216 0.7861 0.6316 0.5164
+> SNR 5.7311 4.3966 3.5643 2.7731 4.2619 2.3160 1.0316 4.7190 2.6194 1.6492
+> DDPMEEG NMSE 0.2046 0.3108 0.3554 0.4076 0.4916 0.7319 0.8634 0.5136 0.6513 0.7916
+> PCC 0.8516 0.8163 0.7306 0.6739 0.6941 0.5134 0.3419 0.7346 0.5316 0.4305
+> SNR 6.2151 5.5126 3.9891 3.2715 4.1943 1.5391 0.9431 4.4165 2.1064 1.6105
+> ESTformer NMSE 0.2721 0.3578 0.4466 0.4837 0.3288 0.3483 0.4149 0.3448 0.3911 0.5125
+> PCC 0.8061 0.7205 0.6867 0.6319 0.8368 0.8012 0.7670 0.8106 0.7822 0.7048
+> SNR 5.5403 3.8671 3.3023 2.5671 5.0560 4.5838 3.8871 4.7535 4.1933 2.9821
+> STAD NMSE 0.1902 0.3067 0.3649 0.4106 0.4319 0.6913 0.8671 0.3819 0.6713 0.7193
+> PCC 0.8635 0.8194 0.7216 0.6694 0.7136 0.4946 0.3441 0.7316 0.5219 0.4319
+> SNR 7.2591 5.5234 3.8715 3.2642 4.1364 1.4349 0.9134 4.4930 2.0492 1.6193
+> SRGDiff NMSE 0.1449 0.2384 0.2957 0.3457 0.1632 0.2977 0.3494 0.1663 0.2115 0.2603
+> PCC 0.9213 0.8854 0.8323 0.7322 0.9102 0.8445 0.8167 0.9113 0.8846 0.8210
+> SNR 8.3755 6.3617 5.2249 4.0197 7.8413 5.2606 4.5912 7.8660 6.6402 6.0346
+> EMAG (ours) NMSE 0.0856 0.1040 0.1396 0.2139 0.1545 0.2776 0.4027 0.1153 0.2027 0.3358 PCC 0.9561 0.9464 0.9274 0.8863 0.9194 0.8496 0.7719 0.9404 0.8926 0.8128 SNR 10.8996 10.0156 8.6731 6.7959 8.2044 5.6243 3.9989 9.5780 7.0593 4.7712
+
+SEED. The SEED dataset [ 5, 40 ] contains 62-channel EEG (international 10–20 montage, 200 Hz) recordings from 15 subjects during emotion elicitation via film clips, with three emotion classes (positive, neutral, negative). We use the preprocessed band-passed (0–75 Hz) signals released with the dataset. Each trial is segmented into non-overlapping 4 s windows (800 samples). LD subsets are constructed by uniformly subsampling channels at factors r ∈ { 2, 4, 8}, yielding m ∈ { 31 , 15 , 7}
+
+LD electrodes. 
+
+SEED-IV. The SEED-IV dataset [ 41 ] extends SEED to four emotion classes (happy, sad, fear, neutral), with the same 62-channel 200 Hz montage across 15 subjects. SR setup, train/test split, and channel-subsampling protocol are identical to SEED ( r ∈ { 2, 4, 8}, m ∈ { 31 , 15 , 7}). For each dataset we use a per-subject 80/20 trial split and report metrics averaged across all of it’s subjects; LD subset remains fixed per subject across sessions. 
+
+4.2 Main results 
+
+We compare EMAG against SRGDiff [ 20 ]—the current SOTA for deep EEG super-resolution—plus all baselines reported there: SaSDim [ 39 ], SADI [ 12 ], RDPI [ 22 ], DDPMEEG [ 35 ], ESTformer [ 19 ], and STAD [ 36 ]. Alternative 4D Gaussian parameterizations are reported in Supp. Sec. E. Per-subject numbers and standard deviations are tabulated in Supp. Sec. G. Table 1 reports reconstruction quality on Localize-MI (256 ch., 7 subjects), SEED, and SEED-IV (62 ch., 15 subjects each) across all SR factors. EMAG leads on Localize-MI at every r, cutting NMSE by 41 – 62% and improving SNR by 2.5 – 4.4 dB relative to the strongest prior baseline (SRGDiff), while keeping PCC above 0.88 even at r=16 . On SEED and SEED-IV it dominates at r∈{ 2, 4}
+
+across all three metrics; at r=8 it trails SRGDiff in NMSE/SNR while remaining second-best in PCC, an outcome consistent with information-theoretic limits of 8× on a 62 -channel cap, qualitative reconstruction example in Fig. 2. Three observations clarify these trends. (i) The advantage is largest on Localize-MI, whose dense 
+
+256 -channel sEEG montage reward EMAG’s anisotropic 4D source representation; degradation with r is also slowest there ( ∆PCC=0 .07 between r=2 and r=16 , vs. 0.13 – 0.15 for the next-best 6Figure 2: Qualitative reconstruction (SEED sub-01, r=4 , peak-GFP timestep, PCC = 0 .99 ) Additional waveform-domain examples in App. G.1. (a) LD input (15 ch) (b) HD reconstruction (c) HD ground truth (d) GT topography (e) Reconstructed topography            
+
+> 3.2 2.4 1.6 0.8 0.0 0.8 1.6 2.4 3.2 4.0
+> EEG amplitude (a.u.)
+> SEED sub-01, split-seed 0, r= 4, trial 2, t-step 526 (PCC=0.99)
+
+method), indicating stronger robustness to extreme decimation than electrode-space diffusion. (ii) On 
+
+62 -channel scalp data, the EMAG–SRGDiff gap shrinks with r as the inverse problem becomes under-determined, aligning with the LD conditioning ablation (Sec. 4.4) that identifies input spatial resolution as the limiting factor beyond the cap’s bandwidth. (iii) EMAG achieves this with ∼76 kparameters per subject—about 30 × fewer than SRGDiff ( ∼2.3M)—and trains in under 30 minutes on a single GPU, supporting its role as a lightweight personalized model (cross-subject transfer in Sec. 4.3). 
+
+4.3 Cross-subject generalization 
+
+EMAG is by design a per-subject model: the 4D Gaussian field is fit on each subject. To quantify how much of EMAG’s signal is subject-specific, for each (dataset, r) we apply every subject-trained model to every other subject’s LD recordings and report the mean off-diagonal score of the resulting 
+
+S × S transfer matrix. As a non-learned reference we upsample the LD montage to the HD grid via spherical splines ( LD-spline ). Cross-subject EMAG never matches its within-subject score (∆PCC ≈ 0.31 – 0.39 ) yet remains markedly better than LD-spline at every r on SEED/SEED-IV (e.g. at r=2 : cross PCC 0.565 vs LD-spline 0.469 ). This indicates that the Gaussian field encodes geometric priors reusable across subjects while per-subject training captures the remaining individual cortical layout. We therefore position EMAG as a lightweight personalized SR module—trainable from a small per-subject calibration set ( ∼76 k parameters)—rather than a universal cross-subject network. Full S × S heat-maps, the LD-spline construction, the Localize-MI exclusion rationale, and per-seed numbers are in App. C (Table 4, Fig. 3). 
+
+4.4 Ablation studies 
+
+We conduct a systematic ablation study to validate each core design decision in EMAG, evaluated on Localize-MI and SEED at 4× super-resolution. Full results are reported in Table 2 and a detailed per-ablation discussion is provided in Appendix E. 
+
+4D Gaussian parameterization. Reducing the precision matrix from full 4×4 to spatial-only ( 3×3), diagonal, and isotropic-scalar variants degrades performance monotonically (isotropic: +19 .0% 
+
+NMSE on Localize-MI, +22 .1% on SEED). Zeroing only the spatial off-diagonals c0, c 1, c 2 or only the spatio-temporal c3, c 4, c 5 produces comparable degradation, indicating the two coupling types are complementary and jointly contribute to optimal performance. 
+
+Brain grid and source placement. Without the spherical grid anchor, free-floating components migrate to the scalp and act as shortcut interpolators, so the constraint is a geometric regularizer rather than a convenience. Restricting the grid to a thin cortical shell costs +116 .2% NMSE on SEED, challenging the assumption that emotion-related EEG is purely cortical. 
+
+Low-density conditioning. Removing the TemporalEncoder collapses NMSE to ≈ 1.0 on both datasets, and replacing per-grid-point modulation with a global scalar costs +434% NMSE on Localize-MI yet only +7 .6% on SEED, reflecting the spatial focality of evoked responses. Pre-7Table 2: Ablation results on Localize-MI and SEED at 4× super-resolution.                                                                                                         
+
+> Category Variant Localize-MI (mean across 7 subjects) SEED (mean across 15 subjects)
+> NMSE ↓PCC ↑SNR ↑NMSE ↓PCC ↑SNR ↑
+> Proposed Model EMAG (full) 0.1013 0.9478 10.1427 0.2776 0.8496 5.6243
+> 4D Gaussian Parameterization w/o temporal axis ( 3×3)0.1095 0.9435 9.7797 0.3036 0.8341 5.2206 Diagonal precision (no coupling) 0.1094 0.9436 9.7841 0.2980 0.8375 5.3035 Only spatial coupling 0.1096 0.9435 9.7791 0.2981 0.8374 5.3045 Only spatio-temporal coupling 0.1095 0.9435 9.7810 0.2987 0.8371 5.2933 Isotropic scalar σ0.1205 0.9376 9.3355 0.3388 0.8128 4.7357 Brain Grid & Source Placement Free-floating centers 0.1095 0.9435 9.7817 0.2976 0.8377 5.3094 Surface-only grid 0.1370 0.9288 8.7703 0.6002 0.6316 2.2260 LD Conditioning No conditioning (static) 0.9995 0.0112 0.0023 1.0000 0.0034 0.0001 Global amplitude modulation 0.5414 0.6762 2.6841 0.2986 0.8371 5.2960 Pre-interpolated LD input 0.1197 0.9381 9.3760 0.3014 0.8354 5.2520 Forward Model Direct electrode mapping 0.2165 0.8845 6.9413 0.2831 0.8463 5.5331 Learned linear projection 0.2122 0.8873 6.8383 0.5384 0.6791 2.6970 Fixed leadfield matrix 0.2573 0.8614 5.9793 0.5955 0.6356 2.2600
+
+interpolating the LD input yields no gain, indicating the Gaussian forward model already supplies the spatial regularization. 
+
+Physics-informed forward model. A direct electrode-space MLP raises Localize-MI NMSE by 
+
++113 .7% but SEED by only +2 .0% , again tracking spatial focality. A learned linear source-to-electrode projection matches the MLP on Localize-MI yet collapses on SEED ( +94 .0% ), exposing its lack of a distance-decay prior; the fixed three-shell leadfield is the weakest variant on both datasets, unable to adapt to subject anatomy. 
+
+5 Which channels should we keep? An SR-fidelity study of electrode subsets 
+
+Throughout the paper we have treated the low-density (LD) montage as a uniformly-random K-subset of the HD electrodes. In practice, sparse-EEG hardware imposes a fixed electrode layout, and a long line of EEG channel-selection work has argued that not all electrodes are equally informative for downstream tasks [ 1, 16 ]. We ask the reverse question that is natural for super-resolution: when the goal is to reconstruct the full montage from K retained channels, do these anatomically-motivated subsets remain a good choice, or does the inverse problem favour layouts with different geometry? For that manner, we define ten named subsets at three sparsification levels matching the SR factors used in the main benchmark (Visualization in figure 4, and full channel lists in Table 8, both in Appendix D): SR ×2 ( K=31 ): H EMI -L EFT , H EMI -R IGHT (left/right halves plus the four midline channels Fz, Cz, Pz, Oz); SR ×4 ( K=15 ): V15 (rim-style superset of the ten circumference channels of Valderrama and Sheoran [33] ), FT15 (fronto-temporal), INT15 (central / midline control); SR ×8(K=7 ): four hemispheric rim slices (VL7, VR7, VU7, VL W7) and an INT7 (central) control. 
+
+Results. Two findings stand out. (i) Uniform spatial coverage dominates anatomical priors. Across 
+
+every tested (dataset, r) cell, uniform R ANDOM selection consistently achieves the lowest NMSE and highest PCC/SNR among the named subsets evaluated. The gap grows with the sparsification factor: at SR ×2 the named hemispheric subsets cost roughly +0 .16 –0.17 NMSE on both datasets, at SR ×4 roughly +0 .10 –0.14 , and at SR ×8 roughly +0 .10 –0.15 , and the seed-to-seed standard deviation of the named subsets ( ≤ 0.06 NMSE) is an order of magnitude smaller than the gap to RANDOM (Table 3). We attribute this to the geometry of the inverse problem: a uniform random 
+
+K-subset spreads observations isotropically over the scalp, while Anatomically-clustered subsets, by contrast, leave large portions of the scalp with no nearby observed electrode, and EMAG must extrapolate over those gaps. 
+
+(ii) Differences among named subsets are small and not monotonic in the rim-vs-interior axis. At SR ×4, the rim-style V15 and FT15 subsets slightly outperform the interior control INT15 on both datasets (NMSE gap ≈ 0.03 ). At SR ×8, however, the central INT7 is competitive or better than every rim slice; at this regime the absolute size K=7 is small enough that any clustered subset under-samples the rest of the head. The two SR ×2 hemispheric subsets are nearly indistinguishable (Table 3), in line with the small spatial sensitivity of the reconstructor at low SR factors. 8Table 3: EEG super-resolution fidelity on SEED and SEED-IV for each named electrode subset versus the uniform-random baseline. Metrics: NMSE ( ↓), PCC ( ↑), SNR in dB ( ↑). Per-cell ∆rand 
+
+numbers for all three metrics are reported in Table 9 of Appendix D. 
+
+SEED (62 ch.) SEED-IV (62 ch.) SR Subset NMSE ↓ PCC ↑ SNR (dB) ↑ NMSE ↓ PCC ↑ SNR (dB) ↑×2
+
+RANDOM 0.154 ±0.001 0.919 ±0.001 8.20 ±0.03 0.115 ±0.001 0.940 ±0.001 9.58 ±0.03 
+
+HEMI -L EFT 0.312 ±0.058 0.829 ±0.035 5.15 ±0.77 0.285 ±0.030 0.845 ±0.018 5.50 ±0.45 
+
+HEMI -R IGHT 0.312 ±0.050 0.829 ±0.031 5.13 ±0.68 0.275 ±0.032 0.851 ±0.019 5.67 ±0.50 
+
+×4
+
+RANDOM 0.278 ±0.002 0.850 ±0.001 5.62 ±0.02 0.203 ±0.001 0.893 ±0.000 7.06 ±0.02 
+
+V15 0.384 ±0.037 0.784 ±0.024 4.22 ±0.42 0.299 ±0.010 0.837 ±0.006 5.29 ±0.15 
+
+FT15 0.385 ±0.038 0.783 ±0.024 4.19 ±0.42 0.311 ±0.020 0.829 ±0.012 5.12 ±0.28 
+
+INT15 0.418 ±0.037 0.762 ±0.024 3.83 ±0.38 0.330 ±0.025 0.818 ±0.015 4.89 ±0.33 
+
+×8
+
+RANDOM 0.422 ±0.003 0.760 ±0.002 3.80 ±0.03 0.336 ±0.001 0.814 ±0.001 4.80 ±0.01 
+
+VL7 0.540 ±0.017 0.677 ±0.013 2.70 ±0.14 0.501 ±0.001 0.706 ±0.001 3.02 ±0.01 
+
+VR7 0.527 ±0.001 0.687 ±0.001 2.80 ±0.01 0.491 ±0.000 0.713 ±0.000 3.10 ±0.00 
+
+VU7 0.561 ±0.002 0.662 ±0.002 2.53 ±0.02 0.470 ±0.001 0.727 ±0.001 3.32 ±0.01 
+
+VL W7 0.572 ±0.004 0.654 ±0.003 2.44 ±0.03 0.469 ±0.005 0.727 ±0.003 3.34 ±0.05 
+
+INT7 0.529 ±0.006 0.685 ±0.005 2.78 ±0.05 0.441 ±0.001 0.747 ±0.001 3.61 ±0.01 
+
+6 Discussion and Conclusion 
+
+Why anisotropic 4D Gaussians work for EEG. Scalp EEG is a volume-conducted projection of cortical sources whose currents are oriented (perpendicular to the cortical sheet) and produce anisotropic scalp patterns that isotropic kernels cannot represent. The full 4×4 precision matrix captures this spatial anisotropy and couples it to the temporal evolution of source patterns in a single parameterization. 
+
+Comparison with prior reconstruction methods. Unlike MNE [ 10 ] or sLORETA [ 26 ], EMAG learns its forward model jointly with the source parameters and needs no precomputed leadfield from structural MRI, so it applies even when individual anatomy is unavailable. Unlike electrode-space CNN/diffusion baselines (e.g. SRGDiff [ 20 ]) it also exposes the underlying source configuration, which we exploit in the explainability paragraph below. 
+
+Model explainability. The learned Gaussian configurations are directly interpretable: each com-ponent carries a position gn, a precision matrix Σ−1 
+
+> n
+
+, and a signed amplitude wn. After training, high-|wn| components cluster near the known stimulation sites in Localize-MI (App. F.1, Fig. 8); the full 4×4 covariance lets each component be classified as point-like, elongated (directed cortical current), or sheet-like (App. F.2, Fig. 9; top-K ellipsoids in Fig. 6); and the coupling terms c3, c 4, c 5
+
+let a Gaussian’s spatial extent vary in time. This level of source-space readout is not available from CNN/diffusion SR baselines. 
+
+When uniform sampling beats anatomy. Channel-selection recipes from the classifier-driven EEG literature do not transfer to super-resolution: anatomically-clustered subsets leave large scalp regions unobserved and a generative reconstructor pays a measurable fidelity cost (Sec. 5, App. D.6). Layouts that maximise spatial coverage, which uniform random sampling approximates, are the better default for SR pipelines. 
+
+Limitations. The current model is trained per-subject; a cross-subject or subject-adaptive variant would improve practical applicability. The spherical brain grid remains a simplification of the true brain geometry; future work could use subject-specific cortical meshes. Evaluation is currently focused on three datasets; broader validation on naturalistic EEG paradigms (e.g., resting state, BCI motor imagery) is warranted. 
+
+EMAG demonstrates that physics-informed 4D Gaussian splatting offers a practical, interpretable path for EEG super-resolution—lightweight personalized models that unlock HD insights from sparse clinical hardware. By bridging computer vision rendering techniques with EEG’s ill-posed inverse problem, we hope EMAG opens new directions for neural field representations in neuroscience. All code and experiments will be made publicly available upon acceptance. Additionally, We provide an ethics and responsible-use discussion in App. I. 9References 
+
+[1] Abdullah, Ibrahima Faye, and Md Rafiqul Islam. Eeg channel selection techniques in motor imagery applications: A review and new perspectives. Bioengineering , 9(12):726, 2022. [2] Isaac A Corley and Yufei Huang. Deep eeg super-resolution: Upsampling eeg spatial resolu-tion with generative adversarial networks. In 2018 IEEE EMBS international conference on biomedical & health informatics (BHI) , pages 100–103. IEEE, 2018. [3] Anders M Dale, Arthur K Liu, Bruce R Fischl, Randy L Buckner, John W Belliveau, Jeffrey D Lewine, and Eric Halgren. Dynamic statistical parametric mapping: combining fmri and meg for high-resolution imaging of cortical activity. neuron , 26(1):55–67, 2000. [4] Richard J Davidson. Anterior cerebral asymmetry and the nature of emotion. Brain and cognition , 20(1):125–151, 1992. [5] Ruo-Nan Duan, Jia-Yi Zhu, and Bao-Liang Lu. Differential entropy feature for eeg-based emotion classification. In 2013 6th international IEEE/EMBS conference on neural engineering (NER) , pages 81–84. IEEE, 2013. [6] Yuanxing Duan, Fangyin Wei, Qiyu Dai, Yuhang He, Wenzheng Chen, and Baoquan Chen. 4d-rotor gaussian splatting: towards efficient novel view synthesis for dynamic scenes. In ACM SIGGRAPH 2024 Conference Papers , pages 1–11, 2024. [7] Alexandre Gramfort, Martin Luessi, Eric Larson, Denis A Engemann, Daniel Strohmeier, Christian Brodbeck, Lauri Parkkonen, and Matti S Hämäläinen. Mne software for processing meg and eeg data. neuroimage , 86:446–460, 2014. [8] Roberta Grech, Tracey Cassar, Joseph Muscat, Kenneth P Camilleri, Simon G Fabri, Michalis Zervakis, Petros Xanthopoulos, Vangelis Sakkalis, and Bart Vanrumste. Review on solving the inverse problem in eeg source analysis. Journal of neuroengineering and rehabilitation , 5(1): 25, 2008. [9] Hans Hallez, Bart Vanrumste, Roberta Grech, Joseph Muscat, Wim De Clercq, Anneleen Vergult, Yves D’Asseler, Kenneth P Camilleri, Simon G Fabri, Sabine Van Huffel, et al. Review on solving the forward problem in eeg source analysis. Journal of neuroengineering and rehabilitation , 4(1):46, 2007. [10] Matti S Hämäläinen and Risto J Ilmoniemi. Interpreting magnetic fields of the brain: minimum norm estimates. Medical & biological engineering & computing , 32(1):35–42, 1994. [11] Gexin Huang, Ke Liu, Jiawen Liang, Chang Cai, Zheng Hui Gu, Feifei Qi, Yuanqing Li, Zhu Liang Yu, and Wei Wu. Electromagnetic source imaging via a data-synthesis-based convolutional encoder–decoder network. IEEE Transactions on Neural Networks and Learning Systems , 35(5):6423–6437, 2022. [12] Mohammad Rafid Ul Islam, Prasad Tadepalli, and Alan Fern. Self-attention-based diffusion model for time-series imputation in partial blackout scenarios. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pages 17564–17572, 2025. [13] Meng Jiao, Shihao Yang, Xiaochen Xian, Neel Fotedar, and Feng Liu. Multi-modal electrophys-iological source imaging with attention neural networks based on deep fusion of eeg and meg. 
+
+IEEE Transactions on Neural Systems and Rehabilitation Engineering , 32:2492–2502, 2024. [14] Shahar Ain Kedem, Itamar Zimerman, and Eliya Nachmani. Neural brain fields: A nerf-inspired approach for generating nonexistent eeg electrodes. arXiv preprint arXiv:2601.00012 , 2025. [15] Bernhard Kerbl, Georgios Kopanas, Thomas Leimkühler, George Drettakis, et al. 3d gaussian splatting for real-time radiance field rendering. ACM Trans. Graph. , 42(4):139–1, 2023. [16] Minjae Kim, Seungjae Yoo, and Chul Kim. Miniaturization for wearable eeg systems: recording hardware and data processing. Biomedical Engineering Letters , 12(3):239–250, 2022. [17] Diederik P Kingma and Jimmy Ba. Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980 , 2014. 10 [18] Vernon J Lawhern, Amelia J Solon, Nicholas R Waytowich, Stephen M Gordon, Chou P Hung, and Brent J Lance. Eegnet: a compact convolutional neural network for eeg-based brain–computer interfaces. Journal of neural engineering , 15(5):056013, 2018. [19] Dongdong Li, Zhongliang Zeng, Zhe Wang, and Hai Yang. Estformer: Transformer utilizing spatiotemporal dependencies for eeg super-resolution. arXiv e-prints , pages arXiv–2312, 2023. [20] Hongjun Liu, Leyu Zhou, Zijianghao Yang, and Chao Yao. Step-aware residual-guided diffusion for eeg spatial super-resolution. arXiv preprint arXiv:2510.19166 , 2025. [21] Renjie Liu, Zaijun Wang, Jiang Qiu, and Xue Wang. Assigning channel weights using an attention mechanism: an eeg interpolation algorithm. Frontiers in neuroscience , 17:1251677, 2023. [22] Zijin Liu, Xiang Zhao, and You Song. Rdpi: a refine diffusion probability generation method for spatiotemporal data imputation. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pages 12255–12263, 2025. [23] Christoph M Michel and Denis Brunet. Eeg source imaging: a practical review of the analysis steps. Frontiers in neurology , 10:325, 2019. [24] Ezequiel Mikulan, Simone Russo, Sara Parmigiani, Simone Sarasso, Flavia Maria Zauli, Annal-isa Rubino, Pietro Avanzini, Anna Cattani, Alberto Sorrentino, Steve Gibbs, et al. Simultaneous human intracerebral stimulation and hd-eeg, ground-truth for source localization methods. 
+
+Scientific data , 7(1):127, 2020. [25] Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik, Jonathan T Barron, Ravi Ramamoor-thi, and Ren Ng. Nerf: Representing scenes as neural radiance fields for view synthesis. 
+
+Communications of the ACM , 65(1):99–106, 2021. [26] Roberto Domingo Pascual-Marqui et al. Standardized low-resolution brain electromagnetic tomography (sloreta): technical details. Methods find exp clin pharmacol , 24(Suppl D):5–12, 2002. [27] Mario Quiles Pérez, Sergio López Bernal, Eduardo Horna Prat, Luis Montesano Del Campo, Lorenzo Fernández Maimó, and Alberto Huertas Celdrán. Eeg channel reconstruction using con-volutional neural networks in limited bcis: A proposed method for neuromarketing applications. 
+
+Applied Soft Computing , 181:113455, 2025. [28] François Perrin, Jacques Pernier, Olivier Bertrand, and Jean Francois Echallier. Spherical splines for scalp potential and current density mapping. Electroencephalography and clinical neurophysiology , 72(2):184–187, 1989. [29] Rabie A Ramadan and Athanasios V Vasilakos. Brain computer interface: control signals review. Neurocomputing , 223:26–44, 2017. [30] Sari Saba-Sadiya, Tuka Alhanai, Taosheng Liu, and Mohammad M Ghassemi. Eeg channel interpolation using deep encoder-decoder networks. In 2020 IEEE International Conference on Bioinformatics and Biomedicine (BIBM) , pages 2432–2439. IEEE, 2020. [31] Rui Sun, Abbas Sohrabpour, Gregory A Worrell, and Bin He. Deep neural networks constrained by neural mass models improve electrophysiological source imaging of spatiotemporal brain dynamics. Proceedings of the National Academy of Sciences , 119(31):e2201128119, 2022. [32] Matthew Tancik, Pratul Srinivasan, Ben Mildenhall, Sara Fridovich-Keil, Nithin Raghavan, Utkarsh Singhal, Ravi Ramamoorthi, Jonathan Barron, and Ren Ng. Fourier features let networks learn high frequency functions in low dimensional domains. Advances in neural information processing systems , 33:7537–7547, 2020. [33] Camilo E Valderrama and Anshul Sheoran. Identifying relevant eeg channels for subject-independent emotion recognition using attention network layers. Frontiers in psychiatry , 16: 1494369, 2025. 11 [34] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. Advances in neural information processing systems , 30, 2017. [35] Julius Vetter, Jakob H Macke, and Richard Gao. Generating realistic neurophysiological time series with denoising diffusion probabilistic models. Patterns , 5(9), 2024. [36] Shuqiang Wang, Tong Zhou, Yanyan Shen, Ye Li, Guoheng Huang, and Yong Hu. Generative ai enables eeg super-resolution via spatio-temporal adaptive diffusion learning. IEEE Transactions on Consumer Electronics , 71(1):1034–1045, 2025. [37] Jonathan R Wolpaw. Brain-computer interfaces (bcis) for communication and control. In Pro-ceedings of the 9th international ACM SIGACCESS conference on Computers and accessibility ,pages 1–2, 2007. [38] Guanjun Wu, Taoran Yi, Jiemin Fang, Lingxi Xie, Xiaopeng Zhang, Wei Wei, Wenyu Liu, Qi Tian, and Xinggang Wang. 4d gaussian splatting for real-time dynamic scene rendering. In 
+
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 20310–20320, 2024. [39] Shunyang Zhang, Senzhang Wang, Xianzhen Tan, Ruochen Liu, Jian Zhang, and Jianxin Wang. Sasdim: Self-adaptive noise scaling diffusion model for spatial time series imputation. arXiv preprint arXiv:2309.01988 , 2023. [40] Wei-Long Zheng and Bao-Liang Lu. Investigating critical frequency bands and channels for eeg-based emotion recognition with deep neural networks. IEEE Transactions on autonomous mental development , 7(3):162–175, 2015. [41] Wei-Long Zheng, Wei Liu, Yifei Lu, Bao-Liang Lu, and Andrzej Cichocki. Emotionmeter: A multimodal framework for recognizing human emotions. IEEE transactions on cybernetics , 49 (3):1110–1122, 2018. 
+
+A Implementation details 
+
+Brain grid. The brain domain spans [−90 , 90] mm in each spatial dimension. The brain grid at resolution R consists of all points on a uniform R × R × R lattice that fall within a sphere of radius 90 mm . For the default R = 12 , the sphere grid yields N ≈ 826 grid points. With G = 3 
+
+Gaussians per point, the default configuration has Ntotal ≈ 2,478 components and ∼76 K total learnable parameters. 
+
+Per-component parameterization. Each Gaussian has 12 learnable parameters: 1 base amplitude, 1 temporal center μ(t), 4 Cholesky diagonal entries (log-scale), and 6 Cholesky off-diagonal entries. Total per-Gaussian parameters: 12 × Ntotal ≈ 29 ,700 for the default configuration. The LD encoder adds ∼2K parameters; the modulation MLP (mapping R32 → R64 → RN ) adds ∼55 K parameters at N ≈ 826 , dominating the total parameter budget of ∼76 K. 
+
+Computational efficiency. The Cholesky-based Mahalanobis decomposition (Eq. 4) enables EMAG to use the full 4D covariance at minimal overhead over isotropic variants. The spatial terms A and C
+
+are precomputed once per forward pass, and only the scalar temporal displacement τ varies at each time step, making the per-timestep cost O(M · Ntotal ).
+
+Initialization. Base amplitudes wn are initialized to zero. Temporal centers μ(t) 
+
+> n
+
+are drawn from Uniform (0 , 0.5) (normalized time). Cholesky diagonal entries are initialized to ℓi = log(1 /15) 
+
+for spatial dimensions (corresponding to a spatial precision of 1/15 mm −1, i.e., a spatial spread of ∼15 mm ) and ℓ3 = log(1 /0.1) for the temporal dimension. Off-diagonal Cholesky entries are initialized to zero (no coupling at initialization). 
+
+LD encoder. The temporal encoder is a 1D convolution over the LD channels at each time step, producing a df = 32 -dimensional feature vector. The modulation MLP has one hidden layer with 64 units and ReLU activation, mapping from Rdf to RN (one value per grid point, shared across G
+
+Gaussians). 12 Training protocol. All models are trained for up to 100 epochs with early stopping (patience 20, minimum improvement 10 −4) using Adam [ 17 ] (learning rate 10 −3, β1 = 0 .9, β2 = 0 .999 ). Each epoch is processed in temporal chunks with gradient accumulation. Training uses a single NVIDIA RTX 6000 Ada (50.9 GB) GPU and completes in under 30 minutes per subject for the default configuration. 
+
+Alternative parameterizations. The NeRF-Hybrid, Per-Voxel, and Isotropic Mixture 4D parameteri-zations share the same training protocol and LD encoder. Full hyperparameter details for each variant are provided in the supplementary material. 
+
+Compute resources. All experiments ran on a single internal SLURM cluster (NVIDIA RTX6000 GPUs with ∼48 GB VRAM, single-GPU allocation per job; 4 CPU cores, 24 GB RAM). A single (subject, SR-factor) EMAG training run takes 30–120 min wall-clock at r=2 –16 . The full benchmark (3 datasets × 3–4 SR factors × 3 seeds × 7–15 subjects) plus the ablation grid (Section E) consumed approximately 180 GPU-hours; preliminary and failed runs (hyperparameter search, debugging) add an estimated additional 1−2×.
+
+B Datasets 
+
+Dataset preprocessing and split protocol. For Localize-MI we use the released averaged-reference 256-ch HD-EEG at 8 kHz, retain the ± 200 ms window around stimulation onset, and apply a per-subject z-score with statistics computed on the training split only. For SEED and SEED-IV we use the preprocessed 0–75 Hz band-pass signals at 200 Hz released with each dataset, segment into non-overlapping 4 s windows (800 samples), and apply per-channel z-scoring with train-split statistics. The 80/20 train/test split is by trial within subject; the random split seed is fixed per run and we report mean ±std across three seeds s ∈ { 0, 1, 2} unless otherwise noted. The LD electrode subset is sampled uniformly without replacement from the HD montage, with seed = 0 throughout the main benchmark, and held fixed across all sessions of a subject. 
+
+Datasets, licenses and access. Localize-MI [24]: released under CC BY 4.0; available from Open-Neuro ( ds003644 ). SEED [ 40 ] and SEED-IV [5]: released under their original BCMI laboratory data-use agreement; available upon application from bcmi.sjtu.edu.cn/home/seed. Baselines. SaS-Dim, SADI, RDPI, DDPMEEG, ESTformer, STAD and SRGDiff are used under their respective original licenses; we cite the source papers in Section 4.2 and Section 2 and release no modified weights. 
+
+C Cross-subject generalization: extended results 
+
+This section gives the full protocol, per-(dataset, r) numbers with standard deviations, and additional discussion accompanying Section 4.3. 
+
+Protocol. For every dataset D ∈ { SEED , SEED-IV } and SR factor r ∈ { 2, 4, 8} we use the per-subject EMAG checkpoints already trained for the main results in Table 1 (architecture: R=12 , G=3 ,spherical brain grid, random LD selection, 3 split seeds). Let S denote the number of subjects in D
+
+(S=15 for both SEED and SEED-IV). For each split seed s we form the S × S transfer matrix T (s)
+
+where T (s) 
+
+> ij
+
+is obtained by: 1. loading the EMAG model trained on subject i (split seed s); 2. feeding it subject j’s LD test recordings (the same LD subset and test split that was used when evaluating subject j in the main results, so T (s) 
+
+> jj
+
+exactly reproduces the within-subject number); 3. recording NMSE, PCC and SNR between the model’s output and subject j’s HD ground truth. We report 
+
+within (s) = 1
+
+> S
+
+X
+
+> i
+
+T (s) 
+
+> ii
+
+, cross (s) = 1
+
+> S(S−1)
+
+X
+
+> i̸=j
+
+T (s) 
+
+> ij
+
+,
+
+and average across seeds. Each non-diagonal cell T (s) 
+
+> ij
+
+uses no information from subject j during training: subject i’s 4D Gaussian field is applied verbatim to subject j’s LD signal, with subject j’s 13 electrode positions used only to evaluate the rendered output (the LD-conditioning MLP is, by design, shared across grid points but not across subjects). 
+
+LD-spline reference. As a model-free baseline we use spherical-spline interpolation: each LD sample (on the K=nhd /r retained electrodes) is upsampled to the full HD montage by fitting a Legendre-polynomial spherical spline ( m=4 , λ=10 −5) per time step. The resulting HD prediction depends only on subject j’s own LD signal and electrode positions, so it is by construction a cross-subject method (no training subject involved); we therefore report a single LD-spline column rather than a transfer matrix. 
+
+Why not Localize-MI. Localize-MI is sEEG with subject-specific intracranial electrode layouts. Subject-i’s 4D Gaussian field is fit using subject-i’s implant geometry (256 electrodes located inside that particular brain). Querying that field at subject-j’s electrode positions is only well defined if the two implants are co-registered to a common space, which the Localize-MI release does not provide consistently across all 7 subjects. We therefore restrict the cross-subject study to the two scalp-EEG datasets (SEED, SEED-IV) which share the same standard 62-channel cap. 
+
+C.1 Cross-subject results Full results. Table 4 reports mean ±std across 3 split seeds for each (dataset, r). The variance is small (typically < 10 −2 on PCC), so all conclusions in Section 4.3 hold under any single seed. Table 4: Full cross-subject results (mean ±std over 3 split seeds). Within is the diagonal of the S × S
+
+transfer matrix (matches Table 1). Cross is the off-diagonal mean ( S(S−1) ordered pairs per seed). 
+
+LD-spline is non-learned spherical-spline upsampling of the LD montage. NMSE ↓, PCC ↑, SNR ↑
+
+(dB). 
+
+Dataset r Metric EMAG within EMAG cross LD-spline SEED 
+
+2×
+
+NMSE 0.1545 ±0.0011 0.8203 ±0.0023 1.4895 ±0.0037 
+
+PCC 0.9194 ±0.0006 0.5392 ±0.0013 0.2552 ±0.0019 
+
+SNR 8.20 ±0.03 0.92 ±0.01 −1.72 ±0.01 
+
+4×
+
+NMSE 0.2776 ±0.0015 0.7819 ±0.0020 1.4447 ±0.0039 
+
+PCC 0.8496 ±0.0009 0.5349 ±0.0011 0.2776 ±0.0019 
+
+SNR 5.62 ±0.02 1.13 ±0.01 −1.58 ±0.01 
+
+8×
+
+NMSE 0.4215 ±0.0032 0.8613 ±0.0017 1.4371 ±0.0032 
+
+PCC 0.7595 ±0.0021 0.4603 ±0.0014 0.2815 ±0.0016 
+
+SNR 3.80 ±0.03 0.72 ±0.01 −1.56 ±0.01 
+
+SEED-IV 
+
+2×
+
+NMSE 0.1151 ±0.0011 0.7848 ±0.0042 1.0625 ±0.0022 
+
+PCC 0.9405 ±0.0006 0.5651 ±0.0016 0.4687 ±0.0011 
+
+SNR 9.59 ±0.04 1.13 ±0.02 −0.24 ±0.01 
+
+4×
+
+NMSE 0.2023 ±0.0008 0.7840 ±0.0025 1.1350 ±0.0015 
+
+PCC 0.8928 ±0.0004 0.5493 ±0.0004 0.4325 ±0.0007 
+
+SNR 7.07 ±0.02 1.13 ±0.01 −0.52 ±0.01 
+
+8×
+
+NMSE 0.3358 ±0.0011 0.8519 ±0.0011 1.2668 ±0.0011 
+
+PCC 0.8143 ±0.0007 0.4870 ±0.0007 0.3666 ±0.0005 
+
+SNR 4.80 ±0.01 0.79 ±0.01 −0.94 ±0.01 
+
+Practical implication. EMAG should be deployed as a personalized SR module: a small per-subject fit ( ∼76 k parameters, single-GPU minutes per subject) is required to unlock the high-fidelity within-subject regime, but the same architecture already provides a non-trivial uplift over classical interpolation in a zero-shot transfer setting, and could serve as a strong initialization for fast few-shot personalization—an avenue we leave to future work. 
+
+Cross-subject transfer matrices Figure 3 shows the full 15 ×15 subject ×subject PCC transfer matrices used to derive the within/cross/LD-spline summary in Table 4. The bright diagonal vs. pale off-diagonal pattern is consistent across both datasets and all SR factors, reaffirming that EMAG’s per-subject fit captures features that do not transfer. 
+
+Interpretation. Three observations are worth emphasizing. (i) Cross-subject EMAG strictly dom-inates LD-spline on all tested (dataset, r, metric) configurations. The improvement is largest on 14 0 5 10                       
+
+> target subject
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> 12
+> 14
+> source (model)
+> SEED r= 2 (diag=0.92, off=0.54)
+> 0510
+> target subject
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> 12
+> 14
+> source (model)
+> SEED r= 4 (diag=0.85, off=0.54)
+> 0510
+> target subject
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> 12
+> 14
+> source (model)
+> SEED r= 8 (diag=0.76, off=0.46)
+> 0510
+> target subject
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> 12
+> 14
+> source (model)
+> SEED-IV r= 2 (diag=0.94, off=0.56)
+> 0510
+> target subject
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> 12
+> 14
+> source (model)
+> SEED-IV r= 4 (diag=0.89, off=0.55)
+> 0510
+> target subject
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> 12
+> 14
+> source (model)
+> SEED-IV r= 8 (diag=0.81, off=0.49)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> PCC
+> Cross-subject transfer (PCC) — diagonal = within-subject
+
+Figure 3: Subject ×subject PCC transfer matrices. Rows: source (training) subject; columns: target (evaluation) subject. Diagonal = within-subject score; off-diagonal mean = cross-subject score reported in Table 4. SEED (PCC 0.46 – 0.54 vs. 0.26 – 0.28 ; NMSE ∼ 0.78 – 0.86 vs. ∼ 1.44 – 1.49 ) where the LD-spline baseline is weak, and remains clear on SEED-IV. This says that the physics-style structure baked into EMAG—a sphere-bounded mixture of anisotropic 4D Gaussians whose centers act as virtual cortical sources, projected to scalp through subject electrode geometry—generalizes across people without any retraining. (ii) The within-vs-cross gap is large (e.g. on SEED-IV r=2 , PCC 0.94 → 0.57 ,SNR 9.6 → 1.1 dB). Per-subject training thus captures, beyond the geometric prior, individual features of the source configuration (cortical folding, electrode-to-cortex distances, time-locked dipolar dynamics) that cannot be reused across subjects. This matches the design intent: EMAG’s component centers are not shared across subjects. (iii) The cross-subject score is nearly flat in r
+
+(SEED-IV PCC 0.565 →0.549 →0.487 ; SEED 0.539 →0.535 →0.460 ), whereas the within-subject score degrades sharply with r. This is consistent with cross-subject performance being limited by thestructural mismatch between two brains rather than by the LD information content—the latter only becomes the bottleneck once subject identity is matched. 
+
+C.2 Per-subject reconstruction quality 
+
+Tables 5 – 7 report per-subject NMSE/PCC/SNR for every SR factor, using the default R=12 , G=3 
+
+sphere-grid configuration at split seed 0. Per-subject variability is moderate on Localize-MI (e.g. at r=4 , NMSE ranges from 0.07 for sub-02 to 0.18 for sub-04, the latter being a known outlier with denser implant coverage in motor cortex), and tighter on SEED/SEED-IV where the shared 62-channel cap normalizes input geometry. Reconstruction quality degrades smoothly with r: on Localize-MI the mean PCC drops 0.956 → 0.946 → 0.927 → 0.885 from r=2 to r=16 .
+
+D Electrode-subset super-resolution: extended results 
+
+This appendix backs the electrode-subset study of Section 5. We give (i) the prior-work motivation behind each named subset, (ii) the full channel lists, (iii) the experimental protocol, and (iv) per-(dataset, SR-factor, subset) fidelity numbers including SNR. 15 Table 5: Per-subject EMAG reconstruction on Localize-MI (split seed 0, R=12 , G=3 , sphere grid). NMSE ↓, PCC ↑, SNR ↑ (dB). 
+
+Subject 2× 4× 8× 16 ×
+
+NMSE PCC SNR NMSE PCC SNR NMSE PCC SNR NMSE PCC SNR 1 0.068 0.965 11.67 0.086 0.956 10.64 0.110 0.943 9.59 0.161 0.916 7.93 2 0.053 0.973 12.75 0.070 0.964 11.53 0.107 0.945 9.69 0.179 0.906 7.47 3 0.070 0.964 11.52 0.086 0.956 10.65 0.126 0.935 8.99 0.177 0.907 7.52 4 0.154 0.920 8.13 0.182 0.905 7.41 0.222 0.882 6.54 0.316 0.827 5.00 5 0.066 0.966 11.80 0.081 0.959 10.93 0.114 0.941 9.44 0.190 0.900 7.20 6 0.097 0.950 10.12 0.114 0.941 9.43 0.150 0.922 8.24 0.253 0.864 5.97 7 0.091 0.953 10.39 0.108 0.945 9.68 0.156 0.919 8.08 0.229 0.878 6.40 
+
+Mean 0.086 0.956 10.91 0.104 0.946 10.04 0.141 0.927 8.65 0.215 0.885 6.78 
+
+Table 6: Per-subject EMAG reconstruction on SEED (split seed 0, R=12 , G=3 , sphere grid). NMSE 
+
+↓, PCC ↑, SNR ↑ (dB). 
+
+Subject 2× 4× 8×
+
+NMSE PCC SNR NMSE PCC SNR NMSE PCC SNR 1 0.148 0.923 8.29 0.256 0.863 5.92 0.403 0.773 3.95 2 0.142 0.926 8.49 0.262 0.859 5.81 0.365 0.797 4.38 3 0.143 0.926 8.43 0.257 0.862 5.91 0.428 0.756 3.69 4 0.121 0.937 9.16 0.193 0.898 7.14 0.333 0.817 4.77 5 0.173 0.910 7.63 0.332 0.817 4.79 0.485 0.718 3.14 6 0.177 0.907 7.53 0.319 0.825 4.96 0.434 0.752 3.63 7 0.136 0.929 8.65 0.262 0.859 5.82 0.405 0.771 3.92 8 0.163 0.915 7.88 0.300 0.837 5.23 0.453 0.740 3.44 9 0.144 0.925 8.41 0.260 0.860 5.85 0.410 0.768 3.88 10 0.209 0.889 6.80 0.337 0.814 4.72 0.483 0.719 3.16 11 0.088 0.955 10.55 0.214 0.887 6.70 0.345 0.810 4.63 12 0.157 0.918 8.05 0.285 0.846 5.46 0.445 0.745 3.52 13 0.164 0.914 7.86 0.274 0.852 5.62 0.406 0.771 3.92 14 0.149 0.923 8.27 0.267 0.856 5.74 0.396 0.777 4.02 15 0.220 0.883 6.58 0.375 0.790 4.26 0.580 0.648 2.36 
+
+Mean 0.156 0.919 8.17 0.280 0.848 5.59 0.425 0.757 3.76 
+
+Table 7: Per-subject EMAG reconstruction on SEED-IV (split seed 0, R=12 , G=3 , sphere grid). NMSE ↓, PCC ↑, SNR ↑ (dB). 
+
+Subject 2× 4× 8×
+
+NMSE PCC SNR NMSE PCC SNR NMSE PCC SNR 1 0.110 0.943 9.57 0.183 0.904 7.36 0.333 0.817 4.78 2 0.111 0.943 9.56 0.217 0.885 6.64 0.324 0.822 4.90 3 0.133 0.931 8.77 0.192 0.899 7.17 0.323 0.823 4.91 4 0.136 0.930 8.67 0.231 0.877 6.37 0.373 0.792 4.28 5 0.096 0.951 10.16 0.168 0.912 7.74 0.314 0.828 5.03 6 0.130 0.933 8.85 0.241 0.871 6.18 0.352 0.805 4.53 7 0.113 0.942 9.45 0.216 0.885 6.66 0.353 0.804 4.52 8 0.048 0.976 13.15 0.127 0.934 8.95 0.228 0.879 6.42 9 0.103 0.947 9.85 0.195 0.897 7.10 0.374 0.791 4.27 10 0.120 0.938 9.21 0.208 0.890 6.81 0.319 0.825 4.96 11 0.061 0.969 12.15 0.117 0.940 9.32 0.225 0.880 6.47 12 0.138 0.928 8.60 0.231 0.877 6.36 0.366 0.796 4.36 13 0.196 0.897 7.07 0.324 0.822 4.89 0.470 0.728 3.28 14 0.107 0.945 9.71 0.217 0.885 6.64 0.328 0.820 4.84 15 0.112 0.942 9.50 0.182 0.905 7.41 0.357 0.802 4.47 
+
+Mean 0.114 0.941 9.62 0.203 0.892 7.04 0.336 0.814 4.80 
+
+16 D.1 Electrode geometry 
+
+Figure 4 shows the three recording geometries to scale: SEED and SEED-IV share a 62-channel scalp cap, while Localize-MI uses subject-specific intracranial implants ( 256 contacts for sub-01). This visual contrast underlies many of the dataset-dependent patterns in the ablation study (Sec. 4.4), including the larger benefit of the volumetric brain grid on SEED. −75          
+
+> −50
+> −25
+> 0
+> 25
+> 50
+> 75
+> x (mm)
+> −125
+> −100
+> −75
+> −50
+> −25 025 50 75 100
+> y (mm)
+> −20
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> z (mm)
+> SEED (62 scalp ch.) (n=62)
+> −75
+> −50
+> −25
+> 0
+> 25
+> 50
+> 75
+> x (mm)
+> −125
+> −100
+> −75
+> −50
+> −25 025 50 75 100
+> y (mm)
+> −20
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> z (mm)
+> SEED-IV (62 scalp ch.) (n=62)
+> −100
+> −75
+> −50
+> −25
+> 0
+> 25
+> 50
+> 75
+> 100
+> x (mm)
+> −100
+> −50
+> 0
+> 50
+> 100
+> y (mm)
+> −75
+> −50
+> −25
+> 0
+> 25
+> 50
+> 75
+> 100
+> 125
+> z (mm)
+> Localize-MI sub-01 (256 sEEG) (n=256)
+
+Figure 4: Recording geometries used in this paper. SEED/SEED-IV (left, middle) use the standard 10/20-extended 62-channel scalp cap; Localize-MI sub-01 (right) uses an intracerebral montage with 
+
+256 contacts. 
+
+D.2 Background and motivation for the named subsets 
+
+Channel selection has been an active subfield of EEG-based BCI design for over two decades; recent surveys review supervised, filter-, and wrapper-based methods that reduce the number of required channels without sacrificing classifier accuracy [ 1, 16 ]. For affective EEG specifically, two complementary priors recur in the literature. 
+
+Frontal hemispheric asymmetry. Davidson [4] established the now-canonical link between asym-metric frontal alpha activity and approach / withdrawal motivation, which has motivated emotion-EEG datasets such as SEED [ 40 ] to emphasise frontal and lateral coverage. Our H EMI -L EFT / H EMI -RIGHT subsets at K=31 operationalise this prior by retaining one full hemisphere of the montage plus the four midline channels (Fz, Cz, Pz, Oz). 
+
+Circumference / rim channels. Valderrama and Sheoran [33] argue that ten “circumference” channels of the 10/05 montage (Fp1, Fp2, F7, F8, T7, T8, P7, P8, O1, O2) carry most of the information used by direct emotion classifiers, and report that classifiers trained on these ten channels match the accuracy of classifiers trained on the full 62-channel montage on SEED. We use this finding as the inspiration for our V15 subset (the ten circumference channels plus five additional rim electrodes, yielding K=15 ) and for the four hemispheric rim slices at K=7 (VL7, VR7, VU7, VL W7). The FT15 subset is a fronto-temporal variant that emphasises channels typically associated with affective processing. 
+
+Interior controls. For each rim subset we include a same-K interior control (INT15, INT7) consisting of central / midline electrodes. These controls let us isolate the effect of rim versus interior 
+
+placement at fixed budget. 
+
+D.3 Subset definitions 
+
+Each named subset is a list of channel labels from the canonical 62-channel SEED / SEED-IV ordering. Subset sizes are K ∈ { 31 , 15 , 7}, giving SR factors of {2, 4, 8} relative to the full montage. 
+
+D.4 Protocol 
+
+For every (dataset, SR-factor, subset) cell we trained EMAG with the standard configuration of the main paper: mixture of G=3 anisotropic 4D Gaussians per active grid point, 12 3 uniform brain grid, full-4D covariance, leadfield-matrix forward operator, batch size 1, 100 epochs with patience 20 on 17 Subset ID K Channels (SEED order) HEMI -L EFT 31 FP1, AF3, F7, F5, F3, F1, FT7, FC5, FC3, FC1, T7, C5, C3, C1, TP7, CP5, CP3, CP1, P7, P5, P3, P1, PO7, PO5, PO3, CB1, O1, FZ, CZ, PZ, OZ HEMI -R IGHT 31 FP2, AF4, F8, F6, F4, F2, FT8, FC6, FC4, FC2, T8, C6, C4, C2, TP8, CP6, CP4, CP2, P8, P6, P4, P2, PO8, PO6, PO4, CB2, O2, FZ, CZ, PZ, OZ V15 15 FP1, FP2, F7, F8, FT7, FT8, T7, T8, TP7, TP8, P7, P8, PO7, O1, O2 FT15 15 FP1, FP2, F3, F4, F7, F8, FC5, FC6, FT7, FT8, T7, T8, TP7, TP8, P7 INT15 15 AF3, AF4, F1, F2, FZ, FC1, FC2, C1, C2, CZ, CP1, CP2, P1, P2, PZ VL7 7 FP1, F7, FT7, T7, TP7, P7, O1 VR7 7 FP2, F8, FT8, T8, TP8, P8, O2 VU7 7 FP1, FP2, F7, F8, FT7, FT8, T7 VL W7 7 TP7, TP8, P7, P8, PO7, O1, O2 INT7 7 FZ, FC1, FC2, CZ, CP1, CP2, PZ 
+
+Table 8: Definitions of the named electrode subsets. V15 is a superset of the ten circumference channels of Valderrama and Sheoran [33] . H EMI -L EFT and H EMI -R IGHT retain the four midline channels (Fz, Cz, Pz, Oz) in both subsets to keep the size at exactly K=31 .RAND (n=15) INT15 (n=15) FT15_approx (n=15) V15_approx (n=15) INT7 (n=7)          
+
+> VL7_approx (n=7) VR7_approx (n=7) VLw7_approx (n=7) HEMI_LEFT31 (n=31) HEMI_RIGHT31 (n=31)
+> Named electrode subsets on the 62-channel cap (top-down view)
+
+Figure 5: Named electrode subsets on the 62-channel SEED/SEED-IV cap (top-down view, anterior up). Crimson = retained channels, gray = discarded. validation NMSE. The only quantity that varies across cells is the set of retained low-density channels: for the named subsets, this set is fixed to the channel list of Table 8; for the R ANDOM baseline, the K-subset is sampled uniformly at random per (subject, split seed). Every cell is trained from scratch – the R ANDOM baseline does not share weights with the main-benchmark random-subset model – so the Random-versus-named comparison is a clean test of channel selection isolated from any compute-budget confound. We repeat each (dataset, SR-factor, subset, subject) configuration across three split seeds s ∈ { 0, 1, 2},which control both the train/val/test split and – for the R ANDOM baseline – the random K-subset. The numbers reported in Section 5 and in Table 9 below are the mean over the 15 subjects of the dataset, with mean ±std taken across the three split seeds. 
+
+D.5 Full reconstruction-fidelity table 
+
+Table 9 reports NMSE, PCC, and SNR for every (dataset, SR, subset) cell as mean ±std over the three split seeds. The ∆rand columns are absolute changes relative to the R ANDOM baseline at the same (dataset, SR) cell; positive ∆rand NMSE and negative ∆rand PCC / ∆rand SNR all indicate that the named subset is worse than R ANDOM .18 Metric (mean ±std over 3 seeds) ∆rand (vs. R ANDOM , same SR) Dataset SR Subset NMSE ↓ PCC ↑ SNR (dB) ↑ ∆NMSE ∆PCC ∆SNR SEED ×2 RANDOM 0.154 ±0.001 0.919 ±0.001 8.20 ±0.03 0.000 0.000 0.00 
+
+SEED ×2 HEMI -L EFT 0.312 ±0.058 0.829 ±0.035 5.15 ±0.77 +0 .158 −0.090 −3.05 
+
+SEED ×2 HEMI -R IGHT 0.312 ±0.050 0.829 ±0.031 5.13 ±0.68 +0 .158 −0.091 −3.08 
+
+SEED ×4 RANDOM 0.278 ±0.002 0.850 ±0.001 5.62 ±0.02 0.000 0.000 0.00 
+
+SEED ×4 V15 0.384 ±0.037 0.784 ±0.024 4.22 ±0.42 +0 .106 −0.066 −1.41 
+
+SEED ×4 FT15 0.385 ±0.038 0.783 ±0.024 4.19 ±0.42 +0 .108 −0.066 −1.44 
+
+SEED ×4 INT15 0.418 ±0.037 0.762 ±0.024 3.83 ±0.38 +0 .140 −0.087 −1.79 
+
+SEED ×8 RANDOM 0.422 ±0.003 0.760 ±0.002 3.80 ±0.03 0.000 0.000 0.00 
+
+SEED ×8 INT7 0.529 ±0.006 0.685 ±0.005 2.78 ±0.05 +0 .108 −0.074 −1.01 
+
+SEED ×8 VR7 0.527 ±0.001 0.687 ±0.001 2.80 ±0.01 +0 .105 −0.072 −0.99 
+
+SEED ×8 VL7 0.540 ±0.017 0.677 ±0.013 2.70 ±0.14 +0 .118 −0.082 −1.09 
+
+SEED ×8 VU7 0.561 ±0.002 0.662 ±0.002 2.53 ±0.02 +0 .139 −0.098 −1.26 
+
+SEED ×8 VL W7 0.572 ±0.004 0.654 ±0.003 2.44 ±0.03 +0 .150 −0.106 −1.35 
+
+SEED-IV ×2 RANDOM 0.115 ±0.001 0.940 ±0.001 9.58 ±0.03 0.000 0.000 0.00 
+
+SEED-IV ×2 HEMI -R IGHT 0.275 ±0.032 0.851 ±0.019 5.67 ±0.50 +0 .160 −0.090 −3.91 
+
+SEED-IV ×2 HEMI -L EFT 0.285 ±0.030 0.845 ±0.018 5.50 ±0.45 +0 .170 −0.095 −4.08 
+
+SEED-IV ×4 RANDOM 0.203 ±0.001 0.893 ±0.000 7.06 ±0.02 0.000 0.000 0.00 
+
+SEED-IV ×4 V15 0.299 ±0.010 0.837 ±0.006 5.29 ±0.15 +0 .097 −0.056 −1.77 
+
+SEED-IV ×4 FT15 0.311 ±0.020 0.829 ±0.012 5.12 ±0.28 +0 .108 −0.063 −1.94 
+
+SEED-IV ×4 INT15 0.330 ±0.025 0.818 ±0.015 4.89 ±0.33 +0 .127 −0.075 −2.17 
+
+SEED-IV ×8 RANDOM 0.336 ±0.001 0.814 ±0.001 4.80 ±0.01 0.000 0.000 0.00 
+
+SEED-IV ×8 INT7 0.441 ±0.001 0.747 ±0.001 3.61 ±0.01 +0 .105 −0.067 −1.19 
+
+SEED-IV ×8 VL W7 0.469 ±0.005 0.727 ±0.003 3.34 ±0.05 +0 .134 −0.087 −1.46 
+
+SEED-IV ×8 VU7 0.470 ±0.001 0.727 ±0.001 3.32 ±0.01 +0 .135 −0.087 −1.48 
+
+SEED-IV ×8 VR7 0.491 ±0.000 0.713 ±0.000 3.10 ±0.00 +0 .156 −0.102 −1.70 
+
+SEED-IV ×8 VL7 0.501 ±0.001 0.706 ±0.001 3.02 ±0.01 +0 .165 −0.108 −1.78 
+
+Table 9: Three-seed reconstruction-fidelity numbers for the electrode-subset experiments. Each cell is the mean over the 15 subjects of the dataset, reported as mean ±std across split seeds s ∈ { 0, 1, 2}.The R ANDOM rows are the same uniform-random baseline employed throughout the paper, retrained at each split seed with an independently re-sampled K-subset per (subject, seed). 
+
+D.6 Discussion Why does random uniform sampling beat anatomical priors? The named subsets are designed for direct decoding: they concentrate electrodes on regions whose univariate or low-order statistics are discriminative for the downstream task. The SR objective is different; it asks the reconstructor to recover the entire scalp signal, including regions that the named subsets leave entirely unobserved. Under EMAG’s forward model, each retained electrode constrains the implicit source field within roughly a Gaussian-shaped neighbourhood centred on the electrode position; if a large region of the scalp has no nearby observed channel, the reconstructor must extrapolate and pays an NMSE / PCC penalty. Uniform random sampling spreads observations isotropically across the scalp, which is close to the optimal coverage pattern under this model. 
+
+Why does the rim-vs-interior gap shrink at SR ×8? At K=7 the absolute number of observed channels is small enough that any clustered subset – rim or interior – leaves the rest of the scalp under-sampled. The total spatial coverage of INT7 (which spreads its seven electrodes along the central midline strip) turns out to be comparable to that of the rim slices at this regime, which is consistent with the small NMSE differences we observe in Table 9. 
+
+E Ablations: extended results and discussion 
+
+This section gives the full ablation results and per-component discussion underlying Section 4.4. We conduct a systematic ablation study to validate each core design decision in EMAG. All ablations are 19 evaluated on the Localize-MI and SEED datasets using the 4× super-resolution factor, as this setting provides a representative balance between reconstruction difficulty and spatial ambiguity. We report NMSE, PCC, and SNR on the held-out test set, averaged across all subjects. Results are summarized in the Table 2. 
+
+E.1 Hyperparameter search 
+
+We searched grid resolution R ∈ { 5, 7, 10 , 12 , 15 } and Gaussians-per-point G ∈ { 1, 2, 3, 5, 8} on Localize-MI sub-01 at r=4 with a TPE search (O PTUNA ); learning rate was jointly sampled in 
+
+{1×10 −4, . . . , 5×10 −3}. For every (R, G ) pair we report the lowest validation NMSE achieved across the sampled learning rates. Table 10: Hyperparameter search on Localize-MI ( r=4 ): validation NMSE ( ↓) by grid resolution R
+
+(rows) and Gaussians-per-point G (columns). Bold = chosen configuration.                               
+
+> R\G1235850.150 0.164 0.244 0.405 0.405
+> 70.142 0.143 0.132 0.274 0.136
+> 10 0.131 0.131 0.115 0.128 0.136
+> 12 0.123 0.114 0.106 0.131 0.115
+> 15 0.113 0.113 0.113 0.131 0.107
+
+Performance saturates by R=12 , with diminishing returns at R=15 (and ∼ 2× compute). Increasing 
+
+G beyond 3 does not improve fidelity at R≥10 . Learning-rate sensitivity was narrow: all top-quartile trials used lr ∈ [5 ×10 −4, 3×10 −3]; we adopt lr=1 ×10 −3 throughout. Final headline configuration: 
+
+R=12 , G =3 (bold ). 
+
+E.2 4D Gaussian Parameterization 
+
+The distinguishing structural element of EMAG is its use of full 4 × 4 anisotropic precision matrices for each Gaussian component. We isolate the contribution of each aspect of this parameterization through three targeted ablations. 
+
+Temporal dimension in the precision matrix. We first ask whether the fourth (temporal) axis of the precision matrix carries information beyond what amplitude modulation alone provides. To test this, we replace the full 4 × 4 precision matrix with a 3 × 3 spatial-only block, removing the temporal dimension from the Mahalanobis distance computation in Eq. 2 entirely. In this variant, temporal dynamics are handled exclusively by the time-varying amplitude an(t).We find that removing the temporal axis consistently degrades performance across both datasets. The larger relative degradation on SEED is consistent with the richer spectral content of continuous resting-state recordings, where transient activations with complex spatiotemporal profiles are more common than in the short, stereotyped evoked responses of Localize-MI. In both cases the degradation confirms that the temporal covariance axis encodes information that amplitude modulation alone cannot recover. 
+
+Off-diagonal coupling terms. We next isolate the contribution of anisotropy and space-time coupling by zeroing out all off-diagonal entries c0, . . . , c 5 in the Cholesky factor Ln (Eq. 3), reducing each component to an axis-aligned ellipsoid. We further decompose this into two sub-ablations: (a) remov-ing only the spatial off-diagonal terms c0, c 1, c 2, preserving patial isotropy but retaining space-time coupling; and (b) removing space-time terms c3, c 4, c 5 while introducing spatial anisotropy. Results across both datasets reveal a consistent pattern: removing any subset of off-diagonal terms produces similar degradation, and the two sub-ablations are produce comparable lesser results. Two conclusions follow. First, both coupling types are jointly necessary: either type alone recovers no advantage over the fully uncoupled case, indicating that their contributions are complementary rather than additive. Second, the full 4 × 4 precision matrix, which enables all six coupling terms simultaneously, is strictly required to capture the interaction between source directionality and temporal evolution, and no lower-dimensional subset achieves an equivalent representation. 20 Isotropic scalar variance. As the minimal parameterization within the Gaussian family, we replace each component’s full precision matrix with a single learnable scalar width σn, yielding a fully isotropic Gaussian with one variance parameter per component. This corresponds to the isotropic variant described in Section 4.2 and establishes the performance floor for the Gaussian family. The isotropic variant produces the largest degradation within the parameterization category. Taken together with the off-diagonal blations, the results establish a clear ordering: full 4 × 4 > diagonal anisotropic > isotropic, with each step yielding a consistent performance improvement. The steeper decline on SEED suggests that the anisotropic parameterization is particularly important when source configurations are spatially distributed and heterogeneous, as in resting-state EEG, compared to the more focal, stereotyped activations of the stimulation paradigm in Localize-MI. 
+
+E.3 Brain Grid and Source Placement 
+
+EMAG anchors its Gaussian components on an anatomically-constrained spherical brain grid. We evaluate the necessity of this structural prior and its performance with other grid variations. 
+
+Anatomical grid constraint. We remove the spherical constraint of Eq. 1 and allow all Gaussian centers to be free-floating learnable parameters, initialized at the original grid positions but uncon-strained during training. Without the anatomical prior, both reconstruction quality and training stability degrade. Inspecting learned positions, a subset of free-floating components migrates outside the brain volume entirely, attaching to the scalp surface. These surface-hugging components act as shortcut interpolators, exploiting proximity to LD electrodes rather than learning meaningful source configurations. This phenomenon confirms that the brain grid constraint is not merely a computational convenience but a necessary regularizer that prevents the model from collapsing to a degenerate surface interpolation solution. 
+
+Cortical surface vs. volumetric grid. To test whether deep (subcortical) sources contribute to reconstruction accuracy, we restrict grid points to the brain surface by retaining only those grid points within a thin shell of the outer sphere boundary. This surface-only model closely approximates cortical surface source models used in classical EEG analysis. The impact of restricting sources to the brain surface is markedly dataset-dependent and considerably stronger than anticipated. On Localize-MI, performance degrades measurably, which is expected with the dataset’s known subcortical stimulation sites that the surface-only model cannot represent. On SEED, however, the degradation is even greater, a finding which challenges the standard assumption that emotion-related EEG activity is predominantly cortical: the volumetric subcortical grid appears to be critical for effective SEED reconstruction. This ablation establishes that the full volumetric grid is the appropriate default and that surface-constrained source models are not a viable alternative for general-purpose EEG super-resolution. 
+
+E.4 Low-Density Conditioning Architecture 
+
+The LD conditioning pipeline is responsible for translating sparse observed electrode signals into spatially-resolved source amplitude modulations. We verify each component of this pipeline. 
+
+No conditioning (static source template). We first establish the most critical baseline: removing the TemporalEncoder and MLP mod entirely, leaving each Gaussian with only its fixed base amplitude 
+
+wi,g and no dependence on the LD input. In this degenerate setting, the model becomes a fixed anatomical template with learned spatial geometry but no ability to respond to the observed signal. As expected, performance collapses under this model. This result confirms the self-evident but important fact that input-dependent conditioning is the primary driver of per-sample reconstruction accuracy, and that the Gaussian source geometry alone, while beneficial for generalization and interpretability, cannot substitute for dynamic signal-driven modulation. This ablation also serves as an interpretable lower bound: any method that approaches this performance level is effectively failing to use the LD input. 
+
+Global vs. spatially-resolved amplitude modulation. We replace the per-grid-point amplitude output ∆wi(t) ∈ RN (Eq. 8) with a single global scalar ∆w(t) ∈ R applied uniformly to all grid points. This preserves the temporal conditioning mechanism but collapses spatial resolution: the model knows when the brain is active but not where .21 The contrast between datasets here is the most striking in the entire ablation suite. On Localize-MI, collapsing the per-grid-point modulation to a global scalar causes a near-catastrophic degradation, while on SEED the same modification have a lesser effect. This dissociation directly reflects the nature of the two tasks. Localize-MI recordings consist of focal, spatially-specific evoked responses to single-site intracranial stimulation. SEED recordings, however, capture distributed, slower-varying emotion-related activity across the entire cortex. This result highlights an important design consideration: the benefit of spatially-resolved conditioning scales with the spatial heterogeneity and focal specificity of the neural signals, and is most critical in clinical or evoked-response settings. 
+
+Raw vs. pre-interpolated LD input. We replace the raw m-channel LD input to the TemporalEncoder with a spherical-spline-interpolated version upsampled to the full M HD electrode positions [ 28 ]. This tests whether the encoder is bottlenecked by the sparsity of its input, and whether classical interpolation as a pre-processing step could substitute for the implicit spatial regularization provided by the Gaussian forward model. We found that pre-interpolation yields no improvement over raw LD input. We attribute this result to the Gaussian source model acting as a strong spatial prior: because the forward model constrains electrode signals to arise from smooth volumetric source distributions, the encoder receives implicit spatial regularization through the backward pass during training, making external pre-interpolation redundant. This finding has a practical implication: EMAG does not require any electrode-space pre-processing and can operate directly on raw LD recordings. 
+
+E.5 Physics-Informed Forward Model 
+
+The differentiable Gaussian rendering pipeline is the architectural element that most distinguishes EMAG from prior electrode-space super-resolution methods. We evaluate its necessity and examine alternatives. 
+
+Direct electrode-space mapping. We replace the entire source field rendering pipeline with a direct mapping: the TemporalEncoder output ht is passed to an MLP that directly predicts the 
+
+M -dimensional HD signal at each timestep, with no intermediate source representation. Model capacity is approximately matched to EMAG by widening the MLP hidden dimension. This ablation represents the strongest possible “physics-free” baseline within our framework and directly tests the central premise of the paper. The benefit of the physics-informed Gaussian pipeline is dataset-specific but always present. On localize-MI, the direct mapping degrades with a substantial gap that confirms the value of the source-space bottleneck for focal, evoked-response data. On SEED, the gap narrows, which is consistent with the relatively smooth and distributed nature of emotion-related EEG: when the target signal lacks sharp spatial gradients, a capacity-matched MLP could learn an adequate electrode-space mapping from data alone. The contrast across datasets underscores that the physics-informed design is most valuable precisely in the settings where it is clinically important: when neural activity is spatially focal and the super-resolution fidelity is critical. 
+
+Learned linear projection vs. Gaussian kernel. We replace the Gaussian-weighted distance function in Eq. 2 with a learned linear matrix W ∈ RM ×Ntotal , trained end-to-end alongside the rest of the model. This preserves the source-space bottleneck representation but replaces the physically-grounded Gaussian kernel with an unconstrained linear projection, testing whether the specific form of the Gaussian kernel is necessary or whether any differentiable source-to-electrode mapping suffices. The learned linear projection behaves very differently across the two datasets, revealing an important generalization asymmetry. On Localize-MI, its scores nearly match those from the direct electrode mapping, landing far below EMAG. This indicates that the source-space bottleneck alone does not confer a meaningful advantage when the projection kernel is unconstrained. On SEED, the learned projection performs dramatically worse, and we hypothesize this stems from over-parameterization: the M × Ntotal weight matrix has no geometric prior and is free to memorize subject-specific electrode relationships. With 15 subjects and longer continuous recordings, the SEED training set exposes a wider variety of spatial configurations. Thus, the unconstrained projection fails to generalize across this diversity, whereas EMAG’s Gaussian kernel imposes a distance-decay inductive bias that is invariant to specific electrode layouts and subjects. Together, the two datasets demonstrate that the 
+
+form of the Gaussian kernel, and not merely the existence of a source-space intermediate, greatly contributes to EMAG’s generalization capabilities. 22 Classical leadfield forward model. Finally, we replace the learned Gaussian kernel with a fixed electromagnetic leadfield matrix L ∈ RM ×Ntotal derived from a standard three-shell spherical head model using MNE-Python [ 7], keeping all other components of EMAG unchanged. The leadfield is computed at the same grid point locations as EMAG’s brain grid, roviding a direct comparison between physics-derived and learned projection kernels. The fixed leadfield model represents the lowest-performing forward model variant on both datasets. We argue that the performance gap relative to EMAG arises from multiple compounding factors: (1) the spherical three-shell head model does not account for individual anatomical variation, (2) the fixed kernel cannot adapt to the data, and (3) the BEM-derived conductivity assumptions do not hold for all subjects or electrode montages. Notably, however, the leadfield model does not improve interpretability in the manner one might expect from a physically-derived kernel, since the reconstruction error itself becomes large enough to obscure meaningful source configurations. This result reinforces the core design choice of EMAG: a learned Gaussian kernel that is geometrically structured but data-adaptive outperforms both the fully unconstrained and the fully fixed alternatives, occupying a productive middle ground between flexibility and physical inductive bias. 
+
+E.6 Ablation Summary 
+
+Table 2 consolidate all ablation results. Three overarching findings emerge. First, the single most impactful component is spatially-resolved LD conditioning: removing it entirely drives NMSE to 
+
+≈ 1.0 on both datasets, while collapsing it to a global scalar causes a +434% NMSE increase on Localize-MI, underscoring that dynamic, spatially-specific modulation is indispensable for focal neural activity. Second, the full 4 × 4 precision matrix contributes meaningfully beyond isotropic baselines: the complete parameterization reduces NMSE by 0.0192 on Localize-MI and 0.0612 on SEED relative to a scalar-width Gaussian, with both spatial anisotropy and space-time coupling terms jointly required. Third, the physics-informed Gaussian kernel’s advantage over the direct mapping support our claim that embedding the EEG forward model as a differentiable rendering step is particularly beneficial for super-resolution, where data-driven interpolation is often constrained. Taken together, these results validate each major design decision in EMAG: anatomical grid anchoring, volumetric source placement, full 4D anisotropic covariance, and spatially-resolved conditioning are all necessary components, each contributing independently to the overall performance. 
+
+F Interpretability of learned Gaussians 
+
+The learned amplitudes of the ∼ 2,500 Gaussian components reveal where the model concentrates explanatory power inside the brain volume. Figure 8 renders the active grid points of two trained subjects (one per dataset) coloured by mean amplitude magnitude across the G=3 Gaussians per point. On SEED (sub-01), high-amplitude components form a distributed pattern with clear bilateral occipital and frontal foci, matching the prior on emotion-related EEG. On Localize-MI (sub-01), the learned amplitudes concentrate near the intracerebral implant sites, consistent with the focal stimulation paradigm of the dataset. 
+
+F.1 Learned Gaussian source maps Quantitative validation against stimulation sites. We test whether the trained mixture allocates capacity near the ground-truth source. For each Localize-MI subject we load the trained checkpoint (r=4 , default config) and score every Gaussian by its LD-conditioned post-stim energy 
+
+sn = Etrial , t ∈[ tstim , t end ]
+
+(wn + mn(LD( t))) 2,
+
+where wn is the base amplitude, mn(·) the LD modulator output (Section 3.4), and tstim the stim-ulation onset of the run. For every run we then compute the Euclidean distance (mm, T1w-native space) from each top-K (K=10 ) Gaussian centre to the active sEEG-pair midpoint (pe1 + pe2 )/2.As a chance baseline we draw 5,000 random points from the brain grid and report the mean distance and the empirical p-value Pr[ drand ≤ dtop1 ]. Per-run distances are averaged within subject; we then report the mean and standard deviation across the seven subject means. Across 7 subjects and 61 stim runs (Table 11), the nearest top-Gaussian sits at d1 = 42 .1±14 .4 mm from the stim midpoint, vs. a chance distance of 93 .3 ± 5.5 mm; the top-1 Gaussian lands in the 23 best 10 ±8% of the brain volume on average. The effect is consistent across subjects (per-subject 
+
+d1: 22 –64 mm) and is achieved without any source-localization supervision during training. Arobustness check that ranks Gaussians by |wn| alone (no LD modulation) gives a near-identical headline ( d1 = 42 .3±11 .9 mm, p = 0 .09 ±0.06 ), confirming the finding does not depend on the conditioning term. Figure 6 visualises the top-10 Gaussian ellipsoids against the stim midpoints, and Figure 7 shows the corresponding reconstructed scalp-amplitude topographies in the post-stim window with the stim-midpoint projection (black ⋆) and the top-10 Gaussian projections (lime •,size ∝ score) overlaid. Table 11: Distance (mm) from learned top-K Gaussians to ground-truth sEEG stimulation midpoints, Localize-MI ( r=4 , default config), K=10 , ranked by post-stim LD-conditioned energy. d1: nearest top-Gaussian; ¯dK : mean over the top-K; dchance : mean distance from a random brain-grid point; p:empirical fraction of random points closer than d1. Overall row = mean ±std across the seven subject means. 
+
+Subject d1 (mm) ↓ ¯dK (mm) dchance (mm) p
+
+sub-01 22 .0 53 .0 93 .5 0.02 
+
+sub-02 44 .1 66 .8 101 .8 0.06 
+
+sub-03 64 .5 83 .1 90 .1 0.23 
+
+sub-04 54 .9 97 .1 89 .9 0.18 
+
+sub-05 38 .7 72 .1 89 .4 0.08 
+
+sub-06 29 .4 64 .0 88 .2 0.04 
+
+sub-07 40 .9 56 .5 100 .2 0.09 
+
+Overall 42 .1±14 .4 70 .4±15 .4 93 .3±5.5 0.10 ±0.08 sub-01   
+
+> stim midpoints
+> sub-05 sub-06
+> Top-10 learned 4D Gaussians (ellipsoids, brighter = larger | wn|) vs. ground-truth stimulation midpoints (cyan )
+
+Figure 6: Top-10 learned 4D Gaussians rendered as 1σ spatial ellipsoids (brightness ∝ | wn|)versus ground-truth stimulation midpoints (cyan ⋆), in T1w-native space inside the brain envelope (r=90 mm). Subjects shown: best (sub-01), median (sub-05), and worst (sub-06). 
+
+F.2 Anisotropy distribution 
+
+Figure 9 shows distributions of (a) the log-condition-number of the spatial 3×3 covariance block, (b) the per-axis spatial standard deviation, and (c) the temporal standard deviation of the 4×4
+
+Cholesky-parameterized covariance. The anisotropy histogram is heavy-tailed and clearly separated from 0 (isotropic), confirming that components do not collapse to spheres at training time and supporting the parameterization ablation in Sec. E.2. Spatial spreads concentrate around 5 – 15 mm, in line with the 15 mm initialization, while temporal spreads cover the full normalized range, indi-cating that the temporal axis of the precision matrix specializes per component—a behaviour the diagonal/spatial-only ablations cannot reproduce. 24 sub-01 sub-05 sub-06    
+
+> 1.20
+> 1.25
+> 1.30
+> 1.35
+> 1.40
+> |EMAG| (a.u.)
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> 1.1
+> 1.2
+> |EMAG| (a.u.)
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+> |EMAG| (a.u.)
+> Post-stim scalp reconstruction; = stim midpoint, lime = top-10 Gaussians (size |wn| score)
+
+Figure 7: Reconstructed scalp amplitude in the post-stim window (mean |EMAG | over 0.25 –0.26 s, across test trials). Black ⋆ = scalp electrode nearest each run’s stim midpoint; lime • = top-10 Gaussians projected azimuthally to the same layout, marker size ∝ post-stim LD-conditioned score. Reconstructed amplitude peaks consistently sit near both the stim-midpoint projection and the high-scoring Gaussian projections. −75 
+
+−50 
+
+−25 
+
+0
+
+25 
+
+50 
+
+75 x
+
+−75 −50 −25 0 25 50 75 y
+
+−75 
+
+−50 
+
+−25 
+
+0
+
+25 
+
+50 
+
+75 
+
+z
+
+lateral view 
+
+−75 −50 −25 0 25 50 75 
+
+x
+
+−75 
+
+−50 
+
+−25 
+
+0
+
+25 
+
+50 
+
+75 
+
+y
+
+−75 −50 −25 025 50 75 
+
+z
+
+axial view 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> |amplitude| (norm.)
+
+Learned Gaussian source amplitudes (SEED, sub-01, 4×) −75 
+
+−50 
+
+−25 
+
+0
+
+25 
+
+50 
+
+75 x
+
+−75 −50 −25 0 25 50 75 y
+
+−75 
+
+−50 
+
+−25 
+
+0
+
+25 
+
+50 
+
+75 
+
+z
+
+lateral view 
+
+−75 −50 −25 0 25 50 75 
+
+x
+
+−75 
+
+−50 
+
+−25 
+
+0
+
+25 
+
+50 
+
+75 
+
+y
+
+−75 −50 −25 025 50 75 
+
+z
+
+axial view 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> |amplitude| (norm.)
+
+Learned Gaussian source amplitudes (Localize-MI, sub-01, 4×) 
+
+Figure 8: Learned Gaussian amplitudes (lateral and axial views) for SEED sub-01 (top) and Localize-MI sub-01 (bottom), trained at r=4 with the default configuration. Colour and size encode the mean amplitude magnitude across the three Gaussians anchored at each grid point. 25 0 1 2 3 4                                
+
+> log 10 (λmax /λmin ) spatial
+> 0
+> 250
+> 500
+> 750
+> 1000
+> 1250
+> 1500
+> # Gaussians
+> isotropic
+> 0246810 12
+> spatial axis std (mm)
+> 0
+> 1000
+> 2000
+> 3000
+> 4000
+> 5000
+> 0123456
+> temporal std (norm. time)
+> 0
+> 250
+> 500
+> 750
+> 1000
+> 1250
+> 1500
+> 1750
+> Anisotropy distribution (SEED, sub-01, 4×, N=2016 components) 0123456
+> log 10 (λmax /λmin ) spatial
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> 600
+> # Gaussians
+> isotropic
+> 010 20 30 40 50
+> spatial axis std (mm)
+> 0
+> 1000
+> 2000
+> 3000
+> 4000
+> 5000
+> 0.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75
+> temporal std (norm. time)
+> 0
+> 50
+> 100
+> 150
+> 200
+> 250
+> 300
+> Anisotropy distribution (Localize-MI, sub-01, 4×, N=2016 components)
+
+Figure 9: Anisotropy of the trained 4D Gaussian field (top: SEED sub-01, bottom: Localize-MI sub-01, both at r=4 ). Left: spatial log-condition-number log 10 (λmax /λ min ) of the 3×3 spatial covariance block. Middle: per-axis spatial standard deviation in millimetres. Right: temporal standard deviation in normalized time units. 
+
+G Qualitative examples 
+
+G.1 Waveform reconstruction examples 
+
+Figure 10 plots a representative high-density channel of sub-01 at every SR factor. EMAG tracks the slow envelope and the millisecond-scale stimulation artefacts at r=2 – 8, with visible amplitude attenuation at r=16 where only 16 input channels remain. 2× 
+
+PCC=0.990 
+
+True HD EMAG 
+
+4× 
+
+PCC=0.962 
+
+8× 
+
+PCC=0.856 
+
+0 200 400 600 800 1000 
+
+Sample 
+
+16× 
+
+PCC=0.848 
+
+Reconstruction example, sub-01 ch100, trial 0 
+
+Figure 10: Localize-MI sub-01, channel 100, trial 0: ground-truth high-density signal (black) vs. EMAG reconstruction (crimson) at every SR factor. Per-trace PCC reported on the left. 26 G.2 Spectral fidelity 
+
+Figure 11 compares Welch power-spectral densities of the true HD signal and EMAG’s reconstruction, averaged over channels and trials. EMAG matches the broadband shape and reproduces the dataset-specific peaks (Localize-MI stimulation harmonics; SEED resting-state α band around 10 Hz), with mild high-frequency attenuation that is consistent with the smoothness prior of the Gaussian forward model. 0 500 1000 1500 2000 2500 3000 3500 4000          
+
+> Frequency (Hz)
+> 10 −5
+> 10 −4
+> 10 −3
+> PSD
+> PSD: Localize-MI sub-01, r= 4
+> True HD
+> EMAG 020 40 60 80 100
+> Frequency (Hz)
+> 10 −4
+> 10 −3
+> 10 −2
+> 10 −1
+> PSD
+> PSD: SEED sub-01, r= 4
+> True HD
+> EMAG
+
+Figure 11: Welch PSD: true (black) vs. EMAG (crimson). Top: Localize-MI sub-01 ( fs=8 kHz); bottom: SEED sub-01 ( fs=200 Hz). Both at r=4 .
+
+G.3 Single-time-step snapshot 
+
+Figure 12 visualises one HD time step as a top-down electrode scatter, comparing the sparse LD input fed to EMAG, the EMAG HD reconstruction, and the ground-truth HD field. The reconstruction recovers spatial structure that is invisible in the LD input alone, including sign reversals across hemispheres on SEED. 
+
+H Limitations and Impact 
+
+H.1 Limitations 
+
+EMAG is trained per-subject and does not generalise zero-shot (Section 4.3). Evaluation is restricted to non-pathological scalp EEG; behaviour on clinical recordings, MEG, or intracranial signals is uncharacterised. Source-localisation fidelity is externally validated only on Localize-MI, where 27 Sparse LD input EMAG prediction (HD) Ground truth (HD)       
+
+> −1.0
+> −0.5
+> 0.0
+> 0.5
+> 1.0
+> amplitude (μV)
+> Single-time-step snapshot: Localize-MI sub-01, r= 4, t-idx 200 Sparse LD input EMAG prediction (HD) Ground truth (HD)
+> −1.5
+> −1.0
+> −0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> amplitude (μV)
+> Single-time-step snapshot: SEED sub-01, r= 4, t-idx 200
+
+Figure 12: Single-time-step electrode-space snapshots (top: Localize-MI sub-01, bottom: SEED sub-01, r=4 ). Left: sparse LD input ( K=⌊nhd /r ⌋ retained channels). Middle: EMAG HD reconstruction. Right: ground truth. ground-truth stimulation sites are available. Compute scales with the number of active grid points; sub-second inference on edge hardware would require further optimisation. 
+
+H.2 Broader impact 
+
+EMAG can lower the equipment cost of high-fidelity scalp EEG by recovering HD-quality recordings from sparse, consumer-grade caps, with positive implications for low-resource clinical and BCI use. The same capability introduces risks: reconstructions are model-based extrapolations, not direct measurements, and may create spurious confidence in clinical decisions taken on low-density recordings. We recommend downstream-task validation (e.g. classification accuracy, ERP-component fidelity) before any clinical deployment, and we explicitly discourage use of EMAG outputs as standalone diagnostic evidence. 
+
+I Ethics and Responsible Use 
+
+This work uses only publicly released EEG datasets that were originally collected under the ethical approvals and licenses reported by their creators. We did not collect any new human-subject data, interact with participants, or perform any additional interventions beyond the use of these existing de-identified datasets. Because EEG signals are biometric and can potentially be sensitive, we treat reconstruction outputs as research artifacts rather than diagnostic evidence, and we caution that they should not be used for clinical decision-making without proper validation, regulatory review, and domain-specific oversight. More broadly, high-fidelity EEG super-resolution may improve low-cost neurotechnology and retrospective analysis, but it could also be misused to over-interpret sparse recordings or create unwarranted confidence in reconstructed signals. For this reason, we recommend that any downstream deployment clearly disclose the reconstruction process, report uncertainty where possible, and validate conclusions on the original observed data rather than on reconstructed signals alone. 28 NeurIPS Paper Checklist 
+
+1. Claims 
+
+Question: Do the main claims made in the abstract and introduction accurately reflect the paper’s contributions and scope? Answer: [Yes] Justification: The abstract and Section 1 state EMAG’s contributions (volumetric 4D-Gaussian EEG super-resolution on a spherical brain grid, anisotropic spatio-temporal covari-ance, LD-conditioned reconstruction); Section 4.2 (Table 1) and Section 5 (Table 3) report the matching empirical claims; scope is restricted to the three well established datasets and SR factors evaluated. Guidelines: • The answer [N/A] means that the abstract and introduction do not include the claims made in the paper. • The abstract and/or introduction should clearly state the claims made, including the contributions made in the paper and important assumptions and limitations. A [No] or [N/A] answer to this question will not be perceived well by the reviewers. • The claims made should match theoretical and experimental results, and reflect how much the results can be expected to generalize to other settings. • It is fine to include aspirational goals as motivation as long as it is clear that these goals are not attained by the paper. 2. Limitations 
+
+Question: Does the paper discuss the limitations of the work performed by the authors? Answer: [Yes] Justification: Section 6 discusses cross-subject generalization gap (Section 4.3), per-subject training requirement, restriction to non-pathological scalp EEG, and lack of source-localization ground truth outside Localize-MI. Guidelines: • The answer [N/A] means that the paper has no limitation while the answer [No] means that the paper has limitations, but those are not discussed in the paper. • The authors are encouraged to create a separate “Limitations” section in their paper. • The paper should point out any strong assumptions and how robust the results are to violations of these assumptions (e.g., independence assumptions, noiseless settings, model well-specification, asymptotic approximations only holding locally). The authors should reflect on how these assumptions might be violated in practice and what the implications would be. • The authors should reflect on the scope of the claims made, e.g., if the approach was only tested on a few datasets or with a few runs. In general, empirical results often depend on implicit assumptions, which should be articulated. • The authors should reflect on the factors that influence the performance of the approach. For example, a facial recognition algorithm may perform poorly when image resolution is low or images are taken in low lighting. Or a speech-to-text system might not be used reliably to provide closed captions for online lectures because it fails to handle technical jargon. • The authors should discuss the computational efficiency of the proposed algorithms and how they scale with dataset size. • If applicable, the authors should discuss possible limitations of their approach to address problems of privacy and fairness. • While the authors might fear that complete honesty about limitations might be used by reviewers as grounds for rejection, a worse outcome might be that reviewers discover limitations that aren’t acknowledged in the paper. The authors should use their best judgment and recognize that individual actions in favor of transparency play an impor-tant role in developing norms that preserve the integrity of the community. Reviewers will be specifically instructed to not penalize honesty concerning limitations. 29 3. Theory assumptions and proofs 
+
+Question: For each theoretical result, does the paper provide the full set of assumptions and a complete (and correct) proof? Answer: [N/A] Justification: The paper presents an empirical method without theoretical results requiring proof; the rendering equations in Section 3.3 follow standard Gaussian-mixture derivations ([15]). Guidelines: • The answer [N/A] means that the paper does not include theoretical results. • All the theorems, formulas, and proofs in the paper should be numbered and cross-referenced. • All assumptions should be clearly stated or referenced in the statement of any theorems. • The proofs can either appear in the main paper or the supplemental material, but if they appear in the supplemental material, the authors are encouraged to provide a short proof sketch to provide intuition. • Inversely, any informal proof provided in the core of the paper should be complemented by formal proofs provided in appendix or supplemental material. • Theorems and Lemmas that the proof relies upon should be properly referenced. 4. Experimental result reproducibility 
+
+Question: Does the paper fully disclose all the information needed to reproduce the main ex-perimental results of the paper to the extent that it affects the main claims and/or conclusions of the paper (regardless of whether the code and data are provided or not)? Answer: [Yes] Justification: Architecture, loss, optimizer, schedule, grid resolution, Gaussians-per-point, and data splits are described in Section 3 and App. A; full hyperparameter and ablation tables are in App. E; code and configs will be released at the public GitHub repository. Guidelines: • The answer [N/A] means that the paper does not include experiments. • If the paper includes experiments, a [No] answer to this question will not be perceived well by the reviewers: Making the paper reproducible is important, regardless of whether the code and data are provided or not. • If the contribution is a dataset and/or model, the authors should describe the steps taken to make their results reproducible or verifiable. • Depending on the contribution, reproducibility can be accomplished in various ways. For example, if the contribution is a novel architecture, describing the architecture fully might suffice, or if the contribution is a specific model and empirical evaluation, it may be necessary to either make it possible for others to replicate the model with the same dataset, or provide access to the model. In general. releasing code and data is often one good way to accomplish this, but reproducibility can also be provided via detailed instructions for how to replicate the results, access to a hosted model (e.g., in the case of a large language model), releasing of a model checkpoint, or other means that are appropriate to the research performed. • While NeurIPS does not require releasing code, the conference does require all submis-sions to provide some reasonable avenue for reproducibility, which may depend on the nature of the contribution. For example (a) If the contribution is primarily a new algorithm, the paper should make it clear how to reproduce that algorithm. (b) If the contribution is primarily a new model architecture, the paper should describe the architecture clearly and fully. (c) If the contribution is a new model (e.g., a large language model), then there should either be a way to access this model for reproducing the results or a way to reproduce the model (e.g., with an open-source dataset or instructions for how to construct the dataset). 30 (d) We recognize that reproducibility may be tricky in some cases, in which case authors are welcome to describe the particular way they provide for reproducibility. In the case of closed-source models, it may be that access to the model is limited in some way (e.g., to registered users), but it should be possible for other researchers to have some path to reproducing or verifying the results. 5. Open access to data and code 
+
+Question: Does the paper provide open access to the data and code, with sufficient instruc-tions to faithfully reproduce the main experimental results, as described in supplemental material? Answer: [Yes] Justification: Code, training scripts, and configs will be released at a public GitHub reposi-tory; the three datasets (Localize-MI, SEED, SEED-IV) are public and access procedures are described in App. B. Guidelines: • The answer [N/A] means that paper does not include experiments requiring code. • Please see the NeurIPS code and data submission guidelines ( https://neurips.cc/ public/guides/CodeSubmissionPolicy ) for more details. • While we encourage the release of code and data, we understand that this might not be possible, so [No] is an acceptable answer. Papers cannot be rejected simply for not including code, unless this is central to the contribution (e.g., for a new open-source benchmark). • The instructions should contain the exact command and environment needed to run to reproduce the results. See the NeurIPS code and data submission guidelines ( https: //neurips.cc/public/guides/CodeSubmissionPolicy ) for more details. • The authors should provide instructions on data access and preparation, including how to access the raw data, preprocessed data, intermediate data, and generated data, etc. • The authors should provide scripts to reproduce all experimental results for the new proposed method and baselines. If only a subset of experiments are reproducible, they should state which ones are omitted from the script and why. • At submission time, to preserve anonymity, the authors should release anonymized versions (if applicable). • Providing as much information as possible in supplemental material (appended to the paper) is recommended, but including URLs to data and code is permitted. 6. Experimental setting/details 
+
+Question: Does the paper specify all the training and test details (e.g., data splits, hyperpa-rameters, how they were chosen, type of optimizer) necessary to understand the results? Answer: [Yes] Justification: Section 4.1 states splits, optimizer (Adam, [ 17 ]), learning rate, batch size, and SR factors; full per-experiment hyperparameters are tabulated in App. A. Guidelines: • The answer [N/A] means that the paper does not include experiments. • The experimental setting should be presented in the core of the paper to a level of detail that is necessary to appreciate the results and make sense of them. • The full details can be provided either with the code, in appendix, or as supplemental material. 7. Experiment statistical significance 
+
+Question: Does the paper report error bars suitably and correctly defined or other appropriate information about the statistical significance of the experiments? Answer: [Yes] Justification: All headline tables in Section 4.2 (Table 1) and ablations (Table 2) report mean ±std over 3 seeds; per-subject standard deviations are tabulated in App. C.2. Guidelines: 31 • The answer [N/A] means that the paper does not include experiments. • The authors should answer [Yes] if the results are accompanied by error bars, confidence intervals, or statistical significance tests, at least for the experiments that support the main claims of the paper. • The factors of variability that the error bars are capturing should be clearly stated (for example, train/test split, initialization, random drawing of some parameter, or overall run with given experimental conditions). • The method for calculating the error bars should be explained (closed form formula, call to a library function, bootstrap, etc.) • The assumptions made should be given (e.g., Normally distributed errors). • It should be clear whether the error bar is the standard deviation or the standard error of the mean. • It is OK to report 1-sigma error bars, but one should state it. The authors should preferably report a 2-sigma error bar than state that they have a 96% CI, if the hypothesis of Normality of errors is not verified. • For asymmetric distributions, the authors should be careful not to show in tables or figures symmetric error bars that would yield results that are out of range (e.g., negative error rates). • If error bars are reported in tables or plots, the authors should explain in the text how they were calculated and reference the corresponding figures or tables in the text. 8. Experiments compute resources 
+
+Question: For each experiment, does the paper provide sufficient information on the com-puter resources (type of compute workers, memory, time of execution) needed to reproduce the experiments? Answer: [Yes] Justification: All experiments ran on a computing cluster (NVIDIA GPUs, 48GB VRAM class, e.g. RTX6000 nodes). Each (subject, SR-factor) EMAG run takes 30–120 min wall-clock. Guidelines: • The answer [N/A] means that the paper does not include experiments. • The paper should indicate the type of compute workers CPU or GPU, internal cluster, or cloud provider, including relevant memory and storage. • The paper should provide the amount of compute required for each of the individual experimental runs as well as estimate the total compute. • The paper should disclose whether the full research project required more compute than the experiments reported in the paper (e.g., preliminary or failed experiments that didn’t make it into the paper). 9. Code of ethics 
+
+Question: Does the research conducted in the paper conform, in every respect, with the NeurIPS Code of Ethics https://neurips.cc/public/EthicsGuidelines ?Answer: [Yes] Justification: The work uses only publicly released, de-identified EEG datasets under their original licenses; no new human-subjects data were collected and no foreseeable Code-of-Ethics violations apply. Guidelines: • The answer [N/A] means that the authors have not reviewed the NeurIPS Code of Ethics. • If the authors answer [No], they should explain the special circumstances that require a deviation from the Code of Ethics. • The authors should make sure to preserve anonymity (e.g., if there is a special consid-eration due to laws or regulations in their jurisdiction). 10. Broader impacts 
+
+32 Question: Does the paper discuss both potential positive societal impacts and negative societal impacts of the work performed? Answer: [Yes] Justification: Section 6 discusses positive impacts (lower-cost BCI/clinical EEG via sparse caps, more accurate downstream interpretation) and risks (reconstructions could create spu-rious confidence in low-density recordings, potential misuse for pseudo-clinical decisions) and recommends downstream-task validation before deployment. Guidelines: • The answer [N/A] means that there is no societal impact of the work performed. • If the authors answer [N/A] or [No], they should explain why their work has no societal impact or why the paper does not address societal impact. • Examples of negative societal impacts include potential malicious or unintended uses (e.g., disinformation, generating fake profiles, surveillance), fairness considerations (e.g., deployment of technologies that could make decisions that unfairly impact specific groups), privacy considerations, and security considerations. • The conference expects that many papers will be foundational research and not tied to particular applications, let alone deployments. However, if there is a direct path to any negative applications, the authors should point it out. For example, it is legitimate to point out that an improvement in the quality of generative models could be used to generate Deepfakes for disinformation. On the other hand, it is not needed to point out that a generic algorithm for optimizing neural networks could enable people to train models that generate Deepfakes faster. • The authors should consider possible harms that could arise when the technology is being used as intended and functioning correctly, harms that could arise when the technology is being used as intended but gives incorrect results, and harms following from (intentional or unintentional) misuse of the technology. • If there are negative societal impacts, the authors could also discuss possible mitigation strategies (e.g., gated release of models, providing defenses in addition to attacks, mechanisms for monitoring misuse, mechanisms to monitor how a system learns from feedback over time, improving the efficiency and accessibility of ML). 11. Safeguards 
+
+Question: Does the paper describe safeguards that have been put in place for responsible release of data or models that have a high risk for misuse (e.g., pre-trained language models, image generators, or scraped datasets)? Answer: [N/A] Justification: The released model is a small ( <100k-parameter) per-subject signal-reconstruction model trained on public EEG; it does not generate identifiable biometric content or pose dual-use concerns of the kind targeted by this question. Guidelines: • The answer [N/A] means that the paper poses no such risks. • Released models that have a high risk for misuse or dual-use should be released with necessary safeguards to allow for controlled use of the model, for example by requiring that users adhere to usage guidelines or restrictions to access the model or implementing safety filters. • Datasets that have been scraped from the Internet could pose safety risks. The authors should describe how they avoided releasing unsafe images. • We recognize that providing effective safeguards is challenging, and many papers do not require this, but we encourage authors to take this into account and make a best faith effort. 12. Licenses for existing assets 
+
+Question: Are the creators or original owners of assets (e.g., code, data, models), used in the paper, properly credited and are the license and terms of use explicitly mentioned and properly respected? 33 Answer: [Yes] Justification: Localize-MI, SEED, and SEED-IV are cited ([ 24 , 5 , 40 ]) with license/access terms reproduced in App. B; baseline implementations (SaSDim, SADI, RDPI, DDPMEEG, ESTformer, STAD, SRGDiff) are credited to their original papers and used under their original licenses. Guidelines: • The answer [N/A] means that the paper does not use existing assets. • The authors should cite the original paper that produced the code package or dataset. • The authors should state which version of the asset is used and, if possible, include a URL. • The name of the license (e.g., CC-BY 4.0) should be included for each asset. • For scraped data from a particular source (e.g., website), the copyright and terms of service of that source should be provided. • If assets are released, the license, copyright information, and terms of use in the package should be provided. For popular datasets, paperswithcode.com/datasets 
+
+has curated licenses for some datasets. Their licensing guide can help determine the license of a dataset. • For existing datasets that are re-packaged, both the original license and the license of the derived asset (if it has changed) should be provided. • If this information is not available online, the authors are encouraged to reach out to the asset’s creators. 13. New assets 
+
+Question: Are new assets introduced in the paper well documented and is the documentation provided alongside the assets? Answer: [Yes] Justification: The released EMAG codebase will be shipped with a README documenting installation, data preparation, training, and evaluation commands. Guidelines: • The answer [N/A] means that the paper does not release new assets. • Researchers should communicate the details of the dataset/code/model as part of their submissions via structured templates. This includes details about training, license, limitations, etc. • The paper should discuss whether and how consent was obtained from people whose asset is used. • At submission time, remember to anonymize your assets (if applicable). You can either create an anonymized URL or include an anonymized zip file. 14. Crowdsourcing and research with human subjects 
+
+Question: For crowdsourcing experiments and research with human subjects, does the paper include the full text of instructions given to participants and screenshots, if applicable, as well as details about compensation (if any)? Answer: [N/A] Justification: The paper does not involve crowdsourcing or new human-subjects research. Guidelines: • The answer [N/A] means that the paper does not involve crowdsourcing nor research with human subjects. • Including this information in the supplemental material is fine, but if the main contribu-tion of the paper involves human subjects, then as much detail as possible should be included in the main paper. • According to the NeurIPS Code of Ethics, workers involved in data collection, curation, or other labor should be paid at least the minimum wage in the country of the data collector. 34 15. Institutional review board (IRB) approvals or equivalent for research with human subjects 
+
+Question: Does the paper describe potential risks incurred by study participants, whether such risks were disclosed to the subjects, and whether Institutional Review Board (IRB) approvals (or an equivalent approval/review based on the requirements of your country or institution) were obtained? Answer: [N/A] Justification: All datasets used were released by the original authors under their own ethics approvals; no additional human-subjects research was conducted. Guidelines: • The answer [N/A] means that the paper does not involve crowdsourcing nor research with human subjects. • Depending on the country in which research is conducted, IRB approval (or equivalent) may be required for any human subjects research. If you obtained IRB approval, you should clearly state this in the paper. • We recognize that the procedures for this may vary significantly between institutions and locations, and we expect authors to adhere to the NeurIPS Code of Ethics and the guidelines for their institution. • For initial submissions, do not include any information that would break anonymity (if applicable), such as the institution conducting the review. 16. Declaration of LLM usage 
+
+Question: Does the paper describe the usage of LLMs if it is an important, original, or non-standard component of the core methods in this research? Note that if the LLM is used only for writing, editing, or formatting purposes and does not impact the core methodology, scientific rigor, or originality of the research, declaration is not required. Answer: [Yes] Justification: LLM coding assistants were used for non-trivial implementation work — e.g. vectorising the 4D Gaussian rendering kernel, writing CUDA-friendly time-chunked variants, and generating test/visualisation code. They were not used for research ideation, methodological design, or writing of the scientific narrative; all conceptual and experimental decisions were made by the authors. Drafts produced with LLM assistance were edited by the authors. Guidelines: • The answer [N/A] means that the core method development in this research does not involve LLMs as any important, original, or non-standard components. • Please refer to our LLM policy in the NeurIPS handbook for what should or should not be described. 35
