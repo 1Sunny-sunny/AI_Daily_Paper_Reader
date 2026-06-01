@@ -1,63 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-06-01
-- 运行时间：2026-06-01 04:11:07 北京时间
+- 最新运行日期：2026-06-02
+- 运行时间：2026-06-02 06:09:52 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今天我们精读了 5 篇脑科学与 AI 交叉前沿，重点拆解了嗅觉 OFF 反应的神经回路模型与脑电语音包络重建的混合架构。
-最值得跟进的结论是：大脑利用超越传统视差计算的群体编码实现立体视觉，以及事件相机在神经形态硬件上实现了持续动作学习。
-对普通读者而言，若想尝鲜，不妨从“脑信号解码语音”和“嗅球回路如何让动物感知气味终止”这两把钥匙入手。
-- 详情：[/202606/01/README](/202606/01/README)
+今日精读两篇脑机接口与预测编码算法，速扫可解释AI与皮层灵活性，共消化15篇前沿文献。  
+最值得关注：扩展预测编码框架与自由能最小化找到优雅统一，而无妥协的可解释性方法成功分离多义神经元。  
+下步建议：不妨从因果方向切入，追踪大脑全局动态如何驱动感知与运动灵活切换。
+- 详情：[/202606/02/README](/202606/02/README)
 
 ### 精读区论文标签
-1. [Data-Constrained Recurrent Network Neural Model Uncovers the Circuit Mechanism of Olfactory OFF Responses](/202606/01/biorxiv-10-64898-2026-05-22-727331-v1-data-constrained-recurrent-network-neural-model-uncovers-the-circuit-mechanism-of-olfactory-off-responses)  
+1. [Bayesian Classification with Probit-link Split-and-merge Gaussian Process Prior in EEG-based Brain-Computer Interfaces](/202606/02/2605.30775v1-bayesian-classification-with-probit-link-split-and-merge-gaussian-process-prior-in-eeg-based-brain-computer-interfaces)  
    标签：评分：9.0/10、query:sr
-   evidence：RNN模型将气味刺激与投射神经元放电动态关联
-2. [Investigating Hybrid Deep Learning Architectures for Speech Envelope Reconstruction from EEG](/202606/01/biorxiv-10-64898-2026-05-24-727471-v1-investigating-hybrid-deep-learning-architectures-for-speech-envelope-reconstruction-from-eeg)  
+   evidence：基于脑电图脑机接口拼写系统的贝叶斯分类框架
+2. [Extended predictive coding framework as variational free-energy minimisation under exponential-family assumption](/202606/02/2605.30882v1-extended-predictive-coding-framework-as-variational-free-energy-minimisation-under-exponential-family-assumption)  
    标签：评分：9.0/10、query:sr
-   evidence：基于EEG的语音包络重建用于脑机接口
-3. [Low-Frequency activity shapes fine-scale information routing in the early visual cortex](/202606/01/biorxiv-10-64898-2026-05-25-727722-v2-low-frequency-activity-shapes-fine-scale-information-routing-in-the-early-visual-cortex)  
+   evidence：指数族假设下的扩展预测编码框架
+3. [Routing on the Stiefel Manifold: When Does Adaptive Subspace Selection Help for Cross-Domain EEG Decoding?](/202606/02/2605.31043v1-routing-on-the-stiefel-manifold-when-does-adaptive-subspace-selection-help-for-cross-domain-eeg-decoding)  
    标签：评分：9.0/10、query:sr
-   evidence：V1的alpha频段活动随时间解码刺激位置和朝向
-4. [Selection vs. integration task demands shape the similarity of information neural coding](/202606/01/biorxiv-10-64898-2026-05-26-727806-v1-selection-vs-integration-task-demands-shape-the-similarity-of-information-neural-coding)  
+   evidence：跨域脑电图解码的动态Stiefel路由
+4. [MindVoice: Reconstructing Intelligible Speech from Non-invasive Neural Signals with Pretrained Priors](/202606/02/2605.31173v1-mindvoice-reconstructing-intelligible-speech-from-non-invasive-neural-signals-with-pretrained-priors)  
    标签：评分：9.0/10、query:sr
-   evidence：EEG解码分析揭示注意需求如何塑造神经编码
-5. [Intrinsic space-time couplings governing multi-scale cortical dynamics](/202606/01/biorxiv-10-64898-2026-05-27-726038-v1-intrinsic-space-time-couplings-governing-multi-scale-cortical-dynamics)  
+   evidence：从非侵入神经信号重建可理解语音，直接解决神经记录中的刺激重建
+5. [Variational autoencoder for interpretable seizure onset phases detection](/202606/02/biorxiv-10-1101-2025-09-09-675087-v2-variational-autoencoder-for-interpretable-seizure-onset-phases-detection)  
    标签：评分：9.0/10、query:sr
-   evidence：毫秒分辨率皮层活动追踪
+   evidence：可解释的VAE用于SEEG癫痫发作检测
 
 ### 速读区论文标签
-1. [CLANE: Continual Learning of Actions on Neuromorphic Hardware from Event Cameras](/202606/01/2605.28387v1-clane-continual-learning-of-actions-on-neuromorphic-hardware-from-event-cameras)  
+1. [Interpretability Without Tradeoffs: Disentangling Polysemanticity At Equal Predictive Performance](/202606/02/2605.31304v1-interpretability-without-tradeoffs-disentangling-polysemanticity-at-equal-predictive-performance)  
    标签：评分：8.0/10、query:sr
-   evidence：使用脉冲神经网络进行动作识别
-2. [Population codes for biological stereopsis extend beyond correlation-based binocular disparity computations](/202606/01/biorxiv-10-64898-2026-04-21-719805-v2-population-codes-for-biological-stereopsis-extend-beyond-correlation-based-binocular-disparity-computations)  
+   evidence：通过多义性解耦的一般DNN可解释性方法
+2. [Visuomotor flexibility is embedded in the topography of frontal cortex](/202606/02/biorxiv-10-64898-2026-05-25-727601-v1-visuomotor-flexibility-is-embedded-in-the-topography-of-frontal-cortex)  
    标签：评分：8.0/10、query:sr
-   evidence：研究群体编码和双眼神经元通过尖峰模式表征深度
-3. [FASTIMAGES: Validating replay detection methods in human Neuroimaging using a combined MEG and fMRI dataset](/202606/01/biorxiv-10-64898-2026-05-26-727586-v1-fastimages-validating-replay-detection-methods-in-human-neuroimaging-using-a-combined-meg-and-fmri-dataset)  
+   evidence：Neuropixels记录揭示额叶皮层视觉运动图谱马赛克
+3. [Causal and directional elements of global brain dynamics](/202606/02/biorxiv-10-64898-2026-05-27-726039-v2-causal-and-directional-elements-of-global-brain-dynamics)  
    标签：评分：8.0/10、query:sr
-   evidence：验证随时间检测神经重放模式的方法
-4. [Beyond Phase Estimation: A Multidimensional Gating Framework for Robust Real-Time Closed-Loop Neural Stimulation](/202606/01/biorxiv-10-64898-2026-05-26-727783-v1-beyond-phase-estimation-a-multidimensional-gating-framework-for-robust-real-time-closed-loop-neural-stimulation)  
+   evidence：从全皮层记录提取方向性时空模式
+4. [Electrophysiological lag threads reveal a temporal hierarchy of the human cortex](/202606/02/biorxiv-10-64898-2026-05-27-728161-v1-electrophysiological-lag-threads-reveal-a-temporal-hierarchy-of-the-human-cortex)  
    标签：评分：8.0/10、query:sr
-   evidence：用于实时闭环神经刺激的多维门控框架
-5. [Optogenetic cochlear stimulation evokes midbrain activity with near-physiological temporal fidelity](/202606/01/biorxiv-10-64898-2026-05-16-724905-v2-optogenetic-cochlear-stimulation-evokes-midbrain-activity-with-near-physiological-temporal-fidelity)  
+   evidence：引入滞后特异性正交化方法，估计脑磁图信号的时序顺序
+5. [The Metastable Mind: Neural Underpinnings of Naturalistic Cognition Through the Synthesis of Event Segmentation and Metastable Neural States](/202606/02/2605.31473v1-the-metastable-mind-neural-underpinnings-of-naturalistic-cognition-through-the-synthesis-of-event-segmentation-and-metastable-neural-states)  
    标签：评分：7.0/10、query:sr
-   evidence：评估光遗传耳蜗刺激在中脑的瞬时保真度
-6. [Naturalistic behavior and self-generated neural activity predictive of self-correction.](/202606/01/biorxiv-10-64898-2026-05-26-727951-v1-naturalistic-behavior-and-self-generated-neural-activity-predictive-of-self-correction)  
+   evidence：综合事件分割和亚稳态神经态的综述
+6. [Efficient and reproducible pipelines for spike sorting large-scale electrophysiology data](/202606/02/biorxiv-10-1101-2025-11-12-687966-v2-efficient-and-reproducible-pipelines-for-spike-sorting-large-scale-electrophysiology-data)  
    标签：评分：7.0/10、query:sr
-   evidence：分析海马体神经群体动力学与时间序列编码
-7. [Brain-wide distributed processing underlying natural vision and audition](/202606/01/biorxiv-10-64898-2026-05-26-727967-v1-brain-wide-distributed-processing-underlying-natural-vision-and-audition)  
+   evidence：大规模电生理数据的尖峰排序流程
+7. [Cortical eigenmode coordinates provide compact subject-level signatures across structural MRI, resting-state fMRI, and EEG](/202606/02/biorxiv-10-64898-2026-05-25-726064-v1-cortical-eigenmode-coordinates-provide-compact-subject-level-signatures-across-structural-mri-resting-state-fmri-and-eeg)  
    标签：评分：7.0/10、query:sr
-   evidence：利用多元信息分解分析全脑分布式处理，理解自然刺激下的神经群体动力学
-8. [A hypothalamic-brainstem activity sequence underlies arousal fluctuations during daytime drowsiness](/202606/01/biorxiv-10-64898-2026-05-26-728061-v1-a-hypothalamic-brainstem-activity-sequence-underlies-arousal-fluctuations-during-daytime-drowsiness)  
+   evidence：多模态脑信号共有的特征模态坐标框架
+8. [Causal and directional elements of global brain dynamics](/202606/02/biorxiv-10-64898-2026-05-27-726039-v1-causal-and-directional-elements-of-global-brain-dynamics)  
    标签：评分：7.0/10、query:sr
-   evidence：从7T fMRI活动模式随时间解码觉醒波动
-9. [Exploratory Experience Shapes the Geometry of Predictive Representations](/202606/01/2605.27929v1-exploratory-experience-shapes-the-geometry-of-predictive-representations)  
+   evidence：从全皮层活动提取因果时空模式
+9. [Memristor-Based Spiking Neural Network Accelerator for Bio-inspired Interception Task](/202606/02/2605.31299v1-memristor-based-spiking-neural-network-accelerator-for-bio-inspired-interception-task)  
    标签：评分：6.0/10、query:sr
-   evidence：预测编码框架用于内部表示
-10. [Universal Time Series Generation with Neural Controlled Differential Equations](/202606/01/2605.28507v1-universal-time-series-generation-with-neural-controlled-differential-equations)  
+   evidence：模拟神经脉冲模式的脉冲神经网络加速器
+10. [Axially decoupled photo-stimulation and two photon readout (ADePT) for mapping functional connectivity of neural circuits](/202606/02/biorxiv-10-1101-2025-02-24-639992-v4-axially-decoupled-photo-stimulation-and-two-photon-readout-adept-for-mapping-functional-connectivity-of-neural-circuits)  
    标签：评分：6.0/10、query:sr
-   evidence：通用时间序列生成与神经控制微分方程
+   evidence：全光学方法映射功能连接和神经回路活动
 
