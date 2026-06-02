@@ -1,0 +1,647 @@
+Title: Dive into Waves: Morlet Spectral Transformer for Cross-Subject Emotion Decoding from EEG
+
+URL Source: https://arxiv.org/pdf/2606.00884v1
+
+Published Time: Tue, 02 Jun 2026 01:17:02 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# Dive into Waves: Morlet Spectral Transformer for Cross-Subject Emotion Decoding from EEG 
+
+Jiaxin Qing 
+
+University of California, Berkeley 
+
+jxqing@berkeley.edu 
+
+Lexin Li 
+
+University of California, Berkeley 
+
+lexinli@berkeley.edu 
+
+Abstract 
+
+We study cross-subject emotion recognition from EEG, a practically important yet chal-lenging problem in brain-computer interfaces. Unlike tasks with clear waveform signatures, emotion-related EEG signals are primarily encoded in spectral power and are weak, noisy, and highly variable across subjects. Existing approaches rely either on large pretrained EEG foundation models, which require massive data yet still struggle with cross-subject variability, or frequency-domain encoders, which better reflect spectral structure but suffer from mismatched representations, drift-dominated tokenization, and lack of band-specific spatial modeling. In this article, we propose the Morlet Spectral Transformer (MST), built around three key components and integrated with a spatiotemporal Transformer backbone. First, Morlet wavelet tokenization provides a time-frequency representation that matches the multi-scale structure of brain rhythms, and extends classical differential entropy features to a form suitable for Transformers. Second, long-context baseline removal acts as a simple temporal normalization that removes subject-specific drift and redundancy across nearby windows. Third, frequency-specific spatial projection learns a separate channel mixer for each frequency band, capturing interpretable band-specific patterns and reducing cross-channel mixing. We show that, even without pretraining, MST consistently outperforms both large pretrained EEG foundation models and frequency-based methods across all SEED-family datasets. These results suggest that careful representation design can yield an accurate, cost-effective, and interpretable alternative to large-scale pretraining. Codes are available at https://github.com/jqin4749/Morlet .
+
+1 Introduction 
+
+Cross-subject emotion recognition from electroencephalography (EEG), which aims to decode a subject’s emotional state from brain EEG signals recorded across different individuals, is a central problem in brain-computer interfaces [ 5]. Despite recent advances in deep learning, the problem remains challenging. EEG offers a non-invasive and temporally precise measure of neural activity, but the EEG signals are known to have a low signal-to-noise ratio. Meanwhile, emotion-related signals are subtle and hard to extract. Unlike seizure detection or sleep staging, emotional states do not always produce clear patterns in the raw waveform. Instead, they mainly modulate the power distribution across frequency bands such as frontal alpha asymmetry, frontal theta, and beta/gamma activity [ 8], so the informative content is primarily spectral and buried under physiological and environmental noise. The problem is further complicated by substantial variability across subjects. While within-subject decoding has achieved strong performance on standard benchmarks [ 28 , 9], performance in cross-subject settings remains much lower. EEG signals vary significantly across individuals due to differences in physiology, recording conditions, and baseline neural activity. In addition, adjacent EEG segments are highly correlated, leading to temporal redundancy. This leads models to learn subject-specific patterns rather than emotion-related signals, further hindering generalization to new subjects. Existing approaches mainly follow two lines. One line of work builds on EEG foundation models, including LaBraM [ 7], EEGPT [ 24 ], CBraMod [ 25 ], and CSBrain [ 30 ]. These methods use large pretrained Transformer-based encoders. While promising, they rely on large-scale pretraining with massive, thousands of hours of unla-beled EEG data, and still struggle to fully address cross-subject variability [ 13 ]. Another line of work focuses on 
+
+> Preprint.
+> arXiv:2606.00884v1 [cs.LG] 30 May 2026
+
+frequency-domain representations, motivated by the spectral nature of emotion-related signals [ 26 , 23 , 14 , 27 ]. However, current frequency-based EEG encoders have several key limitations. Fixed-window Fourier transforms do not match the log-scale 1/f structure of cortical oscillations with the frequency f. Per-segment tokenization is dominated by subject-specific drift, and strong temporal autocorrelation between adjacent seg-ments further encourages the model to memorize this drift rather than emotion-relevant signals. Finally, using a single spatial mixer across all frequencies ignores the strongly band-specific topographies of cortical rhythms. These observations suggest that a key bottleneck lies not only in model scale, but also in how EEG signals are represented. The challenge is to design a time-frequency representation that handles frequency mismatch, subject-specific drift, and band-specific topography, while reducing subject-to-subject variation and preserving emotion-relevant spectral structure [2, 4]. In this article, we propose the Morlet Spectral Transformer (MST), built around three key components and integrated with a spatiotemporal Transformer backbone. First, Morlet wavelet tokenization converts raw EEG into a multi-resolution time-frequency representation, with high frequency resolution at low bands and high temporal resolution at high bands, which matches the log-scale organization of neural rhythms. The use of a Morlet wavelet is motivated by its wide adoption in neuroscience, while our tokenization generalizes classical differential entropy features to a form suitable for Transformers, as we formally show later. Second, long-context baseline removal performs a simple temporal normalization by subtracting a local baseline estimated from neighboring segments. It helps suppress subject-specific drift and temporal redundancy, directly addressing key sources of cross-subject domain shift, while retaining both the original and residual views. Third, frequency-specific spatial projection learns band-dependent spatial filters to disentangle heterogeneous scalp topographies and reduce cross-channel mixing. We integrate these components within a Transformer architecture, and show that it consistently outperforms state-of-the-art baselines empirically. Our ablation studies further demonstrate that each component is essential for decoding accuracy, and the learned filters recover canonical topographies such as posterior alpha and frontal-midline theta without any supervision on electrode positions, providing a level of interpretability that is rare in existing EEG Transformers. Taken together, MST instantiates a representation-driven approach to cross-subject EEG emotion decoding. Our contributions include: • We introduce a neuroscience-inspired representation learning framework that explicitly targets cross-subject variability in EEG. By combining Morlet wavelet tokenization, long-context baseline removal, and frequency-specific spatial projection, our method performs structured variance reduction across frequency, time, and space, yielding a low-variance representation that better isolates emotion-relevant signals. Unlike purely data-driven embedding learning, this design is grounded in well-established principles of cortical oscillations and spectral organization, enabling more stable and generalizable representations across subjects. • We develop a cost-effective and interpretable Transformer-based approach. It incorporates domain-informed inductive biases from EEG neuroscience, and does not require large-scale pretraining. In contrast to black-box Transformer or foundation models, our design also enables direct interpretability at multiple levels, including representations that disentangle canonical EEG frequency bands, and spatial filters that recover known neurophysiological topographies. This provides scientifically meaningful insights into neural mechanisms, which are largely unavailable in standard pretrained black-box models. • We demonstrate that, without any pretraining, our approach consistently outperforms both large pretrained EEG foundation models and frequency-based alternatives across all SEED-family datasets. For instance, on the SEED benchmark, we achieve 66.5% leave-one-subject-out accuracy, compared to 62.4% from the best pretrained EEG foundation model. This highlights that representation design, not just model or data scale, is a key factor in cross-subject generalization. 
+
+2 Related Work 
+
+EEG-based emotion recognition. Differential entropy (DE) computed over a small number of frequency bands [4] is a widely used feature for EEG-based emotion recognition. With DE features and simple classifiers, within-subject decoding can achieve 80-90% accuracy on standard benchmark datasets. However, cross-subject decoding remains much more challenging. Although domain adaptation methods [ 11 , 12 ] can reach over 85% accuracy, they typically rely on target-session calibration or relaxed evaluation protocols, and the accuracy under the strict leave-one-subject-out setting remains substantially lower, around or below 60%. 
+
+EEG foundation models. Recent EEG foundation models pretrain large Transformer-based encoders on thousands of hours of unlabeled EEG data. For instance, LaBraM [ 7] employs vector-quantized neural spec-trum prediction, EEGPT [ 24 ] adopts mask-based self-supervised learning, CBraMod [ 25 ] uses a criss-cross Transformer with masked patch reconstruction, and CSBrain [ 30 ] models cross-scale spatiotemporal dependen-cies. However, a recent benchmark across 12 such models and 13 datasets [ 13 ] shows that models trained from 2Figure 1: Overview of MST. Raw EEG is decomposed into a time-frequency grid by fixed Morlet wavelets. Long-context baseline removal produces a dual-branch representation. Frequency-specific spatial projections collapse channels, and the resulting tokens are processed by a Transformer with 2D RoPE. A dual-pooling head concatenates the CLS token and mean-pooled patch representations for classification. scratch remain competitive, and that increasing pretraining scale does not consistently improve cross-subject generalization. In contrast, MST does not rely on pretraining. While it shares standard architectural compo-nents such as per-channel encoding and self-attention, it instead builds on the Morlet wavelet tokenization and long-context baseline removal steps, which directly target cross-subject variability and temporal redundancy. 
+
+Time-frequency tokenization and frequency-specific spatial projection. Morlet wavelets are widely used in cognitive neuroscience for time-frequency analysis because their frequency-dependent window naturally matches the 1/f structure of cortical oscillations [21, 2]. Recent EEG encoders either use fixed Fourier or STFT front-ends [ 26 , 23 ], learn vector-quantized time-frequency codebooks [ 7, 14 , 27 ], or replace explicit spectral analysis with learnable convolutions [19]. Frequency-dependent spatial filtering also has a long history. FBCSP learns spatial filters separately over filter-bank bands [ 1], while EEGNet and FBCNet learn spatial filters after temporal or filter-bank decomposition [ 10 , 16 ]. These methods show that spatial patterns should depend on frequency, but they are usually built around CSP or CNN pipelines and fixed filter-bank views. MST instead uses a fixed log-spaced Morlet bank, removes local temporal baselines at the spectrogram level, and learns an explicit per-frequency channel projection before the Transformer, so band-dependent topographies are modeled directly on dense time-frequency tokens without codebook pretraining. 
+
+3 Method 
+
+We present the Morlet Spectral Transformer, a pipeline that converts raw multi-channel EEG into time-frequency tokens and classifies emotional states with a Transformer. It consists of three key components, a Morlet wavelet tokenization, a long-context baseline removal, and a frequency-specific spatial projection, all embedded within a Transformer architecture. Figure 1 illustrates the full architecture. 
+
+3.1 Morlet Wavelet Tokenization 
+
+Unlike seizure detection or sleep staging, where characteristic waveform morphologies, such as epileptic spikes, sleep spindles, K-complexes, drive raw signal models, emotion recognition lacks such morphological signatures. Instead, affective states modulate the power distribution across frequency bands, such as frontal alpha asymmetry, frontal theta power, and beta/gamma activity [8]. Consequently, the informative signal is primarily spectral, and a time-frequency decomposition offers a natural representation. We adopt the complex Morlet wavelet, ψf (t)=exp( −t2/(2 σ2 
+
+> f
+
+))exp( j2πft ), a complex sinusoid with center frequency f windowed by a Gaussian envelope of width σf ∝ 1/f [21, 2]. Because the temporal window scales inversely with frequency, low-frequency wavelets span long windows while high-frequency wavelets have short windows, yielding high frequency resolution for slow rhythms and high temporal 3resolution for fast bursts. This provides an adaptive trade-off that fixed-window short-term Fourier transforms cannot provide, while also aligning with the 1/f structure of cortical oscillations. We place F =20 center frequencies on a logarithmic grid from 2 to 45 Hz, mirroring the approximate log-spacing of the canonical delta, theta, alpha, beta, and gamma bands. We then convolve each channel with the bank, take the complex amplitude, adaptively pool into Nτ = 16 temporal bins, and apply a log transform, which produces a tensor S ∈ RC×F ×Nτ with C = 62 . The exact grid formula, kernel normalization, implementation, and the visualization of the wavelet bank and resulting tokenization are given in Appendix A.1. This grid behaves as a continuous, multi-resolution generalization of the differential entropy (DE) feature that is widely used in EEG emotion recognition [ 28 , 4]. The next proposition establishes the formal equivalence between Morlet tokenization and differential entropy, while the detailed assumptions, constants, and the proof are given in Appendix A.2. 
+
+Proposition 1 (Morlet tokens generalize differential entropy, informal) . For a zero-mean stationary Gaussian EEG signal, and under mild narrow-band and local-ergodicity assumptions on the Morlet response, each Morlet token Sc,f,τ equals the differential entropy of the band-limited signal in a passband centered at frequency f, up to an additive constant that does not depend on the channel, the frequency, the time bin, the signal, or the subject. 
+
+In particular, restricting F to the five canonical delta, theta, alpha, beta, and gamma bands and setting Nτ =1 
+
+recovers the standard DE feature used in prior emotion work [ 4, 28 ]. The F ×Nτ =320 grid we employ pro-vides a strict multi-resolution refinement, more densely sampling the 1/f organization of cortical oscillations in frequency [ 2], while capturing within-segment temporal dynamics that a single DE value would discard. 
+
+3.2 Long-Context Baseline Removal 
+
+Raw EEG log-power spectra are dominated by emotion-irrelevant components that drive inter-subject variance, and adjacent two-second segments share most of their spectral content because of high temporal autocorrelation. A model trained on such near-identical spectrograms tends to memorize the shared low-frequency structure rather than the smaller emotion-relevant deviations, leading to severe cross-subject overfitting. Figure 2 shows a visualization of temporal redundancy. We address these issues by removing a long-context baseline. For each segment, we average the log-amplitude spectrograms of the K preceding and K subsequent segments within the same trial, i.e., 
+
+¯Sc,f,τ = 12K
+
+> 2K
+
+X
+
+> i=1
+
+S(i) 
+
+> c,f,τ
+
+,
+
+with K =5 giving approximately 20 seconds of context. We then form the residual, 
+
+Sres  
+
+> c,f,τ
+
+=Sc,f,τ − ¯Sc,f,τ .
+
+The residual removes slow drifts, subject-specific offsets, and shared spectral structure across neighboring segments, isolating the spectral deviations that distinguish the current segment from its local context. To preserve power removed by the residual, we concatenate the two branches along the channel dimension as ˜S=[S,Sres ]∈R2C×F ×Nτ , providing a drift-corrected representation alongside richer but noisier spectral detail. Baseline subtraction has clear precedent in the EEG literature. The original SEED study [28] subtracts the DE feature computed from a neutral-emotion trial. In contrast, our use of local temporal context removes the need for a dedicated neutral recording, while dual-branch concatenation preserves the absolute spectral information that pure subtraction would otherwise discard. 0 10 20 30 40       
+
+> Segment index
+> 0
+> 10
+> 20
+> 30
+> 40
+> Segment index
+> Raw log-amplitude
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Cosine similarity
+> 010 20 30 40
+> Segment index
+> 0
+> 10
+> 20
+> 30
+> 40
+> Segment index
+> After baseline removal
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> Cosine similarity
+> seed
+> seed-iv
+> seed-v
+> seed-vii
+> 10 2
+> 10 1
+> 10 0
+> Mean cross-subject variance (log scale)
+> 0.056
+> 1.116
+> 0.048
+> 0.061
+> 0.013
+> 0.301
+> 0.012
+> 0.015
+> Dataset-level variance (before vs after)
+> Before removal
+> After removal
+
+Figure 2: Temporal redundancy. The left panel shows pairwise cosine similarity of raw log-amplitude spectrograms for consecutive segments within one trial. Adjacent segments are nearly identical, leading to training data redundancy. The middle panel shows that after long-context baseline removal, the similarity drops substantially, suppressing slow drift and subject-specific offsets. The right panel shows that variance across subjects after baseline removal drops. 4d = 1                 
+
+> Delta
+> 2.78 Hz Theta
+> 6.30 Hz Alpha
+> 10.30 Hz Beta
+> 19.83 Hz Gamma
+> 38.20 Hz
+> d = 2
+> 2.78 Hz 6.30 Hz 10.30 Hz 19.83 Hz 38.20 Hz
+> d = 3
+> 2.78 Hz 6.30 Hz 10.30 Hz 19.83 Hz 38.20 Hz
+> d = 4
+> 2.78 Hz 6.30 Hz 10.30 Hz 19.83 Hz 38.20 Hz
+> 0.04
+> 0.02
+> 0.00
+> 0.02
+> 0.04
+> Weight
+
+Figure 3: Learned frequency-specific spatial projections. Each panel shows one spatial component W (f):,d 
+
+rendered on the 10-20 scalp layout. The filters automatically specialize by frequency, with posterior alpha, frontal midline theta, and distributed beta and gamma patterns, demonstrating that the per-frequency design recovers canonical EEG topographies without supervision on channel positions. 
+
+3.3 Frequency-Specific Spatial Projection 
+
+EEG topography is strongly frequency-dependent. Alpha rhythms (8-13 Hz) are concentrated over posterior and occipital regions, while frontal theta (4-8 Hz) follows a midline distribution. Beta and gamma activities exhibit distinct spatial patterns [ 8]. A single spatial projection shared across all frequencies would conflate these topographies and obscure frequency-specific spatial structure. We therefore learn a separate projection matrix for each frequency band. Let W(f) ∈ R2C×Ds be the projection for frequency f, with Ds =16 . We compute the spatial projection as 
+
+Zd,f,τ =
+
+> 2C
+
+X
+
+> c=1
+
+W (f) 
+
+> c,d
+
+˜Sc,f,τ .
+
+The output is Z ∈ RDs×F ×Nτ . Figure 3 shows the learned per-frequency spatial filters rendered as scalp topographies, demonstrating that they recover canonical frequency-dependent topographic patterns. 
+
+3.4 Transformer with 2D Rotary Position Embedding and Dual-Pooling Classification 
+
+We integrate the above three components within a Transformer architecture, including a Transformer encoder with two-dimensional rotary position embedding (2D RoPE) and a dual-pooling classification head. We project each (f,τ ) bin of the spatially projected grid linearly into a token of dimension D =256 ,
+
+h(0)   
+
+> f·Nτ+τ
+
+=Linear( Z:,f,τ )∈RD,
+
+yielding F ×Nτ =320 patch tokens, to which a learnable CLS token is prepended. To preserve the inherent two-dimensional structure of the token grid, we adopt the two-dimensional rotary position embedding (2D RoPE) [20]. We stack pre-LayerNorm Transformer blocks [22] to form the encoder. After the Transformer layers, we extract two complementary representations. One is the CLS token 
+
+zCLS ∈ RD, which captures globally aggregated information through learned self-attention weights, 50 1 2                   
+
+> Time (s)
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> Amplitude (a.u.)
+> (1) Original
+> 012
+> Time (s)
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> Amplitude (a.u.)
+> (2) Phase perturbation
+> 012
+> Time (s)
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> Amplitude (a.u.)
+> (3) Band-specific noise
+> 012
+> Time (s)
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> Amplitude (a.u.)
+> (4) Wavelet time roll
+> 0510 15
+> Time frame
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+> 10.0
+> 12.5
+> 15.0
+> 17.5
+> Freq bin
+> 0510 15
+> Time frame
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+> 10.0
+> 12.5
+> 15.0
+> 17.5
+> Freq bin
+> 0510 15
+> Time frame
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+> 10.0
+> 12.5
+> 15.0
+> 17.5
+> Freq bin
+> band 6/12
+> 0510 15
+> Time frame (rolled)
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+> 10.0
+> 12.5
+> 15.0
+> 17.5
+> Freq bin
+> 2.0
+> 1.5
+> 1.0
+> 0.5
+> log(| Wx | +  )
+> 2.0
+> 1.5
+> 1.0
+> 0.5
+> log(| Wx | +  )
+> 2.0
+> 1.5
+> 1.0
+> 0.5
+> 0.0
+> log(| Wx | +  )
+> 2.0
+> 1.5
+> 1.0
+> 0.5
+> log(| Wx | +  )
+> Augmentations: time domain (top) vs Morlet log-amplitude (bottom)
+
+Figure 4: Effects of four data augmentation strategies on a representative sample. and selectively attends to the most informative tokens. The other is the mean of all patch tokens 
+
+¯zpatch =( F N τ )−1P
+
+ih(L)
+
+i ∈RD, which provides a uniform, unbiased summary of the full time-frequency representation. Concatenating both yields a 2D-dimensional vector that combines selective and distributed information. We then construct the classification head as 
+
+ˆy=Wcls [zCLS ,¯zpatch ]+ bcls ,
+
+where Wcls ∈RNclass ×2D and Nclass is the number of emotion categories of the target dataset. 
+
+3.5 Data Augmentation 
+
+Training a Transformer on small EEG datasets is prone to overfitting, particularly due to strong temporal redundancy and limited inter-trial variability. Therefore, beyond architectural design, we further augment the training data to expose the model to a broader range of plausible signal variations while preserving underlying physiological structure. We introduce four augmentation strategies, all grounded in the physical properties of EEG signals, as illustrated in Figure 4. Specifically, phase perturbation injects Gaussian noise into the Fourier phase of each frequency bin, with standard deviation σϕ ∼ Uniform( π/ 6,π/ 2) shared across channels, preserving the power spectrum while disrupting phase-locked artifacts. Band-specific noise injection adds Gaussian noise to one to three randomly selected frequency bands, with amplitude scaled to local signal power via α∼Uniform(0 .1,0.3) , encouraging robustness to band-limited variability. Channel dropout randomly masks 10-30% of channels and replaces them in the wavelet domain with a learnable mask token m∈RF , promoting robustness to missing or corrupted sensors. Finally, wavelet time roll circularly shifts the log-amplitude tensor along the time axis by a random offset, leveraging the approximate stationarity of emotional states within a two-second segment to remove residual temporal ordering bias. 
+
+4 Experiments 
+
+4.1 Datasets and Experiment Setup 
+
+We evaluate the proposed Morlet Spectral Transformer on four SEED-family datasets, and compare with four state-of-the-art EEG foundation models and two frequency-based methods. The SEED dataset family [28, 29, 15, 6] is a standard benchmark for EEG-based emotion recognition. We evaluate our method on four SEED-family datasets, in which subjects watch emotion-eliciting film clips while 62-channel EEG is recorded. These datasets share the same recording paradigm but differ in the number of emotion classes, with 3 classes for SEED, 4 for SEED-IV, 5 for SEED-V, and 7 for SEED-VII, as well as in the number of subjects and trials. More details on the datasets, as well as data preprocessing, including filtering, downsampling, window-level normalization, and segmentation, are provided in Appendix A.3. For evaluation, we adopt a strict leave-one-subject-out (LOSO) cross-validation protocol without target-subject calibration or fine-tuning, and report the mean and standard deviation of classification accuracy, Cohen’s κ, and weighted F1 across folds. In our implementations, we use L = 12 Transformer layers and hidden dimension D = 256 , with F = 20 , Nτ = 16 , ncyc = 5 , Ds = 16 , and K = 5 , corresponding to approximately 20 s of temporal context. We compare against four EEG foundation models, LaBraM [7], EEGPT [ 24 ], CBraMod [ 25 ], and CSBrain [ 30 ], each evaluated in two variants. A pretrained variant fine-tunes the released checkpoint on the source subjects, while a from-scratch variant trains the same architecture from 6Table 1: Cross-subject leave-one-subject-out performance on the four SEED-family datasets. All methods are run under the same no-calibration protocol. The mean ± standard deviation of classification accuracy (%) across folds is shown. The best performance per column is shown in bold. TFM-Tokenizer uses the authors’ pretrained time-frequency tokenizer with a fine-tuned downstream classifier and has no from-scratch variant. Method SEED SEED-IV SEED-V SEED-VII 
+
+Foundation models with pretrained tokenizer + fine-tuning 
+
+LaBraM [7] 62.4 ± 7.1 35.9 ± 3.6 32.5 ± 4.9 24.7 ± 3.6 EEGPT [24] 56.2 ± 5.8 32.8 ± 3.0 28.6 ± 3.0 23.6 ± 3.1 CBraMod [25] 57.0 ± 6.9 35.0 ± 3.6 31.5 ± 5.1 23.8 ± 3.2 CSBrain [30] 61.5 ± 6.5 36.5 ± 3.8 31.0 ± 4.4 23.2 ± 3.4 BIOT [26] 59.0 ± 7.1 35.7 ± 3.7 30.6 ± 4.9 23.8 ± 3.2 TFM-Tokenizer [14] 53.3 ± 5.6 34.0 ± 3.0 28.8 ± 3.1 22.0 ± 2.1 
+
+Same architectures, trained from scratch without pretraining 
+
+LaBraM (scratch) 59.8 ± 6.8 30.6 ± 2.0 27.8 ± 2.4 21.2 ± 2.3 EEGPT (scratch) 57.6 ± 7.4 32.7 ± 3.2 28.3 ± 2.7 19.6 ± 2.0 CBraMod (scratch) 54.5 ± 6.7 31.5 ± 2.0 28.2 ± 2.9 21.7 ± 2.4 CSBrain (scratch) 59.7 ± 6.9 34.3 ± 4.6 29.8 ± 3.5 22.0 ± 3.6 BIOT (scratch) 59.1 ± 6.8 35.8 ± 2.8 32.4 ± 4.6 24.6 ± 4.1 
+
+Ours (no pretraining) 
+
+Morlet Spectral Transformer 66.5 ± 8.1 40.7 ± 5.1 36.1 ± 4.5 27.9 ± 3.9 
+
+random initialization. This isolates the contribution of pretraining from that of architecture, enabling a direct comparison with our no-pretraining method. We also compare with two time-frequency specialist baselines that also tokenize EEG in the spectral domain, BIOT [ 26 ] and TFM-Tokenizer [ 14 ]. All models are trained until either convergence or 50000 steps are reached, and the checkpoint with the best validation balanced accuracy on the source subjects is reported, with no information from the held-out subject used for selection. More details on hyperparameters, training, baseline fine-tuning, and hardware are given in Appendix A.3. 
+
+4.2 Main Results 
+
+Table 1 reports the classification accuracy across all four SEED-family datasets. The full Cohen’s κ and weighted F1 breakdown for every dataset is given in Table 4 in Appendix A.4. 
+
+MST sets the state of the art on SEED without pretraining. MST achieves 66.5% classification accuracy on SEED under strict LOSO evaluation, without any calibration on the target subject. In contrast, LaBraM reaches 62.4% after pretraining on thousands of hours of unlabeled EEG data, and CSBrain follows at 61.5%, trailing MST by 4.1 and 5.0 percentage points, respectively. Without pretraining, LaBraM from scratch attains 59.8%, trailing our method by nearly 7 percentage points. BIOT and TFM-Tokenizer, two time-frequency-focused baselines, achieve 59.0% and 53.3%, respectively, indicating that operating in the spectral domain alone is not sufficient. Our inductive biases, including long-context baseline removal, frequency-specific spatial projection, and the fixed Morlet wavelet bank, account for the remaining gains by improving cross-subject generalization. We also note that, after accounting for standard errors across LOSO folds, the performance margin of MST over LaBraM on SEED is not statistically significant. However, this result should not be interpreted in isolation. Improvements of a few percentage points under strict cross-subject evaluation are generally considered meaningful in the EEG-to-emotion literature, particularly when achieved without target-subject calibration or external pretraining. 
+
+The advantage widens as the number of emotion classes grows. MST maintains a consistent performance advantage as the task becomes more fine-grained. As the number of emotion classes increases from three (SEED) to seven (SEED-VII), all methods degrade in accuracy, yet the relative advantage of MST remains and becomes more pronounced. Against the best pretrained baseline, MST leads by 4.2, 3.6, and 3.2 percentage points on SEED-IV (four classes), SEED-V (five classes), and SEED-VII (seven classes), respectively. Against the best from-scratch baseline, which is BIOT on all three datasets, the margins increase to 4.9, 3.7, and 3.3 percentage points. These fine-grained settings place greater demands on representation quality, under which wavelet-domain tokenization remains the dominant factor for cross-subject generalization. In summary, the baseline methods remain close to one another and well below MST, which separates from the pack across all four datasets. 7sub2          
+
+> sub12
+> sub1
+> sub4
+> sub5
+> sub15
+> sub9
+> sub10
+> sub6
+> sub7
+> sub13
+> sub3
+> sub14
+> sub11
+> sub8
+> Held-out subject (sorted ascending)
+> 30%
+> 40%
+> 50%
+> 60%
+> 70%
+> 80%
+> 90%
+> Cross-subject accuracy
+> 55.7 56.2 57.3 57.8
+> 61.1
+> 64.3 64.6 65.4
+> 68.8 71.0 71.0 71.2 72.4
+> 77.9
+> 82.5
+> Chance (33.3%)
+> Best from-scratch baseline (59.8%)
+> Best pretrained baseline (62.4%)
+> Morlet mean (66.5%)
+
+Figure 5: Per-subject cross-subject LOSO accuracy on SEED for MST. Red bars indicate subjects whose held-out accuracy equals or exceeds the strongest pretrained baseline. 
+
+EEG pretraining does not close the cross-subject gap. LaBraM, CBraMod, and CSBrain benefit from pretraining, with gains ranging from 1.2 to 5.3 percentage points across different SEED datasets. EEGPT is an exception, dropping by 1.5 percentage points on SEED and showing negligible improvement on SEED-IV and SEED-V. However, even the strongest pretrained models fail to match the performance of our from-scratch MST, despite relying on thousands of hours of EEG data. This pattern aligns with the observation in the literature [ 13 ] that large-scale EEG pretraining does not necessarily translate into improved cross-subject generalization. Taken together, these results suggest that an important bottleneck lies in how the signal is structured and tokenized—a factor that can be as critical as data scale and model size. 
+
+The gain is broadly distributed across subjects rather than driven by outliers. A natural concern for cross-subject decoding is whether the gain is driven by a small set of easy subjects. Figure 5 shows the sorted distribution of held-out accuracies across the 15 LOSO folds of SEED for MST. Per-subject accuracy ranges from 55.7% to 82.5%, with a median of 65.4% and a mean of 66.5%. Ten of fifteen subjects meet or exceed the mean accuracy of the strongest pretrained baseline, i.e., 62.4% of pretrained LaBraM, three subjects exceed 72%, and only one subject falls below the 56.2% mean of pretrained EEGPT. This indicates that performance gain is consistently distributed across subjects rather than driven by a few favorable cases. 
+
+4.3 Ablation Studies 
+
+To isolate the contribution of each design choice, we run ablations on a single held-out subject from SEED (Subject 9, a near-median case in Figure 5: rank 7 of 15, accuracy 64.6%, median 65.4%), with all other components held to the MST configuration. Unlike the main results, which average over all LOSO folds, each ablation row reports a single held-out-subject evaluation and is intended to show relative rather than absolute effects. The full MST configuration reaches 64.6% classification accuracy on this subject and serves as the reference against which every ablation variant in Table 2 is compared. 
+
+The Morlet transform is a main source of accuracy. Replacing the Morlet transform with an STFT front-end reduces accuracy by 13.6 percentage points. The STFT uses a 400 ms Hann window with a 200 ms hop. The magnitude is log-transformed and binned into the same 20 log-spaced frequencies and 16 time frames as the Morlet tokenization, ensuring that all downstream stages remain identical. A fixed window cannot simultane-ously provide high frequency resolution at low EEG bands and high temporal resolution at high bands, so a sin-gle compromise window inevitably loses information at both ends of the spectrum. In contrast, the Morlet trans-form employs a frequency-dependent window, matching the 1/f structure of cortical oscillations and assigning longer windows to low frequencies and shorter windows to high frequencies. The resulting performance gain thus stems from the adaptive wavelet design, rather than from simply operating in the spectral domain per se. 
+
+Long-context baseline removal suppresses the temporal redundancy that drives subject-specific overfitting. Removing the residual branch and feeding the raw spectrogram S alone reduces accuracy from 64.6% to 61.1%, a drop of 3.5 percentage points. This degradation is consistent with the temporal-redundancy argument in Section 3.2. Without the residual, the model is forced to rely on slow-varying components shared across adjacent segments, signals that are largely subject-specific and therefore fail to generalize to unseen individuals. Recall Figure 2, which illustrates this effect by visualizing the pairwise cosine similarity of adjacent-segment spectrograms within a single SEED trial, before and after baseline removal. The residual branch effectively removes these shared components and highlights the segment-specific spectral deviations that are otherwise obscured in the raw representation. 8Table 2: Component ablations on a fixed SEED held-out subject (Subject 9). Each part removes or swaps one design choice from the full configuration (top row). The best performance per column is shown in bold. Configuration Accuracy Cohen’s κ Weighted F1 MST (full) 64.6 46.7 62.1                         
+
+> w/o Morlet transform (STFT front-end) 51.0 25.9 49.7 w/o baseline removal 61.1 41.6 59.8 w/o frequency-specific spatial projection 62.3 43.2 58.5 w/o data augmentation 62.2 43.0 58.9 w/o phase perturbation 63.0 44.4 61.7 w/o band-specific noise injection 60.8 41.2 57.4 w/o channel dropout 62.9 44.3 60.9 w/o wavelet time roll 43.6 16.2 37.2
+
+Per-frequency spatial projections recover canonical scalp topographies that a shared projection cannot represent. Replacing the per-frequency projection W(f) with a single shared projection across all frequencies reduces accuracy by 2.3 percentage points, to 62.3%. While smaller than the effect of baseline removal, the drop is consistent across the other evaluation metrics. Recall Figure 3, which visualizes the learned per-frequency projections as scalp topographies and reveals canonical patterns without any supervision on electrode locations. In the alpha band ( ∼10 Hz), dominant components concentrate over posterior and occipital regions, consistent with the well-known posterior alpha rhythm [ 8]. In the theta band ( ∼6 Hz), components are focused along the frontal midline, matching the frontal-midline theta signature linked to cognitive and emotional processing [ 8, 28 ]. In the delta band ( ∼2 Hz), weights are more diffuse, spanning frontal and posterior regions without a single dominant pattern, as expected for slow oscillations mixed with ocular artifacts [2]. In the beta ( ∼18 Hz) and gamma ( ∼30 Hz) bands, components are broadly distributed across frontal, central, and temporal areas, reflecting the spatially diffuse nature of higher-frequency activity [ 21 ]. A shared projection collapses these heterogeneous, band-specific patterns into a single filter, thereby discarding the spatial structure that the frequency-specific design preserves and exploits. Moreover, the frequency-specific projections provide a level of interpretability that is largely absent in conventional black-box Transformer and foundation models. 
+
+Data augmentation with wavelet time roll accounts for the largest augmentation gain. Turning off the full augmentation stack reduces accuracy by 2.4 percentage points. A leave-one-out analysis reveals a highly asymmetric contribution across the four augmentation strategies. Removing wavelet time roll alone collapses accuracy to 43.6%, a drop of 21 percentage points that exceeds the loss from disabling all augmentations together. Because the tokens aggregate Nτ =16 pooled time frames per segment, the model can memorize the absolute position of spectral events within a segment when wavelet time roll is absent. None of the other augmentation strategies provides this form of temporal invariance. Band-specific noise injection is the next most influential component, with a 3.8 percentage point decrease when removed, consistent with its role in disrupting the fixed per-trial noise profile shared across segments. Channel dropout and phase perturbation have smaller effects, contributing decreases of 1.7 and 1.6 percentage points, respectively. 
+
+5 Conclusions 
+
+We present the Morlet Spectral Transformer for cross-subject EEG emotion decoding. Without any pretraining, the method consistently outperforms both pretrained EEG foundation models and existing frequency-based approaches across the SEED-family datasets. These results highlight that careful design and learning of the input representation can be as important as model and data scale. With a number of trainable parameters comparable to foundation models but no external pretraining stage, our approach provides a cost-effective alternative to large-scale pretrained solutions. Meanwhile, it retains an interpretable structure aligned with neurophysiological patterns, a property largely absent in existing black-box methods. 
+
+Limitations and broader impact. The Morlet transform is fixed and tuned to 2–45 Hz, and may be suboptimal for tasks dominated by faster transients such as epileptic spikes. While the method needs no target-subject calibration, it is still trained per dataset. Cross-dataset pretraining of wavelet-tokenized representations is left to future work. Reliable cross-subject EEG decoding may expand access to mental health monitoring and adaptive brain-computer interfaces, but also raises risks of misuse such as surveillance and non-consensual emotion inference. EEG-based emotion labels are inherently noisy and culturally dependent, which may amplify bias, so deployment should require explicit user consent and appropriate oversight. All data used here are publicly available, and no new human data were collected. 9References 
+
+[1] Kai Keng Ang, Zheng Yang Chin, Haihong Zhang, and Cuntai Guan. Filter bank common spatial pattern (FBCSP) in brain-computer interface. In 2008 IEEE International Joint Conference on Neural Networks , pages 2390–2397. IEEE, 2008. [2] Mike X Cohen. Analyzing Neural Time Series Data: Theory and Practice . MIT Press, 2014. [3] Thomas M. Cover and Joy A. Thomas. Elements of Information Theory . Wiley-Interscience, 2 edition, 2006. [4] Ruo-Nan Duan, Jia-Yi Zhu, and Bao-Liang Lu. Differential entropy feature for EEG-based emotion recognition. In 6th International IEEE/EMBS Conference on Neural Engineering (NER) , pages 81–84. IEEE, 2013. [5] Evgenia Gkintoni, Anthimos Aroutzidis, Hera Antonopoulou, and Constantinos Halkiopoulos. From neural networks to emotional networks: A systematic review of eeg-based emotion recognition in cognitive neuroscience and real-world applications. Brain Sciences , 15(3):220, 2025. doi: 10.3390/brainsci15030220. [6] Wei-Bang Jiang, Xuan-Hao Liu, Wei-Long Zheng, and Bao-Liang Lu. SEED-VII: A multimodal dataset of six basic emotions with continuous labels for emotion recognition. IEEE Transactions on Affective Computing , 2024. [7] Wei-Bang Jiang, Li-Ming Zhao, and Bao-Liang Lu. Large brain model for learning generic representa-tions with tremendous EEG data in BCI. In International Conference on Learning Representations , 2024. [8] Wolfgang Klimesch. EEG alpha and theta oscillations reflect cognitive and memory performance: a review and analysis. Brain Research Reviews , 29(2-3):169–195, 1999. [9] Sander Koelstra, Christian Mühl, Mohammad Soleymani, Jong-Seok Lee, Ashkan Yazdani, Touradj Ebrahimi, Thierry Pun, Anton Nijholt, and Ioannis Patras. DEAP: A database for emotion analysis using physiological signals. IEEE Transactions on Affective Computing , 3(1):18–31, 2012. [10] Vernon J. Lawhern, Amelia J. Solon, Nicholas R. Waytowich, Stephen M. Gordon, Chou P. Hung, and Brent J. Lance. EEGNet: A compact convolutional neural network for EEG-based brain-computer interfaces. Journal of Neural Engineering , 15(5):056013, 2018. doi: 10.1088/1741-2552/aace8c. [11] Jinpeng Li, Shuang Qiu, Changde Du, Yixin Wang, and Huiguang He. Multisource transfer learning for cross-subject EEG emotion recognition. IEEE Transactions on Cybernetics , 50(7):3281–3293, 2020. [12] Jinpeng Li, Shuang Qiu, Yuan-Yuan Shen, Cheng-Lin Liu, and Huiguang He. Domain adaptation for EEG emotion recognition based on latent representation similarity. IEEE Transactions on Cognitive and Developmental Systems , 12(2):344–353, 2020. [13] Dingkun Liu, Yuheng Chen, Zhu Chen, Zhenyao Cui, Yaozhi Wen, Jiayu An, Jingwei Luo, and Dongrui Wu. EEG foundation models: Progresses, benchmarking, and open problems. arXiv preprint arXiv:2601.17883 , 2025. [14] Jiarui Liu et al. Tokenizing single-channel EEG with time-frequency motif learning. In International Conference on Learning Representations (ICLR) , 2025. [15] Wei Liu, Jie-Lin Qiu, Wei-Long Zheng, and Bao-Liang Lu. Comparing recognition performance and robustness of multimodal deep learning models for multimodal emotion recognition. IEEE Transactions on Cognitive and Developmental Systems , 14(2):715–729, 2022. [16] Ravikiran Mane, Effie Chew, Karen Chua, Kai Keng Ang, Neethu Robinson, A. P. Vinod, Seong-Whan Lee, and Cuntai Guan. FBCNet: A multi-view convolutional neural network for brain-computer interface. arXiv preprint arXiv:2104.01233 , 2021. [17] Athanasios Papoulis and S. Unnikrishna Pillai. Probability, Random Variables, and Stochastic Processes .McGraw-Hill, 4 edition, 2002. [18] Stephen O. Rice. Mathematical analysis of random noise. The Bell System Technical Journal , 23 (3):282–332, 1944. 10 [19] Yonghao Song, Qingqing Zheng, Bingchuan Liu, and Xiaorong Gao. EEG conformer: Convolutional transformer for EEG decoding and visualization. IEEE Transactions on Neural Systems and Rehabilitation Engineering , 31:710–719, 2023. [20] Jianlin Su, Murtadha Ahmed, Yu Lu, Shengfeng Pan, Wen Bo, and Yunfeng Liu. RoFormer: Enhanced transformer with rotary position embedding. Neurocomputing , 568:127063, 2024. [21] Catherine Tallon-Baudry, Olivier Bertrand, Claude Delpuech, and Jacques Pernier. Oscillatory gamma-band (30–70 Hz) activity induced by a visual search task in humans. Journal of Neuroscience ,17(2):722–734, 1997. [22] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. In Advances in Neural Information Processing Systems , volume 30, 2017. [23] Christopher Wang, Vighnesh Subramaniam, Adam Uri Yaari, Gabriel Kreiman, Boris Katz, Ignacio Cases, and Andrei Barbu. BrainBERT: Self-supervised representation learning for intracranial recordings. In International Conference on Learning Representations (ICLR) , 2023. [24] Guangyu Wang, Wenchao Liu, Yuhong He, Cong Xu, Lin Ma, and Haifeng Li. EEGPT: Pretrained transformer for universal and reliable representation of EEG signals. In Advances in Neural Information Processing Systems , volume 37, 2024. [25] Jiquan Wang, Sha Zhao, Zhiling Luo, Yangxuan Zhou, Haiteng Jiang, Shijian Li, Tao Li, and Gang Pan. CBraMod: A criss-cross brain foundation model for EEG decoding. In International Conference on Learning Representations , 2025. [26] Chaoqi Yang, M. Brandon Westover, and Jimeng Sun. BIOT: Biosignal transformer for cross-data learning in the wild. In Advances in Neural Information Processing Systems (NeurIPS) , 2023. [27] Jiahe Zhang et al. CodeBrain: Bridging decoupled tokenizer and multi-scale architecture for EEG foundation model. arXiv preprint arXiv:2506.09110 , 2025. [28] Wei-Long Zheng and Bao-Liang Lu. Investigating critical frequency bands and channels for EEG-based emotion recognition with deep neural networks. IEEE Transactions on Autonomous Mental Development , 7(3):162–175, 2015. [29] Wei-Long Zheng, Wei Liu, Yifei Lu, Bao-Liang Lu, and Andrzej Cichocki. EmotionMeter: A multimodal framework for recognizing human emotions. IEEE Transactions on Cybernetics , 49(3):1110–1122, 2018. [30] Yuchen Zhou, Jiamin Wu, Zichen Ren, Zhouheng Yao, Weiheng Lu, Kunyu Peng, Qihao Zheng, Chunfeng Song, Wanli Ouyang, and Chao Gou. CSBrain: A cross-scale spatiotemporal brain foundation model for EEG decoding. In Advances in Neural Information Processing Systems , volume 38, 2025. 11 A Technical appendices and supplementary material 
+
+A.1 Visualization of the Morlet Wavelet Bank 
+
+Figure 6 illustrates the fixed Morlet transform used throughout this article, together with an illustrative example of tokenization of a single EEG channel. The figure comprises three panels. Panel (a) shows the real parts of representative complex Morlet kernels centered at low, middle, and high frequencies on a shared time axis. Panel (b) displays the F =20 log-spaced center frequencies overlaid on the canonical delta, theta, alpha, beta, and gamma bands. Panel (c) shows a sample raw EEG segment and its log-amplitude time-frequency grid 
+
+Sc,f,τ obtained via complex wavelet convolution followed by adaptive temporal pooling into Nτ =16 bins. Several properties of the Morlet transform are worth highlighting. First, the kernels in panel (a) make explicit the adaptive trade-off encoded in σf =ncyc /(2 πf ) with ncyc =5 . A 2 Hz kernel spans roughly 2.5 seconds and resolves only a small number of cycles, yielding sharp frequency localization at the cost of broad temporal support. In contrast, a 40 Hz kernel occupies a window on the order of 0.1 seconds and captures many cycles inside that window, providing sharp temporal localization at the cost of broader frequency support. This frequency-dependent windowing aligns with the multi-scale nature of cortical oscillations and contrasts with the fixed-window short-time Fourier transform. Second, the log-spaced frequency grid in panel (b) approximately uniformly samples the canonical EEG bands. Roughly one quarter of the 20 frequencies fall within each of the alpha, beta, and gamma bands, while the remaining quarter cover the delta and theta bands, which capture frontal-midline activity linked to emotion. This allocation reflects the empirical observation that emotion-relevant power modulations are distributed across the full 2 to 45 Hz range rather than concentrated in any single band. Third, the example tokenization in panel (c) shows that the resulting F ×Nτ grid behaves as a continuous, multi-resolution generalization of differential entropy. Within each band, the model observes how power evolves across the 16 pooled time frames. Across bands, the model captures the full spectral profile rather 3 2 1 0 1 2 3                         
+
+> Time (s)
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> Re(kernel)
+> (a) Real part of Morlet kernels (representative fc)
+> 2 Hz
+> 6 Hz
+> 15 Hz
+> 40 Hz
+> 10 1
+> Center frequency (Hz)
+> (b) Log-spaced f0,,f19 vs canonical EEG bands
+> Delta Theta Alpha Beta Gamma
+> 0.0 0.5 1.0 1.5 2.0
+> Time (s)
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> Amplitude (a.u.)
+> (c) Single-channel EEG (trial sub10_sess1_clip01, ch 31)
+> 0.0 2.5 5.0 7.5 10.0 12.5 15.0
+> Time frame
+> 10 1
+> Frequency (Hz)
+> (c) Log-amplitude Sc,f,(F×N)
+> 2.5
+> 2.0
+> 1.5
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> log(| Wx | +  )
+> Morlet wavelet bank and tokenization
+
+Figure 6: Morlet wavelet tokenization. (a) The complex Morlet kernels at different center frequencies, with longer temporal windows at low frequencies and shorter windows at high frequencies. (b) The log-spaced center frequencies aligned with canonical EEG bands. (c) An example raw EEG channel and its corresponding log-amplitude time-frequency grid produced by the wavelet bank and adaptive time pooling. 12 than a single scalar summary. Because the bank is fixed and non-learnable, the time-frequency geometry is determined entirely by neuroscience priors, allowing the method to focus its capacity on spatial mixing as in Section 3.3 and relational reasoning as in Section 3.4. Moreover, the bank introduces no trainable parameters, and thus incurs negligible memory overhead at inference and produces representations with clear physical interpretation, i.e., log amplitude within known frequency bands, which we find valuable for diagnosing failure cases on individual held-out subjects. 
+
+A.2 Equivalence Between Morlet Tokenization and Differential Entropy 
+
+We make precise the claim of Section 3.1 that the Morlet wavelet token Sc,f,τ generalizes the differential entropy (DE) feature widely used in EEG emotion recognition [ 4, 28 ]. First, we recall the standard reduction of DE to log band power for a Gaussian band-limited signal in Lemma 1. Then, we show that the Morlet feature reduces to DE plus a constant under classical narrow-band stationarity assumptions in Proposition 2. Finally, we describe in what sense the Morlet tokenization strictly generalizes DE. Fix a channel index c and drop it for notational brevity. Let x(t) be a real, zero-mean, wide-sense stationary EEG segment, and let b = [ f1,f 2] denote a frequency band. Denote by xb(t) the band-limited version of 
+
+x(t) obtained by an ideal bandpass filter onto b, and by 
+
+Pb = Ex2 
+
+> b
+
+(t) =
+
+Z f2
+
+> f1
+
+Sxx (f)df 
+
+its band power, where Sxx (f) is the power spectral density (PSD) of x.
+
+Lemma 1 (DE for a band-limited Gaussian signal [4]) . If x(t) is Gaussian, then for any band b,
+
+hb := h xb(t) = 12 log  2πeP b
+
+ = 12 log Pb + c0, c0 = 12 log(2 πe ).
+
+Proof. A linear filter applied to a Gaussian process produces a Gaussian process, so xb(t) is zero-mean Gaussian with variance Var( xb(t)) = E[x2 
+
+> b
+
+] = Pb at every fixed t. The differential entropy of a univariate Gaussian with variance σ2 is 12 log(2 πeσ 2) [3], which gives the claim with σ2 =Pb.This calculation matches the differential entropy feature used in SEED-style emotion recognition pipelines [28]. In those pipelines, each segment is bandpass-filtered into the five canonical bands, the empirical variance bPb is estimated for each channel and band, and 12 log(2 πe bPb) is recorded as the DE feature. Up to the additive constant c0, the recorded DE feature is therefore 12 log bPb.Recall the complex Morlet wavelet ψf (t) = e−t2/(2 σ2 
+
+> f)
+
+ej2πft with σf = ncyc /(2 πf ), the analytic-like signal zf (t) = ( x∗ψf )( t) ∈ C, and the instantaneous amplitude af (t) = |zf (t)|. After adaptive temporal pooling into Nτ bins, the Morlet token is 
+
+Sf,τ = log 
+
+
+
+af,τ +ϵ
+
+
+
+, af,τ = 1
+
+|Iτ |
+
+Z
+
+> Iτ
+
+af (t)dt, 
+
+where Iτ is the τth time bin. 
+
+Proposition 2 (DE equivalence under narrow-band stationarity) . Suppose, on the support of the segment used to compute the feature, the following conditions hold. (A1) x(t) is zero-mean wide-sense stationary and Gaussian. (A2) The Morlet response zf (t) is approximately analytic and narrow-band, i.e. its bandwidth ∆f ≈f/n cyc 
+
+is small relative to its center frequency f.(A3) The temporal pooling window Iτ is long enough that ergodic averaging of af (t) holds, i.e., 
+
+af,τ ≈Eaf (t), and short enough that local stationarity holds within Iτ .(A4) ϵ≪af,τ , so log( af,τ +ϵ)=log af,τ +o(1) .Let bf denote the equivalent passband centered at f with bandwidth ∆f, and let Pbf =R |ˆψf (ν)|2Sxx (ν)dν 
+
+be the Morlet-weighted band power. Then, 
+
+Sf,τ = 12 log Pbf + c1 + o(1) = hbf + ( c1 −c0) + o(1) ,
+
+where c1 = 12 log( π/ 2) is a fixed constant that does not depend on the channel, the frequency f, the time bin τ, the signal, or the subject. 
+
+13 Proof. We divide the proof in four steps. Step 1 (envelope statistics). Convolving the Gaussian process x with the complex kernel ψf yields a zero-mean complex Gaussian process zf (t) = u(t) + jv (t). By condition (A2), zf is approximately the analytic signal of the bandpass component of x in bf , so the real and imaginary parts u,v are jointly Gaussian, zero-mean, of equal variance σ2 
+
+> f
+
+, and uncorrelated [18, 17]. The instantaneous amplitude 
+
+af (t)= pu2(t)+ v2(t) therefore follows a Rayleigh distribution with parameter σf at every fixed t, so that 
+
+Eaf (t) = σf
+
+pπ/ 2, Ea2 
+
+> f
+
+(t) = 2 σ2 
+
+> f
+
+.
+
+Step 2 (band power). The Morlet-weighted power is 
+
+Pbf = E|zf (t)|2/2 = Ea2 
+
+> f
+
+(t)/2 = σ2 
+
+> f
+
+,
+
+where the factor 1/2 converts complex power into real-signal power, matching the conventional definition 
+
+Pb =Ex2 
+
+> b
+
+used in Lemma 1 [17]. Step 3 (token reduces to log band power). By (A3), af,τ ≈Eaf (t)= σf
+
+pπ/ 2. Combining with (A4), 
+
+Sf,τ =log  af,τ +ϵ=log  σf
+
+pπ/ 2+o(1) = 12 log σ2 
+
+> f
+
++ 12 log( π/ 2)+ o(1)= 12 log Pbf +c1 +o(1) .
+
+Step 4 (relation to DE). Lemma 1 gives hbf = 12 log Pbf +c0. Eliminating 12 log Pbf yields 
+
+Sf,τ = hbf +( c1 −c0)+ o(1) ,
+
+which proves the claim. The additive constant c1 −c0 = 12 log( π/ 2) − 12 log(2 πe )= −12 log(4 e) is absorbed by the affine input layer that follows in the network. We briefly comment that the conditions in Proposition 2 are reasonable, and are often imposed in neural time-frequency analysis [2]. Finally, we discuss in what sense Morlet tokenization strictly generalizes DE. Proposition 2 establishes the equivalence on the intersection of two restrictive regimes. One regime is a small set of disjoint, fixed canonical bands ( F = 5 ), and the other regime is a single large temporal bin ( Nτ = 1 ) over which strict stationarity is assumed. The Morlet tokenization in Section 3.1 relaxes both, in the following sense. • Frequency axis. Replacing the five designed bands by F = 20 logarithmically spaced Morlet kernels yields a continuous multi-resolution sampling of [2 ,45] Hz. Each kernel has bandwidth ∆f ∝f, matching the 1/f structure of cortical oscillations and giving sharper frequency resolution at low frequencies and sharper time resolution at high frequencies [2]. The five-band DE feature is recovered, up to constants and to the bandpass-shape mismatch, by linearly aggregating Morlet tokens whose center frequencies fall inside each canonical band. • Time axis. Setting Nτ = 16 produces Nτ local envelope statistics per segment instead of one, which captures within-segment spectral dynamics that DE collapses by computing a single variance per band. When Nτ =1 the Morlet feature reduces to the segment-level statistic of Proposition 2. • Distributional assumption. The DE feature is exact only under joint Gaussian assumption, as shown in Lemma 1. For non-Gaussian or non-stationary signals it is misspecified. The Morlet token log af,τ 
+
+is the empirical log mean envelope and remains meaningful for arbitrary distributions, with the Rayleigh identity Ea=σpπ/ 2 recovered as a special case. Therefore, the Morlet tokenization contains the DE feature as a low-resolution, large-time-bin, Gaussian-stationary special case, and otherwise provides a strictly richer time-frequency representation of the same underlying spectral signal long exploited in EEG emotion recognition. 
+
+A.3 Datasets, Preprocessing, Hardware, and Training Hyperparameters 
+
+All four datasets in the SEED family [28, 29, 15, 6] share the same recording paradigm. Subjects watch emotion-eliciting film clips while 62-channel EEG is recorded with a Neuroscan SynAmps2 system at 1000 Hz. The datasets differ in the number of emotion classes, subjects, clips, and sessions, as summarized in Table 3. 
+
+Preprocessing. Raw EEG is band-pass filtered between 0.1 and 75 Hz, notch-filtered at 50 Hz to remove power-line interference, and downsampled from 1000 Hz to 200 Hz. We retain the 62 standard channels in a consistent order across datasets and apply no ICA or manual artifact rejection. We then apply window-level z-score normalization. For each subject and each channel, we compute the mean and standard deviation across all 14 Table 3: Per-dataset configurations of the SEED family.                     
+
+> Dataset Classes Subjects Clips per session Sessions SEED 315 15 3SEED-IV 415 24 3SEED-V 516 15 3SEED-VII 720 20 4
+
+trials of that subject, and standardize the raw signal with these per-subject per-channel statistics before any spec-tral decomposition. This removes per-subject amplitude offsets arising from differences in skull thickness, elec-trode impedance, and recording conditions. Each continuous recording is then segmented into non-overlapping 2-second windows, with 400 samples at 200 Hz, and each window inherits the emotion label of its parent clip. 
+
+Evaluation protocol. In each LOSO fold one subject is held out as the testing set and the remaining subjects form the training set, with no fine-tuning, adaptation, or normalization performed on the testing subject. The number of folds equals the number of subjects in the dataset, i.e., 15 for SEED and SEED-IV, 16 for SEED-V, and 20 for SEED-VII. 
+
+Hardware. All models, including baselines, are trained on a single NVIDIA RTX Pro 6000 Blackwell Max-Q GPU. One LOSO fold for MST takes around 6 hours. 
+
+Dataset access and licenses. The SEED-family datasets are provided by the BCMI laboratory at Shanghai Jiao Tong University and are cited in Section 4.1. They are used under the SJTU Emotion EEG Dataset License Agreement, which permits academic research use, prohibits commercial use and redistribution, requires approved access through the SEED website, and asks users to cite the relevant dataset papers. 
+
+Baseline re-implementation. To ensure the protocol consistency across datasets, we re-implement and re-run the baselines, LaBraM, EEGPT, CBraMod, CSBrain, BIOT, and TFM-Tokenizer, under the same strict LOSO protocol described in the experiment setup section, rather than citing numbers from prior benchmarks. Each baseline receives the same subject-normalized 2-second EEG windows with shape B×T ×C, where 
+
+T = 400 and C = 62 . The output dimension of every classifier is set to the number of emotion classes in the target dataset. The pretrained variant loads the authors’ released checkpoint and fine-tunes per fold on the source subjects only, following the fine-tuning recipe prescribed by the original paper. The from-scratch variant trains the identical architecture from random initialization on the source subjects only, with no external pretraining data. TFM-Tokenizer is evaluated with the released tokenizer and encoder checkpoints, and therefore has no from-scratch variant in our table. 
+
+Baseline implementation details. LaBraM uses our wrapper around the official NeuralTransformer 
+
+fine-tuning model. The 2-second input is split into two non-overlapping 1-second patches of length 200 
+
+for every channel, reshaped to B×C×2×200 , and divided by 100 following the LaBraM convention for microvolt-scaled inputs. We use the base setting with embedding dimension 200 , depth 12 , 10 attention heads, MLP ratio 4, output channel count 8, drop path rate 0.1, and mean pooling. The 62 SEED channels are mapped to LaBraM 10-20 positional indices through the channel-name lookup copied from the original code. During pretrained runs, labram-base.pth is loaded after removing pretraining-only keys and remapping the normalization weights used by the fine-tuning backbone. The downstream head is a linear layer applied to the mean of all patch tokens. EEGPT uses the official EEGTransformer encoder. We use a wrapper to transpose each window to 
+
+B×C×T and apply a channel-wise patch embedding with patch size 64 and stride 64 over the 400-sample sequence. We use target length 400 , target channels 62 , embedding dimension 512 , four summary tokens, depth 8, 8 attention heads, MLP ratio 4, zero dropout, and no channel projection. The released 
+
+eegpt_mcae_58chs_4s_large4E.ckpt checkpoint is loaded by stripping training prefixes, discarding reconstruction and prediction heads, and partially copying compatible channel embeddings when needed. The four summary streams are averaged across time patches and streams, then passed to a linear classifier. CBraMod uses the official criss-cross Transformer backbone. We use a wrapper to reshape each 400-sample window to B×C ×2×200 . Its patch embedding combines a temporal convolutional projection with an FFT magnitude projection over 101 one-sided frequency bins. We use dmodel =200 , feed-forward dimension 800 , 12 layers, 8 heads, sequence length 30 , patch length 200 , and two patches per channel. The original projection head is replaced by an identity module so that the downstream classifier operates on backbone features. The reported classifier is average pooling over channels and patches followed by a linear 15 layer. For pretrained runs, pretrained_weights.pth is loaded into the backbone after classifier and output-projection keys are removed. CSBrain uses the official CSBrain downstream wrapper. It shares the same raw window shape, patch length, depth, hidden dimension, feed-forward dimension, and average-pooling classifier as CBraMod. In addition, it sorts the 62 channels according to the SEED topological order, groups them into the five brain regions used by the original implementation, and applies temporal embedding kernels of size 1, 3, and 5 inside each encoder layer. Its patch embedding again combines temporal convolution and FFT magnitude features before the CSBrain regional attention blocks. The pretrained run loads CSBrain.pth into shape-compatible backbone parameters only, while leaving the downstream classifier randomly initialized. BIOT uses the official BIOT encoder. We use a wrapper to transpose the input to B×C ×T and transform each channel by STFT with nfft =200 , hop length 100 , and no centering. 
+
+Morlet training hyperparameters. For the subject-independent SEED experiments, we train MST with cross-entropy loss and select checkpoints by validation balanced accuracy on the source subjects. We use AdamW with learning rate 2×10 −4, weight decay 0.05 , cosine learning-rate decay, 1000 warmup steps, batch size 128 , validation batch size 128 , gradient accumulation of 1, gradient clipping at norm 1.0, and no mixed precision. Training runs for at most 50 ,000 steps, validation is performed every 200 steps, and checkpoints are saved every 1000 steps. The random seed is set to 42 for the reported configuration. The model configuration follows those values in Section 4.1. We use 20 logarithmically spaced Morlet frequencies from 2 to 45 Hz, 5 wavelet cycles, sampling rate 200 Hz, 16 pooled time frames, log stabilizer 
+
+10 −6, 62 EEG channels, spatial dimension 16 , embedding dimension 256 , 12 Transformer layers, 8 attention heads, dropout 0.05 , MLP expansion ratio 4, and long-context baseline size K =5 . The supervised contrastive and VICReg auxiliary losses are disabled in the reported runs, with weights set to zero. For data augmentation, phase perturbation is applied with probability 1.0, band-specific noise with probability 0.5, channel dropout with probability 0.5, and post-wavelet time roll with probability 0.5. Phase perturbation samples its standard deviation uniformly from π/ 6 to π/ 2. Band-specific noise samples one to three bands and an amplitude scale uniformly from 0.1 to 0.3. Channel dropout samples the drop fraction uniformly from 0.1 to 0.3. Channel-gain, spectral-tilt, and intra-label interpolation augmentations are disabled. We tune the hyperparameters using only the training subjects within each LOSO fold. The selected configuration is chosen by validation balanced accuracy and then kept fixed for all held-out subjects. The tuning considers nearby values for learning rate, dropout, number of pooled time frames, spatial dimension, baseline context length, and augmentation probabilities, with the final values listed above. 
+
+A.4 Full Evaluation Metric Breakdown 
+
+Table 4 reports Cohen’s κ and weighted F1 for all methods across the four SEED-family datasets, with all values expressed as percentages. Results are summarized as mean ± standard deviation over LOSO folds (15 for SEED, 15 for SEED-IV, 16 for SEED-V, and 20 for SEED-VII). For the SEED dataset, on Cohen’s 
+
+κ, which accounts for class imbalance, the proposed MST shows a 6.1-percentage-point improvement over pretrained LaBraM and a 10.0-percentage-point improvement over LaBraM trained from scratch. On weighted F1, MST shows a 4.9-percentage-point improvement over pretrained LaBraM and a 6.6-percentage-point improvement over LaBraM trained from scratch. 16 Table 4: Cross-subject leave-one-subject-out performance on the four SEED-family datasets. All methods are run under the same no-calibration protocol. The mean ± standard deviation of Cohen’s κ and weighted F1 (%) across folds is shown. The best performance per column is shown in bold. TFM-Tokenizer Cohen’s 
+
+κ std on SEED-V is inflated by a single outlier fold (sub2, κ = 0 .87 ). CSBrain pretrained Cohen’s κ std on SEED-VII is inflated by a single outlier fold (sub18, κ=0 .81 ). SEED SEED-IV SEED-V SEED-VII Method κ F1 κ F1 κ F1 κ F1 
+
+Foundation models / pretrained tokenizer + fine-tuning 
+
+LaBraM 43.5 ± 10.8 60.8 ± 7.8 13.7 ± 4.5 33.7 ± 4.3 13.8 ± 6.5 27.6 ± 6.7 11.0 ± 4.1 21.8 ± 4.0 EEGPT 34.2 ± 8.7 54.6 ± 5.9 9.3 ± 4.5 29.6 ± 4.1 8.0 ± 4.3 23.8 ± 5.2 9.0 ± 3.6 19.8 ± 3.5 CBraMod 37.2 ± 9.6 54.5 ± 8.2 12.4 ± 5.1 31.2 ± 5.5 12.1 ± 6.8 26.4 ± 6.8 9.5 ± 3.8 19.1 ± 4.1 CSBrain 42.2 ± 9.7 60.3 ± 7.0 14.3 ± 5.7 33.3 ± 4.1 10.3 ± 6.5 25.1 ± 5.8 12.5 ± 16.7 ‡ 18.1 ± 4.8 BIOT 38.6 ± 10.6 57.8 ± 7.4 13.5 ± 4.9 33.9 ± 4.4 12.2 ± 6.4 25.6 ± 6.5 10.2 ± 3.9 20.1 ± 3.7 TFM-Tokenizer 29.9 ± 8.5 51.7 ± 6.0 11.2 ± 4.4 31.7 ± 3.9 12.8 ± 20.3 † 22.4 ± 5.6 6.9 ± 2.6 16.6 ± 2.6 
+
+Same architectures, trained from scratch 
+
+LaBraM (scratch) 39.6 ± 10.1 59.1 ± 6.3 5.7 ± 3.3 25.8 ± 3.3 5.7 ± 4.4 20.7 ± 6.5 5.6 ± 3.2 15.6 ± 3.3 EEGPT (scratch) 36.4 ± 11.1 56.0 ± 8.0 8.8 ± 4.4 29.2 ± 4.2 5.8 ± 4.7 19.6 ± 6.0 3.4 ± 2.5 11.9 ± 2.7 CBraMod (scratch) 31.6 ± 10.1 53.1 ± 7.3 7.1 ± 3.5 28.4 ± 3.7 7.5 ± 4.3 23.8 ± 4.8 7.0 ± 3.2 17.7 ± 3.3 CSBrain (scratch) 39.5 ± 10.3 58.3 ± 6.5 11.3 ± 7.0 30.2 ± 5.6 9.4 ± 5.0 24.0 ± 5.2 8.0 ± 4.5 18.4 ± 4.4 BIOT (scratch) 38.6 ± 10.2 57.7 ± 7.4 13.0 ± 3.9 33.2 ± 3.9 13.6 ± 6.7 27.1 ± 7.2 10.5 ± 4.8 20.1 ± 4.8 
+
+Ours (no pretraining) 
+
+MST 49.6 ± 12.2 65.7 ± 8.7 19.7 ± 7.2 37.0 ± 6.7 18.3 ± 5.6 31.1 ± 5.1 14.7 ± 4.7 23.7 ± 4.5 
+
+17
