@@ -1,63 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-06-03
-- 运行时间：2026-06-03 06:14:24 北京时间
+- 最新运行日期：2026-06-04
+- 运行时间：2026-06-04 06:35:50 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今日精读+速读15篇前沿研究，重点评估脑电基准与可解释性新框架。  
-OmniEEG-Bench 推出脑电基础模型标准化评测，归一化相关性测度将多种解释方法统一为一致框架，值得深入关注。  
-若对脑机接口或透明AI感兴趣，可从这两篇入手，跟紧脑电评测与模型解释的最新动态。
-- 详情：[/202606/03/README](/202606/03/README)
+今日精读两篇满分论文，揭示AI语音模型Whisper与人类脑活动的可解释映射，以及探索-利用决策的时空解码机制。  
+最值得关注的是语言模型与神经编码的直接对应关系，以及大脑决策动态的逐时刻解码方法。  
+推荐读者深入阅读这两篇满分工作，同时留意新发布的1000小时日语多模态神经数据集。
+- 详情：[/202606/04/README](/202606/04/README)
 
 ### 精读区论文标签
-1. [OmniEEG-Bench: A Standardized Evaluation Benchmark for EEG Foundation Models](/202606/03/2606.00815v1-omnieeg-bench-a-standardized-evaluation-benchmark-for-eeg-foundation-models)  
+1. [Mapping Whisper Representations to Human ECoG Responses with Interpretable Time-Resolved Neural Encoding](/202606/04/2606.02305v1-mapping-whisper-representations-to-human-ecog-responses-with-interpretable-time-resolved-neural-encoding)  
    标签：评分：10.0/10、query:sr
-   evidence：统一基准评估EEG基础模型，覆盖BCI时间解码任务
-2. [Normalized Relevance Measure as a Unifying Framework to Explain Neural Network Latent Structures](/202606/03/2606.00557v1-normalized-relevance-measure-as-a-unifying-framework-to-explain-neural-network-latent-structures)  
+   evidence：将Whisper表示映射到人类ECoG反应并使用时序编码
+2. [Spatiotemporal Decoding of Explore-Exploit Decisions in the Human Brain](/202606/04/biorxiv-10-64898-2026-06-01-729427-v1-spatiotemporal-decoding-of-explore-exploit-decisions-in-the-human-brain)  
+   标签：评分：10.0/10、query:sr
+   evidence：利用MEG和POMDP对探索-利用决策进行时空解码
+3. [The Neuromorphic Supremacy](/202606/04/2606.01841v1-the-neuromorphic-supremacy)  
    标签：评分：9.0/10、query:sr
-   evidence：解释神经网络内部表示的框架
-3. [Dive into Waves: Morlet Spectral Transformer for Cross-Subject Emotion Decoding from EEG](/202606/03/2606.00884v1-dive-into-waves-morlet-spectral-transformer-for-cross-subject-emotion-decoding-from-eeg)  
+   evidence：具有尖峰动力学的神经形态电路用于解码
+4. [EVA-Net: Subject-Independent EEG Motor Decoding with Video-Derived Motor Priors](/202606/04/2606.01884v1-eva-net-subject-independent-eeg-motor-decoding-with-video-derived-motor-priors)  
    标签：评分：9.0/10、query:sr
-   evidence：使用Morlet频谱变换进行EEG情绪解码，用于脑机接口
-4. [EvoBrain: Continual Learning of EEG Foundation Models Across Heterogeneous BCI Tasks](/202606/03/2606.01767v1-evobrain-continual-learning-of-eeg-foundation-models-across-heterogeneous-bci-tasks)  
+   evidence：使用视频先验的跨受试者EEG运动解码用于脑机接口
+5. [ERP-XTTN: Interpretable Prototype-Guided Cross-Attention for Cross-Subject ERP Classification](/202606/04/2606.02939v1-erp-xttn-interpretable-prototype-guided-cross-attention-for-cross-subject-erp-classification)  
    标签：评分：9.0/10、query:sr
-   evidence：用于脑电图脑机接口解码的持续学习框架
-5. [A 32-Channel 3.53-μW Per Channel Brain-Machine Interface SoC Featuring Dual-Threshold Delta-modulation, In-Memory Spike Detection and Bi-SNN Based Motor Decoding](/202606/03/2606.01776v1-a-32-channel-353-w-per-channel-brain-machine-interface-soc-featuring-dual-threshold-delta-modulation-in-memory-spike-detection-and-bi-snn-based-motor-decoding)  
-   标签：评分：9.0/10、query:sr
-   evidence：具有尖峰检测和运动解码的脑机接口片上系统
+   evidence：可解释的交叉注意力模型用于ERP脑机接口解码
 
 ### 速读区论文标签
-1. [Augmented Lagrangian Predictive Coding](/202606/03/2605.31022v1-augmented-lagrangian-predictive-coding)  
+1. [A 1000-hour EEG-EMG-audio dataset of Japanese speech production](/202606/04/2606.01264v1-a-1000-hour-eeg-emg-audio-dataset-of-japanese-speech-production)  
    标签：评分：8.0/10、query:sr
-   evidence：预测编码作为神经活动的数学框架
-2. [UF-AMA: A unified framework for cross-domain emotion recognition via adaptive multimodal alignment](/202606/03/2606.00170v1-uf-ama-a-unified-framework-for-cross-domain-emotion-recognition-via-adaptive-multimodal-alignment)  
+   evidence：从EEG进行语音解码的数据集
+2. [Feature leakage and the identifiability of direct-dependency entropy models of neural activity](/202606/04/2606.01661v1-feature-leakage-and-the-identifiability-of-direct-dependency-entropy-models-of-neural-activity)  
    标签：评分：8.0/10、query:sr
-   evidence：基于EEG的跨域情绪识别，解码神经模式
-3. [Torus Graphs for Large Scale Neural Phase Analysis](/202606/03/2606.00496v1-torus-graphs-for-large-scale-neural-phase-analysis)  
+   evidence：神经活动的条件最大熵模型与信息投影
+3. [Modeling Discrete Data with High-Order Vector Potts Models](/202606/04/2606.03429v1-modeling-discrete-data-with-high-order-vector-potts-models)  
    标签：评分：8.0/10、query:sr
-   evidence：开发可扩展的环面图模型用于大规模神经相位分析
-4. [Computation-Aware Kalman Filtering with Model Selection for Neural Dynamics](/202606/03/2606.01468v1-computation-aware-kalman-filtering-with-model-selection-for-neural-dynamics)  
+   evidence：高阶向量Potts模型用于神经群体活动建模
+4. [Short-Term Synaptic Plasticity Stabilizes Goal-Conditioned Dynamics in a PFC-Inspired Reservoir Model for Multistep Goal-Directed Action Planning](/202606/04/2606.03481v1-short-term-synaptic-plasticity-stabilizes-goal-conditioned-dynamics-in-a-pfc-inspired-reservoir-model-for-multistep-goal-directed-action-planning)  
    标签：评分：8.0/10、query:sr
-   evidence：利用卡尔曼滤波对单细胞记录进行神经动力学建模
-5. [Beyond Additive Decompositions: Interpretability Through Separability](/202606/03/2605.31200v2-beyond-additive-decompositions-interpretability-through-separability)  
+   evidence：具有STP的PFC启发储层模型用于目标解码
+5. [Estimating Mutual Information between Time Series and Temporal Event Sequences Across Diverse Analysis Tasks](/202606/04/2606.01602v1-estimating-mutual-information-between-time-series-and-temporal-event-sequences-across-diverse-analysis-tasks)  
    标签：评分：7.0/10、query:sr
-   evidence：新颖的可解释回归方法（张量分离），可应用于神经编码模型
-6. [Brain-Atlas-Guided Generative Counterfactual Attention for Explainable Cognitive Decline Diagnosis Using Multimodal Connectomes](/202606/03/2606.01237v1-brain-atlas-guided-generative-counterfactual-attention-for-explainable-cognitive-decline-diagnosis-using-multimodal-connectomes)  
+   evidence：适用于神经数据的时间序列与事件序列非参数互信息估计
+6. [Bifurcation in space: Functional modularity and distributed cognition in the neocortex](/202606/04/biorxiv-10-1101-2023-06-04-543639-v4-bifurcation-in-space-functional-modularity-and-distributed-cognition-in-the-neocortex)  
    标签：评分：7.0/10、query:sr
-   evidence：用于脑连接组可解释分析的生成式反事实注意力
-7. [Hypergraphs from multivariate connectivity: caCoh-based EEG/MEG representation](/202606/03/2606.01357v1-hypergraphs-from-multivariate-connectivity-cacoh-based-eegmeg-representation)  
+   evidence：新皮层功能模块化和分布式认知模型，包含记忆活动时间尺度
+7. [The hippocampus as a small-world cognitive map](/202606/04/biorxiv-10-64898-2026-02-07-704615-v2-the-hippocampus-as-a-small-world-cognitive-map)  
    标签：评分：7.0/10、query:sr
-   evidence：基于EEG/MEG的超图连接性分析神经群体动力学
-8. [How Optimality Structures Sparse Dictionaries: A Theory for Understanding SAE Representations](/202606/03/2606.02385v1-how-optimality-structures-sparse-dictionaries-a-theory-for-understanding-sae-representations)  
+   evidence：海马体认知地图作为时空动态的小世界网络
+8. [Engagement-Dependent Neural Entrainment Underlies Dissociable tACS Effects on Item and Sequence Working Memory](/202606/04/biorxiv-10-64898-2026-05-27-728324-v1-engagement-dependent-neural-entrainment-underlies-dissociable-tacs-effects-on-item-and-sequence-working-memory)  
    标签：评分：7.0/10、query:sr
-   evidence：稀疏自编码器理论用于解释神经表征
-9. [Compact and Energy-Efficient Memristive Spiking Neuromorphic Accelerator for Bio-inspired Interception Tasks](/202606/03/2605.31141v1-compact-and-energy-efficient-memristive-spiking-neuromorphic-accelerator-for-bio-inspired-interception-tasks)  
+   evidence：通过tACS和MEG研究神经夹带以分离项目和序列工作记忆
+9. [Cortex and subcortex play distinct roles over learning when cortical memory is limited](/202606/04/2606.00667v1-cortex-and-subcortex-play-distinct-roles-over-learning-when-cortical-memory-is-limited)  
    标签：评分：6.0/10、query:sr
-   evidence：脉冲神经网络加速器模拟脉冲模式
-10. [On the synaptic matrix eigenvalues of sparsely connected neural networks](/202606/03/2606.00326v1-on-the-synaptic-matrix-eigenvalues-of-sparsely-connected-neural-networks)  
+   evidence：学习与神经资源约束的理论框架
+10. [CA1 Engram Cell Dynamics Before and After Learning](/202606/04/biorxiv-10-1101-2024-04-16-589790-v4-ca1-engram-cell-dynamics-before-and-after-learning)  
    标签：评分：6.0/10、query:sr
-   evidence：突触矩阵谱分析用于理解神经动力学
+   evidence：CA1印记细胞群体动力学的纵向成像
 
