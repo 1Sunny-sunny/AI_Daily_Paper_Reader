@@ -1,0 +1,245 @@
+Title: Coarse-to-fine Hierarchical Architecture with Sequential Mamba for Brain Reconstruction
+
+URL Source: https://arxiv.org/pdf/2606.04772v1
+
+Published Time: Thu, 04 Jun 2026 00:59:21 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# CHASMBrain: Coarse-to-fine Hierarchical Architecture with Sequential Mamba for Brain Reconstruction 
+
+Hoang-Son Vo 1 † , Van-Hung Bui 1 † , Minh-Huy Mai-Duc 2, Tien-Dung Mai 3 , and Soo-Hyung Kim 1 ∗ 
+
+> 1
+
+Chonnam National University, Gwangju, Republic of Korea  
+
+> 2
+
+Vietnam National University - Ho Chi Minh City, University of Science, Vietnam  
+
+> 3
+
+Institute for Cybersecurity and Digital Technologies, Russia † These authors contributed equally to this work.  
+
+> ∗
+
+Corresponding author 
+
+Abstract. Understanding the relationship between deep visual repre-sentations and the human visual system is a fundamental challenge in computational neuroscience. While modern vision models achieve strong performance in image recognition, their correspondence with the hier-archical organization of the human visual cortex remains an open ques-tion. In this study, we propose CHASMBrain, a novel hierarchical two-stage framework for image-to-fMRI encoding. Our architecture leverages a dual-stream Mamba design to explicitly separate and process global semantic tokens and local spatial patches, motivated by the functional organization of the visual cortex. A coarse-to-fine strategy is employed: Stage 1 predicts denoised ROI-level activations, while Stage 2 refines these coarse responses into full voxel-level predictions using a Mamba-VAE. Experiments on the Natural Scenes Dataset (NSD) demonstrate that our method achieves a Pearson correlation of 0.429 and an MSE of 0.261, outperforming all evaluated baselines including ridge regres-sion and DINOv2 linear probes. Beyond predictive performance, causal branch-ablation experiments reveal an asymmetric specialization: the patch stream is specifically locked to early visual cortex (retinotopic regions), while the CLS stream contributes broader semantic context to higher-order areas—a correspondence that holds causally, not merely correlationally. Cross-subject transfer experiments further show that the learned backbone generalizes across individuals with minimal per-subject adaptation, suggesting the model captures a shared, subject-agnostic vi-sual representation. 
+
+Keywords: Image-to-fMRI, computational neuroscience, vision trans-former, brain encoding, state space models 
+
+# 1 Introduction 
+
+Vision is the primary sensory channel through which humans acquire informa-tion about the external world. Even a single second of natural visual input  
+
+> arXiv:2606.04772v1 [cs.CV] 3 Jun 2026 2Son et al.
+
+carries a staggering amount of information. To understand how the brain parses this input, computational neuroscience relies on visual encoding models that de-scribe neural responses as functions of stimulus features. Functional magnetic resonance imaging (fMRI) is central to this effort: by measuring blood-oxygen-level-dependent signals, fMRI provides a non-invasive way to map visual stimuli to localized responses in the human visual cortex. Historically, encoding models depended on hand-crafted features. Early work used mathematical constructs such as Gabor filters to approximate sensitivity to edges, orientations, and contrast. As naturalistic vision benchmarks became more challenging, the field shifted from manual descriptors to learning-based approaches powered by deep neural networks, which extract rich data-driven representations directly from images. This transition also revealed a strong correspondence between artificial hi-erarchies and biological vision. Prior studies show that layers of deep neural networks (DNNs) map onto successive processing stages in human visual cortex [10]. Early convolutional layers are predictive of activity in low-level areas such as V1 and V2 [17], while deeper layers better align with higher-level regions, including inferior temporal (IT) cortex and fusiform face area (FFA), that sup-port complex object recognition [8]. These findings suggest shared computational principles across artificial and biological systems. To better capture this organization, recent models explicitly separate local and global representations. Early visual cortex is retinotopic, making it espe-cially sensitive to local, patch-level structure. Higher-level regions encode more holistic semantics that reflect object identity and behavioral relevance, beyond low-level geometry [3]. Disentangling local spatial pooling (“where”) from global feature tuning (“what”) has therefore become a key design principle, as shown by frameworks such as banded ridge regression and targeted transformer queries [16,1]. This separability is consistent with evidence for structural similarity between deep visual representations and the human visual system. From striate to extras-triate cortex, representational complexity increases along a spatial hierarchy [5]. Deep models exhibit a comparable layer-wise progression [14], often described as a form of hierarchical isomorphism between model stages and anatomical pathways spanning ventral and dorsal streams [18,7]. Building on these insights, this paper presents an interpretable, biologically inspired dual-stream framework for neural visual encoding. While prior deep models often achieve high predictive accuracy, they can remain difficult to inter-pret. The proposed framework incorporates cortical priors by separating spatial location parameters from feature-weight parameters, enabling direct inspection of receptive-field structure [16,7]. It further mirrors neuroanatomical specializa-tion by decoupling spatial detail from semantic context, following evidence from brain-like hierarchical processing [6]. This design aims to improve both predictive performance and scientific interpretability. To bridge the gap between artificial visual representations and human neural activity, the core contributions of this work are summarized as follows: CHASM Brain 3
+
+– CHASMBrain , a hierarchical two-stage framework for image-to-fMRI en-coding that achieves a Pearson correlation of 0.429 and an MSE of 0.261 on NSD, outperforming not only recent deep encoding models (SynBrain, MindSimulator) but also strong simple baselines including ridge regression and DINOv2 layer-wise linear probes. 
+
+– A sequential coarse-to-fine learning mechanism specifically designed to overcome the challenge of high intrinsic noise in fMRI signals, by separat-ing robust semantic alignment at the ROI level from fine-grained voxel-level refinement via a Mamba-VAE. 
+
+– Causal stream specialization : branch-ablation and input-routing exper-iments show that the patch (local) stream is specifically locked to early vi-sual cortex—removing it hurts early regions far more than higher regions— while the CLS (global) stream contributes broader semantic context. Routing streams to mismatched cortical targets (“Swap”) causes a 1 .9× asymmetric drop in early-region Pearson, confirming the correspondence is causal rather than post-hoc. 
+
+– Cross-subject generalizability : a backbone trained on source subjects and frozen, with only a lightweight per-subject head fine-tuned ( ≤30 epochs), reaches near within-subject performance on held-out subjects, suggesting the learned representation is subject-agnostic at the backbone level. 
+
+# 2 Proposed Method 
+
+We propose a hierarchical two-stage framework for image-to-fMRI reconstruc-tion, as shown in Figure 1. Stage 1 first predicts denoised responses at the ROI (Region of Interest) level, and Stage 2 then refines these coarse responses into full voxel-level predictions. This design separates robust semantic alignment from fine-grained signal recovery, which makes the overall learning process more stable. Crucially, Stage 1’s dual-stream architecture extracts and encodes local spatial details into ROI representations, allowing Stage 2 to focus on refine-ment using these encoded structures rather than re-extracting features from raw patches. 
+
+2.1 Stage 1: Dual-Stream Mamba for Coarse Prediction 
+
+Stage 1 learns ROI-level neural responses from visual inputs by combining com-plementary cues: global semantics and local spatial details. To this end, we use a dual-stream architecture where each stream specializes in one type of visual representation and both streams are fused adaptively. 
+
+Visual Feature Extraction Given an input image I, we extract visual features using a pretrained DINOv2 encoder [11]. The encoder outputs two representa-tions: 
+
+– CLS token : a single vector summarizing global image semantics. 4 Son et al. Global Branch  
+
+> Local Branch
+> Fusion Gate
+> Ground T ruth
+> fMRI
+> Ground T ruth
+> Image
+> Stage 1: Coarse
+> (Stage 1 Output)
+> Stage 2: Fine
+> Predicted fMRI
+
+Fig. 1. Overview of the proposed hierarchical two-stage framework for image-to-fMRI reconstruction. Stage 1 (Coarse) : A dual-stream Mamba architecture processes global (CLS token) and local (patch tokens) visual features separately, then fuses them via an adaptive gate to predict ROI-level activations. Stage 2 (Fine) : A Mamba-VAE architecture takes the visual features and ROI predictions as input, encodes them through Mamba blocks, samples from a learned latent space, and decodes to full voxel-level fMRI predictions through parallel global and local branches. 
+
+– Patch tokens : a sequence of vectors preserving local spatial structure. We choose DINOv2 because it is pretrained via self-supervised learning, which is effective for capturing fine visual details and structural patterns. This property is well aligned with our hypothesis that both detailed local structure and global visual semantics are critical for accurate image-to-fMRI reconstruction. 
+
+ROI Aggregation for Noise Reduction Directly regressing all voxels (e.g., 15,724 dimensions) is difficult because fMRI signals are high-dimensional and noisy, with variance from physiological artifacts, scanner noise, and trial-level fluctuations. Therefore, Stage 1 predicts ROI-level targets as an intermediate denoising step. We partition voxels into K non-overlapping clusters, each containing V spa-tially adjacent voxels. Compared with anatomical parcellations such as Schae-fer [13], our sequential clustering provides flexible granularity tailored to the target voxel space. CHASM Brain 5
+
+For each cluster, instead of averaging all voxels, we aggregate only the top-p%activations: 
+
+rk = 1
+
+|Sk|
+
+X
+
+> i∈Sk
+
+vi where Sk = TopK( {vi}i∈Ck , ⌊p · V ⌋) (1) where rk is the aggregated value of ROI k, Ck is the voxel index set of cluster 
+
+k, and TopK returns the highest-activation subset. This strategy preserves in-formative peaks while reducing low-activation noise; it is especially useful after z-score normalization, where naive mean aggregation can collapse toward zero. 
+
+Global Branch The Global branch models high-level semantics from the CLS token. The projected CLS features are treated as a sequence across the Mamba block [4] depth, allowing selective state-space modeling to filter task-irrelevant dimensions progressively We adopt Mamba primarily because its selective state-space mechanism can focus on task-relevant information while suppressing irrelevant signals, which aligns well with brain activity prediction. 
+
+Local Branch The Local branch models fine-grained structure from patch to-kens. We first project patch tokens, add learnable positional embeddings, and apply normalization. The sequence is then processed by a deeper stack of Mamba blocks than in the Global branch, reflecting the larger token sequence (256 patches). Finally, mean pooling and a two-layer GELU MLP produce ROI-level predictions. 
+
+Adaptive Fusion Gate To combine the two streams, we use a learnable fusion gate rather than fixed coefficients. The gate takes concatenated global/local features, applies a two-layer GELU MLP, and outputs softmax-based fusion weights. The final ROI prediction is ˆr = α · rg + (1 − α) · rl, (2) where rg and rl are branch outputs and α ∈ [0 , 1] is learned per input. This mechanism lets the model emphasize global context for simple scenes and local details for complex scenes. 
+
+Contrastive Alignment Beyond regression, we encourage representation-level alignment between image features and brain responses via a CLIP-style con-trastive objective [12]. Specifically, fused visual features and ground-truth ROI activations are projected into a shared embedding space using separate two-layer GELU projection heads with layer normalization. An InfoNCE loss then pulls matched image–brain pairs together while pushing mismatched pairs apart. 6 Son et al. 
+
+Training Objective The Stage 1 objective combines pointwise regression, cor-relation alignment, and contrastive alignment: 
+
+Lstage 1 = LM SE + γ · L P earson + λ · L Inf oN CE . (3) Here, LM SE minimizes amplitude error between predicted and ground-truth ROI activations, LP earson encourages high correlation between their response patterns, and LInf oN CE improves cross-modal discriminability. Hyperparame-ters γ and λ balance these three terms. 
+
+2.2 Stage 2: Mamba-VAE for Fine Prediction 
+
+Stage 2 maps coarse ROI predictions to full voxel resolution. We design this stage as a Mamba-VAE to jointly model structured dependencies and trial-to-trial variability in fMRI responses. 
+
+Input Fusion Stage 2 receives two inputs: visual features from DINOv2 and ROI predictions from Stage 1 (ˆ r). We first project visual features (CLS token concatenated with pooled patch features) into a common embedding space. No-tably, we use mean-pooled patch features rather than individual patch tokens, as Stage 1’s Local branch has already extracted and encoded fine-grained spatial de-tails into the ROI representations. This avoids redundant feature extraction and reduces computational overhead while maintaining spatial specificity through the ROI structure. Each ROI value is then tokenized and augmented with learn-able positional embeddings to preserve region order. Concatenating visual and ROI tokens forms a unified sequence encoding both stimulus content and coarse neural priors. 
+
+Mamba Encoder A stack of Mamba blocks encodes the fused sequence and learns interactions between visual evidence and predicted neural structure. This encoder produces latent token representations that capture global image–brain dependencies before voxel-level decoding. 
+
+Variational Latent Space Because fMRI responses vary even for repeated presentations of the same stimulus, we model uncertainty with a variational latent space. After sequence encoding, pooled features are passed to a VAE head: 
+
+μ, log σ2 = VAEEncoder(Pool( h)) . (4) During training, we sample 
+
+z = μ + σ ⊙ ϵ, ϵ ∼ N (0, I), (5) and inject z back into token representations. During inference, we use μ for deterministic prediction. CHASM Brain 7
+
+Feature Split for Dual Decoding After latent injection, we obtain a shared token sequence ˜H ∈ R(K+1) ×d, including one visual token and K ROI tokens. We then split features by token role (not by separate encoders): the full sequence is routed to a holistic decoder, while ROI tokens are selected and routed to an ROI-wise residual decoder. Formally, ˜Hglobal = ˜H, ˜Hlocal = ˜H2: K+1 . (6) This token-level split allows both decoders to share the same encoded context while specializing in complementary prediction behaviors. 
+
+Holistic Voxel Decoder The Holistic Voxel Decoder predicts the full voxel vec-tor jointly from the global context. We append learnable query tokens q ∈ RM ×d
+
+to the latent-injected sequence, process them with additional Mamba blocks, and map the resulting query features to voxel outputs. This branch captures long-range and cross-ROI dependencies. 
+
+ROI Residual Decoder The ROI Residual Decoder predicts ROI-wise voxel details through residual learning. For each ROI token, a small MLP estimates voxel residuals relative to the Stage 1 coarse value: 
+
+vk = rk + ∆k, (7) where rk is the coarse ROI prediction and ∆k is the local residual. This formu-lation uses coarse predictions as priors and focuses local modeling capacity on fine corrections. 
+
+Prediction Fusion and Amplitude Recovery The fused voxel prediction combines holistic and residual outputs: 
+
+vf used = α · vglobal + (1 − α) · vlocal , (8) where α is a single global learnable parameter, in contrast to Stage 1’s input-dependent adaptive gate. This simpler fusion is sufficient because both decoders read from the same shared representation and differ only in decoding granularity (holistic vs. ROI-residual). To recover appropriate response amplitudes, we apply a learnable scale-recovery layer conditioned on visual features: 
+
+s = Sigmoid(MLP( hvis )) · σ, (9) where hvis is the visual token from the encoded sequence and σ is a learnable scale bound. The final prediction is ˆ v = s · vf used , allowing the model to adjust output magnitude based on stimulus complexity. 8 Son et al. 
+
+Training Objective The Stage 2 objective balances voxel reconstruction and latent regularization: 
+
+Lstage 2 = LM SE + β · L KL , (10) where LM SE is voxel-level reconstruction loss and LKL = DKL (q(z|x)∥p(z)) regularizes the posterior toward a standard Gaussian prior. The coefficient β
+
+controls this trade-off. 
+
+# 3 Experiments 
+
+3.1 Experimental Setup Dataset and Features. We evaluate our method on the Natural Scenes Dataset (NSD) [2]. Following standard protocols in MindSimulator [19] and MindEye2 [15], we use data from subjects 1, 2, 5, and 7. For each subject, we allocate 9,000 image-fMRI pairs for training and 1,000 for testing, focusing on visual cortex regions which yield approximately 15,000 voxels per subject. Visual representations are extracted using a pre-trained DINOv2-ViT-B/14 [11] from its final layer, producing a 768-D global CLS token and 256 local patch tokens. 
+
+Implementation Details. CHASMBrain is implemented in PyTorch and trained on a single NVIDIA RTX 4090 GPU. Stage 1 is trained for 150 epochs (batch size 32, AdamW, learning rate 3 × 10 −5, Pearson loss weight γ = 0 .3, InfoNCE weight λ = 0 .1). Stage 2 is trained for 150 epochs (batch size 16, learning rate 10 −4, KL weight β = 0 .001, Stage 1 weights frozen). For ROI clus-tering we set V = 30 voxels per cluster, giving K = 524 clusters, with top-70% aggregation. The VAE latent space has dimension 256, injected additively into token representations. The InfoNCE temperature is set to τ = 0 .07 with in-batch negatives (batch size 32). Full architecture specifications are provided in the Supplementary Material. 
+
+Metrics and Baselines. We evaluate predictive performance using Mean Squared Error (MSE, ↓) and voxel-wise Pearson Correlation ( ↑), both averaged over all subjects. Following the NSD analysis framework [2], measurement fi-delity is quantified by the noise ceiling estimated from single-trial GLM betas (the refined “b3” pipeline). The reported average predictable variance in visual cortex is approximately 36%, corresponding to a theoretical maximum of Pear-son r ≈ 0.60. All baselines use the same subject-wise z-score normalization as our method. 
+
+3.2 Comparison with Baselines Simple and linear baselines. All models use the same DINOv2 ViT-B/14 final-layer embedding. The linear baselines collapse spatial structure via global average pooling into a single 768-D vector, whereas CHASMBrain preserves and separately processes the CLS token and 256 patch tokens. The comparison there-fore isolates the contribution of preserving and routing this structure through CHASM Brain 9
+
+our dual-stream design. Table 1 reports all comparisons at the voxel level (Stage 2 final output).                                 
+
+> Table 1. Voxel-level fMRI prediction performance. All scores are means over subjects 1, 2, 5, 7. Simple baselines and DINOv2 linear probes use the same features as our model; the probe comparison isolates the contribution of the dual-stream and coarse-to-fine design. Simple baselines and probes use the same DINOv2 final-layer features as ours, but with global average pooling. SynBrain and MindSimulator follow their original feature-extraction pipelines ( †is reproduce results); only the dataset, subject split, and z-score normalization are matched.
+> Category Model MSE ↓Pearson ↑
+> Simple baselines Ridge Regression (best α)0.371 0.368 MLP 0.533 0.231 GRU 0.461 0.237 LSTM 0.468 0.232 DINOv2 linear probes Layer 3 0.370 0.366 Layer 6 0.359 0.403 Layer 9 0.357 0.410 Layer 12 0.357 0.407 Prior works SynBrain †[9] (NeurIPS 2025) 0.453 0.338 MindSimulator [19] (ICLR 2025) 0.429 0.322
+> CHASMBrain (Ours) 0.261 0.429
+
+Three findings emerge from Table 1. (i) Plain sequence models (MLP, GRU, LSTM) plateau below ridge regression, confirming that naive temporal modeling is insufficient for fMRI. (ii) Linear probes improve monotonically with DINOv2 depth, confirming that semantic depth helps; however, they saturate at layer 12 (Pearson 0.407, MSE 0.357). (iii) At the same final-layer feature source, our model achieves a substantial MSE reduction from 0.357 to 0.261 (26.9%) im-provement over the strongest probe demonstrating that the dual-stream coarse-to-fine architecture contributes meaningfully beyond feature quality alone. Note that Pearson measures only monotonic trend, while the large MSE gap shows our model predicts accurate voxel amplitudes , not just correct relative orderings. 
+
+3.3 Qualitative Results Predicted fMRI Maps and Visual Reconstruction. To intuitively evaluate our predictions, we analyze both the spatial fMRI activation patterns and their downstream applicability for visual reconstruction (Figure 2). Mapping the predicted signals back to the cortical surface reveals that CHASMBrain produces accurate spatial activation topologies. Compared to baselines that often yield overly smoothed or scattered activation, our hierarchi-cal approach preserves sharp regional boundaries and localized peaks that closely 10 Son et al. 
+
+mirror the ground-truth neural responses. Quantitative reconstruction metrics are provided in the Supplementary Material (Table S4), where CHASMBrain achieves CLIP similarity 0.849 and DINOv2 similarity 0.558, surpassing Mind-Simulator on semantic metrics. Notably, it also exceeds reconstructions from ground-truth fMRI on these metrics; we attribute this to our pipeline filtering trial-to-trial noise while preserving semantic structure, rather than to genuinely super-GT signal recovery. This likely reflects a metric–decoder-prior interaction and should be interpreted with caution. We also feed predicted fMRI signals into an fMRI-to-image decoder (Mind-Eye2) to reconstruct visual stimuli. It is important to acknowledge that visual fidelity is heavily bottlenecked by the decoder’s generative priors: even ground-truth fMRI signals fail to perfectly restore original object attributes, establishing a strict visual upper bound. Within these constraints, CHASMBrain demon-strates robust semantic retention—for instance, successfully reconstructing co-herent structures of rigid objects (e.g., the red double-decker bus, airplane) sig-nificantly better than MindSimulator. Occasional semantic drifts highlight that resolving fine-grained contextual details from predicted fMRI remains challeng-ing.  
+
+> Fig. 2. Qualitative comparison of predicted fMRI activations and downstream image reconstructions. CHASMBrain accurately preserves spatial topographic patterns and enables the downstream decoder (MindEyeV2) to reconstruct visual semantics that closely align with the original stimuli.
+
+Dual-Stream Biological Alignment. To validate our biological motivation, we map the predictive correlations of the Local (patch) and Global (CLS) branches onto the visual cortex hierarchy (Figure 3). The Local branch exhibits strong correlations with early visual areas (V1, V2), which are retinotopically CHASM Brain 11 
+
+organized to process low-level spatial frequencies and edges. The Global branch aligns more strongly with higher-order semantic regions across the lateral and ventral streams. Causal evidence for this specialization is reported in Section 3.5.    
+
+> Fig. 3. Spatial analysis of dual-stream correlations. Left : Early visual areas (V1/V2) are primarily driven by the Local branch (blue), while higher-order semantic areas are driven by the Global branch (red). Right : 3D visualization showing distinct functional alignments.
+
+3.4 Ablation Studies Architecture and Refinement Strategy. Table 2 dissects our architectural components. For Stage 1 coarse prediction (Table 2a), the proposed Dual-Mamba (Pearson: 0.585) significantly outperforms both a standard Transformer (0.452) and a single-stream Mamba (0.481). Importantly, Dual-Stream Mamba uses 26% fewer parameters than the Transformer (14.6M vs. 19.8M) and 2 × lower FLOPs (2.31G vs. 4.52G; see Supplementary Table S1), ruling out capacity as the source of improvement. The gain stems from the selective state-space design and dual-stream routing. For Stage 2 voxel refinement (Table 2b), our VAE-based stochastic refine-ment achieves the best performance (MSE: 0.261). Diffusion-based refinement fails catastrophically (MSE: 1.973): the forward noise-injection process conflates artificial Gaussian noise with intrinsic fMRI biological noise, severely degrading the signal. In contrast, our VAE smoothly models trial-to-trial variability via KL regularization without explicit noise injection. 
+
+Clustering Granularity. Table 3 demonstrates the trade-off inherent in ROI clustering. Coarse clustering (100 voxels/cluster) maximizes Stage 1 correlation (0.605) through aggressive denoising but bottlenecks Stage 2 refinement (MSE: 0.561) due to the highly ill-posed one-to-many voxel mapping. Fine clustering (10 voxels/cluster) preserves spatial resolution for Stage 2 but suffers insufficient noise averaging in Stage 1. The empirical optimum at 30 voxels/cluster strikes the best overall balance. The anatomically predefined Schaefer parcellation [13] performs substantially worse, confirming that flexible data-driven clustering is necessary to capture task-specific visual cortex activations. 12 Son et al.                                                 
+
+> Table 2. Ablation studies: Stage 1 coarse architecture (a) and Stage 2 voxel-level refinement strategy (b). Stage 1 metrics are ROI-level; Stage 2 metrics are voxel-level.
+> (a) Stage 1: Architecture Design Architecture MSE ↓Pearson ↑
+> Transformer 0.213 0.452 Mamba (Single) 0.156 0.481
+> Dual-Mamba 0.141 0.585 (b) Stage 2: Refinement Strategy Method MSE ↓Pearson ↑
+> MLP (Baseline) 0.535 0.391 w-Dual only 0.399 0.406 w-Dual + Diff 1.973 0.259
+> w-Dual + VAE 0.261 0.429 Table 3. Impact of clustering granularity on both prediction stages.
+> Stage 1 (Coarse) Stage 2 (Fine) Clustering Strategy MSE ↓Pearson ↑MSE ↓Pearson ↑
+> 10 voxels/cluster 0.242 0.543 0.332 0.375
+> 30 voxels/cluster 0.141 0.585 0.261 0.429
+> 100 voxels/cluster 0.123 0.605 0.561 0.370 Schaefer Atlas [13] 0.486 0.338 0.577 0.236
+
+Top-p threshold sensitivity. The choice of p = 70% is principled rather than heuristic. At p = 90%, Stage 1 ROI Pearson is essentially unchanged (0.586 vs. 0.585), but Stage 2 voxel-level MSE degrades by 46% (0.381 vs. 0.261). Noise invisible in the symmetric Stage 1 aggregation task is amplified by Stage 2’s one-to-many voxel decoding. The 70% threshold is the largest value before this amplification appears, making it a principled operating point on the precision– noise trade-off curve. 
+
+3.5 Causal Evidence for Biological Alignment 
+
+The spatial correlation analysis in Figure 3 is consistent with the known cortical hierarchy, but correlation alone does not establish that the streams play causally distinct roles. We use “causal” throughout in the sense of a controlled interven-tion on the model’s internal wiring at inference time, not as a claim about neural causation in the brain itself. We therefore conduct a causal branch-ablation study in which four variants of the same architecture (identical parameter counts) dif-fer only in input routing or branch gating at inference time. Pearson is reported at Stage 1 ROI level, per cortical group (524 ROIs split by NSD visual stream labels: Early, Mid-ventral, Higher). Three findings from Table 4 establish causal rather than correlational align-ment. (i) Both branches are necessary: removing either stream causes a clear performance drop across all cortical groups. (ii) The patch stream specifically carries early-cortex information: removing it (What only) hurts Early regions far more than Higher regions, consistent with retinotopic processing in V1/V2. CHASM Brain 13 
+
+Table 4. Voxel-level fMRI prediction performance. All scores are means over subjects 1, 2, 5, 7. Simple baselines and DINOv2 linear probes use the same final-layer features as ours but with global average pooling; this comparison isolates the contribution of the dual-stream and coarse-to-fine design. SynBrain and MindSimulator follow their original feature-extraction pipelines (intrinsic to those models); only the dataset, sub-ject split, and z-score normalization are matched. † denotes reproduced results. 
+
+Variant Early ↑ Mid-ventral ↑ Higher ↑ Overall ↑
+
+Both (full model) 0.512 0.589 0.625 0.585 
+
+Where only (patch stream only) 0.425 0.461 0.501 0.467 Swap (routes exchanged) 0.279 0.326 0.472 0.381 What only (CLS stream only) 0.273 0.313 0.446 0.364 
+
+(iii) Routing matters causally: under Swap, with identical weights , Early Pear-son collapses from 0.512 to 0.279 (45% relative drop) while Higher is far less affected, from 0.625 to 0.472 (24% relative drop)—a 1.9 × asymmetry in relative degradation. These results give a more precise picture than the spatial correlation maps alone: the patch stream is specifically locked to early visual cortex (causally validated), while the CLS stream contributes broader semantic context that benefits higher-order regions. We accordingly refine Contribution 3 (Section 1) to emphasize this asymmetric specialization. 
+
+3.6 Cross-Subject Generalization 
+
+A legitimate concern for subject-specific fMRI models is whether improvements reflect genuine representational learning or subject-level overfitting. To address this, we train the CHASMBrain backbone on one or more source subjects, freeze it, and fine-tune only a lightweight linear per-subject head (30 epochs, lr 10 −4)on the target subject’s training data. Results are reported at voxel level (full pipeline). 
+
+Table 5. Cross-subject transfer. The backbone is trained on source subjects and frozen; only a lightweight per-subject head is fine-tuned on target data. Within-subject (no transfer) is shown for reference. 
+
+Source → Target Pearson ↑ MSE ↓
+
+subj07 only (within-subject, no transfer) 0.451 0.239 subj01 → subj07 0.436 0.294 subj01, 02 → subj07 0.448 0.269 subj01, 02, 05 → subj07 0.448 0.271 subj01, 02 → subj05 0.457 0.260 14 Son et al. 
+
+The frozen backbone trained on source subjects reaches near within-subject Pearson on the target (e.g., 0.448 vs. 0.451 for subj07), despite never observ-ing the target subject during backbone training. Adding more source subjects beyond two yields diminishing returns, suggesting the backbone converges to a shared visual representation. The small remaining gap is attributed to per-subject voxel layout differences, which the lightweight head handles. These re-sults indicate that CHASMBrain’s performance improvements are not a product of subject-specific overfitting. 
+
+3.7 Discussion and Limitations 
+
+While CHASMBrain establishes strong performance on NSD, several limitations remain. First, its predictive upper bound is constrained by the inherent physio-logical noise of fMRI signals (noise ceiling r ≈ 0.60). Second, the pipeline relies on a frozen DINOv2 encoder biased toward static, object-centric images, and may lack temporal dynamics intrinsic to natural human vision. Third, cross-dataset evaluation (e.g., BOLD5000, Algonauts) is left as future work due to differing acquisition protocols and ROI definitions. Finally, downstream qualitative eval-uations are bottlenecked by the hallucination tendencies of the fMRI-to-image decoder. 
+
+# 4 Conclusion 
+
+In this paper, we introduced CHASMBrain, a coarse-to-fine hierarchical architec-ture for image-to-fMRI encoding. By incorporating a sequential Mamba-based dual-stream design, the model bridges the gap between deep visual features and the hierarchical processing mechanism of the human visual system. The pro-posed two-stage approach—denoised ROI predictions followed by fine-grained voxel-level refinement via a Mamba-VAE—successfully addresses the challenge of high intrinsic fMRI noise while maintaining spatial and semantic specificity. Experiments on NSD yield a Pearson correlation of 0.429 and MSE of 0.261, outperforming prior deep encoding models as well as strong linear baselines and DINOv2 layer-wise probes. Beyond predictive metrics, causal branch-ablation experiments reveal an asymmetric specialization: the patch stream is specifically locked to early visual cortex (retinotopic regions), while the CLS stream serves as a broader semantic context for higher-order areas. Cross-subject transfer ex-periments further show that the learned backbone is subject-agnostic at the representational level, with a lightweight per-subject head sufficient to adapt to individual voxel layouts. Future work will pursue three directions. First, fine-grained alignment anal-ysis between model components and sub-regional cortical specializations (e.g., face patches, scene-selective regions). Second, extension to multi-modal stimuli— audio, video, and language—to model multi-sensory integration in the brain. Third, cross-dataset evaluation to assess protocol robustness and develop shared-subject encoders that require minimal individual data. CHASM Brain 15 
+
+# References 
+
+1. Adeli, H., Minni, S., Kriegeskorte, N.: Predicting brain activity using Transformers (Aug 2023). https://doi.org/10.1101/2023.08.02.551743 
+
+2. Allen, E.J., St-Yves, G., Wu, Y., Breedlove, J.L., Prince, J.S., Dowdle, L.T., Nau, M., Caron, B., Pestilli, F., Charest, I., et al.: A massive 7t fmri dataset to bridge cognitive neuroscience and artificial intelligence. Nature neuroscience 25 (1), 116– 126 (2022) 3. Castello, M.V.d.O., Deniz, F., la Tour, T.D., Gallant, J.L.: Encoding models in functional magnetic resonance imaging: The Voxelwise Encoding Model framework 4. Dao, T., Gu, A.: Transformers are SSMs: Generalized models and efficient al-gorithms through structured state space duality. In: International Conference on Machine Learning (ICML) (2024) 5. Eickenberg, M., Gramfort, A., Varoquaux, G., Thirion, B.: Seeing it all: Convo-lutional network layers map the function of the human visual system. NeuroIm-age 152 , 184–194 (May 2017). https://doi.org/10.1016/j.neuroimage.2016. 10.001 
+
+6. Kubilius, J., Schrimpf, M., Kar, K., Rajalingham, R., Hong, H., Majaj, N.J., Issa, E.B., Prescott-Roy, J., Schmidt, K., Nayebi, A., Bear, D., Yamins, D.L.K., Di-Carlo, J.J.: Brain-Like Object Recognition with High-Performing Shallow Recur-rent ANNs. In: Advances in Neural Information Processing Systems (2019) 7. Lin, R., Naselaris, T., Kay, K., Wehbe, L.: Stacked regressions and structured variance partitioning for interpretable brain maps. NeuroImage 298 , 120772 (Sep 2024). https://doi.org/10.1016/j.neuroimage.2024.120772 
+
+8. Lu, H., Zhou, Q., Fei, N., Lu, Z., Ding, M., Wen, J., Du, C., Zhao, X., Sun, H., He, H., Wen, J.R.: Multimodal foundation models are better simulators of the human brain (Aug 2022). https://doi.org/10.48550/arXiv.2208.08263 
+
+9. Mai, W., Wu, J., Zhu, Y., Yao, Z., Zhou, D., Luo, A., Zheng, Q., Ouyang, W., Song, C.: Synbrain: Enhancing visual-to-fmri synthesis via probabilistic represen-tation learning. In: The Thirty-ninth Annual Conference on Neural Information Processing Systems (2025) 10. Oota, S.R., Chen, Z., Gupta, M., Bapi, R.S., Jobard, G., Alexandre, F., Hinaut, X.: Deep Neural Networks and Brain Alignment: Brain Encoding and Decoding (Survey) (Dec 2024). https://doi.org/10.48550/arXiv.2307.10246 
+
+11. Oquab, M., Darcet, T., Moutakanni, T., Vo, H.V., Szafraniec, M., Khalidov, V., Fernandez, P., HAZIZA, D., Massa, F., El-Nouby, A., Assran, M., Ballas, N., Galuba, W., Howes, R., Huang, P.Y., Li, S.W., Misra, I., Rabbat, M., Sharma, V., Synnaeve, G., Xu, H., Jegou, H., Mairal, J., Labatut, P., Joulin, A., Bojanowski, P.: DINOv2: Learning robust visual features without supervision. Transactions on Ma-chine Learning Research (2024), https://openreview.net/forum?id=a68SUt6zFt ,featured Certification 12. Radford, A., Kim, J.W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry, G., Askell, A., Mishkin, P., Clark, J., Krueger, G., Sutskever, I.: Learning transferable visual models from natural language supervision. In: Meila, M., Zhang, T. (eds.) Proceedings of the 38th International Conference on Machine Learning. Proceed-ings of Machine Learning Research, vol. 139, pp. 8748–8763. PMLR (18–24 Jul 2021), https://proceedings.mlr.press/v139/radford21a.html 
+
+13. Schaefer, A., Kong, R., Gordon, E.M., Laumann, T.O., Zuo, X.N., Holmes, A.J., Eickhoff, S.B., Yeo, B.T.: Local-global parcellation of the human cerebral cortex from intrinsic functional connectivity mri. Cerebral cortex 28 (9), 3095–3114 (2018) 16 Son et al. 14. Schrimpf, M., Kubilius, J., Hong, H., Majaj, N.J., Rajalingham, R., Issa, E.B., Kar, K., Bashivan, P., Prescott-Roy, J., Geiger, F., Schmidt, K., Yamins, D.L.K., DiCarlo, J.J.: Brain-Score: Which Artificial Neural Network for Object Recognition is most Brain-Like? (Sep 2018). https://doi.org/10.1101/407007 
+
+15. Scotti, P.S., Tripathy, M., Villanueva, C.K.T., Kneeland, R., Chen, T., Narang, A., Santhirasegaran, C., Xu, J., Naselaris, T., Norman, K.A., Abraham, T.M.: Mindeye2: shared-subject models enable fmri-to-image with 1 hour of data. In: Proceedings of the 41st International Conference on Machine Learning. ICML’24, JMLR.org (2024) 16. St-Yves, G., Naselaris, T.: The feature-weighted receptive field: An interpretable encoding model for complex feature spaces. NeuroImage 180 (Pt A), 188–202 (Oct 2018). https://doi.org/10.1016/j.neuroimage.2017.06.035 
+
+17. Wang, A., Tarr, M., Wehbe, L.: Neural Taskonomy: Inferring the Similarity of Task-Derived Representations from Brain Activity. In: Advances in Neural Information Processing Systems. vol. 32. Curran Associates, Inc. (2019). https://doi.org/10. 1101/708016 
+
+18. Wen, H., Shi, J., Zhang, Y., Lu, K.H., Cao, J., Liu, Z.: Neural Encoding and Decod-ing with Deep Learning for Dynamic Natural Vision. Cerebral Cortex (New York, NY) 28 (12), 4136–4160 (Dec 2018). https://doi.org/10.1093/cercor/bhx268 
+
+19. Zhang, Q., Gong, Z., Wu, Z., Miao, D.: Mindsimulator: Exploring brain concept localization via synthetic fmri. In: Yue, Y., Garg, A., Peng, N., Sha, F., Yu, R. (eds.) International Conference on Learning Representations. vol. 2025, pp. 76781–76803 (2025), https://proceedings.iclr.cc/paper_files/paper/2025/ file/bf121b033db3bac31c3193e8a0dcbf66-Paper-Conference.pdf
