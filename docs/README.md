@@ -1,63 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-06-07
-- 运行时间：2026-06-07 04:49:07 北京时间
+- 最新运行日期：2026-06-08
+- 运行时间：2026-06-08 05:08:38 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今日精读脑重建与视网膜预测两篇9分论文，并速读个性化助听器、神经动力学工具等多领域新作。  
-最值得关注：Mamba序列模型驱动的粗到细层次架构实现高效脑信号重建，以及视网膜中灵活编码跨越时间尺度的预测机制。  
-建议读者尝试将Mamba架构迁移至其他时序信号任务，或借鉴视网膜编码的灵活性设计更鲁棒的预测模型。
-- 详情：[/202606/07/README](/202606/07/README)
+今日精读前额叶规划机制理论与运动-海马等效意志学习，速读预测学习诱导海马贝叶斯认知地图等三项前沿成果。  
+最值得关注的是前额叶规划的计算模型与运动皮层-海马群体动态的意志学习对等性，揭示脑区间通用学习规则。  
+建议读者优先阅读两篇9分精读论文，理解大脑如何通过回路特异性动态实现规划与自主学习的底层逻辑。
+- 详情：[/202606/08/README](/202606/08/README)
 
 ### 精读区论文标签
-1. [Coarse-to-fine Hierarchical Architecture with Sequential Mamba for Brain Reconstruction](/202606/07/2606.04772v1-coarse-to-fine-hierarchical-architecture-with-sequential-mamba-for-brain-reconstruction)  
+1. [A mechanistic theory of planning in prefrontal cortex](/202606/08/biorxiv-10-1101-2025-09-23-677709-v2-a-mechanistic-theory-of-planning-in-prefrontal-cortex)  
    标签：评分：9.0/10、query:sr
-   evidence：从图像到功能磁共振的脑重建编码框架
-2. [Discovering flexible codes for prediction across timescales in the retina](/202606/07/biorxiv-10-1101-2025-09-19-677348-v2-discovering-flexible-codes-for-prediction-across-timescales-in-the-retina)  
+   evidence：通过神经吸引子动力学和群体编码的规划机制理论
+2. [Equivalent volitional learning emerges through circuit-specific population dynamics in motor cortex and hippocampus](/202606/08/biorxiv-10-64898-2026-06-04-730137-v1-equivalent-volitional-learning-emerges-through-circuit-specific-population-dynamics-in-motor-cortex-and-hippocampus)  
    标签：评分：9.0/10、query:sr
-   evidence：视网膜神经群体编码与时序动态解码
-3. [Adaptive Bayesian localization of motor representation areas](/202606/07/biorxiv-10-64898-2026-06-01-729093-v1-adaptive-bayesian-localization-of-motor-representation-areas)  
+   evidence：脑机接口训练调节群体动态
+3. [Neural synchrony between prefrontal and visual cortex supports visual working memory](/202606/08/biorxiv-10-64898-2026-06-05-730488-v1-neural-synchrony-between-prefrontal-and-visual-cortex-supports-visual-working-memory)  
    标签：评分：9.0/10、query:sr
-   evidence：自适应贝叶斯框架连接TMS刺激（外部变量）与运动诱发电位（神经活动）
-4. [One Circuit, Many Flow Fields: Mechanistic Models of Single-Trial Neural Dynamics](/202606/07/biorxiv-10-64898-2026-06-01-729208-v1-one-circuit-many-flow-fields-mechanistic-models-of-single-trial-neural-dynamics)  
-   标签：评分：9.0/10、query:sr
-   evidence：用试验特定参数建模神经动力学
-5. [Neural decoding of speech using deep neural ensembles](/202606/07/biorxiv-10-64898-2026-06-02-729705-v1-neural-decoding-of-speech-using-deep-neural-ensembles)  
-   标签：评分：9.0/10、query:sr
-   evidence：使用深度神经集成的语音脑机接口解码
+   evidence：从工作记忆期间的神经活动模式解码视觉内容
+4. [Homeostatic Plasticity Enables Stable, Flexible, and Tunable Assemblies](/202606/08/biorxiv-10-64898-2026-05-31-729097-v1-homeostatic-plasticity-enables-stable-flexible-and-tunable-assemblies)  
+   标签：评分：8.0/10、query:sr
+   evidence：稳态可塑性模型支持稳定神经元集群
+5. [Speech Stream Tracking in 2D: Attention Differentially Enhances Acoustic and Phonemic Encoding Across Spatial Planes](/202606/08/biorxiv-10-64898-2026-06-03-729740-v1-speech-stream-tracking-in-2d-attention-differentially-enhances-acoustic-and-phonemic-encoding-across-spatial-planes)  
+   标签：评分：8.0/10、query:sr
+   evidence：研究注意力下声学和音位特征的神经编码
 
 ### 速读区论文标签
-1. [The Differentiable Auditory Loop (DAL): An ML Framework for Hyper-Personalized Hearing Aids](/202606/07/2606.04103v1-the-differentiable-auditory-loop-dal-an-ml-framework-for-hyper-personalized-hearing-aids)  
+1. [Predictive learning induces Bayesian cognitive maps in the hippocampus](/202606/08/biorxiv-10-64898-2026-06-03-729991-v1-predictive-learning-induces-bayesian-cognitive-maps-in-the-hippocampus)  
    标签：评分：8.0/10、query:sr
-   evidence：用于个性化助听器的ML框架，与听觉神经活动接口
-2. [Computation-through-DynamicsToolkit: Simulated datasets and quality metrics for dynamical models of neural activity](/202606/07/biorxiv-10-1101-2025-02-07-637062-v3-computation-through-dynamicstoolkit-simulated-datasets-and-quality-metrics-for-dynamical-models-of-neural-activity)  
+   evidence：通过预测学习研究位置细胞活动和贝叶斯认知地图
+2. [Inherited input and local transformations shape the spatiotemporal organization of pathway specific striatal signals for motivated behavior](/202606/08/biorxiv-10-64898-2026-06-04-730000-v1-inherited-input-and-local-transformations-shape-the-spatiotemporal-organization-of-pathway-specific-striatal-signals-for-motivated-behavior)  
    标签：评分：8.0/10、query:sr
-   evidence：用于验证神经活动动力学模型的模拟数据集和指标
-3. [Parameter scaling of multivariate Granger causality](/202606/07/biorxiv-10-1101-2025-10-01-679714-v2-parameter-scaling-of-multivariate-granger-causality)  
+   evidence：纹状体群体编码动机行为及时序动态
+3. [Very Early Cortical Auditory Responses to Speech in Humans](/202606/08/biorxiv-10-64898-2026-06-04-730183-v1-very-early-cortical-auditory-responses-to-speech-in-humans)  
    标签：评分：8.0/10、query:sr
-   evidence：稀疏多变量格兰杰因果关系用于神经因果推断
-4. [Low-Frequency activity shapes fine-scale information routing in the early visual cortex](/202606/07/biorxiv-10-64898-2026-05-25-727722-v3-low-frequency-activity-shapes-fine-scale-information-routing-in-the-early-visual-cortex)  
+   evidence：使用TRF的非侵入性EEG/MEG研究言语的早期皮层听觉反应
+4. [Disambiguation of two-tone images reveals semantic contributions to object recognition in the EEG](/202606/08/biorxiv-10-64898-2026-06-05-730193-v1-disambiguation-of-two-tone-images-reveals-semantic-contributions-to-object-recognition-in-the-eeg)  
    标签：评分：8.0/10、query:sr
-   evidence：低频活动塑造视觉皮层中的信息路由
-5. [Pulse Focus: Validation of the Focus Performance Score as a Behavioral Signal for Human Attentional State Modeling Toward Attention-Aware AI](/202606/07/2606.03164v1-pulse-focus-validation-of-the-focus-performance-score-as-a-behavioral-signal-for-human-attentional-state-modeling-toward-attention-aware-ai)  
+   evidence：从双色调图像中解码语义物体身份的脑电研究
+5. [Flexible neural encoding predicts the comprehension of degraded speech](/202606/08/biorxiv-10-64898-2026-06-05-730499-v1-flexible-neural-encoding-predicts-the-comprehension-of-degraded-speech)  
+   标签：评分：8.0/10、query:sr
+   evidence：基于EEG从神经活动解码语音理解
+6. [A maturation-associated ERG3/KCNH7 conductance tunes neural state-space stability and temporal-context prediction](/202606/08/biorxiv-10-1101-2024-09-22-614315-v6-a-maturation-associated-erg3kcnh7-conductance-tunes-neural-state-space-stability-and-temporal-context-prediction)  
    标签：评分：7.0/10、query:sr
-   evidence：使用fMRI验证注意力状态的 behavioral 信号，与脑机接口时间解码相关
-6. [AnchorMoE: Interpretable Time Series Classification via Anchor-Routed MoE](/202606/07/2606.03631v2-anchormoe-interpretable-time-series-classification-via-anchor-routed-moe)  
+   evidence：识别KCNH7通道调控神经状态空间稳定性和时间上下文预测
+7. [Relational homeostatic scaling supports stable rate-code transmission under noise and heterogeneity](/202606/08/biorxiv-10-1101-2025-11-25-689806-v2-relational-homeostatic-scaling-supports-stable-rate-code-transmission-under-noise-and-heterogeneity)  
    标签：评分：7.0/10、query:sr
-   evidence：可解释的时间序列分类框架可迁移至神经解码
-7. [Non-Negative Matrix Factorization for Event Data](/202606/07/2606.06205v1-non-negative-matrix-factorization-for-event-data)  
+   evidence：关系型稳态缩放实现稳定发放率传输
+8. [High-order brain interactions distinguish wakefulness, anaesthesia, and recovery induced by deep brain stimulation](/202606/08/biorxiv-10-64898-2026-06-01-728390-v1-high-order-brain-interactions-distinguish-wakefulness-anaesthesia-and-recovery-induced-by-deep-brain-stimulation)  
    标签：评分：7.0/10、query:sr
-   evidence：适用于尖峰等事件数据的连续时间非负矩阵分解
-8. [Pretraining Recurrent Networks without Recurrence](/202606/07/2606.06479v1-pretraining-recurrent-networks-without-recurrence)  
+   evidence：使用O信息区分意识状态的高阶脑相互作用
+9. [The Laminar Organization of a Decision Circuit in Orbitofrontal Cortex is Agnostic to the Variable Encoding Scheme](/202606/08/biorxiv-10-64898-2026-06-01-729414-v1-the-laminar-organization-of-a-decision-circuit-in-orbitofrontal-cortex-is-agnostic-to-the-variable-encoding-scheme)  
    标签：评分：7.0/10、query:sr
-   evidence：训练递归网络的方法可用于脑机接口时间解码
-9. [Signed Spiking Neuron Enabled by an Orthogonal-Easy-Axis Magnetic Tunnel Junction](/202606/07/2606.03796v1-signed-spiking-neuron-enabled-by-an-orthogonal-easy-axis-magnetic-tunnel-junction)  
-   标签：评分：6.0/10、query:sr
-   evidence：有符号脉冲神经元硬件实现更丰富的脉冲表征
-10. [Neuron Populations Exhibit Divergent Selectivity with Scale](/202606/07/2606.03990v1-neuron-populations-exhibit-divergent-selectivity-with-scale)  
-   标签：评分：6.0/10、query:sr
-   evidence：研究神经元选择性和单语义性随规模变化，与可解释AI理解神经编码相关
+   evidence：OFC中决策变量编码的层流时间动态
+10. [Tracking multi-site somatic voltage dynamics via high-speed fiber photometry](/202606/08/biorxiv-10-64898-2026-06-02-729189-v1-tracking-multi-site-somatic-voltage-dynamics-via-high-speed-fiber-photometry)  
+   标签：评分：7.0/10、query:sr
+   evidence：多点电压成像方法跟踪神经动态
 
