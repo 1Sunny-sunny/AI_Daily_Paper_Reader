@@ -1,63 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-06-08
-- 运行时间：2026-06-08 05:08:38 北京时间
+- 最新运行日期：2026-06-09
+- 运行时间：2026-06-09 05:15:28 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今日精读前额叶规划机制理论与运动-海马等效意志学习，速读预测学习诱导海马贝叶斯认知地图等三项前沿成果。  
-最值得关注的是前额叶规划的计算模型与运动皮层-海马群体动态的意志学习对等性，揭示脑区间通用学习规则。  
-建议读者优先阅读两篇9分精读论文，理解大脑如何通过回路特异性动态实现规划与自主学习的底层逻辑。
-- 详情：[/202606/08/README](/202606/08/README)
+今日精读聚焦工作记忆的神经计算基理，速读覆盖语言解码、噪声学习与年龄相关脑动态重组。  
+最值得看：工作记忆可程序化建模为快速权重更新，且内侧颞叶神经元能编码抽象字母对关系。  
+建议读者关注记忆的神经编码如何走向类计算架构，以及中年后认知重组的潜力。
+- 详情：[/202606/09/README](/202606/09/README)
 
 ### 精读区论文标签
-1. [A mechanistic theory of planning in prefrontal cortex](/202606/08/biorxiv-10-1101-2025-09-23-677709-v2-a-mechanistic-theory-of-planning-in-prefrontal-cortex)  
+1. [Working Memory as Programmable Fast Weight Computation](/202606/09/biorxiv-10-64898-2026-06-02-729709-v1-working-memory-as-programmable-fast-weight-computation)  
    标签：评分：9.0/10、query:sr
-   evidence：通过神经吸引子动力学和群体编码的规划机制理论
-2. [Equivalent volitional learning emerges through circuit-specific population dynamics in motor cortex and hippocampus](/202606/08/biorxiv-10-64898-2026-06-04-730137-v1-equivalent-volitional-learning-emerges-through-circuit-specific-population-dynamics-in-motor-cortex-and-hippocampus)  
+   evidence：猕猴前额叶工作记忆的神经几何与递归快速权重模型
+2. [Conjunctive coding of letter pairs emerges in segregated human medial temporal lobe neurons during working memory](/202606/09/biorxiv-10-64898-2026-06-04-729179-v1-conjunctive-coding-of-letter-pairs-emerges-in-segregated-human-medial-temporal-lobe-neurons-during-working-memory)  
    标签：评分：9.0/10、query:sr
-   evidence：脑机接口训练调节群体动态
-3. [Neural synchrony between prefrontal and visual cortex supports visual working memory](/202606/08/biorxiv-10-64898-2026-06-05-730488-v1-neural-synchrony-between-prefrontal-and-visual-cortex-supports-visual-working-memory)  
+   evidence：单神经元记录揭示字母对的连接编码
+3. [A modular neural circuit for computing the motion of objects](/202606/09/biorxiv-10-64898-2026-06-07-730718-v1-a-modular-neural-circuit-for-computing-the-motion-of-objects)  
    标签：评分：9.0/10、query:sr
-   evidence：从工作记忆期间的神经活动模式解码视觉内容
-4. [Homeostatic Plasticity Enables Stable, Flexible, and Tunable Assemblies](/202606/08/biorxiv-10-64898-2026-05-31-729097-v1-homeostatic-plasticity-enables-stable-flexible-and-tunable-assemblies)  
+   evidence：研究运动计算的神经回路，展示神经元如何编码模式运动
+4. [Cross-domain encoding models reveal shared and domain-specific neural representations across language and mathematics](/202606/09/biorxiv-10-64898-2026-06-07-730750-v1-cross-domain-encoding-models-reveal-shared-and-domain-specific-neural-representations-across-language-and-mathematics)  
+   标签：评分：9.0/10、query:sr
+   evidence：使用LLM特征的跨域编码模型解释神经表征
+5. [ITP-STDP: An Intrinsic-Timing Power-of-Two Learning Engine for On-Chip SNN Training](/202606/09/2606.06159v1-itp-stdp-an-intrinsic-timing-power-of-two-learning-engine-for-on-chip-snn-training)  
    标签：评分：8.0/10、query:sr
-   evidence：稳态可塑性模型支持稳定神经元集群
-5. [Speech Stream Tracking in 2D: Attention Differentially Enhances Acoustic and Phonemic Encoding Across Spatial Planes](/202606/08/biorxiv-10-64898-2026-06-03-729740-v1-speech-stream-tracking-in-2d-attention-differentially-enhances-acoustic-and-phonemic-encoding-across-spatial-planes)  
-   标签：评分：8.0/10、query:sr
-   evidence：研究注意力下声学和音位特征的神经编码
+   evidence：实现尖峰神经网络的STDP学习，涉及尖峰时序
 
 ### 速读区论文标签
-1. [Predictive learning induces Bayesian cognitive maps in the hippocampus](/202606/08/biorxiv-10-64898-2026-06-03-729991-v1-predictive-learning-induces-bayesian-cognitive-maps-in-the-hippocampus)  
+1. [Interpreting Brain Responses to Language with Sparse Features from Language Models](/202606/09/2606.06857v1-interpreting-brain-responses-to-language-with-sparse-features-from-language-models)  
    标签：评分：8.0/10、query:sr
-   evidence：通过预测学习研究位置细胞活动和贝叶斯认知地图
-2. [Inherited input and local transformations shape the spatiotemporal organization of pathway specific striatal signals for motivated behavior](/202606/08/biorxiv-10-64898-2026-06-04-730000-v1-inherited-input-and-local-transformations-shape-the-spatiotemporal-organization-of-pathway-specific-striatal-signals-for-motivated-behavior)  
+   evidence：提出增强稀疏编码模型用于解释语言神经响应
+2. [Learning regularities in noise engages both neural predictive activity and representational changes](/202606/09/biorxiv-10-1101-2025-08-18-670891-v3-learning-regularities-in-noise-engages-both-neural-predictive-activity-and-representational-changes)  
    标签：评分：8.0/10、query:sr
-   evidence：纹状体群体编码动机行为及时序动态
-3. [Very Early Cortical Auditory Responses to Speech in Humans](/202606/08/biorxiv-10-64898-2026-06-04-730183-v1-very-early-cortical-auditory-responses-to-speech-in-humans)  
+   evidence：通过MEG追踪学习时间规律时的神经预测活动和表征变化
+3. [Brain dynamics supporting high cognitive performance reorganize after midlife](/202606/09/biorxiv-10-64898-2026-06-02-729404-v1-brain-dynamics-supporting-high-cognitive-performance-reorganize-after-midlife)  
    标签：评分：8.0/10、query:sr
-   evidence：使用TRF的非侵入性EEG/MEG研究言语的早期皮层听觉反应
-4. [Disambiguation of two-tone images reveals semantic contributions to object recognition in the EEG](/202606/08/biorxiv-10-64898-2026-06-05-730193-v1-disambiguation-of-two-tone-images-reveals-semantic-contributions-to-object-recognition-in-the-eeg)  
+   evidence：使用fNIRS解码随时间变化的任务诱发大脑动态
+4. [Intrinsic Population Dynamics are a Neuronal Substrate for Visual Attention](/202606/09/biorxiv-10-64898-2026-06-02-729565-v1-intrinsic-population-dynamics-are-a-neuronal-substrate-for-visual-attention)  
    标签：评分：8.0/10、query:sr
-   evidence：从双色调图像中解码语义物体身份的脑电研究
-5. [Flexible neural encoding predicts the comprehension of degraded speech](/202606/08/biorxiv-10-64898-2026-06-05-730499-v1-flexible-neural-encoding-predicts-the-comprehension-of-degraded-speech)  
-   标签：评分：8.0/10、query:sr
-   evidence：基于EEG从神经活动解码语音理解
-6. [A maturation-associated ERG3/KCNH7 conductance tunes neural state-space stability and temporal-context prediction](/202606/08/biorxiv-10-1101-2024-09-22-614315-v6-a-maturation-associated-erg3kcnh7-conductance-tunes-neural-state-space-stability-and-temporal-context-prediction)  
+   evidence：内在群体动力学作为视觉注意力的基础
+5. [Deep Single-Index Fréchet Regression](/202606/09/2606.06957v1-deep-single-index-frchet-regression)  
    标签：评分：7.0/10、query:sr
-   evidence：识别KCNH7通道调控神经状态空间稳定性和时间上下文预测
-7. [Relational homeostatic scaling supports stable rate-code transmission under noise and heterogeneity](/202606/08/biorxiv-10-1101-2025-11-25-689806-v2-relational-homeostatic-scaling-supports-stable-rate-code-transmission-under-noise-and-heterogeneity)  
+   evidence：将外部变量与非欧几里得神经响应联系起来
+6. [Structure-Preserving Correction Learning for Sparse Bayesian Inference in Brain Source Imaging](/202606/09/2606.07196v1-structure-preserving-correction-learning-for-sparse-bayesian-inference-in-brain-source-imaging)  
    标签：评分：7.0/10、query:sr
-   evidence：关系型稳态缩放实现稳定发放率传输
-8. [High-order brain interactions distinguish wakefulness, anaesthesia, and recovery induced by deep brain stimulation](/202606/08/biorxiv-10-64898-2026-06-01-728390-v1-high-order-brain-interactions-distinguish-wakefulness-anaesthesia-and-recovery-induced-by-deep-brain-stimulation)  
+   evidence：展开源成像求解器以解码神经活动
+7. [Flexible Perception of Tactile Cues in Multiple Reference Frames](/202606/09/biorxiv-10-1101-2023-11-10-566625-v2-flexible-perception-of-tactile-cues-in-multiple-reference-frames)  
    标签：评分：7.0/10、query:sr
-   evidence：使用O信息区分意识状态的高阶脑相互作用
-9. [The Laminar Organization of a Decision Circuit in Orbitofrontal Cortex is Agnostic to the Variable Encoding Scheme](/202606/08/biorxiv-10-64898-2026-06-01-729414-v1-the-laminar-organization-of-a-decision-circuit-in-orbitofrontal-cortex-is-agnostic-to-the-variable-encoding-scheme)  
+   evidence：研究触觉线索在大脑中多参考框架的表征
+8. [Electrophysiological Correlates of Reward Processing in the Human Ventral Tegmental Area](/202606/09/biorxiv-10-64898-2026-01-27-701696-v2-electrophysiological-correlates-of-reward-processing-in-the-human-ventral-tegmental-area)  
    标签：评分：7.0/10、query:sr
-   evidence：OFC中决策变量编码的层流时间动态
-10. [Tracking multi-site somatic voltage dynamics via high-speed fiber photometry](/202606/08/biorxiv-10-64898-2026-06-02-729189-v1-tracking-multi-site-somatic-voltage-dynamics-via-high-speed-fiber-photometry)  
-   标签：评分：7.0/10、query:sr
-   evidence：多点电压成像方法跟踪神经动态
+   evidence：显示VTA局部场电位编码奖励结果
+9. [Fixed point compositionality via low-rank gluing rules in inhibition-dominated threshold-linear networks](/202606/09/2606.07336v1-fixed-point-compositionality-via-low-rank-gluing-rules-in-inhibition-dominated-threshold-linear-networks)  
+   标签：评分：6.0/10、query:sr
+   evidence：抑制主导阈值线性网络中组合性的数学分析
+10. [Spatial Attention in the Moving Brain: Dissociable Roles of Neural Alpha Oscillations and Head Rotation](/202606/09/biorxiv-10-1101-2025-11-10-687554-v3-spatial-attention-in-the-moving-brain-dissociable-roles-of-neural-alpha-oscillations-and-head-rotation)  
+   标签：评分：6.0/10、query:sr
+   evidence：用于空间注意力解码的EEG alpha功率偏侧化
 
