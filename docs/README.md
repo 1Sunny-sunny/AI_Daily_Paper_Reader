@@ -1,63 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-06-09
-- 运行时间：2026-06-09 05:15:28 北京时间
+- 最新运行日期：2026-06-10
+- 运行时间：2026-06-10 04:55:21 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今日精读聚焦工作记忆的神经计算基理，速读覆盖语言解码、噪声学习与年龄相关脑动态重组。  
-最值得看：工作记忆可程序化建模为快速权重更新，且内侧颞叶神经元能编码抽象字母对关系。  
-建议读者关注记忆的神经编码如何走向类计算架构，以及中年后认知重组的潜力。
-- 详情：[/202606/09/README](/202606/09/README)
+从大脑解码自然情绪动态与神经ODE的可控可观性双线突破，今日精读两篇9分顶会论文。  
+最值得关注：大语言模型增强的情绪回归框架，以及控制论视角下神经微分方程的实证可控性。  
+建议读者优先阅读情绪解码论文，其对脑机交互与情感计算有直接启发。
+- 详情：[/202606/10/README](/202606/10/README)
 
 ### 精读区论文标签
-1. [Working Memory as Programmable Fast Weight Computation](/202606/09/biorxiv-10-64898-2026-06-02-729709-v1-working-memory-as-programmable-fast-weight-computation)  
+1. [Decoding Naturalistic Emotion Dynamics from the Brain: An LLM-Enhanced Regression Framework](/202606/10/2606.07707v1-decoding-naturalistic-emotion-dynamics-from-the-brain-an-llm-enhanced-regression-framework)  
    标签：评分：9.0/10、query:sr
-   evidence：猕猴前额叶工作记忆的神经几何与递归快速权重模型
-2. [Conjunctive coding of letter pairs emerges in segregated human medial temporal lobe neurons during working memory](/202606/09/biorxiv-10-64898-2026-06-04-729179-v1-conjunctive-coding-of-letter-pairs-emerges-in-segregated-human-medial-temporal-lobe-neurons-during-working-memory)  
+   evidence：从fMRI解码连续情感动态
+2. [Control-Theoretic View of Neural ODEs: Empirical Controllability and Observability](/202606/10/2606.08431v1-control-theoretic-view-of-neural-odes-empirical-controllability-and-observability)  
    标签：评分：9.0/10、query:sr
-   evidence：单神经元记录揭示字母对的连接编码
-3. [A modular neural circuit for computing the motion of objects](/202606/09/biorxiv-10-64898-2026-06-07-730718-v1-a-modular-neural-circuit-for-computing-the-motion-of-objects)  
+   evidence：控制论可观测性通过重构状态为神经编码模型提供可解释性
+3. [Neuronal firing rate diversity lowers the dimension of population covariability](/202606/10/biorxiv-10-1101-2024-08-30-610535-v3-neuronal-firing-rate-diversity-lowers-the-dimension-of-population-covariability)  
    标签：评分：9.0/10、query:sr
-   evidence：研究运动计算的神经回路，展示神经元如何编码模式运动
-4. [Cross-domain encoding models reveal shared and domain-specific neural representations across language and mathematics](/202606/09/biorxiv-10-64898-2026-06-07-730750-v1-cross-domain-encoding-models-reveal-shared-and-domain-specific-neural-representations-across-language-and-mathematics)  
+   evidence：将发放率多样性与种群协变性的低维性联系起来
+4. [Visual cortical dynamics supporting predictable attentional capture](/202606/10/biorxiv-10-64898-2026-04-23-720330-v2-visual-cortical-dynamics-supporting-predictable-attentional-capture)  
    标签：评分：9.0/10、query:sr
-   evidence：使用LLM特征的跨域编码模型解释神经表征
-5. [ITP-STDP: An Intrinsic-Timing Power-of-Two Learning Engine for On-Chip SNN Training](/202606/09/2606.06159v1-itp-stdp-an-intrinsic-timing-power-of-two-learning-engine-for-on-chip-snn-training)  
-   标签：评分：8.0/10、query:sr
-   evidence：实现尖峰神经网络的STDP学习，涉及尖峰时序
+   evidence：研究可预测注意捕获过程中的视觉皮层动态和群体放电。
+5. [Homeostatic Plasticity Enables Stable, Flexible, and Tunable Assemblies](/202606/10/biorxiv-10-64898-2026-05-31-729097-v2-homeostatic-plasticity-enables-stable-flexible-and-tunable-assemblies)  
+   标签：评分：9.0/10、query:sr
+   evidence：通过可塑性形成神经元组装，基于尖峰的群体编码
 
 ### 速读区论文标签
-1. [Interpreting Brain Responses to Language with Sparse Features from Language Models](/202606/09/2606.06857v1-interpreting-brain-responses-to-language-with-sparse-features-from-language-models)  
+1. [CG-MambaNet: A spatiotemporal framework for cross-patient epileptic seizure prediction using CNN-GCN-Mamba-BiLSTM with event-level clinical evaluation](/202606/10/2606.08226v1-cg-mambanet-a-spatiotemporal-framework-for-cross-patient-epileptic-seizure-prediction-using-cnn-gcn-mamba-bilstm-with-event-level-clinical-evaluation)  
    标签：评分：8.0/10、query:sr
-   evidence：提出增强稀疏编码模型用于解释语言神经响应
-2. [Learning regularities in noise engages both neural predictive activity and representational changes](/202606/09/biorxiv-10-1101-2025-08-18-670891-v3-learning-regularities-in-noise-engages-both-neural-predictive-activity-and-representational-changes)  
+   evidence：使用深度学习的时空脑电图癫痫预测
+2. [Predictive Coding with Bayesian Priors via Proximal Gradients](/202606/10/2606.08374v1-predictive-coding-with-bayesian-priors-via-proximal-gradients)  
    标签：评分：8.0/10、query:sr
-   evidence：通过MEG追踪学习时间规律时的神经预测活动和表征变化
-3. [Brain dynamics supporting high cognitive performance reorganize after midlife](/202606/09/biorxiv-10-64898-2026-06-02-729404-v1-brain-dynamics-supporting-high-cognitive-performance-reorganize-after-midlife)  
+   evidence：预测编码模型联系神经发放与贝叶斯推理
+3. [When Are Neural Interaction Discoveries Real? Identifiability, Recoverability, and a Pre-Fit Diagnostic](/202606/10/2606.08390v1-when-are-neural-interaction-discoveries-real-identifiability-recoverability-and-a-pre-fit-diagnostic)  
    标签：评分：8.0/10、query:sr
-   evidence：使用fNIRS解码随时间变化的任务诱发大脑动态
-4. [Intrinsic Population Dynamics are a Neuronal Substrate for Visual Attention](/202606/09/biorxiv-10-64898-2026-06-02-729565-v1-intrinsic-population-dynamics-are-a-neuronal-substrate-for-visual-attention)  
+   evidence：神经时间序列交互的可识别性诊断
+4. [Topological Effective Connectivity Modeling in Brain Networks](/202606/10/2606.08407v1-topological-effective-connectivity-modeling-in-brain-networks)  
    标签：评分：8.0/10、query:sr
-   evidence：内在群体动力学作为视觉注意力的基础
-5. [Deep Single-Index Fréchet Regression](/202606/09/2606.06957v1-deep-single-index-frchet-regression)  
+   evidence：拓扑有效连接建模，解缠反馈回路
+5. [A Geometric View for Understanding Concept Learning and Neuron Interpretation in Sparse Autoencoders](/202606/10/2606.07007v1-a-geometric-view-for-understanding-concept-learning-and-neuron-interpretation-in-sparse-autoencoders)  
    标签：评分：7.0/10、query:sr
-   evidence：将外部变量与非欧几里得神经响应联系起来
-6. [Structure-Preserving Correction Learning for Sparse Bayesian Inference in Brain Source Imaging](/202606/09/2606.07196v1-structure-preserving-correction-learning-for-sparse-bayesian-inference-in-brain-source-imaging)  
+   evidence：稀疏自编码器中神经元可解释性的几何框架，适用于神经编码模型
+6. [Theory of learning of high-dimensional controlled non-linear dynamical systems (I): models and methods](/202606/10/2606.07247v1-theory-of-learning-of-high-dimensional-controlled-non-linear-dynamical-systems-i-models-and-methods)  
    标签：评分：7.0/10、query:sr
-   evidence：展开源成像求解器以解码神经活动
-7. [Flexible Perception of Tactile Cues in Multiple Reference Frames](/202606/09/biorxiv-10-1101-2023-11-10-566625-v2-flexible-perception-of-tactile-cues-in-multiple-reference-frames)  
+   evidence：神经ODE作为动态系统的数学框架
+7. [NeuDW-CIM: a 65-nm 0.8-pJ/Sop Reconfigurable Neuromorphic Compute-in-Memory Macro with Nonlinear Dendrites and K-Winners](/202606/10/2606.08947v1-neudw-cim-a-65-nm-08-pjsop-reconfigurable-neuromorphic-compute-in-memory-macro-with-nonlinear-dendrites-and-k-winners)  
    标签：评分：7.0/10、query:sr
-   evidence：研究触觉线索在大脑中多参考框架的表征
-8. [Electrophysiological Correlates of Reward Processing in the Human Ventral Tegmental Area](/202606/09/biorxiv-10-64898-2026-01-27-701696-v2-electrophysiological-correlates-of-reward-processing-in-the-human-ventral-tegmental-area)  
+   evidence：具有非线性树突的神经形态硬件用于SNN
+8. [Block-Term Decomposition Approach to Blind Multi-trial Functional Ultrasound Unmixing](/202606/10/2606.09264v1-block-term-decomposition-approach-to-blind-multi-trial-functional-ultrasound-unmixing)  
    标签：评分：7.0/10、query:sr
-   evidence：显示VTA局部场电位编码奖励结果
-9. [Fixed point compositionality via low-rank gluing rules in inhibition-dominated threshold-linear networks](/202606/09/2606.07336v1-fixed-point-compositionality-via-low-rank-gluing-rules-in-inhibition-dominated-threshold-linear-networks)  
+   evidence：使用张量分解从功能性超声数据中盲分离神经元信号
+9. [Vector Space of Cycles](/202606/10/2606.08202v1-vector-space-of-cycles)  
    标签：评分：6.0/10、query:sr
-   evidence：抑制主导阈值线性网络中组合性的数学分析
-10. [Spatial Attention in the Moving Brain: Dissociable Roles of Neural Alpha Oscillations and Head Rotation](/202606/09/biorxiv-10-1101-2025-11-10-687554-v3-spatial-attention-in-the-moving-brain-dissociable-roles-of-neural-alpha-oscillations-and-head-rotation)  
+   evidence：循环交互的循环空间框架
+10. [Pretrained, Frozen, Still Leaking: Auditing Cross-Encoder Attribute Transfer in EEG Foundation Models](/202606/10/2606.09189v1-pretrained-frozen-still-leaking-auditing-cross-encoder-attribute-transfer-in-eeg-foundation-models)  
    标签：评分：6.0/10、query:sr
-   evidence：用于空间注意力解码的EEG alpha功率偏侧化
+   evidence：审计EEG基础模型的属性泄露
 
