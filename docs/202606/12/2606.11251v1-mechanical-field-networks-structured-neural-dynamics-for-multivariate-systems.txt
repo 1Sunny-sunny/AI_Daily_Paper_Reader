@@ -1,0 +1,831 @@
+Title: Mechanical Field Networks: Structured Neural Dynamics for Multivariate Systems
+
+URL Source: https://arxiv.org/pdf/2606.11251v1
+
+Published Time: Thu, 11 Jun 2026 00:02:15 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# Mechanical Field Networks: Structured Neural Dynamics for Multivariate Systems 
+
+Xingji Cui 
+
+Xi’an Jiaotong University, China cuixingji@stu.xjtu.edu.cn 
+
+Abstract 
+
+Many multivariate dynamical systems are observed only through trajectories, leaving the mechanisms governing their joint dynamics hidden. Existing approaches can impose interpretable dynamics or learn flexible state transitions, yet the resulting interaction structure is typically either specified in advance or left implicit within the learned dynamics. We introduce MF-Net, a recurrent dynamical model that represents all variables in a shared field state and updates this state through a learned relation law. Each variable carries a field component, and these components evolve jointly through a learnable mechanical transition. Here, mechanical refers to the relation-to-motion organization of the transition, where learned relations shape state-dependent flows, field responses, and motion tendencies that move the field state forward. The resulting structure is part of the rollout itself: learned relations influence how the field moves, and the same internal quantities support both forecasting and structural readout. Across known-law interaction systems, chaotic benchmarks, real neural recordings, and ecological time series, MF-Net achieves competitive short- and medium-horizon forecasting while retaining inspectable structural readout. On the 40-dimensional Lorenz–96 testbed, MF-Net achieves an eight-step 𝑅 2 of 0.798 ± 0.018 ; across five seeds, its learned relation matrix recovers the local coupling support with a local/nonlocal strength ratio of 19 .80 ± 1.00 and Precision@ 𝐾 of 
+
+1.000 ± 0.000 . MF-Net provides a structure-readable dynamical modeling framework in which learned relations are trained through forward evolution and, on real data, interpreted as functional predictive couplings under appropriate observational limits. 
+
+Key words. multivariate dynamical systems; relation-structured recurrent models; structure-readable forecasting; interaction structure inference; neural dynamical modeling; functional coupling; mechanical field networks 
+
+# Introduction 
+
+Observed trajectories of multivariate dynamical systems show how variables evolve over time, but the trajectory alone does not identify the structural relations underlying that evolution (Granger, 1969; Sugihara et al., 2012; Brunton et al., 2016; Kipf et al., 2018). This creates a gap between prediction and structural interpretation: a model may forecast future values without exposing the relations that participate in its rollout, whereas post-hoc relation scores may identify plausible associations without showing that those relations participated in the forecasting computation (Tank et al., 2022; Rudin, 2019). MF-Net starts from this gap: the internal quantities exposed for structural readout should also be used to compute the forward rollout. The problem is that existing models tend to make a trade-off at this point. Methods such as sparse equation discovery (Brunton et al., 2016) or local linearization can expose part of the dynamics, but what they expose 
+
+> arXiv:2606.11251v1 [cs.LG] 8 Jun 2026
+
+depends heavily on the measured variables, basis functions, or local approximation scheme chosen before learning. More flexible recurrent or latent-state models (Chen et al., 2018; Rubanova et al., 2019) remove much of this manual design, yet the dependencies they use for prediction are often folded into the transition itself, leaving no explicit structural interface. Graph-based relational models (Kipf et al., 2018) are closer in spirit, since they introduce explicit relations between variables, but the graph typically routes messages rather than defining the evolving dynamical object itself. The gap, then, is not simply the absence of relations. It is the absence of a forward process in which relation structure, state evolution, and structural readout are trained as one object. We introduce the Mechanical Field Network (MF-Net) as a recurrent dynamical model built around this idea. MF-Net maintains a joint field state composed of components for individual variables, so that each variable has an internal state within a shared dynamical field. The term mechanical refers to the way this field is advanced: its components are moved forward by a structured recurrent transition, rather than only decoded from a fixed latent summary. Coupling is encoded by a single relation law, and this relation shapes how the joint field state evolves during prediction. The same internal quantities that support structural readout therefore also take part in producing the rollout. In this way, MF-Net treats structure as part of the dynamical object being advanced, rather than as a score attached to a completed predictor (Rudin, 2019). To test this idea, we use systems in which different kinds of evidence are available. Lotka–Volterra and Lorenz–96 provide direct structural checks: the learned relation law can be compared with true interactions or local couplings. Chaotic rollouts provide a stricter check, since a readable structure should remain organized even as prediction errors accumulate. We compare MF-Net with several kinds of references, including equation-discovery methods, feature-expansion dynamical models, neural forecasters, and graph-based baselines, so that prediction accuracy, structural readout, and rollout stability can be evaluated separately. For real neural and ecological time series, the criterion is necessarily more modest: without ground-truth mechanisms, we ask whether the learned relations are load-bearing for prediction and whether they agree with independent functional evidence. We also include auxiliary and boundary cases to show where MF-Net forecasts well, and where structural interpretation should be weakened. Overall, this work contributes a concrete formulation of structure-readable recurrent dynamics. MF-Net places a learned directed relation inside the forward evolution of a shared field state, so that the relation is not only inspected after training but also used to generate the rollout. Across controlled interaction systems, chaotic benchmarks, and real neural recordings, this design allows the same model to support forecasting and expose an interpretable relation law. The central message is that structural readout need not be separated from prediction: it can be made part of the dynamical process that produces the forecast. 
+
+# Methods    
+
+> Observed history State initializer Current field state
+> MF transition block
+> Current influence
+> Aggregated effects
+> Move field state
+> Shared relation law
+> Future field states Readout
+> Rollout loss
+
+Figure 1. MF-Net forward computation. Observed history initializes the current field state. A shared relation law enters the recurrent MF transition block, where current influences are aggregated and used to move the field state forward. Predictions are read from future field states, and the rollout loss constrains the same process used for structural readout. MF-Net can be summarized as a recurrent field rollout. A structured transition repeatedly moves the field state forward, and predictions are read from the observed coordinate of the rolled state: 
+
+𝑄 𝑡 +1 = 𝑓 𝜃 ,𝐷 (𝑄 𝑡 ), ˆz𝑡 +1 = [𝑄 𝑡 +1]𝑧 .
+
+Here 𝑓 𝜃 ,𝐷 denotes one MF-Net transition step. The following sections unpack this transition into its state variables, directed relation, realized flow, field response, mechanical vector field, and training objective. 
+
+State representation 
+
+Let 𝑧 𝑖 (𝑡 ) denote the observed coordinate of variable 𝑖 at time 𝑡 . The semantic meaning of this coordinate depends on datasets; within MF-Net, 𝑧 𝑖 (𝑡 ) is the data-supervised component of the field state and the coordinate on which rollout prediction is evaluated. MF-Net represents each variable with an augmented field state. In addition to the observed coordinate 𝑧 𝑖 (𝑡 ),the state includes a field coordinate 𝑢 𝑖 (𝑡 ), an augmented tendency state 𝜂 𝑖 (𝑡 ), and a history context 𝜒 𝑖 (𝑡 ). The field coordinate 𝑢 𝑖 (𝑡 ) gives variable 𝑖 an internal configuration inside the learned field. The tendency state 𝜂 𝑖 (𝑡 )
+
+stores the local motion tendency of the field state; its components later enter the updates of both the observed coordinate 𝑧 𝑖 (𝑡 ) and the hidden field coordinate 𝑢 𝑖 (𝑡 ). The context state 𝜒 𝑖 (𝑡 ) carries information inferred from recent observations and helps set the current rollout condition. Thus, 𝑧 𝑖 (𝑡 ) anchors the state to data, 𝑢 𝑖 (𝑡 )
+
+provides field configuration, 𝜂 𝑖 (𝑡 ) provides motion tendency, and 𝜒 𝑖 (𝑡 ) provides recent-history context. We write the full model state of variable 𝑖 as 
+
+𝑞 𝑖 (𝑡 ) =  𝑧 𝑖 (𝑡 ), 𝑢 𝑖 (𝑡 ), 𝜂 𝑖 (𝑡 ), 𝜒 𝑖 (𝑡 ), 𝑄 𝑡 = {𝑞 𝑖 (𝑡 )} 𝑁 𝑖 =1.
+
+Together, these variables define the internal field state on which MF-Net performs recurrent rollout, with the latent components providing the configuration, motion, and context through which relation structure and field response can shape future trajectories. At the beginning of a rollout, the internal components are initialized from a causal history window. Given past observations z𝑡 −𝐿 :𝑡 , MF-Net encodes the available history into a current state summary and maps it to the internal rollout configuration: 
+
+( ˆ𝑢 𝑡 , ˆ𝜂 𝑡 , ˆ𝜒 𝑡 ) = 𝐸 𝜙 (z𝑡 −𝐿 :𝑡 ).
+
+This initialization uses only information available up to time 𝑡 . After this step, future states are generated by repeatedly applying the MF transition, rather than by directly decoding future values from the history window. 
+
+Directed relation law and realized flow 
+
+MF-Net separates a stable directed relation law from its state-dependent realization during rollout. Let 
+
+𝐷 ∈ R𝑁 × 𝑁 
+
+denote the learned directed relation matrix, where 𝐷 𝑗,𝑖 represents the directed channel from source variable 𝑗 to target variable 𝑖 . Diagonal self-edges are masked. Thus, 𝐷 is shared across rollout steps and serves as the stable directed component of the transition. At each time step, this stable relation is converted into a realized directed flow. Each source variable has a scalar source strength 
+
+𝑠 𝑗 (𝑡 ) = 𝑠 𝜃 
+
+ 𝑧 𝑗 (𝑡 ),
+
+or a dataset-specific source-strength map with the same role. The realized flow from source 𝑗 to target 𝑖 is 
+
+𝐽 𝑗 →𝑖 (𝑡 ) = 𝐷 𝑗,𝑖 𝑠 𝑗 (𝑡 ).
+
+The matrix 𝐽 (𝑡 ) is therefore state dependent, while 𝐷 is reused across time. This distinction is important: 𝐷 is the relation law that can be inspected after training, whereas 𝐽 (𝑡 ) is the current expression of that law during a particular rollout step. The realized flows serve two roles in the transition. First, their scalar sum enters the observed-coordinate vector field. Second, they weight source-level field messages before target-side response, as defined below. Thus, the structural readout 𝐷 is connected directly to the recurrent field motion through 𝐽 (𝑡 ).
+
+Field aggregation and response 
+
+Given the realized flows 𝐽 𝑗 →𝑖 (𝑡 ), MF-Net computes the input received by each target from source-level messages. Each source variable produces a message, 
+
+𝑚 𝑗 (𝑡 ) = 𝑆 𝜃 
+
+ 𝑞 𝑗 (𝑡 ).
+
+Here 𝑆 𝜃 is a learned map. The messages arriving at target 𝑖 are aggregated using the realized flows as weights: 
+
+ℎ𝑖 (𝑡 ) =∑︁ 
+
+> 𝑗 ≠𝑖
+
+𝐽 𝑗 →𝑖 (𝑡 ) 𝑚 𝑗 (𝑡 ).
+
+A target-side response map then converts this aggregated input into the field response acting on variable 𝑖 :
+
+𝐺 𝑖 (𝑡 ) = 𝑅 𝜃 
+
+ 𝑞 𝑖 (𝑡 ) ℎ𝑖 (𝑡 ).
+
+Here 𝑅 𝜃 (𝑞 𝑖 (𝑡 )) denotes a target-conditioned response map, and 𝐺 𝑖 (𝑡 ) is the field response passed to the mechanical tendency update. Although this aggregation has a message passing form, it should be read as a graph-like operation inside the field dynamics rather than as a standalone GNN layer. The learned relation law provides a structured routing pattern for field messages, while the recurrent state being advanced is still the MF-Net field state. 
+
+Mechanical vector field 
+
+The field response 𝐺 𝑖 (𝑡 ) shapes the mechanical tendency 𝜂 𝑖 (𝑡 ), which serves as the local motion variable of MF-Net. Its components drive both the observed coordinate 𝑧 𝑖 (𝑡 ) and the hidden field coordinate 𝑢 𝑖 (𝑡 ). MF-Net advances the joint field state with the following structured vector field. 
+
+¤𝑧 𝑖 (𝑡 ) = 𝑟 𝑖 + 𝛼 𝑖 𝑧 𝑖 (𝑡 ) + ∑︁ 
+
+> 𝑗 ≠𝑖
+
+𝐽 𝑗 →𝑖 (𝑡 ) + 𝜂 𝑧 𝑖 (𝑡 ).
+
+Here 𝑟 𝑖 and 𝛼 𝑖 are learned variable-specific local trend parameters. The observed coordinate 𝑧 𝑖 (𝑡 ) evolves through three terms: a variable-specific local trend 𝑟 𝑖 + 𝛼 𝑖 𝑧 𝑖 (𝑡 ), the total realized flow received from other variables, and the observed-coordinate component 𝜂 𝑧 𝑖 (𝑡 ) of the mechanical tendency. This is the part of the vector field directly tied to the predicted signal. 
+
+¤𝑢 𝑖 (𝑡 ) = 𝑏 𝜃 
+
+ 𝑧 𝑖 (𝑡 ), 𝑢 𝑖 (𝑡 ), 𝜒 𝑖 (𝑡 ) + 𝜂 𝑢 𝑖 (𝑡 ).
+
+The hidden field coordinate 𝑢 𝑖 (𝑡 ) evolves through a local field-drift map 𝑏 𝜃 and the hidden-coordinate component 𝜂 𝑢 𝑖 (𝑡 ) of the same mechanical tendency. This lets the internal field state move together with the observed coordinate rather than remaining a static embedding. 
+
+¤𝜂 𝑖 (𝑡 ) = 𝜆 𝑖 
+
+ 𝐺 𝑖 (𝑡 ) − 𝜂 𝑖 (𝑡 ), 𝜆 𝑖 > 0.
+
+The mechanical tendency 𝜂 𝑖 (𝑡 ) is pulled toward the field response 𝐺 𝑖 (𝑡 ) through a relaxation update. The response 𝐺 𝑖 (𝑡 ) therefore shapes the local motion variable, whose components later enter the dynamics of both 
+
+𝑧 𝑖 (𝑡 ) and 𝑢 𝑖 (𝑡 ).
+
+¤𝜒 𝑖 (𝑡 ) = −𝜆 𝜒 𝜒 𝑖 (𝑡 ), 𝜆 𝜒 > 0.
+
+The context state 𝜒 𝑖 (𝑡 ) decays during rollout. It provides history information for the current rollout condition, while the future trajectory is still generated by recurrent field dynamics rather than by directly copying the input history. Together, these equations define the MF-Net transition used during rollout. In experiments, the vector field is integrated step by step to obtain multi-horizon predictions. The numerical integrator is an implementation choice; the structural definition of MF-Net is the vector field above. 
+
+Rollout and training objective 
+
+Starting from the initialized state 𝑄 𝑡 , MF-Net repeatedly applies the mechanical transition to obtain future field states: 
+
+𝑄 𝑡 +1: 𝑡 +𝐻 = Rollout (𝑄 𝑡 , 𝐷 ; 𝜃 ).
+
+Predictions are read from the observed coordinates of the rolled states: 
+
+ˆ𝑧 𝑖 (𝑡 + 𝑘 ) = [𝑧 𝑖 (𝑡 + 𝑘 )] roll , 𝑘 = 1, . . . , 𝐻. 
+
+The training objective is a multi-horizon rollout loss, 
+
+Lroll =
+
+> 𝐻
+
+∑︁ 
+
+> 𝑘 =1
+
+𝑤 𝑘 ℓ(ˆz(𝑡 + 𝑘 ), z(𝑡 + 𝑘 )) ,
+
+where ℓ is a prediction loss such as squared error, and 𝑤 𝑘 controls the relative weight of different horizons. The key point is that future values are produced by repeated application of the same MF transition. The encoder initializes the current state, but it does not directly output future trajectories. 
+
+Pseudocode 
+
+Algorithm 1. MF-Net rollout and training with fixed-step Heun integration Require: Normalized series z0: 𝑇 , history length 𝐿 , horizons H , step size Δ𝑡 
+
+Require: Encoder 𝐸 𝜙 , relation parameter 𝐷 param , source-strength map 𝑠 𝜃 
+
+Require: Source emitter 𝑆 𝜃 , reception map 𝑅 𝜃 , local field-drift map 𝑏 𝜃  
+
+> 1:
+
+Mask diagonal self-edges: 
+
+𝐷 ← 𝐷 param ⊙ ( 1 − 𝐼 ) 
+
+> 2:
+
+for each minibatch of causal prediction origins 𝑡 do  
+
+> 3:
+
+Form the causal history window z𝑡 −𝐿 :𝑡 . 
+
+> 4:
+
+Initialize hidden field components from history: 
+
+(𝑢 0 
+
+> 𝑡
+
+, 𝜂 0 
+
+> 𝑡
+
+, 𝜒 0 
+
+> 𝑡
+
+) ← 𝐸 𝜙 (z𝑡 −𝐿 :𝑡 ) 
+
+> 5:
+
+Set the initial rollout state: 
+
+𝑄 0 ← { 𝑞 0 
+
+> 𝑖
+
+= (𝑧 𝑖 (𝑡 ), 𝑢 0 
+
+> 𝑖
+
+, 𝜂 0 
+
+> 𝑖
+
+, 𝜒 0 
+
+> 𝑖
+
+)} 𝑁 𝑖 =1 
+
+> 6:
+
+for 𝑘 = 1, . . . , max (H ) do  
+
+> 7:
+
+Compute first vector-field estimate: 
+
+𝐾 1 ← VectorField (𝑄 𝑘 −1, 𝐷 ) 
+
+> 8:
+
+Take a provisional Euler step: 
+
+e𝑄 ← 𝑄 𝑘 −1 + Δ𝑡 𝐾 1 
+
+> 9:
+
+Compute second vector-field estimate: 
+
+𝐾 2 ← VectorField ( e𝑄, 𝐷 ) 
+
+> 10:
+
+Update by Heun integration: 
+
+𝑄 𝑘 ← 𝑄 𝑘 −1 + Δ𝑡  
+
+> 2
+
+(𝐾 1 + 𝐾 2) 
+
+> 11:
+
+if 𝑘 ∈ H then  
+
+> 12:
+
+Read prediction from the observed coordinate: 
+
+ˆz𝑡 +𝑘 ← [ 𝑄 𝑘 ]𝑧  
+
+> 13:
+
+end if  
+
+> 14:
+
+end for  
+
+> 15:
+
+Compute multi-horizon rollout loss: 
+
+Lroll ← Íℎ∈ H 𝑤 ℎ ℓ(ˆz𝑡 +ℎ, z𝑡 +ℎ) 
+
+> 16:
+
+Add regularization: 
+
+L ← L roll + L reg  
+
+> 17:
+
+Update 𝜃, 𝜙, 𝐷 param by backpropagation through the full rollout. 18: end for Algorithm 2. MF-Net vector-field evaluation  
+
+> 1:
+
+procedure VectorField (𝑄, 𝐷 ) 
+
+> 2:
+
+Unpack the field state: 
+
+𝑄 = {𝑞 𝑖 = (𝑧 𝑖 , 𝑢 𝑖 , 𝜂 𝑖 , 𝜒 𝑖 )} 𝑁 𝑖 =1 
+
+> 3:
+
+for each source variable 𝑗 do  
+
+> 4:
+
+Compute source strength: 
+
+𝑠 𝑗 ← 𝑠 𝜃 (𝑧 𝑗 ) 
+
+> 5:
+
+Compute source field message: 
+
+𝑚 𝑗 ← 𝑆 𝜃 (𝑞 𝑗 ) 
+
+> 6:
+
+end for  
+
+> 7:
+
+for each directed pair 𝑗 → 𝑖 , 𝑗 ≠ 𝑖 do  
+
+> 8:
+
+Compute realized flow: 
+
+𝐽 𝑗 →𝑖 ← 𝐷 𝑗,𝑖 𝑠 𝑗  
+
+> 9:
+
+end for  
+
+> 10:
+
+for each target variable 𝑖 do  
+
+> 11:
+
+Aggregate incoming source messages: 
+
+ℎ𝑖 ← Í 𝑗 ≠𝑖 𝐽 𝑗 →𝑖 𝑚 𝑗  
+
+> 12:
+
+Compute target-side field response: 
+
+𝐺 𝑖 ← 𝑅 𝜃 (𝑞 𝑖 ) ℎ𝑖  
+
+> 13:
+
+Compute observed-coordinate velocity: 
+
+¤𝑧 𝑖 ← 𝑟 𝑖 + 𝛼 𝑖 𝑧 𝑖 + Í 𝑗 ≠𝑖 𝐽 𝑗 →𝑖 + 𝜂 𝑧 𝑖  
+
+> 14:
+
+Compute hidden field-coordinate velocity: 
+
+¤𝑢 𝑖 ← 𝑏 𝜃 (𝑧 𝑖 , 𝑢 𝑖 , 𝜒 𝑖 ) + 𝜂 𝑢 𝑖  
+
+> 15:
+
+Compute tendency velocity: 
+
+¤𝜂 𝑖 ← 𝜆 𝜂,𝑖 (𝐺 𝑖 − 𝜂 𝑖 ) 
+
+> 16:
+
+Compute context velocity: 
+
+¤𝜒 𝑖 ← − 𝜆 𝜒 𝜒 𝑖  
+
+> 17:
+
+end for  
+
+> 18:
+
+return ¤𝑄 = {( ¤ 𝑧 𝑖 , ¤𝑢 𝑖 , ¤𝜂 𝑖 , ¤𝜒 𝑖 )} 𝑁 𝑖 =1 
+
+> 19:
+
+end procedure 
+
+Structural readout 
+
+The main structural readout of MF-Net is the learned relation law 𝐷 . This readout is part of the forward transition: 𝐷 is used to form the realized flow 𝐽 (𝑡 ), which then enters field aggregation, field response, the tendency update, and the recurrent rollout. Thus, structural inspection is performed on a quantity that participates in the model dynamics, rather than on a diagnostic fitted after prediction. The interpretation of 𝐷 depends on the available evidence. In systems with known interaction or coupling structure, 𝐷 can be compared with the corresponding ground truth. In real neural or ecological time series, where direct mechanisms are not observed, 𝐷 is treated as an inspectable functional coupling signal rather than as direct causal recovery. Metrics and analyses based on datasets are described in the Results section. 
+
+# Results 
+
+MF-Net recovers interpretable structure in identifiable and chaotic dynamics 
+
+We first evaluated MF-Net in controlled systems with known dynamical structure. Lotka–Volterra (Lotka, 1925; Volterra, 1926) provides a direct interaction benchmark, since the true pairwise interaction matrix is part of the data-generating model. Lorenz–96 (Lorenz, 1996) provides a complementary chaotic benchmark, where the trajectories are harder to roll out but the local coupling pattern is still known. Together, the two systems test whether the learned relation law 𝐷 remains structurally readable across both identifiable pairwise interactions and chaotic local coupling systems. On the Lotka–Volterra benchmark, MF-Net can recover the interaction structure from observed trajectories. Across five runs, the off-diagonal entries of the aligned learned relation matrix closely matched the true interaction matrix, with Pearson = 0.9937 , Spearman = 0.9831 , scaled RMSE = 0.00237 , and sign accuracy = 1.000 .Orientation alignment and scalar calibration were applied only after training for reporting evaluation metrics. The scalar calibration fits a single global multiplier between the learned off-diagonal matrix and the true interaction matrix; it does not enter the training objective, perform elementwise fitting, or alter the learned sign pattern, ranking, or support. These results indicate that MF-Net can infer a stable relation law without direct supervision on the interaction matrix. The same runs also achieved near-perfect short-horizon rollout, with ℎ = 4
+
+𝑅 2 = 0.999960 ± 0.000005 .
+
+Table 1. Structural recovery on Lorenz–96 with 𝑁 = 40 . The local/nonlocal ratio is the mean absolute relation strength on true local couplings divided by that on nonlocal pairs. Precision is evaluated at the true edge budget 𝐾 = 3𝑁 = 120 .MF-Net is reported as mean ± std over five seeds.                             
+
+> Rank Model Local/nonlocal ratio Precision@ 𝐾
+> 1SINDy-poly2 1256.43 1.000 2MF-Net 19 .80 ±1.00 1.000 ±0.000
+> 3VAR-ridge 5.53 0.817 4S-map 5.43 0.850 5NVAR 1.88 0.992 6NeuralGranger-cMLP 1.55 0.917 7NRI soft graph 1.27 0.458
+
+Lorenz–96 provides a chaotic benchmark with a known directed local-neighbor coupling pattern. We evaluated structural recovery using the local/nonlocal strength ratio and Precision@ 𝐾 , where the top 𝐾 directed edges are selected by absolute relation strength and 𝐾 is matched to the number of true local couplings ( 𝐾 = 3𝑁 = 120 
+
+for the 40-dimensional Lorenz–96 system; Table 1). Across five seeds, MF-Net achieved a local/nonlocal ratio of 19 .80 ± 1.00 and Precision@ 𝐾 of 1.000 ± 0.000 . These results show that MF-Net recovers the Lorenz–96 local coupling support with perfect Precision@ 𝐾 , while retaining a stable directed relation law that is used in its recurrent rollout. The much larger SINDy-poly2 ratio should be interpreted in light of its model-matched quadratic library: Lorenz–96 is generated by a quadratic equation, so SINDy-poly2 has access to the correct symbolic hypothesis class. By contrast, MF-Net recovers the same local support through a learned relation law embedded in the recurrent rollout, rather than through a hand-specified polynomial library. 
+
+Figure 2. Core structural recovery results. (a) Lotka–Volterra: learned relation law 𝐷 and true interaction matrix 𝐴 . (b) Lorenz–96: learned relation map, with black outlines marking the known local-neighbor couplings. (c) Top-𝐾 support of 
+
+|𝐷 |, where 𝐾 is matched to the number of true local couplings ( 𝐾 = 3𝑁 ), showing that the strongest learned relations recover the known local-coupling structure. Panels (b) and (c) show the five-seed mean learned 𝐷 matrix for Lorenz–96 
+
+𝑁 = 40 .
+
+The Lorenz–96 forecasting results compare MF-Net with sparse equation-discovery, local and linear dynamical, feature-expansion, neural forecasting, and structure-learning baselines (Brunton et al., 2016; Gauthier et al., 2021; Tank et al., 2022; Kipf et al., 2018; Nie et al., 2023; Liu et al., 2024; Luo and Wang, 2024; Oreshkin et al., Table 2. Forecasting performance on Lorenz–96 with 𝑁 = 40 . MF-Net is reported as mean ± std over five seeds.                                                                                                                                           
+
+> Model ℎ=4RMSE ℎ=4𝑅 2ℎ=8RMSE ℎ=8𝑅 2ℎ=24 RMSE ℎ=24 𝑅 2
+> SINDy-poly2 0.183 0.967 0.359 0.874 1.546 -1.349 SINDy-poly3 0.938 0.144 1.402 -0.915 1.452 -1.071
+> MF-Net 0.205 ±0.008 0.959 ±0.002 0.455 ±0.024 0.798 ±0.018 0.927 ±0.028 0.159 ±0.040
+> PatchTST 0.440 0.811 0.873 0.257 0.989 0.038 iTransformer 0.469 0.787 0.867 0.267 0.992 0.033 NeuralGranger-cMLP 0.558 0.697 0.779 0.409 1.007 0.005 ESN 0.665 0.570 0.899 0.213 1.022 -0.025 S-map 0.694 0.531 0.972 0.079 1.036 -0.054 ModernTCN 0.706 0.515 0.899 0.213 1.048 -0.078 LatentODE 0.735 0.475 0.951 0.118 1.105 -0.200 VAR-ridge 0.744 0.462 1.010 0.006 1.036 -0.054 LSTM 0.773 0.419 0.969 0.085 1.141 -0.278 NVAR 0.774 0.418 1.228 -0.470 1.895 -2.529 VanillaTransformer 0.781 0.407 0.933 0.151 1.026 -0.033 N-BEATS 0.847 0.302 0.913 0.188 1.021 -0.025 Persistence 0.938 0.144 1.402 -0.915 1.452 -1.071 Ridge-window 1.975 -2.792 2.636 -5.772 2.937 -7.471
+
+Note. SINDy-poly3 and persistence are nearly identical after rounding to three decimals, but their unrounded RMSE values differ slightly, e.g. 0.938303 versus 0.938286 at ℎ = 4.
+
+2020; Chen et al., 2018; Rubanova et al., 2019) and show strong open-loop performance on the 40-dimensional chaotic benchmark (Table 2). SINDy-poly2 remains a very strong short- and medium-horizon baseline, which is expected because the Lorenz–96 equation is quadratic and therefore matches the polynomial library. However, its long-horizon rollout deteriorates sharply at ℎ = 24 . In contrast, SINDy-poly3 collapses to persistence-level rollout performance, showing that a larger symbolic library can make the discovered dynamics less stable rather than more accurate. MF-Net achieves competitive short- and medium-horizon accuracy and retains the best long-horizon performance among the tested methods. This result is important because MF-Net does not obtain its forecasts from a black-box terminal decoder alone: the same recurrent rollout also exposes a stable directed relation law that recovers the known local-neighbor structure. Thus, Lorenz–96 supports the central tradeoff of MF-Net: structure-readable chaotic forecasting with the learned structure remaining part of the forward computation. Together, these two benchmarks show that MF-Net learns a directed matrix 𝐷 that is used during rollout and can still be read after training. In Lotka–Volterra, 𝐷 closely matches the true pairwise interaction matrix. In Lorenz–96, the learned relation matrix recovers the known local coupling support at the matched edge budget. MF-Net also gives the strongest overall rollout performance among the tested neural baselines and retains positive long-horizon skill at ℎ = 24 . Thus, the same learned matrix supports prediction and provides a clear summary of directed structure when the observed system supports a stable coupling law. 
+
+Ablations show that the mechanical field path contributes to rollout 
+
+A readable directed structure carries more weight when it shapes the model’s prediction than when it is recovered only after training. We therefore ran ablations to test whether MF-Net depends on its mechanical field path. On Lorenz–96, shuffling the field history caused the largest drop in accuracy, which shows that the learned field state cannot be replaced by raw observation history alone. Shuffling 𝐷 , setting 𝐷 to zero, or removing the 𝐽 /𝐺 /𝜂 pathway also increased rollout error (Table 3). The field history, the directed matrix 𝐷 , and the relation-to-motion variables are therefore functional parts of the rollout rather than quantities read off after the fact. 
+
+Table 3. Ablation effects on Lorenz–96 with 𝑁 = 40 . Values are RMSE ratios relative to the full MF-Net rollout.                                           
+
+> Variant ℎ=1ℎ=4ℎ=8ℎ=16 ℎ=24
+> Field-history shuffle 19.49 ×12.14 ×5.14 ×2.84 ×2.57 ×
+> Raw-𝑧 history only 1.98 ×2.67 ×1.96 ×1.47 ×1.32 ×
+> No-𝐽 /𝐺 /𝜂 variables 1.89 ×2.02 ×1.50 ×1.20 ×1.06 ×
+> 𝐷 -shuffle 2.32 ×4.18 ×3.18 ×2.13 ×1.83 ×
+> Zero-𝐷 1.57 ×3.21 ×2.76 ×1.85 ×1.53 ×
+
+The ablations connect the structural results to the forecasting mechanism. The largest degradation comes from destroying the learned field history, showing that the internal field state carries information beyond raw observation history. Perturbing the directed relation matrix also substantially increases error, especially for medium-horizon rollout. Removing the 𝐽 /𝐺 /𝜂 pathway has a smaller but still visible effect, indicating that the realized-flow and tendency variables contribute to the transition rather than serving as passive diagnostics. Together, these results show that MF-Net uses its learned directed structure during prediction. 
+
+MF-Net remains informative on real-world data 
+
+We next tested MF-Net on real non-pharyngeal C. elegans calcium recordings (Atanas et al., 2023; WormWideWeb, 2023). For this dataset, we evaluated both forecasting performance and the learned di-rected matrix 𝐷 . The forecasting experiment tests whether MF-Net can model neural activity in open loop, while the analysis of 𝐷 asks whether the learned matrix contains consistent directed temporal information across recordings. The forecasting results are shown in Table 4 (Zeng et al., 2023; Rubanova et al., 2019; Liu et al., 2024; Wu et al., 2020, 2019; Hochreiter and Schmidhuber, 1997; Gauthier et al., 2021). MF-Net does not consistently beat the strongest linear baselines, which are well suited to the smooth and slowly varying structure of calcium activity. Nevertheless, MF-Net remains very close to these baselines at the four-step horizon and achieves the best result at the sixteen-step horizon. It also outperforms the tested recurrent, latent, graph-based, and transformer-style neural baselines at both reported horizons. Thus, the subsequent analysis of 𝐷 is based on a model that is already predictive on real neural recordings. 
+
+Table 4. Open-loop forecasting on non-pharyngeal C. elegans calcium recordings.                                                         
+
+> Model ℎ=4RMSE ℎ=4𝑅 2ℎ=16 RMSE ℎ=16 𝑅 2
+> DLinear 0.637 0.708 0.881 0.447 NLinear 0.636 0.708 0.881 0.448
+> MF-Net 0.650 0.695 0.879 0.450
+> iTransformer 0.656 0.690 0.919 0.398 LatentODE 0.661 0.685 0.943 0.367 MTGNNLite 0.679 0.668 0.973 0.325 GraphWaveNetLite 0.688 0.659 1.031 0.244 Persistence 0.718 0.628 1.035 0.237 LSTM 0.764 0.580 0.950 0.357 NVAR 1.168 0.016 1.517 -0.639
+
+After evaluating forecasting performance, we examined the learned directed matrix 𝐷 in the same neural recordings. For each directed pair 𝑗 → 𝑖 , we measured a future calcium effect by comparing the source activity 
+
+𝑧 𝑗 (𝑡 ) with the target change 𝑧 𝑖 (𝑡 + ℎ) − 𝑧 𝑖 (𝑡 ). We then tested whether entries of 𝐷 align with these source-to-target temporal effects across horizons and recordings. This comparison provides a direct test of whether 𝐷 reflects directed temporal effects in neural activity. Figure 3 summarizes this analysis. The learned matrix 𝐷 showed positive alignment with future calcium effects across all tested horizons. After controlling for the target self state and global mean activity, the partial Pearson correlation increased from 0.305 at ℎ = 1 to 0.410 at ℎ = 8, and remained positive at longer horizons. Sign agreement followed the same pattern, reaching 0.645 at ℎ = 8 and staying above 0.59 at ℎ = 24 . These values were well above the instantaneous coactivity baseline, whose signed correlation with 𝐷 was only 0.077 . The directionality of 𝐷 was also consistent with the data: the asymmetry 𝐷 𝑗,𝑖 − 𝐷 𝑖, 𝑗 aligned with the corresponding asymmetry of future calcium effects, with correlations around 0.56 –0.58 across horizons. Finally, the alignment was positive in all six recordings, showing that the signal was not driven by a single recording. Together, these results indicate that 𝐷 reflects directed temporal structure in calcium dynamics, rather than simple coactivity measured at the same time. Overall, the C. elegans results provide a real-data test of the MF-Net mechanism. The model gives strong forecasts of neural activity, and the learned matrix 𝐷 shows a consistent relation to directed future changes in the same recordings. We therefore read 𝐷 as a functional predictive coupling matrix for calcium activity: it summarizes which source neurons are associated with later changes in target neurons after controlling for target self state and global activity. We do not use this analysis to infer anatomical connectivity. Figure 3. Directed temporal evidence in non-pharyngeal C. elegans calcium recordings. (a) The learned matrix 𝐷 aligns with future source-to-target calcium effects. For each directed pair 𝑗 → 𝑖 , the future effect is defined as 
+
+𝐸 ℎ [ 𝑗, 𝑖 ] = partial corr (𝑧 𝑗 (𝑡 ), 𝑧 𝑖 (𝑡 + ℎ) − 𝑧 𝑖 (𝑡 ) | 𝑧 𝑖 (𝑡 ), ¯𝑧 (𝑡 )) , where ¯𝑧 (𝑡 ) is the global mean activity. Curves show the alignment between the off-diagonal entries of 𝐷 and 𝐸 ℎ across horizons, measured by Pearson correlation and sign agreement. (b) Directional asymmetry compares 𝐷 𝑗,𝑖 − 𝐷 𝑖, 𝑗 with the corresponding asymmetry 𝐸 ℎ [ 𝑗, 𝑖 ] − 𝐸 ℎ [𝑖, 𝑗 ]. (c) Recording-level consistency of the same alignment analysis. Each point denotes one recording, and the black line shows the mean across recordings. 
+
+Additional dynamical probes support broader applicability 
+
+We finally used several auxiliary systems to test whether the rollout remains effective beyond the main structural benchmarks and the C. elegans recordings. These experiments are secondary evidence: they do not replace the known-structure tests above, but they check whether the same MF-Net formulation can handle periodic, excitable, oscillator, and small real consumer-resource dynamics. 
+
+Table 5. Additional dynamical probes under rollout. Values are mean ± std over three runs.                                        
+
+> Dataset Horizon RMSE 𝑅 2
+> SinCos ℎ=16 0.0074 ±0.0044 0.9999 ±0.0001
+> FitzHugh–Nagumo ℎ=16 0.0463 ±0.0353 0.9958 ±0.0037
+> Sakaguchi–Kuramoto ℎ=16 0.0003 ±0.0001 1.0000 ±0.0000
+> NRI-Springs ℎ=16 0.0025 ±0.0004 0.9906 ±0.0031
+
+MF-Net retained accurate long-horizon rollout on all four additional probes (Table 5). The SinCos result shows that the model can preserve phase structure over long horizons. The FitzHugh–Nagumo result (FitzHugh, 1961; Nagumo et al., 1962) shows that the same rollout remains accurate on excitable dynamics with hidden recovery variables. The Sakaguchi–Kuramoto result (Sakaguchi and Kuramoto, 1986) is nearly saturated, so we treat it as a regular coupled-oscillator sanity check rather than as central structural evidence. The NRI-Springs (Kipf et al., 2018) result provides an additional rollout probe from the neural relational inference tradition: MF-Net learns accurate spring-particle dynamics, but we do not use this result as evidence of direct recovery of the undirected spring graph. We also tested a small real two-species algae–rotifer chemostat system (Blasius et al., 2020). This dataset is too small to support strong mechanism recovery, but it provides a useful sign check for the learned directed matrix. Across three seeds, the learned relation from algae to rotifers was positive in every run, while the relation from rotifers to algae was negative in every run (Table 6). This matches the expected consumer-resource direction: resource availability supports consumer growth, while consumers suppress the resource. We therefore treat this result as sign-stable functional predictive coupling, not as causal mechanism recovery. 
+
+Table 6. Three-seed direction check on the real algae–rotifer system.                 
+
+> Directed edge Mean 𝐷 Std Seed-level sign Algae →rotifers 0.0368 0.0110 positive in 3/3
+> Rotifers →algae −0.0592 0.0132 negative in 3/3
+
+History-only wind power as a boundary case 
+
+We also tested MF-Net on the SDWPF wind-power dataset (Zhou et al., 2024) in a history-only setting, where the model receives only past turbine power traces without wind speed, wind direction, weather fields, or turbine-layout features. As shown in Figure 4, MF-Net improves over persistence at medium and long horizons, from 𝑅 2 = 0.148 to 0.288 at ℎ = 12 and from 𝑅 2 = −0.575 to −0.013 at ℎ = 24 . However, the learned relation matrix remains weak and does not align with physical turbine distance: the off-diagonal mean |𝐷 | is 0.00510 ,the |𝐷 |–distance Pearson correlation is only 0.161 , and the top-3𝑁 distance ratio is 0.9995 . Moreover, 𝐷 -shuffle and zero-𝐷 ablations cause little damage at ℎ = 24 , with RMSE ratios of 1.042 and 1.010 . This result shows that MF-Net can extract useful history-driven temporal dynamics while showing that the predictive gain does not come from an interpretable turbine-to-turbine relation law. 
+
+Figure 4. History-only wind-power boundary case. MF-Net improves medium- and long-horizon forecasting over persistence, but the learned relation matrix remains weak and does not align with physical turbine distance. Perturbing or removing 𝐷 causes little damage, indicating that the predictive gain mainly comes from history-driven latent dynamics rather than an interpretable turbine-to-turbine relation law. 
+
+Together, these auxiliary and boundary experiments support the broader behavior of MF-Net without changing the main evidence hierarchy of the paper. The central claims still rest on known-system structure recovery, ablation of the mechanical field path, and the C. elegans directed temporal analysis. The additional probes show that the same rollout formulation remains accurate on several simpler dynamical settings and gives sign-stable functional readout in a small real biological system. The wind-power boundary case further shows that useful forecasting does not by itself justify a strong structural interpretation of 𝐷 .
+
+# Discussion 
+
+Key Contribution 
+
+Structure 
+
+learned directed matrix 𝐷 
+
+Motion 
+
+field update through 𝐽, 𝐺, 𝜂 
+
+Prediction 
+
+readout from rolled states 
+
+> MF-Net organizes forecasting as structured field motion, rather than a direct history-to-future map.
+
+Figure 5. The central modeling view of MF-Net. A learned directed structure shapes field motion during rollout, and predictions are read from the evolved field state. 
+
+The central contribution of MF-Net is a modeling view for multivariate forecasting. MF-Net organizes prediction through a recurrent field state and a directed mechanical transition. The matrix 𝐷 supplies a persistent directed component of the transition; the realized effects, field responses, and tendency variables specify how this component is expressed in the current state and how the field moves forward. The specific equations instantiate this view by forcing the transition to pass through stable structure, current effect, and motion before producing a forecast. This makes the directed component functional and inspectable: it contributes to the rollout and remains available for analysis after training. 
+
+Relation to Modern Dynamical and Relational Models 
+
+MF-Net lies at the intersection of several recent lines of work. Neural differential equation models learn continuous or latent state evolution through vector fields such as ¤𝑄 = 𝑓 𝜃 (𝑄, 𝑡 ) (Chen et al., 2018; Rubanova et al., 2019; Kidger et al., 2020; Oh et al., 2025). Augmented and second-order Neural ODEs expand this view by adding hidden dimensions or motion-like state structure (Dupont et al., 2019; Norcliffe et al., 2020), while Hamiltonian, Lagrangian, and symplectic neural models impose stronger physical or geometric inductive biases (Greydanus et al., 2019; Cranmer et al., 2020; Zhong et al., 2020). These methods are close to MF-Net in their concern with learned state evolution, but they usually do not expose a stable directed relation law between observed variables. MF-Net is also related to graph neural differential equations, dynamic graph neural networks, graph neural networks for time series, and neural relational inference (Poli et al., 2019; Liu et al., 2025; Jin et al., 2024; Zheng et al., 2024; Kipf et al., 2018). These methods combine graph structure with temporal or dynamical modeling, and recent relational-inference work continues to study how hidden interaction graphs can be identified from observed trajectories (Pan et al., 2024; Kang et al., 2024). The difference is the role assigned to the learned relation. In many graph-dynamical models, edges primarily route messages or parameterize a graph decoder. In MF-Net, the directed matrix 𝐷 is a stable relation law inside the transition: it is realized as state-dependent flow, converted into field response and motion tendency, and reused across rollout steps. Recent work on neural structure learning and dynamical causal discovery also highlights the difficulty of inferring structure from temporal processes under continuous-time dynamics, noise, confounding, and lagged effects (Wang et al., 2024; Herdeanu et al., 2025). MF-Net does not claim to solve general causal discovery from observations. Instead, it contributes a structure-readable rollout framework: when the observed system supports a stable and load-bearing relation structure, 𝐷 can be compared with known interactions or coupling support; when the data are partially observed, externally driven, or dominated by shared latent dynamics, 𝐷 is interpreted more weakly as functional predictive coupling. 
+
+From stable structure to realized motion 
+
+The important separation in MF-Net is between a persistent directed channel and its current expression during rollout. The matrix 𝐷 stores the relation component that is reused across time steps. The realized flow 𝐽 (𝑡 )
+
+activates this relation under the current state, the field response 𝐺 (𝑡 ) collects the resulting target side effects, and the tendency variable 𝜂 (𝑡 ) converts the response into motion of the field state. These quantities therefore sit at different levels of the transition: 𝐷 describes a stable coupling channel, while 𝐽 (𝑡 ), 𝐺 (𝑡 ), and 𝜂 (𝑡 ) describe how that channel is expressed at a particular moment. This separation is what gives the equations their role in the model, and it is also why the same directed component can be inspected after training. 
+
+A factorized transition view 
+
+At a higher level, MF-Net can be viewed as a structured factorization of the finite-time prediction operator. A generic forecaster learns a map from an observed history window to future observations. MF-Net instead factors this map through a current field state and a recurrent transition: 
+
+z𝑡 −𝐿 :𝑡 ↦ → 𝑄 𝑡 , 𝑄 𝑡 +𝑘 +1 = Φ 𝜃 ,𝐷 (𝑄 𝑡 +𝑘 ), ˆz𝑡 +𝑘 = 𝑅 𝜃 (𝑄 𝑡 +𝑘 ).
+
+The transition Φ𝜃 ,𝐷 is expressed through the stable directed channel and its state-dependent motion variables described above. The specific parameterization of 𝐽 , 𝐺 , or 𝜂 can be changed, but the modeling principle remains the same: future states are generated by repeatedly moving a structured field state, and predictions are read from the rolled states. This view explains why the contribution of MF-Net lies in the organization of the transition, rather than in any single intermediate formula. 
+
+Limiting cases of the MF-Net transition 
+
+The MF-Net transition also has useful limiting cases. Here a limiting case means a controlled simplification of the transition: some internal variables are suppressed, some maps are made linear, or the structured mechanical path is absorbed into a more generic state update. These limits do not imply that the corresponding models are special cases of the implemented code in every detail. They clarify what assumptions MF-Net adds beyond several familiar modeling views. The first limit is the residual or recurrent state-update view. With a fixed step size, the rollout can be written abstractly as 
+
+𝑄 𝑡 +1 = 𝑄 𝑡 + Δ𝑡 𝐹 𝜃 ,𝐷 (𝑄 𝑡 ).
+
+Thus MF-Net belongs to the recurrent state-evolution family: future states are produced by repeatedly updating a current state. This connects the model to the residual/Euler view of deep networks (He et al., 2016) and to recurrent state-space models (Rangapuram et al., 2018). The difference is that the update field 𝐹 𝜃 ,𝐷 is structured. It is not an unrestricted transition cell; it is expressed through a persistent directed matrix, realized flows, field responses, and motion tendencies. A second limit comes from local linearization. For a smooth one-step transition 𝑧 𝑡 +1 = Φ (𝑧 𝑡 ), a first-order Taylor expansion around the current state gives a local linear approximation of the form 
+
+Δ𝑧 𝑖 (𝑡 ) ≈ 𝑎 𝑖 (𝑡 ) + ∑︁ 
+
+> 𝑗
+
+𝐴 𝑖 𝑗 (𝑡 )𝑧 𝑗 (𝑡 ),
+
+where 𝐴 𝑖 𝑗 (𝑡 ) acts as a local effective coupling from variable 𝑗 to variable 𝑖 . If this local coefficient is fixed over time, the update becomes VAR-like (Lütkepohl, 2005): 
+
+𝑧 𝑡 +1 = 𝑐 + 𝐵𝑧 𝑡 .
+
+MF-Net approaches this limit when the hidden field variables are suppressed, the source strength is linear in 
+
+𝑧 𝑗 (𝑡 ), and the realized directed flow is reduced to 
+
+𝐽 𝑗 →𝑖 (𝑡 ) = 𝐷 𝑗,𝑖 𝑧 𝑗 (𝑡 ).
+
+The observed-coordinate update then becomes 
+
+¤𝑧 𝑖 (𝑡 ) = 𝑟 𝑖 + 𝛼 𝑖 𝑧 𝑖 (𝑡 ) + ∑︁ 
+
+> 𝑗 ≠𝑖
+
+𝐷 𝑗,𝑖 𝑧 𝑗 (𝑡 ),
+
+up to the source-target convention used for 𝐷 . In this limit, 𝐷 plays the role of a stable interaction coefficient. The full MF-Net transition generalizes this local-linear view by allowing the directed component to be expressed through state-dependent realized flows, target-side field responses, and motion tendencies. A third limit connects MF-Net to latent neural dynamics. If the directed relation channel and the mechanical variables are absorbed into an unrestricted vector field, the state equation becomes 
+
+¤𝑄 = 𝑓 𝜃 (𝑄, 𝑡 ),
+
+with predictions read from 𝑄 . This is the modeling form used by Neural ODE and Latent ODE style models (Chen et al., 2018; Rubanova et al., 2019). MF-Net keeps the state-evolution view of these models, but restricts the transition to pass through a directed mechanical path. The latent state is therefore not only moved by a generic learned vector field; its motion is organized through a stable directed component and its current realization. A fourth limit connects MF-Net to relational graph models such as NRI (Kipf et al., 2018). If the mechanical tendency and field-motion variables are removed, and the learned relation is used only as an adjacency-like routing weight, the update becomes 
+
+ℎ𝑖 (𝑡 ) =∑︁ 
+
+> 𝑗 ≠𝑖
+
+𝐷 𝑗,𝑖 𝑚 𝑗 (𝑡 ), 𝑞 𝑖 (𝑡 + 1) = 𝑔 𝜃 (𝑞 𝑖 (𝑡 ), ℎ 𝑖 (𝑡 )) .
+
+This is a graph message-passing transition. MF-Net retains the relational idea, but assigns the directed relation a different role. The relation does not only route messages; it is converted into realized flow, field response, and motion tendency before the state is advanced. These limits clarify the position of MF-Net. Compared with VAR or local Taylor models, MF-Net adds a latent field state and state-dependent mechanical realization. Compared with Latent ODE models, it keeps a readable directed component inside the transition instead of absorbing all dynamics into a generic vector field. Compared with NRI-like relational models, it uses the learned relation to drive field motion rather than only to define message passing. The contribution is therefore the factorization of the transition itself: a stable directed structure is reused across rollout steps, expressed through current-state effects, and converted into motion before prediction. 
+
+Structural Regularization and Rollout Generalization     
+
+> Figure 6. Training dynamics and open-loop rollout behavior on Lorenz–96 with 𝑁 =40 . The training objective decreases rapidly for high-capacity baselines such as LSTM and LatentODE, but their validation rollout error remains high or deteriorates. MF-Net does not achieve the lowest training objective, yet maintains better validation behavior and lower open-loop test error. This supports the view that the relation-to-motion transition acts as an architectural regularizer in high-dimensional chaotic rollout.
+
+The training curves in Figure 6 suggest that the advantage of MF-Net on Lorenz–96 is not simply stronger fitting capacity. High-capacity baselines such as LSTM and LatentODE can reduce the training objective rapidly, but their validation rollout error remains high or deteriorates, indicating poor open-loop generalization. A generic latent transition has the form 
+
+¤𝑄 = 𝐹 𝜃 (𝑄 ),
+
+so cross-variable dependence can be absorbed into an unrestricted learned vector field. MF-Net restricts this transition by forcing cross-variable effects through the relation-to-motion path 
+
+𝐷 → 𝐽 (𝑡 ) → ℎ(𝑡 ) → 𝐺 (𝑡 ) → 𝜂 (𝑡 ) → ¤ 𝑄 (𝑡 ).
+
+At the observed-coordinate level, the direct cross-variable sensitivity is gated by the stable relation law, 
+
+𝜕 ¤𝑧 𝑖 (𝑡 )
+
+𝜕𝑧 𝑗 (𝑡 ) = 𝐷 𝑗,𝑖 𝑠 ′ 
+
+> 𝑗
+
+(𝑧 𝑗 (𝑡 )) , 𝑗 ≠ 𝑖, 
+
+with additional field-mediated effects also passing through the same realized flow path. Moreover, the same 𝐷 is reused across rollout steps, so relation choices that fit one-step fragments but destabilize multi-step prediction are penalized by the multi-horizon objective. In this sense, MF-Net is less free than an unrestricted recurrent or latent-ODE transition, but this restriction acts as an architectural regularizer: it sacrifices some training-set flexibility while improving validation and open-loop rollout stability in coupled chaotic dynamics. 
+
+Interpreting the Learned Relation Structure 
+
+The limiting cases above also clarify the interpretation of the learned matrix 𝐷 . In controlled systems, where the data-generating structure is known, 𝐷 can be evaluated against a true interaction matrix or a known coupling support. In observational real data, the appropriate interpretation is weaker and more operational: 𝐷 is an effective directed predictive structure used by the MF-Net transition. This distinction is central to how we read the learned relation matrix across different datasets. 
+
+Relation-to-motion role of 𝐷 . The matrix 𝐷 is not a post-hoc score attached to a completed predictor. For a directed edge 𝑎 → 𝑏 , MF-Net forms the realized flow 
+
+𝐽 𝑎 →𝑏 (𝑡 ) = 𝐷 𝑎,𝑏 𝑠 𝑎 (𝑡 ).
+
+Since Í 𝑗 ≠𝑏 𝐽 𝑗 →𝑏 (𝑡 ) enters the observed-coordinate vector field, we have the direct path 
+
+𝜕 ¤𝑧 𝑏 (𝑡 )
+
+𝜕𝐷 𝑎,𝑏 
+
+= 𝑠 𝑎 (𝑡 ).
+
+The same entry also acts through the field-response path. Because 
+
+ℎ𝑏 (𝑡 ) =∑︁ 
+
+> 𝑗 ≠𝑏
+
+𝐷 𝑗,𝑏 𝑠 𝑗 (𝑡 )𝑚 𝑗 (𝑡 ),
+
+a perturbation of 𝐷 𝑎,𝑏 gives 
+
+𝜕ℎ 𝑏 (𝑡 )
+
+𝜕𝐷 𝑎,𝑏 
+
+= 𝑠 𝑎 (𝑡 )𝑚 𝑎 (𝑡 ).
+
+With 𝐺 𝑏 (𝑡 ) = 𝑅 𝜃 (𝑞 𝑏 (𝑡 )) ℎ𝑏 (𝑡 ) and 
+
+¤𝜂 𝑏 (𝑡 ) = 𝜆 𝑏 (𝐺 𝑏 (𝑡 ) − 𝜂 𝑏 (𝑡 )) ,
+
+this implies 
+
+𝜕 ¤𝜂 𝑏 (𝑡 )
+
+𝜕𝐷 𝑎,𝑏 
+
+= 𝜆 𝑏 𝑅 𝜃 (𝑞 𝑏 (𝑡 )) 𝑠 𝑎 (𝑡 )𝑚 𝑎 (𝑡 ).
+
+Thus, 𝐷 enters both the direct observed-flow term and the field-mediated motion term: 
+
+𝐷 → 𝐽 (𝑡 ) → ¤ 𝑧 (𝑡 ), 𝐷 → 𝐽 (𝑡 ) → ℎ(𝑡 ) → 𝐺 (𝑡 ) → 𝜂 (𝑡 ) → ¤ 𝑄 (𝑡 ).
+
+The structural readout is therefore part of the same computation that produces the forecast. 
+
+Relation law versus local effective coupling. The learned matrix 𝐷 should be distinguished from a local Jacobian. At the vector-field level, 
+
+¤𝑧 𝑖 (𝑡 ) = 𝑟 𝑖 + 𝛼 𝑖 𝑧 𝑖 (𝑡 ) + ∑︁ 
+
+> 𝑗 ≠𝑖
+
+𝐷 𝑗,𝑖 𝑠 𝑗 (𝑧 𝑗 (𝑡 )) + 𝜂 𝑧 𝑖 (𝑡 ).
+
+Holding the other field-state coordinates fixed, the direct local derivative is 
+
+𝜕 ¤𝑧 𝑖 (𝑡 )
+
+𝜕𝑧 𝑗 (𝑡 ) = 𝐷 𝑗,𝑖 𝑠 ′ 
+
+> 𝑗
+
+(𝑧 𝑗 (𝑡 )) , 𝑗 ≠ 𝑖. 
+
+Thus, 𝐷 is not itself the instantaneous Jacobian; it is a stable relation law that contributes to the local effective coupling through the realized source strength. More generally, the finite-horizon effective coupling induced by MF-Net can be written as 
+
+𝐴 (ℎ) 
+
+> 𝑗 →𝑖
+
+(𝑡 ) = 𝜕 ˆ𝑧 𝑖 (𝑡 + ℎ)
+
+𝜕𝑧 𝑗 (𝑡 ) .
+
+This quantity is state- and horizon-dependent. It includes direct realized flow, field-mediated response, tendency memory, hidden-state motion, and indirect effects accumulated through rollout. In simple identifiable systems, 
+
+𝐷 and the effective coupling can align closely; in partially observed or strongly driven systems, the same matrix should be read more cautiously as functional predictive coupling. 
+
+Finite-time mixing of direct and indirect effects. Even if the true system is linear in continuous time, 
+
+¤𝑥 = 𝐴𝑥, 
+
+finite-interval observations satisfy 
+
+𝑥 (𝑡 + Δ𝑡 ) = exp ( 𝐴 Δ𝑡 )𝑥 (𝑡 ),
+
+where 
+
+exp ( 𝐴 Δ𝑡 ) = 𝐼 + Δ𝑡 𝐴 + Δ𝑡 2
+
+2 𝐴 2 + Δ𝑡 3
+
+6 𝐴 3 + · · · .
+
+The first-order term contains the direct matrix 𝐴 , but higher-order terms contain paths through intermediate variables. For example, 
+
+( 𝐴 2)𝑖 𝑗 =∑︁ 
+
+> 𝑘
+
+𝐴 𝑖𝑘 𝐴 𝑘 𝑗 
+
+contains the path 𝑗 → 𝑘 → 𝑖 . Therefore, a finite-time predictive relation can mix direct and indirect effects even when the underlying continuous-time interaction matrix is fixed. 
+
+Scale and gauge. The raw scale of 𝐷 is not fully identifiable by itself. Since the realized flow depends on the product 
+
+𝐽 𝑗 →𝑖 (𝑡 ) = 𝐷 𝑗,𝑖 𝑠 𝑗 (𝑡 ),
+
+the transformation 
+
+𝐷 𝑗,𝑖 ↦ → 𝑐 𝑗 𝐷 𝑗,𝑖 , 𝑠 𝑗 (𝑡 ) ↦ → 1
+
+𝑐 𝑗 
+
+𝑠 𝑗 (𝑡 )
+
+leaves 𝐽 𝑗 →𝑖 (𝑡 ) unchanged. Thus, the absolute magnitude of a single entry of 𝐷 should not be over-interpreted. Support, sign under a fixed convention, ranking, calibrated agreement, perturbation effects, and alignment with external temporal evidence are more meaningful structural readouts. A similar basis ambiguity can occur inside the message-response pathway, so internal message coordinates are not themselves treated as the structural object. 
+
+Context and tendency states. The auxiliary states have specific dynamical roles. The context state satisfies 
+
+¤𝜒 𝑖 (𝑡 ) = −𝜆 𝜒 𝜒 𝑖 (𝑡 ),
+
+so 
+
+𝜒 𝑖 (𝑡 + 𝜏 ) = 𝑒 −𝜆 𝜒 𝜏 𝜒 𝑖 (𝑡 ).
+
+It is therefore a decaying history condition: it initializes the rollout but does not directly decode future observations. The tendency state satisfies 
+
+¤𝜂 𝑖 (𝑡 ) = 𝜆 𝑖 (𝐺 𝑖 (𝑡 ) − 𝜂 𝑖 (𝑡 )) ,
+
+whose integral form is 
+
+𝜂 𝑖 (𝑡 + 𝜏 ) = 𝑒 −𝜆 𝑖 𝜏 𝜂 𝑖 (𝑡 ) + 
+
+∫ 𝜏 
+
+> 0
+
+𝜆 𝑖 𝑒 −𝜆 𝑖 ( 𝜏 −𝑠 ) 𝐺 𝑖 (𝑡 + 𝑠 ) 𝑑𝑠. 
+
+Thus, 𝜂 𝑖 is an exponential memory of past field responses. Field responses are not used as instantaneous predictions; they are accumulated into motion tendencies that help move the field state forward. Evidence-dependent interpretation. Partial observation creates additional ambiguity. If observed variables are coupled to hidden variables, a model trained only on the observed trajectories may absorb hidden-mediated effects into the effective relations among observed variables. For this reason, we interpret 𝐷 at different levels in different settings: as a recovered interaction or coupling support in controlled benchmarks, as a functional predictive coupling signal in real neural recordings, and as a weak or non-interpretable relation when the observed variables are dominated by missing external drivers. The appropriate interpretation is therefore determined by the available evidence, not by the existence of a learned matrix alone. 
+
+Model scope and future directions 
+
+Overall, MF-Net should be viewed as a mechanics-inspired recurrent framework for organizing multivariate prediction through structured motion. Its purpose is not to replace every specialized forecaster, since simple linear models can remain very strong on smooth signals (Zeng et al., 2023) and tuned feature-based methods can be highly effective on clean low-dimensional systems. Its value lies in combining useful rollout accuracy with a directed component that remains inside the transition and can still be inspected after training. The present implementation is only one realization of this idea. A first direction is to make the model fully continuous, replacing the fixed-step rollout with a continuous field evolution in which directed effects are transmitted through the field along the trajectory. A second direction is to distill the current equations into cleaner learned maps, for example from relation to realized flow, from flow to field response, and from response to motion, while preserving the same structure-to-motion principle. Future work should also test the learned directed component under perturbation or intervention data and quantify uncertainty in the readout. These extensions all keep the central view of MF-Net unchanged: multivariate forecasting can be organized as a process in which stable directed structure shapes field motion, and field motion produces prediction. 
+
+Limitations 
+
+MF-Net has several limitations. 
+
+Relation interpretation. First, the learned relation matrix should not be interpreted as a universal interaction graph. Although 𝐷 is part of the rollout, finite-time prediction can mix direct, indirect, and hidden-mediated effects. In addition, the realized flow depends on products such as 𝐷 𝑗,𝑖 𝑠 𝑗 (𝑡 ), and the message-response pathway also has basis ambiguities. Thus, raw magnitudes of the learned relation matrix are not fully identifiable; support, ranking, sign under a fixed convention, perturbation effects, and agreement with external evidence are more reliable than individual entry values. 
+
+Architectural form. Second, the present architecture is an explicit realization of the relation-to-motion idea rather than a final minimal form. We intentionally expose intermediate quantities such as realized flow, field response, and motion tendency so that the transition remains inspectable. This makes the model less compact than a single unrestricted neural transition, and some components may be distilled into cleaner learned maps in future versions without changing the central principle. 
+
+Complex spatiotemporal systems. Third, MF-Net is not designed to solve all forms of highly complex spatiotemporal dynamics. Systems governed by dense spatial fields, strong hyperchaos, or PDE-like operators may require representations closer to neural operators or spatially continuous models. This is a shared difficulty for many recurrent forecasting models, not a limitation unique to MF-Net. 
+
+Scope of useful structure. MF-Net is most useful when cross-variable structure is informative for prediction. For nearly independent channels, strongly periodic signals, or low-rank shared temporal dynamics, a relation-structured model is not necessarily the best choice. A simple amplitude-scaled sinusoidal panel illustrates this limitation: all channels share the same latent periodic signal, so the task is essentially to learn a common oscillator rather than a directed relation law. In such cases, latent-dynamics, spectral, or classical periodic models may perform as well as or better than MF-Net, and the learned relation matrix should be interpreted weakly or not interpreted at all. Implementation and Reproducibility Notes 
+
+The implementation code is released on GitHub. For the fixed-horizon rollout experiments in this paper, we recommend fixed-step Euler or Heun integration. The latest reported MF-Net runs use Heun integration, which was more stable than Euler at comparable step sizes while remaining easier to reproduce than adaptive solvers. For a state 𝑦 𝑡 and vector field 𝑓 , the Heun update is 
+
+𝑘 1 = 𝑓 (𝑦 𝑡 ), ˜𝑦 = 𝑦 𝑡 + Δ𝑡 𝑘 1, 𝑘 2 = 𝑓 ( ˜𝑦 ),𝑦 𝑡 +1 = 𝑦 𝑡 + Δ𝑡 
+
+2 (𝑘 1 + 𝑘 2).
+
+Adaptive solvers such as RK45 are not required for these sampled, fixed-horizon experiments and may introduce implementation-dependent internal step sizes. Training uses a weighted multi-horizon rollout loss over causal prediction origins, 
+
+Lpred =∑︁  
+
+> ℎ∈𝐻
+
+𝑤 ℎ ℓ( ˆ𝑧 𝑡 +ℎ, 𝑧 𝑡 +ℎ),
+
+with small regularization terms on 𝐷 , the tendency state, and the recognition context. Optimization used AdamW, gradient clipping, and validation-based checkpoint selection. Synthetic benchmarks should be trained until both rollout error and the learned relation matrix are stable; early stopping based only on short-horizon prediction loss can stop before the structural readout has converged. Reported multi-seed results use independent random initializations and are summarized as mean and standard deviation unless otherwise stated. SinCos benchmark was generated as a deterministic multi-channel periodic panel from four shared basis functions: sin (2𝜋𝑡 /𝑃 ), cos (2𝜋𝑡 /𝑃 ), sin (4𝜋𝑡 /𝑃 ), and cos (4𝜋𝑡 /𝑃 ). Each node was a linear mixture 𝑦 𝑖 (𝑡 ) = 𝐵 (𝑡 )𝑐 𝑖 .We used 𝑇 = 900 , 𝑁 = 8, period 𝑃 = 64 , and no observation noise. The first two channels were fixed as sin + cos 
+
+and sin − cos ; the remaining channels used fixed or seeded Gaussian mixture coefficients. Each generated channel was variance-normalized, then the final model inputs were standardized using only the chronological training split. We present hyperparameters in Appendix B. The author used ChatGPT for coding assistance, grammar checking, and LaTeX-related editing. 
+
+# Acknowledgements 
+
+I am grateful to Mr. Jun Zhao of Suzhou High School SIP for supporting this project. He trusted my ability when the work was still uncertain and unfinished, and his recognition and encouragement gave me the confidence to continue. He saw my potential before it was visible. I thank my parents for their understanding and support, which gave me the time and space to pursue a project more demanding than ordinary coursework. I am also grateful to Chenkai Liu, Tianyou Zhang, Zhenghong Zou, Yifan Situ, Yizheng Yan, and Yanhong Pan for their encouragement. Completing this work through a period of mental struggle, self-doubt, and being underestimated by people around me has made it especially meaningful to me. 
+
+# References 
+
+> Atanas, A.A., Kim, J., Wang, Z., Bueno, E., Becker, M., Kang, D., Park, J., Kramer, T.S., Wan, F.K., Baskoylu, S., Dag, U., Kalogeropoulou, E., Gomes, M.A., Estrem, C., Cohen, N., Mansinghka, V.K., Flavell, S.W., 2023. Brain-wide representations of behavior spanning multiple timescales and states in C. elegans. Cell 186, 4134–4151.e31. doi: 10.1016/j.cell.2023.07.035 .Blasius, B., Rudolf, L., Weithoff, G., Gaedke, U., Fussmann, G.F., 2020. Long-term cyclic persistence in an experimental predator–prey system. Nature 577, 226–230. doi: 10.1038/s41586-019-1857-0 .Brunton, S.L., Proctor, J.L., Kutz, J.N., 2016. Discovering governing equations from data by sparse identification of nonlinear dynamical systems. Proceedings of the National Academy of Sciences 113, 3932–3937. doi: 10.1073/pnas. 1517384113 .Chen, R.T.Q., Rubanova, Y., Bettencourt, J., Duvenaud, D.K., 2018. Neural ordinary differential equations, in: Advances in
+
+Neural Information Processing Systems, pp. 6571–6583. Cranmer, M., Greydanus, S., Hoyer, S., Battaglia, P., Spergel, D., Ho, S., 2020. Lagrangian neural networks. arXiv preprint arXiv:2003.04630 doi: 10.48550/arXiv.2003.04630 , arXiv:2003.04630 .Dupont, E., Doucet, A., Teh, Y.W., 2019. Augmented neural ODEs. arXiv preprint arXiv:1904.01681 doi: 10.48550/ arXiv.1904.01681 , arXiv:1904.01681 . published in NeurIPS 2019. FitzHugh, R., 1961. Impulses and physiological states in theoretical models of nerve membrane. Biophysical Journal 1, 445–466. doi: 10.1016/S0006-3495(61)86902-6 .Gauthier, D.J., Bollt, E., Griffith, A., Barbosa, W.A.S., 2021. Next generation reservoir computing. Nature Communications 12, 5564. doi: 10.1038/s41467-021-25801-2 .Granger, C.W.J., 1969. Investigating causal relations by econometric models and cross-spectral methods. Econometrica 37, 424–438. doi: 10.2307/1912791 .Greydanus, S., Dzamba, M., Yosinski, J., 2019. Hamiltonian neural networks. arXiv preprint arXiv:1906.01563 doi: 10.48550/arXiv.1906.01563 , arXiv:1906.01563 . published in NeurIPS 2019. He, K., Zhang, X., Ren, S., Sun, J., 2016. Deep residual learning for image recognition, in: Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pp. 770–778. doi: 10.1109/CVPR.2016.90 .Herdeanu, B., Nathaniel, J., Roesch, C., Buch, J., Ramien, G., Haux, J., Gentine, P., 2025. Causaldynamics: A large-scale benchmark for structural discovery of dynamical causal models. arXiv preprint arXiv:2505.16620 doi: 10.48550/arXiv. 2505.16620 , arXiv:2505.16620 .Hochreiter, S., Schmidhuber, J., 1997. Long short-term memory. Neural Computation 9, 1735–1780. doi: 10.1162/neco. 1997.9.8.1735 .Jin, M., Koh, H.Y., Wen, Q., Zambon, D., Alippi, C., Webb, G.I., King, I., Pan, S., 2024. A survey on graph neural networks for time series: Forecasting, classification, imputation, and anomaly detection. IEEE Transactions on Pattern Analysis and Machine Intelligence 46, 10466–10485. doi: 10.1109/TPAMI.2024.3443141 .Kang, B., Saha, P., Sharma, S., Chakraborty, B., Mukhopadhyay, S., 2024. Online relational inference for evolving multi-agent interacting systems. arXiv preprint arXiv:2411.01442 doi: 10.48550/arXiv.2411.01442 , arXiv:2411.01442 .Kidger, P., Morrill, J., Foster, J., Lyons, T., 2020. Neural controlled differential equations for irregular time series, in: Advances in Neural Information Processing Systems, pp. 6696–6707. Kipf, T.N., Fetaya, E., Wang, K.C., Welling, M., Zemel, R.S., 2018. Neural relational inference for interacting systems, in: Proceedings of the 35th International Conference on Machine Learning, PMLR. pp. 2688–2697. Liu, Y., Hu, T., Zhang, H., Wu, H., Wang, S., Ma, L., Long, M., 2024. iTransformer: Inverted transformers are effective for time series forecasting. arXiv preprint arXiv:2310.06625 doi: 10.48550/arXiv.2310.06625 , arXiv:2310.06625 .published at ICLR 2024. Liu, Z., Wang, X., Wang, B., Huang, Z., Yang, C., Jin, W., 2025. Graph ODEs and beyond: A comprehensive survey on integrating differential equations with graph neural networks. arXiv preprint arXiv:2503.23167 doi: 10.48550/arXiv. 2503.23167 , arXiv:2503.23167 .Lorenz, E.N., 1996. Predictability: A problem partly solved, in: Proceedings of the Seminar on Predictability, European Centre for Medium-Range Weather Forecasts, Reading, UK. pp. 1–18. Lotka, A.J., 1925. Elements of Physical Biology. Williams & Wilkins, Baltimore. Luo, D., Wang, X., 2024. ModernTCN: A modern pure convolution structure for general time series analysis, in: International Conference on Learning Representations. URL: https://openreview.net/forum?id=vpJMJerXHU. Lütkepohl, H., 2005. New Introduction to Multiple Time Series Analysis. Springer, Berlin, Heidelberg. doi: 10.1007/ 978-3-540-27752-1 .Nagumo, J., Arimoto, S., Yoshizawa, S., 1962. An active pulse transmission line simulating nerve axon. Proceedings of the IRE 50, 2061–2070. doi: 10.1109/JRPROC.1962.288235 .Nie, Y., Nguyen, N.H., Sinthong, P., Kalagnanam, J., 2023. A time series is worth 64 words: Long-term forecasting with transformers. arXiv preprint arXiv:2211.14730 doi: 10.48550/arXiv.2211.14730 , arXiv:2211.14730 . published as an ICLR 2023 conference paper. Norcliffe, A., Bodnar, C., Day, B., Simidjievski, N., Liò, P., 2020. On second order behaviour in augmented neural ODEs. arXiv preprint arXiv:2006.07220 doi: 10.48550/arXiv.2006.07220 , arXiv:2006.07220 . published in NeurIPS 2020. Oh, Y., Kam, S., Lee, J., Lim, D.Y., Kim, S., Bui, A.A.T., 2025. Comprehensive review of neural differential equations for time series analysis, in: Proceedings of the Thirty-Fourth International Joint Conference on Artificial Intelligence, pp. 10621–10631. doi: 10.24963/ijcai.2025/1179 .Oreshkin, B.N., Carpov, D., Chapados, N., Bengio, Y., 2020. N-BEATS: Neural basis expansion analysis for interpretable time series forecasting. arXiv preprint arXiv:1905.10437 doi: 10.48550/arXiv.1905.10437 , arXiv:1905.10437 .published at ICLR 2020. Pan, L., Shi, C., Dokmanić, I., 2024. A graph dynamics prior for relational inference, in: Proceedings of the AAAI Conference on Artificial Intelligence, pp. 14508–14516. doi: 10.1609/aaai.v38i13.29366 .Poli, M., Massaroli, S., Park, J., Yamashita, A., Asama, H., Park, J., 2019. Graph neural ordinary differential equations. arXiv preprint arXiv:1911.07532 doi: 10.48550/arXiv.1911.07532 , arXiv:1911.07532 .Rangapuram, S.S., Seeger, M.W., Gasthaus, J., Stella, L., Wang, Y., Januschowski, T., 2018. Deep state space models for time series forecasting, in: Advances in Neural Information Processing Systems. Rubanova, Y., Chen, R.T.Q., Duvenaud, D.K., 2019. Latent ordinary differential equations for irregularly-sampled time series. arXiv preprint arXiv:1907.03907 doi: 10.48550/arXiv.1907.03907 , arXiv:1907.03907 .Rudin, C., 2019. Stop explaining black box machine learning models for high stakes decisions and use interpretable models instead. Nature Machine Intelligence 1, 206–215. doi: 10.1038/s42256-019-0048-x .Sakaguchi, H., Kuramoto, Y., 1986. A soluble active rotator model showing phase transitions via mutual entrainment. Progress of Theoretical Physics 76, 576–581. doi: 10.1143/PTP.76.576 .Sugihara, G., May, R., Ye, H., Hsieh, C.h., Deyle, E., Fogarty, M., Munch, S., 2012. Detecting causality in complex ecosystems. Science 338, 496–500. doi: 10.1126/science.1227079 .Tank, A., Covert, I., Foti, N., Shojaie, A., Fox, E.B., 2022. Neural Granger causality. IEEE Transactions on Pattern Analysis and Machine Intelligence 44, 4267–4279. doi: 10.1109/TPAMI.2021.3065601 .Volterra, V., 1926. Fluctuations in the abundance of a species considered mathematically. Nature 118, 558–560. doi: 10.1038/118558a0 .Wang, B., Jennings, J., Gong, W., 2024. Neural structure learning with stochastic differential equations. arXiv preprint arXiv:2311.03309 doi: 10.48550/arXiv.2311.03309 , arXiv:2311.03309 . published at ICLR 2024. WormWideWeb, 2023. Wormwideweb neural activity datasets. URL: https://wormwideweb.org/activity/dataset/. neural activity datasets associated with Atanas and Kim et al. (2023). Wu, Z., Pan, S., Long, G., Jiang, J., Chang, X., Zhang, C., 2020. Connecting the dots: Multivariate time series forecasting with graph neural networks, in: Proceedings of the 26th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining, pp. 753–763. doi: 10.1145/3394486.3403118 .Wu, Z., Pan, S., Long, G., Jiang, J., Zhang, C., 2019. Graph WaveNet for deep spatial-temporal graph modeling, in: Proceedings of the Twenty-Eighth International Joint Conference on Artificial Intelligence, pp. 1907–1913. doi: 10.24963/ijcai.2019/264 .Zeng, A., Chen, M., Zhang, L., Xu, Q., 2023. Are transformers effective for time series forecasting?, in: Proceedings of the AAAI Conference on Artificial Intelligence, pp. 11121–11128. doi: 10.1609/aaai.v37i9.26317 .Zheng, Y., Yi, L., Wei, Z., 2024. A survey of dynamic graph neural networks. arXiv preprint arXiv:2404.18211 doi: 10.48550/arXiv.2404.18211 , arXiv:2404.18211 .Zhong, Y.D., Dey, B., Chakraborty, A., 2020. Symplectic ODE-net: Learning hamiltonian dynamics with control, in: International Conference on Learning Representations. URL: https://openreview.net/forum?id=ryxmb1rKDS. Zhou, J., Lu, X., Xiao, Y., Tang, J., Su, J., Li, Y., Liu, J., Lyu, J., Ma, Y., Dou, D., 2024. SDWPF: A dataset for spatial dynamic wind power forecasting over a large turbine array. Scientific Data 11, 649. doi: 10.1038/s41597-024-03427-5 .
+
+# Appendix A: Lorenz–96 Hyperparameter Sensitivity 
+
+We ran a one-factor-at-a-time hyperparameter sensitivity screen on the 40-dimensional Lorenz–96 benchmark to check whether MF-Net depends on a narrow configuration. This screen is intended as a robustness diagnostic rather than as the main benchmark result. All runs used seed 0, MF-Net-Heun, 220 epochs, and 4 steps per epoch. The baseline configuration was history length 𝐿 = 32 , 𝑢 dim = 𝜒 dim = 6, field modes = 8, hidden width = 80 , and learning rate 7 × 10 −4. For each factor, only one setting was changed at a time. Overall, the sensitivity screen suggests that the Lorenz–96 structural recovery is not tied to a single fragile hyperparameter setting. Moderate internal dimensions, field modes, and hidden widths preserve strong structural readout. Very long histories degrade Precision@ 𝐾 , suggesting that increasing the history window does not simply improve structure recovery through a longer history-to-future shortcut. The low learning-rate setting underperforms under the fixed training budget, consistent with under-optimization. Table 7. One-factor hyperparameter sensitivity screen on the 40-dimensional Lorenz–96 benchmark. All runs use seed 0, MF-Net-Heun, 220 epochs, and 4 steps per epoch. The baseline configuration is 𝐿 = 32 , 𝑢 dim = 𝜒 dim = 6, field modes = 8,hidden width = 80 , and learning rate 7 × 10 −4.
+
+Factor Level ℎ = 4 RMSE ℎ = 8 RMSE ℎ = 24 RMSE ℎ = 8 𝑅 2 Local/nonlocal ratio Precision@ 𝐾 
+
+Baseline default 0.232 0.515 0.947 0.742 15.66 1.000 Latent dim 2 0.269 0.598 0.965 0.652 11.62 0.975 Latent dim 3 0.251 0.574 0.955 0.679 12.04 0.958 Latent dim 9 0.227 0.507 0.941 0.749 16.26 1.000 Latent dim 12 0.232 0.496 0.933 0.761 17.46 1.000 History 𝐿 8 0.239 0.482 0.920 0.773 17.57 1.000 History 𝐿 16 0.243 0.521 0.942 0.735 15.23 1.000 History 𝐿 48 0.247 0.571 0.927 0.682 10.28 0.750 History 𝐿 64 0.238 0.582 0.956 0.670 9.14 0.725 Field modes 4 0.250 0.562 0.931 0.693 14.69 0.992 Field modes 16 0.227 0.519 0.926 0.738 14.88 0.992 Hidden width 48 0.255 0.558 0.951 0.697 13.76 0.967 Hidden width 128 0.230 0.531 0.966 0.725 15.83 1.000 Learning rate 3 × 10 −4 0.376 0.725 0.993 0.488 5.46 0.817 Learning rate 10 −3 0.211 0.477 0.901 0.778 17.30 1.000 
+
+# Appendix B: Main Hyperparameter Settings 
+
+Table 8 summarizes the main MF-Net configurations used in the reported experiments. The table is intended as a compact reproducibility reference rather than a full internal experiment log. 
+
+Table 8. Main MF-Net hyperparameter settings. All experiments use chronological splits, train-only normalization, AdamW optimization, gradient clipping, and validation-based checkpoint selection unless otherwise stated.     
+
+> Experiment Data Seeds Split
+
+𝐿 Epochs Steps/epoch Batch/eval LR Dimensions Regularization / purpose LV structural recovery synthetic six-species LV 0–4 0.70/0.15/0.15 4 100 4 64/256 10 −3 𝑢 = 4, 𝜒 = 4, modes=4, hidden=64 𝐷 = 10 −6, 𝜒 = 10 −4, 𝜂 = 10 −4, 𝑆 = 10 −4, 𝑅 = 10 −5 
+
+> Lorenz–96
+
+𝑁 = 40 L96, 𝑁 = 40 , 𝐹 = 8 0–4 0.70/0.15/0.15 32 400 4 128/512 7 × 10 −4 𝑢 = 6, 𝜒 = 6, modes=8, hidden=80 𝐷 = 10 −5, 𝜒 = 10 −4, 𝜂 = 10 −4, 𝑆 = 10 −4, 𝑅 = 10 −5        
+
+> C. elegans WormWideWeb calcium, 45 neurons, 6 recordings 00.60/0.20/0.20 per recording 32 140 8128/512
+
+5 × 10 −4 𝑢 = 6, 𝜒 = 6, modes=8, hidden=80 𝐷 = 10 −5, 𝜒 = 10 −4, 𝜂 = 10 −4, 𝑆 = 10 −4, 𝑅 = 10 −5        
+
+> Rotifer direction check Fussmann chemostat algae/rotifer 0–2 0.70/0.15/0.15 41000 464/128
+
+3 × 10 −4 𝑢 = 4, 𝜒 = 4, modes=8, hidden=64 prior=0.1, 𝐷 = 10 −6, 𝜒 = 10 −4, 𝜂 = 10 −4, 𝑆 = 10 −4, 𝑅 = 10 −5        
+
+> SinCos fixed sine/cosine mixtures, period=64 0–2 0.60/0.20/0.20 16 160 396/512
+
+7 × 10 −4 𝑢 = 4, 𝜒 = 4, modes=6, hidden=48 𝐷 = 10 −5, 𝜂 = 10 −5, 𝜒 = 10 −5        
+
+> FitzHugh–Nagumo directed-ring FHN voltages 0–2 0.60/0.20/0.20 16 160 396/512
+
+7 × 10 −4 𝑢 = 4, 𝜒 = 4, modes=6, hidden=48 𝐷 = 10 −5, 𝜂 = 10 −5, 𝜒 = 10 −5        
+
+> Sakaguchi–Kuramoto 12 channels from 6 oscillators 0–2 0.60/0.20/0.20 16 160 396/512
+
+7 × 10 −4 𝑢 = 4, 𝜒 = 4, modes=6, hidden=48 𝐷 = 10 −5, 𝜂 = 10 −5, 𝜒 = 10 −5        
+
+> NRI-Springs 9 masses, 2D positions 0–2 chronological 24 120 4128/512
+
+8 × 10 −4 𝑢 = 6, 𝜒 = 6, modes=8, hidden=96 prior=0.05, 𝐷 = 10 −5, 𝜂 = 10 −5, field= 10 −6        
+
+> SDWPF wind 8 turbines, Patv only 00.70/0.15/0.15 72 80 2128/512
+
+5 × 10 −4 𝑢 = 6, 𝜒 = 6, modes=8, hidden=80 weak-𝐷 history-only wind control

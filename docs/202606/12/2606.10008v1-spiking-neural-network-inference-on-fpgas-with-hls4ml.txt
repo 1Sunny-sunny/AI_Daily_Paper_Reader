@@ -1,0 +1,415 @@
+Title: Spiking Neural Network inference on FPGAs with hls4ml
+
+URL Source: https://arxiv.org/pdf/2606.10008v1
+
+Published Time: Wed, 10 Jun 2026 00:06:14 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# Spiking Neural Network inference on FPGAs with hls4ml 
+
+# Barry M. Dillon 
+
+ISRC, Ulster University, Derry, BT48 7JL, Northern Ireland 
+
+b.dillon@ulster.ac.uk 
+
+Abstract 
+
+Spiking Neural Networks (SNNs) provide a naturally temporal machine-learning framework. Their neurons maintain an internal state and propagate information through discrete spikes, enabling low-latency temporal inference. Although SNNs are often asso-ciated with asynchronous neuromorphic processors, many scientific real-time inference systems rely on conventional synchronous field-programmable gate arrays (FPGAs) and high-level synthesis (HLS) workflows. In this paper we present an extension of 
+
+hls4ml that enables clock-driven deployment of SNNs trained in PyTorch onto FPGA firmware. We demonstrate the workflow using a dense quantised SNN trained on the Heidelberg Spiking Digits dataset where it achieves inference latencies of approximately 34 μs. We validate the generated design through software reference comparisons, HLS C simulation, HLS synthesis, export, and Vivado synthesis reports. This work opens up the hls4ml toolkit to neuromorphic computing, allowing streamlined optimisation, synthesis, and deployment of SNN models for real-time inference. 
+
+Keywords : spiking neural networks, FPGA, high-level synthesis, hls4ml, neuromorphic com-puting, quantisation-aware training, real-time machine learning 
+
+# 1 Introduction 
+
+Spiking neural networks (SNNs) [1] are often described as a third generation of neural network models because they replace continuous stateless activations with event-like spikes that have an internal dynamical state that persists and changes in time [2]. With the development of deep-learning using SNNs [3,4] this representation is attractive for processing temporal data in hardware systems that can exploit sparse data for low power and low latency inference. Dedicated neuromorphic processors such as TrueNorth [5], Loihi [6], and SpiNNaker [7] illustrate the potential of large-scale event-based or spike-oriented computing systems. At the same time, many scientific instruments already use synchronous FPGAs for deterministic, low-latency, real-time processing. For such systems, a clock-driven SNN implementation can enable trained spiking models to be deployed in standard firmware workflows while taking advantage of the stateful neuron and temporal readout semantics. 1
+
+> arXiv:2606.10008v1 [cs.NE] 8 Jun 2026
+
+The hls4ml project was developed to translate trained machine-learning models into HLS firmware for low-latency FPGA and ASIC implementations [8–10]. It has been used extensively in scientific real-time inference applications, especially where resource and la-tency constraints require careful consideration in the model design, numerical precision, and hardware implementation. Extensions to hls4ml have demonstrated how new neural-network layer classes can be added to the toolchain and characterized through end-to-end accuracy, latency, resource, and quantisation studies. For example convolutional layer com-patibility [11, 12], distributed arithmetic for efficient constant matrix vector multiplication (CMVM) [13], and binary/ternary compatibility [14]. Low-latency SNN algorithms are paving the way for new scientific applications [15], with works exploring their use in temporal scientific data classification [16], radiation detection [17], vertex reconstruction in neutrino-nucleus interactions [18], as well as many tasks at the Large Hadron Collider (LHC) such as data filtering [19], particle tracking [20], readout for hadron calorimeters [21], and real-time anomaly detection [22]. This paper introduces support for SNNs in hls4ml with Vivado/Vitis backends. Spiking neurons defined in snnTorch [23] are mapped to backend templates in hls4ml and compiled to High-Level Synthesis (HLS). The linear layers use the same PyTorch interface to hls4ml 
+
+that exists already. The spiking neurons are stateful and contain information that persists over time until it is read out at the end of a fixed window in time, when a decision rule is applied to the SNN output. This readout process is handled by a configurable SNNReadout 
+
+layer that encodes this behaviour. The current SNN implementation is clock-driven and syn-chronous, therefore unlike dedicated neuromorphic hardware, the algorithms do not consume lower power with sparse data inputs. This work allows SNNs to be optimised for real-time FPGA deployment through the exact same workflow as regular Artificial Neural Networks (ANNs). It builds upon the already widely used hls4ml framework, utilising its well-tested optimisation procedures and pipelines, and allows for implementations of hybrid spiking / non-spiking algorithms. We test the SNN functionality in hls4ml using the Spiking Heidelberg Digits (SHD) dataset [24], a well-known benchmark for SNNs consisting of spike-encoded audio recordings of spoken digits. We compare two different methods for SNN readout, direct membrane potential output and spike outputs. To compress the networks we apply a custom Quantisa-tion Aware Training (QAT) algorithm on both the linear layers and the spiking neurons. We then compare the HLS conversion for a range of different bit width precisions, and run a full Vitis/Vivado synthesis to obtain predictions for latency and resource usage on a xczu7ev-ffvc1156-2-e part. Lastly we look at the NeuroBench [25] metrics to compare the spiking activity in the networks both for different readout methods and for different bit widths. The paper is organised as follows. Section 2 covers background on SNNs, FPGA deployment, and related work. Section 3 details the support for SNNs that we have implemented in hls4ml .The SHD dataset and the preprocessing we use is described in Section 4. In Section 5 we present our analysis of the SHD dataset using SNNs with a full hls4ml synthesis. Finally we conclude in Section 6. 22 Background 
+
+# 2.1 Spiking neural networks & surrogate-gradients 
+
+SNNs compute with time-dependent neuron states and binary spike events. In a conventional artificial neuron neuron [26] information is processed as 
+
+y = f (wx + b), (1) where x is the input to the neuron, y is the neuron output, f is the nonlinear activation function, and ( w, b ) are the learnable weight and bias terms. So the artificial neuron is state-less, there are no internal parameters that change with time, and the nonlinear activation function is differentiable which allows for training via backpropagation. A spiking neuron however processes information differently, for example the Leaky Integrate and Fire (LIF) neuron is described by 
+
+yt =
+
+(
+
+0 if ut < u thresh 
+
+1 if ut ≥ uthresh 
+
+(2) 
+
+ut+1 = βu t + wx t+1 − βy tuthresh + b. (3) At a timestep t the neuron receives an input current xt which updates its membrane potential 
+
+ut, i.e. the internal state of the spiking neuron. The membrane potential accumulates current contributions over the timesteps, with 0 ≤ β ≤ 1 defining a leakage of the potential over time. The neuron generates a spike at step t if the membrane potential ut exceeds the neurons threshold potential uthresh , at which point the membrane potential resets. This nonlinear behaviour in the spiking is what gives SNNs their expressivity. However unlike the artificial neurons the process is not differentiable and so directly training SNNs with gradient methods is not possible. Surrogate-gradient methods address this by using a differentiable proxy for the spike derivative during backpropagation while retaining the spiking forward dynamics [4, 27, 28]. The snnTorch package builds on this approach by exposing spiking neurons as PyTorch [29] modules and providing practical tools for training SNNs with modern deep-learning workflows [30]. In this paper, snnTorch is used as the training frontend and the source framework for the example model. 
+
+# 2.2 SNN inference 
+
+SNNs are constructed from conventional linear layers with layers of spiking neurons sepa-rating them, much like conventional Artificial Neural Networks (ANNs) can be viewed as a sequences of linear and activation layers. After data is passed through a layer of LIF neurons (i.e. a forward pass) their internal state changes, so that when the next item of data arrives the computation done by the layer is different. How the internal state of the LIF neurons change is determined by the weights and biases in the linear layers, and by the spiking neuron parameters β and uthresh . Both the weights and biases in the linear layer and the leakage parameter in the spiking neurons can be optimised during training via gradient descent. SNNs are designed to stream time-series data, as soon as an input at timestep t
+
+has been processed by the first layer, an input at timestep t + 1 is ready to be processed 3by the first layer, and so on until the end of the fixed-window. So spikes generated by an input at time t may not have reached the readout layer by the time the SNN has begun to process the next inputs. This is what makes SNNs naturally temporal and naturally suited for processing time-series data. In regular ANNs the temporal dimension of the network must be constructed using recurrent connection or persistent state vectors. For time-series classification problems, as we will consider in this paper, classification is usually done at the end of a fixed window in time. We consider two potential readout mechanisms from the SNN: (i) neuron membrane readout from the final layer, (ii) spike-count readout from the final layer. For neuron membrane readout the threshold uthresh on the final layer must be fixed large enough such that the neurons can accumulate sufficient potential without spiking, while for the spike-count readout the threshold is optimised during training. From the neuron membranes and spike counts we can then construct scores for each time-series sample and use these for classification. An overall accuracy score can be obtained from a simple argmax on the readouts. It is also possible to obtain early classification before the fixed window has completed. This can be done using first-to-threshold methods where the first neuron on the final layer of the SNN to reach a threshold potential or spike count determines the classification output. 
+
+# 2.3 SNN accelerators & this work 
+
+Many works have already demonstrated that implementing SNNs on FPGA hardware can deliver low-latency inference with performances comparable with deep-learning using artif-ical neurons, for example on image classification with benchmark datasets such as MNIST [31–40]. The S2N2 architecture [41] delivers an FPGA implementation of SNNs focused specifically on streaming time-series data, and online learning for SNNs on FPGAs has also been explored in [42]. Recent works have pushed performance further in terms of through-put [43, 44], model size [45], and latency and power [46, 47]. With the popularity of deep-learning development frameworks such as PyTorch there has been recent interest in interfac-ing SNN FPGA accelerators with Python, for example via snnTorch making use of surrogate gradients [48], or using the Spike-Timing-Dependent Plasticity learning mechanism [49]. As well as accelerators for specific architectures more general frameworks for mapping SNNs to FPGAs have been developed recently, with the spiker+ [50] and QUANTISENC [51] tools mapping configurable multi-layer SNNs to FPGAs and ASICs through a Python interface. However each of the tools mentioned here is a standalone framework developed specifically for SNNs. What we are presenting here extends a general HLS-based model compiler in 
+
+hls4ml with SNN semantics, rather than proposing a custom framework. This builds upon the well-developed and well-maintained tools provided through hls4ml , and integrates SNN and ANN architectures into a single framework. 
+
+# 3 SNN support in hls4ml 
+
+The SNN implementation in hls4ml extends the existing PyTorch frontend, intermediate layer representation, and Vivado/Vitis HLS template system, while retaining the usual 
+
+hls4ml workflow of model conversion, C simulation, HLS synthesis, and export [9,52,53]. Un-4like dedicated neuromorphic hardware we are not developing an asynchronous event-driven SNN algorithms, the goal is to implement a clock-driven SNN algorithm that fits the current 
+
+hls4ml workflow incorporating stateful, timestep-by-timestep SNN inference. 
+
+# 3.1 Clock-driven execution 
+
+Clock-driven means that the neuron potential updates, dense layer computations, and read-out updates are scheduled by ordinary HLS pipelines and streams. In the current interface convention, one call to the generated top function processes one timestep of one input se-quence. For an input window of length T , inference for one independent example therefore consists of T sequential top-function invocations. The SNN layers contain a static internal state in the generated C++ implementation that persists across top-function calls until the configured readout window boundary is reached. This execution model differs from native asynchronous neuromorphic hardware. In an event-routed implementation, computation and communication may be triggered by spike events and may avoid work when no events are present. In the present implementation, by contrast, the HLS design advances once per input timestep according to the FPGA clock and interface handshakes. Nevertheless, the model semantics remain spiking and stateful where hidden IF/LIF neuron layers update membrane variables over time, emit binary spikes, and reset state only at the configured sequence boundary. This makes the implementation appropriate for fixed-window SNN inference in FPGA workflows. 
+
+# 3.2 Frontend support 
+
+The frontend support is implemented through the PyTorch conversion path. The converter treats snnTorch modules as leaf modules during tracing, which allows users to write ordinary 
+
+PyTorch models containing snntorch.Leaky modules. Initial support is only for the Leaky 
+
+neuron, which is the dominant spiking neuron used in SNN architectures, but future work will extend beyond this. During conversion, a Leaky module is mapped either to a LIFNeuron 
+
+layer or, when its leak parameter β is equal to one, to an IFNeuron (integrate and fire) layer. For Leaky neurons, the converter reads the current values of the snnTorch parameters at conversion time. The supported reset mechanisms for the neuron potentials after spiking are 
+
+subtract and zero . Both the threshold parameter uthresh and the leak parameter β may be either scalar or a per-neuron vector of length n out . If these parameters are set to learnable in 
+
+snnTorch they automatically take the per-neuron vector form. Scalar values are represented as compile-time configuration constants in the generated design, while per-neuron values are represented as parameter arrays. This distinction is useful because many SNNs use a shared threshold or decay value, but trainable or heterogeneous neuron parameters should still be representable without changing the layer interface. 
+
+# 3.3 Intermediate SNN layer representation 
+
+The converted model graph contains three new SNN-specific layer types: IFNeuron , LIFNeuron ,and SNNReadout . The IFNeuron layer stores the number of input/output channels, the fixed-window size, threshold information, reset mode, and membrane-state precision. Its generated 5HLS function implements the update 
+
+ut+1 = ut + xt+1 , yt+1 = Θ( ut+1 − uthresh ), (4) followed by either subtractive reset, ut+1 ← ut+1 − uthresh , or zero reset, ut+1 ← 0, if a spike occurs. The LIFNeuron layer extends this with a decay parameter, 
+
+ut+1 = βu t + xt+1 , yt+1 = Θ( ut+1 − uthresh ), (5) with the same reset choices. In both cases this is for an individual neuron where each may have its own learned β. The output tensor has the same shape as the input tensor except for the final dimension, which is set by n out . In the common dense-SNN use case this final dimension is unchanged by the neuron layer. The generated C++ templates provide both array-based and hls::stream -based versions of the IF and LIF kernels. In each kernel, membrane state is stored in a static array of length 
+
+n out , this array is completely partitioned by HLS pragmas so that neuron updates can be unrolled across the output dimension when resources allow. A static timestep counter tracks progress through the fixed window. When the counter reaches window size , the counter and membrane array are reset, allowing the next independent sequence to start from zero state. 
+
+# 3.4 Readout modes and decision rules 
+
+The SNNReadout layer is an hls4ml readout layer with a corresponding PyTorch layer mod-ule. In PyTorch this layer is simply an identity operation, so it does not change training-time computation. During conversion, however, the layer is mapped to the SNNReadout layer in the hls4ml graph. This layer defines how timestep-wise class signals are accumulated into a sequence-level decision, so it is key in the orchestration of the SNN inference. SNNReadout 
+
+supports two output modes, spike and membrane . In spike mode, the readout counts the discrete spikes output by the final LIF layer over the whole course of the readout win-dow. The supported spike-count decision rules include spike-count argmax, first-to-threshold, threshold-then-argmax, and binary-logit. The spike-count argmax rule emits the class with the largest accumulated count. The threshold-based rules use a configurable class-count threshold. For binary classifiers, the binary-logit rule emits the signed count difference be-tween class 1 and class 0. In membrane mode, the readout is intended to be placed directly after the final dense layer, rather than after a final spiking neuron. The readout owns a separate membrane state for each class and updates it as 
+
+mt+1 = βro mt + zt+1 , (6) where zt+1 is the dense current supplied to class i at timestep t+1, and βro is a scalar readout decay. No threshold or reset-on-spike is applied within the readout membrane update. The supported membrane decision rules are argmax membrane and binary logit where the latter emits the membrane difference m1 − m0 for binary classification. 
+
+# 3.5 Window boundaries and state reset 
+
+The current generated kernels implement fixed-window reset semantics. During conversion, the SNNReadout layer provides the value of window size , which is propagated to the con-verted IF and LIF layers. Each stateful SNN layer maintains an internal timestep counter. 6At the end of the configured window, after the final timestep has contributed to the neuron update and readout decision, the layer state is cleared for the next independent sequence. For neuron layers this clears the neuron state while for readout layers it clears either the spike-count array or the readout neuron array. This behaviour means that a compiled SNN model is stateful across calls to hls model .predict() . The evaluation code will therefore call the compiled model exactly once per timestep and pass exactly window size timesteps for each independent sequence. Stray single-timestep calls made before a sequence evaluation will advance the internal state and can change the next prediction. This is unlike a purely feed-forward non-spiking model, where each call is normally independent. Native variable-length SNN inference is left as future work. True AXI-stream packet-boundary support would require top-level interface and writer support for propagating packet sideband information such as TLAST into the SNN layer kernels. 
+
+# 3.6 Fixed-point precision and numerical fidelity 
+
+The SNN layers use the ordinary hls4ml precision system. Users may configure output result precision and the SNN-specific threshold, LIF decay ( β), and neuron potential precisions using HLS precision types. In the generated templates, hidden-neuron potential state and membrane-mode readout accumulation are stored using the configured membrane types. We implement our own fake-quantised PyTorch model for QAT whose rounding and saturation behaviour matches the hls4ml configuration. The SHD example uses explicit Vitis HLS fixed-point rounding and saturation modes, for example ap fixed<8,4,AP RND CONV, AP SAT> . The software-to-HLS agreement reported in section 5.3 compares the compiled 
+
+hls4ml model to the fake-quantised, stateful PyTorch reference under the same timestep and readout semantics. 
+
+# 3.7 Current limitations 
+
+The SNN support in hls4ml is currently for only LIF neurons. While this is the most prevalent and fundamental building block of SNNs and is enough to construct SNNs for many applications, it will be interesting in future work to add support for other types of spiking neurons. For example a key addition would be the recurrent LIF neuron, RLeaky in 
+
+snnTorch , which allows feedback from spike outputs of neurons in the same layer to affect the state. Other limitations include the fixed-window nature of the readout, and the wholly clock-driven nature of the inference. Fixed-window readout could be relaxed if we allow decisions to be propagated from the readout layer once the spike-count or output neuron-potentials reach a certain threshold. In future we can also include gated execution for the forward pass through the network, such that only computations in which a spike is emitted are performed on the hardware. The gating will not reduce inference latency, but for sparse inputs and sparse firing in the intermediate layers, it could reduce power consumption. In the SHD example we use the NeuroBench tool to track the spiking sparsity in the intermediate layers, however the hls4ml pipeline with Vitis synthesis will not give us estimates of power savings due to sparsity in the spiking. 74 SHD dataset 
+
+The SHD dataset [24] consists of recordings of digits 0 −9 spoken in both English and German, therefore we have 20 classes. The authors of the dataset used an audio-to-spike conversion procedure, inspired by the neurophysiology of the cochlea, to convert each audio sample into a spike train. The neurophysiological model consists of 700 channels to approximate the spiking activity in the inner ear. Each event contains a label for the class, and a list of spikes and the time at which it arrives in each channel. We start by binning the spikes for each event in time using a bin size of 10 ms and a window size of T = 140 which corresponds to a 1 .4 s window. Spikes outside the 1 .4 s window are discarded. The 700 input channels are then reduced to 70 input features by averaging over consecutive groups of 10 source channels in each time bin. This is physically motivated and is also done in [24]. The preprocessing produces a dense tensor of pooled spike occupancy values rather than a strict binary channel-selection tensor. The SHD dataset has a predefined train / test split, with 8156 training events and 2264 test events. The speakers in the training and testing events are different, with the purpose being that performance on the test set checks the generalisability of the classification algorithm across different speakers. In this work we further split the training dataset into 7156 training events and 1000 validation events for early stopping, and retain the same 2264 test set for testing. Because the test set contains held-out speakers it is not identically distributed with the training and validation data, therefore we naturally expect differences in validation and testing accuracies and report both in the results of the analysis. A summary of the preprocessing is presented in Table 1, and visualisations of the dataset properties are shown in Figure 1 and Figure 2. Table 1: SHD preprocessing and split used for all experiments. Quantity Value Timesteps per sample 140 Sample duration 1.4 s Temporal bin width 10 ms Input channels 70 pooled from 700 Input representation averaged spike occupancy Training samples 7156 Validation samples 1000 Test samples 2264 Mean input occupancy per test sample 649.6 Number of classes 20 
+
+# 5 SNN classification of SHD in hls4ml 
+
+We consider a very simple network architecture with a 70-dim input layer, a single hidden spiking layer with 64 LIF spiking neurons, and a 20 dimensional output (readout) layer. With 80 500 1000 
+
+> 0
+> 200
+> 400
+> 600
+> Class 0
+> Channel
+
+raw events   
+
+> 050 100
+> 0
+> 20
+> 40
+> 60
+> Pooled channel
+
+events with binning + pooling           
+
+> 0500 1000
+> 0
+> 200
+> 400
+> 600
+> Class 5
+> Channel
+> 050 100
+> 0
+> 20
+> 40
+> 60
+> Pooled channel
+> 0500 1000
+> 0
+> 200
+> 400
+> 600
+> Class 10
+> Channel
+> 050 100
+> 0
+> 20
+> 40
+> 60
+> Pooled channel
+> 0500 1000
+
+Time [ms]   
+
+> 0
+> 200
+> 400
+> 600
+> Class 15
+> Channel
+> 050 100
+
+Timestep 
+
+> 0
+> 20
+> 40
+> 60
+> Pooled channel
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Averaged occupancy
+
+Figure 1: Representative SHD test samples shown as raw 700-unit event rasters and the 140-by-70 pooled occupancy heatmaps used as model inputs. 90 2 4 6 8 10 12 14 16 18      
+
+> Class
+> 0
+> 25
+> 50
+> 75
+> 100
+> 125
+> Samples
+> Test data 250 500 750 1000 1250
+> Total occupancy per sample
+> 0
+> 50
+> 100
+> 150
+> Samples
+> Test data Mean = 649.6
+
+Figure 2: On the left we show the held-out test-set class balance, and on the right we show the distribution of total occupancy per test sample. membrane readout we simply read off the states on the output layer of the network after the fixed-window has ended, while for spike output the final layer has 20 LIF spiking neurons and we count the spikes accumulating from each neuron over the duration of the window. All LIF neurons in the SNN have trainable leak ( β) and threshold ( uthresh ) parameters and subtract-reset dynamics. During training, dropout with probability 0.3 is applied to the hidden spike vector before the final dense layer, and dropout is disabled for evaluation, QAT export, and HLS conversion. We find that dropout helps with generalisation from training and validation data to the testing data with the SHD dataset. For the readout we test both the membrane output and the spike output representation. At each timestep a dense layer maps the 70-dimensional pooled input to hidden neu-rons. The LIF neuron potentials are updated by these inputs, and they emit spikes when the potentials exceed the threshold uthresh , followed by a subtractive reset. The hidden decay parameter is initialized to β = 0 .75, the thresholds are initialised to 1 .0, and both are trainable. The second dense layer maps emitted spikes to 20 output neurons. In the membrane-readout configuration, these outputs are accumulated by SNNReadout and the predicted class is the largest final readout value. In the spike-count configuration, a second spiking layer is inserted before the readout and the readout accumulates output spike counts over the duration of the fixed window. 
+
+# 5.1 Training & QAT 
+
+The models are first trained in full 32 bit floating point (FP32) precision and then fine-tuned with QAT. The training is done with snnTorch which uses PyTorch on the backend, and the gradient descent methods rely on surrogate gradients for the spiking neurons. We use a 10-fold cross validation procedure that cycles through training (7156 events) and validation (1000 events) data, allowing us to implement early stopping on the training, and giving us uncertainty estimates on the results. FP32 runs use Adam with learning rate 10 −3, cosine annealing to 10 −4, a batch size of 64, and a cross-entropy loss. Runs are configured for at most 500 epochs and use early stopping on validation accuracy with patience 50 and minimum improvement 5 × 10 −4. QAT starts from the best FP32 checkpoint, uses Adam 10 with learning rate 3 × 10 −4, cosine annealing to 5 × 10 −5, a batch size of 64, the same cross-entropy loss, and early stopping with patience 25. The QAT forward pass quantises inputs, weights, bias, neuron parameters, membrane updates, dense outputs, and readout membrane state using straight-through estimators. 
+
+# 5.2 Spike vs membrane readouts 
+
+The first result we discuss is the comparison between SNNs trained with full FP32 precision using spike vs membrane outputs. In general we find that the membrane readout SNNs result in a larger accuracy than the spike-readout SNNs. This is likely due to sparse firing on the output layer essentially leading to a lower resolution output than we get from the membrane potential. In Figure 3 we show how the accuracy and loss converge over the epochs for one fold of the cross-validation. We see that both readout types evolve similarly, but when looking at the mean and spread of the accuracies in Table 2 we can see that the membrane readout SNNs perform better. For this reason we will go forward with only the membrane readout models for HLS conversion in the next sections. We also see the performance gap between the validation and test accuracies here. As discussed previously, this is due to these datasets being drawn from different underlying distributions (i.e. different speakers), and the same gap is seen in other works.                      
+
+> Readout Validation accuracy Test accuracy Test loss Membrane 96 .79 ±0.64% 75 .81 ±1.00% 1.195 ±0.175 Spike count 94 .56 ±1.42% 73 .94 ±2.09% 1.372 ±0.224
+
+Table 2: Comparison of membrane and spike-count readout SNNs with full FP32 precision. Accuracy and test loss are reported as mean and standard deviation over 10 folds. 
+
+# 5.3 Software-to-HLS fidelity 
+
+Here we want to test how well the SNN outputs are preserved when going from models trained in PyTorch to implementation in HLS via hls4ml . Starting from the FP32 mem-brane readout networks from the previous section, we continue with QAT until the models converge. We consider several precisions for the HLS implementation: ap fixed<10,4> ,
+
+ap fixed<12,4> , ap fixed<16,4> , and ap fixed<24,4> . After QAT we then run the net-works through hls4ml with the following config choices: 
+
+• backend: Vitis 
+
+• FPGA part: xczu7ev-ffvc1156-2-e 
+
+• IOType = io stream , for timestep-by-timestep SNN inference 
+
+• fixed-point arithmetic: convergent rounding ( AP RND CONV ) and saturation ( AP SAT )
+
+• strategy: Resource 
+
+• input layer reuse factor: RF = 7 
+
+• hidden layer reuse factor: RF = 8 11 0 50 100 150 200 250                
+
+> Epoch
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> Cross-entropy loss
+> Membrane readout Train
+> Validation 050 100 150 200 250
+> Epoch
+> 20
+> 40
+> 60
+> 80
+> 100
+> Accuracy [%]
+> Membrane readout
+> Train
+> Validation 0100 200 300 400
+> Epoch
+> 0
+> 2
+> 4
+> 6
+> 8
+> Cross-entropy loss
+> Spike-count readout Train
+> Validation 0100 200 300 400
+> Epoch
+> 20
+> 40
+> 60
+> 80
+> 100
+> Accuracy [%]
+> Spike-count readout
+> Train
+> Validation
+
+Figure 3: Accuracy and loss curves for one fold of the cross-validation from both the membrane-readout and spike-readout training. 
+
+• target clock period: 16 ns. The accuracy results of the precision sweep are shown in Figure 4. We see that for bit widths of 10 or larger, we saturate the performance of the quantised SNN on both the validation and the test data. While the performance of the quantised SNN never reaches that of the FP32 models, it gets close with accuracies of ∼ 96%. We also see that in all cases the HLS performance is very close to that of the quantised SNNs, indicating a high-fidelity implementation from PyTorch to HLS. In Table 3 we show the full numerical results for accuracies and for the agreement between the HLS models and the quantised SNNs defined in PyTorch . The agreement for all models is very high, reaching ≳ 98% for bit widths larger than 10. 
+
+# 5.4 Device utilisation and latency 
+
+Now we turn to the device utilisation and latency of SNN inference on FPGAs after synthesis via hls4ml and Vitis/Vivado. Figure 5 shows Vivado-synthesis device utilisation for the HLS config parameters outlined in the previous section. We see that hardware utilisation clearly increases as we increase the bit width, and while the lowest precision SNNs use no DSPs, at 12 ⟨8, 4⟩ ⟨10, 4⟩ ⟨12, 4⟩ ⟨16, 4⟩ ⟨24, 4⟩         
+
+> Fixed-point precision ⟨W,I⟩
+> 92
+> 93
+> 94
+> 95
+> 96
+> 97
+> Accuracy [%]
+> Validation
+> FP32
+> QAT
+> HLS C-sim ⟨8, 4⟩ ⟨10, 4⟩ ⟨12, 4⟩ ⟨16, 4⟩ ⟨24, 4⟩
+> Fixed-point precision ⟨W,I⟩
+> 70
+> 72
+> 74
+> 76
+> Accuracy [%]
+> Test
+> FP32
+> QAT
+> HLS C-sim
+
+Figure 4: Validation and test accuracy for the membrane-readout SNN. The FP32 PyTorch 
+
+reference is shown together with the QAT reference and the generated hls4ml C-simulation result for each included fixed-point precision. Error bars and shaded regions show uncertainty calculated from 10-fold cross-validation.                                                                                 
+
+> Precision QAT val. HLS val. QAT test HLS test Agreement
+> <8,4> 93 .23 ±1.17% 93 .23 ±1.10% 71 .30 ±1.84% 71 .66 ±1.79% 97 .69 ±0.84%
+> <10,4> 95 .60 ±0.73% 95 .50 ±0.81% 73 .82 ±1.46% 73 .95 ±1.46% 98 .88 ±0.27%
+> <12,4> 95 .89 ±0.91% 95 .82 ±0.94% 73 .94 ±1.46% 73 .99 ±1.44% 99 .65 ±0.17%
+> <16,4> 95 .72 ±0.79% 95 .66 ±0.76% 73 .93 ±1.23% 73 .94 ±1.19% 99 .74 ±0.21%
+> <24,4> 95 .86 ±1.05% 95 .73 ±1.30% 73 .91 ±1.35% 73 .98 ±1.39% 99 .66 ±0.30%
+
+Table 3: Ten-fold precision sweep for the membrane-readout SNN. QAT is the fake-quantised 
+
+PyTorch reference. HLS is hls4ml C simulation. Agreement is measured between HLS C simulation and the fake-quantised reference on the SHD test set. the high precision end we see that the DSP usage in the device is almost saturated. As the DSP usage turns on, we also see a decrease in the LUTs used by the SNNs on the hardware. The FFs remain low throughout, increasing slightly as the precision is increased. This is a promising result, as we’ve seen that the validation and test accuracy performance saturate at bit widths of 10, therefore quantising the network results in big savings on device utilisation while keeping accuracy high. In Table 4 we have a more detailed breakdown of the hardware statistics. We also include a Latency strategy run with a RF of 1 for comparison. The resource numbers are from Vivado synthesis, while the clock period, latency cycles, and initiation interval are from HLS synthesis. The full-window latency is computed as the per-timestep maximum HLS latency multiplied by the 140-timestep input window and the requested target clock period. For the runs with RF at 8, the top function has a maximum latency of 15 cycles per timestep, so the reported full-window latency is 15 × 140 × 16 ns = 33 .6 μs. We also include a low-precision ( ap fixed<8,4> ) Latency strategy run with an RF of 1 here for comparison. While the Latency run achieves a lower clock period, the optimisation in hls4ml assigns much higher LUT resources than are assigned in the Resource strategy runs, and assigns no BRAM or DSPs. This results in a much larger Initiation Interval and max cycles, leading 13 ⟨8, 4⟩ ⟨10, 4⟩ ⟨12, 4⟩ ⟨16, 4⟩ ⟨24, 4⟩ 
+
+Default precision ⟨W, I⟩  
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Device utilization [%]
+> LUT FF DSP
+
+Figure 5: Device utilisation after Vivado synthesis for the bit width sweep. then to a larger full-window latency. Prec. Strat. RF Target Est. LUT FF BRAM DSP Cyc. II Win. ns ns max μs
+
+<8,4> Resource 8 16.0 13.03 78530 11722 5.5 0 15 12 33.60 
+
+<10,4> Resource 8 16.0 13.03 109548 14276 6.0 0 15 12 33.60 
+
+<12,4> Resource 8 16.0 13.03 51653 15744 5.5 864 15 12 33.60 
+
+<16,4> Resource 8 16.0 13.109 53056 19070 6.0 864 15 12 33.60 
+
+<24,4> Resource 8 16.0 13.109 63132 34037 6.0 1662 15 12 33.60 
+
+<8,4> Latency 1 7.0 5.737 160299 44600 0.0 0 54 24 52.92 Table 4: Hardware results for the membrane-readout SNN on xczu7ev-ffvc1156-2-e . Re-source counts are from Vivado synthesis while clock, latency cycles, and initiation interval are from HLS synthesis. Full-window latency uses the requested target clock period. 
+
+# 5.5 SNN workload metrics 
+
+Although the HLS implementation is clock-driven, it is still interesting to study the sparsity of the neuron firing through the network. Table 5 reports workload metrics computed using the NeuroBench package on the SHD test set for the FP32 model and the included QAT precisions. The means and standard deviations here are calculated using the same 10-fold cross-validation from the previous sections. The input sparsity is a feature of the SHD dataset, it says that after pooling from 700 dimensions to 70, 84% of the inputs are zeros. The hidden sparsity tells us the sparsity in the firing rate of the spiking neurons from the hidden LIF layer, a 0 would imply that all neurons fire on every update, while a 1 would imply that none of the neurons ever fire. Therefore these numbers imply that the hidden 14 layer firing is indeed very sparse, with neurons remaining silent ∼ 92% of the time. The connection sparsity is the percentage of weights in the SNN that are numerically 0. It makes sense that this number is largest for the low-precision SNNs and gets smaller as the precision increases. Including all weights, biases, and spiking neuron parameters, NeuroBench computes that the SNN model here has 29 .54 × 10 3 parameters, and that without exploiting any sparsity in the data the number of dense synaptic-operations required per event inference is 806 .4 ×
+
+10 3. The footprint and dense synaptic-operations are static workload metrics, whereas the effective accumulate and effective MAC operations take into account the sparsity in the network with respect to a test sample. From the table we can see that when sparsity is accounted for, the effective accumulate count is only (1 .1–1 .4) × 10 4 operations per sample, and the effective MACs are ∼ 1 × 10 5, compared with the full 8 .06 × 10 5 dense synaptic operations. This means that on dedicated neuromorphic hardware that can capitalise on this sparsity, there would be close an order of magnitude of savings in the power consumed by the SNN vs an ANN. On the FPGA however, we are not making any savings due to sparsity in the network. It may be possible to benefit from some of these savings in the future through implementing gating operations in hls4ml to prevent MACs where a spiking neuron does not fire. Precision Input sparse Hidden sparse Conn. sparse Eff. ACs Eff. MACs % % % 10 3 10 3
+
+FP32 83 .98 92 .06 ± 0.81 0.00 ± 0.00 14 .24 ± 1.45 100 .49 ± 0.00 
+
+<8,4> 83 .98 92 .47 ± 1.12 8.65 ± 0.81 10 .96 ± 1.64 91 .65 ± 0.89 
+
+<10,4> 83 .98 92 .76 ± 0.62 2.24 ± 0.19 12 .26 ± 1.03 98 .21 ± 0.29 
+
+<12,4> 83 .98 92 .55 ± 0.89 0.62 ± 0.10 13 .14 ± 1.55 99 .87 ± 0.09 
+
+<16,4> 83 .98 92 .51 ± 0.81 0.04 ± 0.04 13 .42 ± 1.44 100 .45 ± 0.04 
+
+<24,4> 83 .98 92 .64 ± 0.88 0.00 ± 0.00 13 .19 ± 1.57 100 .49 ± 0.00 Table 5: NeuroBench workload metrics for the membrane-readout SNN on the SHD test set. Reported metrics are means and standard deviations over 10 folds. NeuroBench also reports accuracy metrics, but these matched the QAT results from the previous sections exactly. 
+
+# 6 Discussion & conclusions 
+
+We have presented and tested an extension of the hls4ml framework enabling SNN models to be compiled to HLS and synthesised and optimised for FPGA deployment through the Vitis / Vivado backend. This work allows SNN models trained via a PyTorch / snnTorch 
+
+workflow to be deployed in existing FPGA-based scientific instruments. It provides a route to compare FP32, QAT, and generated-HLS SNN behaviour. The current implementation focuses on the LIF neuron, but this work opens a path for future SNN additions to hls4ml ,including spike-sparse kernels, recurrent SNNs, convolutional SNNs, and variable-length se-quence boundaries. The SNN inference is clock-driven, so it is scheduled by the FPGA clock and HLS dataflow rather than by asynchronous spike events. This means that some 15 advantages typically associated with event-driven neuromorphic systems, such as dynamic avoidance of computation when no spikes are present, are not automatically realized. But in future work it may be possible to introduce gate operations that prevent unnecessary computations being performed when a spiking neuron does not spike. This will not improve latency on the FPGA, but could reduce power consumption for sparsely firing neurons. The workflow is tested using the SHD benchmark dataset, widely used in the SNN lit-erature, and the results validate the SNN support from HLS right through to the hardware simulation. The tests spanned both membrane and spike-count outputs from the SNN, and covered a range of bit width precisions. We show that each SHD event with a 140 tim-step window, with 70 features per timestep, can be streamed and processed by the SNN in 33 .6μs, with large reductions in FPGA resource utilisation through quantising the network to ap fixed<10,4> precision while maintaining high accuracy. Future work will include two strands. The first is to enrich the SNN functionality in 
+
+hls4ml by introducing support for more spiking neurons, introduce variable-window capa-bility, and to develop and test more complex machine-learning algorithms in the framework. For example real-time anomaly detection and reinforcement learning with SNNs via hls4ml .The second strand is in the application of SNNs to scientific problems that require low-latency real-time machine-learning solutions on time-series data. This also expands the scope beyond classification to anomaly detection, regression, and reinforcement learning. To summarise, these results establish a practical baseline for deploying SNNs in scientific FPGA workflows that can be built upon, and provides a foundation for more neuromorphic SNN functionality in future hls4ml releases. 
+
+# Acknowledgments 
+
+The author thanks the hls4ml community for the open-source software and documentation, and the hls4ml developers who helped with merging the code. The author thanks Aqib Javed and Jim Harkin for their collaboration on SNNs and their comments on this project. 
+
+# Data & code 
+
+The SHD data set is publicly available from the Heidelberg Spiking Data Sets project [24]. The SNN functionality is deployed in the hls4ml repo at https://github.com/ fastmachinelearning/hls4ml . The code specific to this SHD analysis is available at 
+
+https://github.com/bmdillon/snn-shd-hls4ml .
+
+# References 
+
+[1] James A. Anderson. A simple neural network generating an interactive memory. Math-ematical Biosciences , 14(3):197–220, 1972. [2] Wolfgang Maass. Networks of spiking neurons: The third generation of neural network models. Neural Networks , 10(9):1659–1671, 1997. 16 [3] Amirhossein Tavanaei, Masoud Ghodrati, Saeed Reza Kheradpisheh, Timoth´ ee Masque-lier, and Anthony Maida. Deep learning in spiking neural networks. Neural Networks ,111:47–63, 2019. [4] Peter O’Connor and Max Welling. Deep spiking networks, 2016. [5] Paul A. Merolla, John V. Arthur, Rodrigo Alvarez-Icaza, Andrew S. Cassidy, Jun Sawada, Filipp Akopyan, Bryan L. Jackson, Nabil Imam, Chen Guo, Yutaka Naka-mura, et al. A million spiking-neuron integrated circuit with a scalable communication network and interface. Science , 345(6197):668–673, 2014. [6] Mike Davies, Narayan Srinivasa, Tsung-Han Lin, Gautham Chinya, Yongqiang Cao, Sri Harsha Choday, Georgios Dimou, Prasad Joshi, Nabil Imam, Shweta Jain, et al. Loihi: A neuromorphic manycore processor with on-chip learning. IEEE Micro ,38(1):82–99, 2018. [7] Steve B. Furber, Francesco Galluppi, Steve Temple, and Luis A. Plana. The spinnaker project. Proceedings of the IEEE , 102(5):652–665, 2014. [8] FastML Team. fastmachinelearning/hls4ml, 2025. [9] Javier Duarte et al. Fast inference of deep neural networks in FPGAs for particle physics. Journal of Instrumentation , 13(07):P07027, 2018. [10] Jan-Frederik Schulte et al. hls4ml: A Flexible, Open-Source Platform for Deep Learning Acceleration on Reconfigurable Hardware. 12 2025. [11] Thea Aarrestad et al. Fast convolutional neural networks on FPGAs with hls4ml. 
+
+Machine Learning: Science and Technology , 2(4):045015, 2021. [12] Nicol` o Ghielmetti et al. Real-time semantic segmentation on FPGAs for autonomous vehicles with hls4ml. Mach. Learn. Sci. Tech. , 2022. [13] Chang Sun et al. da4ml: Distributed arithmetic for real-time neural networks on fpgas, 2025. [14] Jennifer Ngadiuba et al. Compressing deep neural networks on FPGAs to binary and ternary precision with HLS4ML. Mach. Learn. Sci. Tech. , 2:015001, 2021. [15] Adnan Mehonic et al. Roadmap to neuromorphic computing with emerging technologies, 2024. [16] Catherine D. Schuman, Thomas E. Potok, Steven Young, Robert Patton, Gabriel Per-due, Gangotree Chakma, Austin Wyer, and Garrett S. Rose. Neuromorphic computing for temporal scientific data classification. In Proceedings of the Neuromorphic Com-puting Symposium , NCS ’17, New York, NY, USA, 2017. Association for Computing Machinery. 17 [17] S. Lin, S. Ning, H. Zhu, T. Zhou, C. L. Morris, S. Clayton, M. J. Cherukara, R. T. Chen, and Zhehui Wang. Neural network methods for radiation detectors and imaging. 
+
+Frontiers in Physics , Volume 12 - 2024, 2024. [18] Linghao Song, Fan Chen, Steven R. Young, Catherine D. Schuman, Gabriel Perdue, and Thomas E. Potok. Deep learning for vertex reconstruction of neutrino-nucleus interaction events with combined energy and time data. In ICASSP 2019 - 2019 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 3882–3886, 2019. [19] Shruti R. Kulkarni et al. On-sensor data filtering using neuromorphic computing for high energy physics experiments, 2023. [20] Emanuele Coradin, Fabio Cufino, Muhammad Awais, Tommaso Dorigo, Enrico Lupi, Eleonora Porcu, Jinu Raj, Fredrik Sandin, and Mia Tosi. Unsupervised particle tracking with neuromorphic computing. Particles , 8(2):40, April 2025. [21] Enrico Lupi et al. Neuromorphic readout for hadron calorimeters, 2025. [22] Barry M. Dillon, Jim Harkin, and Aqib Javed. Anomaly detection with spiking neural networks for LHC physics. Mach. Learn. Sci. Tech. , 7(2):025019, 2026. [23] Jason K Eshraghian, Max Ward, Emre Neftci, Xinxin Wang, Gregor Lenz, Girish Dwivedi, Mohammed Bennamoun, Doo Seok Jeong, and Wei D Lu. Training spiking neural networks using lessons from deep learning. Proceedings of the IEEE , 111(9):1016– 1054, 2023. [24] Benjamin Cramer, Yannik Stradmann, Johannes Schemmel, and Friedemann Zenke. The heidelberg spiking data sets for the systematic evaluation of spiking neural net-works. IEEE Transactions on Neural Networks and Learning Systems , 33(7):2744–2757, 2022. [25] Jason Yik et al. Neurobench: A framework for benchmarking neuromorphic computing algorithms and systems, 2025. [26] Frank Rosenblatt. The perceptron: A probabilistic model for information storage and organization in the brain. Psychological Review , 65(6):386–408, 1958. [27] Friedemann Zenke and Surya Ganguli. Superspike: Supervised learning in multilayer spiking neural networks. Neural Computation , 30(6):1514–1541, 2018. [28] Emre O. Neftci, Hesham Mostafa, and Friedemann Zenke. Surrogate gradient learning in spiking neural networks: Bringing the power of gradient-based optimization to spiking neural networks. IEEE Signal Processing Magazine , 36(6):51–63, 2019. [29] Adam Paszke et al. Pytorch: An imperative style, high-performance deep learning library, 2019. 18 [30] Jason K. Eshraghian, Max Ward, Emre O. Neftci, Xinxin Wang, Gregor Lenz, Girish Dwivedi, Mohammed Bennamoun, Doo Seok Jeong, and Wei D. Lu. Training spiking neural networks using lessons from deep learning. Proceedings of the IEEE , 111(9):1016– 1054, 2023. [31] Daniel Neil and Shih-Chii Liu. Minitaur, an event-driven fpga-based spiking net-work accelerator. IEEE Transactions on Very Large Scale Integration (VLSI) Systems ,22(12):2621–2628, 2014. [32] Jianhui Han, Zhaolin Li, Weimin Zheng, and Youhui Zhang. Hardware implementation of spiking neural networks on fpga. Tsinghua Science and Technology , 25(4):479–486, 2020. [33] Guohe Zhang, Bing Li, Jianxing Wu, Ran Wang, Yazhu Lan, Li Sun, Shaochong Lei, Hai Li, and Yiran Chen. A low-cost and high-speed hardware implementation of spiking neural network. Neurocomputing , 382:106–115, 2020. [34] Haowen Fang, Zaidao Mei, Amar Shrestha, Ziyi Zhao, Yilan Li, and Qinru Qiu. En-coding, model, and architecture: Systematic optimization for spiking neural network in fpgas. In 2020 IEEE/ACM International Conference On Computer Aided Design (ICCAD) , pages 1–9, 2020. [35] Myat Thu Linn Aung, Chuping Qu, Liwei Yang, Tao Luo, Rick Siow Mong Goh, and Weng-Fai Wong. Deepfire: Acceleration of convolutional spiking neural network on modern field programmable gate arrays. In 2021 31st International Conference on Field-Programmable Logic and Applications (FPL) , pages 28–32, 2021. [36] Yarib Nevarez, David Rotermund, Klaus Pawelzik, and Alberto Garcia-Ortiz. Accel-erating spike-by-spike neural networks on fpga with hybrid custom floating-point and logarithmic dot-product approximation. IEEE Access , PP:1–1, 05 2021. [37] Alessio Carpegna, Alessandro Savino, and Stefano Di Carlo. Spiker: an fpga-optimized hardware acceleration for spiking neural networks, 2022. [38] Qinyu Chen, Chang Gao, Xinyuan Fang, and Haitao Luan. Skydiver: A spiking neural network accelerator exploiting spatio-temporal workload balance. IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , 41(12):5732–5736, De-cember 2022. [39] Qinyu Chen, Chang Gao, and Yuxiang Fu. Cerebron: A reconfigurable architecture for spatio-temporal sparse spiking neural networks. IEEE Transactions on Very Large Scale Integration (VLSI) Systems , PP:1–13, 10 2022. [40] Jindong Li, Guobin Shen, Dongcheng Zhao, Qian Zhang, and Yi Zeng. Firefly v2: Advancing hardware support for high-performance spiking neural network with a spa-tiotemporal fpga accelerator, 2023. 19 [41] Alireza Khodamoradi, Kristof Denolf, and Ryan Kastner. S2n2: A fpga accelerator for streaming spiking neural networks. In The 2021 ACM/SIGDA International Symposium on Field-Programmable Gate Arrays , FPGA ’21, page 194–205, New York, NY, USA, 2021. Association for Computing Machinery. [42] Sixu Li, Zhaomin Zhang, Ruixin Mao, Jianbiao Xiao, Liangyu Chang, and Jun Zhou. A fast and energy-efficient snn processor with adaptive clock/event-driven computation scheme and online learning. IEEE Transactions on Circuits and Systems I: Regular Papers , PP:1–10, 01 2021. [43] Jindong Li, Guobin Shen, Dongcheng Zhao, Qian Zhang, and Yi Zeng. Firefly: Ahigh-throughput hardware accelerator for spiking neural networks with efficient dsp and memory optimization. IEEE Transactions on Very Large Scale Integration (VLSI) Systems , 31(8):1178–1191, August 2023. [44] Tenglong Li, Jindong Li, Guobin Shen, Dongcheng Zhao, Qian Zhang, and Yi Zeng. Firefly-t: High-throughput sparsity exploitation for spiking transformer acceleration with dual-engine overlay architecture, 2025. [45] Myat Thu Linn Aung, Daniel Gerlinghoff, Chuping Qu, Liwei Yang, Tian Huang, Rick Siow Mong Goh, Tao Luo, and Weng-Fai Wong. Deepfire2: A convolutional spiking neu-ral network accelerator on fpgas. IEEE Transactions on Computers , 72(10):2847–2857, October 2023. [46] Hanwen Liu, Yi Chen, Zihang Zeng, Malu Zhang, and Hong Qu. A low power and low latency fpga-based spiking neural network accelerator. In 2023 International Joint Conference on Neural Networks (IJCNN) , pages 1–8, 2023. [47] Gianluca Leone, Matteo Antonio Scrugli, Lorenzo Badas, Luca Martis, Luigi Raffo, and Paolo Meloni. Syntzulu: A tiny risc-v-controlled snn processor for real-time sensor data analysis on low-power fpgas. IEEE Transactions on Circuits and Systems I: Regular Papers , 72(2):790–801, 2025. [48] Andrew Fan and Simon D. Levy. A robust, open-source framework for spiking neural networks on low-end fpgas, 2025. [49] Ashish Gautam, Prasanna Date, Shruti Kulkarni, Robert Patton, and Thomas Potok. Neurocorex: An open-source fpga-based spiking neural network emulator with on-chip learning, 2025. [50] Alessio Carpegna, Alessandro Savino, and Stefano Di Carlo. Spiker+: A framework for the generation of efficient spiking neural networks fpga accelerators for inference at the edge. IEEE Transactions on Emerging Topics in Computing , 13(3):784–798, 2025. [51] Shadi Matinizadeh et al. A fully-configurable open-source software-defined digital quan-tized spiking neural core architecture, 2024. 20 [52] Farah Fahim, Benjamin Hawks, Christian Herwig, James Hirschauer, Sergo Jindariani, Nhan Tran, Luca P. Carloni, Giuseppe Di Guglielmo, Philip Harris, Jeffrey Krupa, et al. hls4ml: An open-source codesign workflow to empower scientific low-power machine learning devices. In Proceedings of the tinyML Research Symposium , 2021. [53] Jan-Frederik Schulte et al. hls4ml: A flexible, open-source platform for deep learning ac-celeration on reconfigurable hardware. ACM Transactions on Reconfigurable Technology and Systems , 2026. Just accepted. 21
