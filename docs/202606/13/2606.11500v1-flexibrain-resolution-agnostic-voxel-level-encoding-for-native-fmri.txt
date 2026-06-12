@@ -1,0 +1,551 @@
+Title: FlexiBrain: Resolution-Agnostic Voxel-Level Encoding for Native fMRI
+
+URL Source: https://arxiv.org/pdf/2606.11500v1
+
+Published Time: Thu, 11 Jun 2026 00:23:32 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# FlexiBrain: Resolution-Agnostic Voxel-Level Encoding for Native fMRI 
+
+Mo Wang 1,2†, Wenhao Ye 1†, Junfeng Xia 1†, Minghao Xu 2, Hongkai Wen 2*,and Quanying Liu 1* 
+
+> 1
+
+Southern University of Science and Technology  
+
+> 2
+
+University of Warwick 
+
+> †
+
+Equal contribution. *Corresponding authors. 
+
+Abstract. The success of large-scale deep learning models in neuro-science is fundamentally constrained by severe data heterogeneity. Native fMRI data aggregated from diverse sources exhibit substantial variation in both spatial and temporal resolutions. Consequently, most existing frameworks rely on lengthy, rigid preprocessing pipelines that enforce uniformity across datasets. This practice introduces two critical limita-tions: (1) potential degradation of subject-specific anatomical informa-tion; (2) significant computational overhead, often requiring hours of pro-cessing per subject. Here, we propose FlexiBrain, a resolution-agnostic voxel-level encoding framework for native fMRI based on Mamba-JEPA. FlexiBrain defines patch sizes in real-world physical units and employs a dynamic patch resizing, thereby bypassing destructive spatial standard-ization while enabling direct ingestion of data in native space. We instan-tiate the framework using an efficient Mamba-JEPA backbone to model high-dimensional 4D fMRI signals. Across five diverse downstream neuro-science tasks, FlexiBrain consistently outperforms recent state-of-the-art methods, achieving gains of up to 12 percentage points without exter-nal data augmentation. Importantly, FlexiBrain functions as a seamless plug-in module, substantially reducing preprocessing costs and accelerat-ing the development of robust voxel-level fMRI foundation models. Code is available at https://github.com/OneMore1/FlexiBrain .
+
+Keywords: Functional MRI · Preprocessing · Disease diagnosis · Voxel-level model 
+
+## 1 Introduction 
+
+Functional Magnetic Resonance Imaging (fMRI) is an indispensable tool in mod-ern neuroscience, providing crucial, non-invasive insights into human brain ac-tivity. By providing voxel-level images of brain activity, it has fundamentally advanced our understanding of cognitive processes and has been instrumental in diagnosing and tracking numerous neurological disorders since its inception in the 1990s [2]. Although early scanning protocols were often constrained by low spatial and temporal resolutions, recent technological advancements have yielded 
+
+> arXiv:2606.11500v1 [eess.IV] 9 Jun 2026
+
+2 M. Wang et al. Anatomical Processing    
+
+> Functional
+> Processing
+> Native fMRI Template fMRI
+> T1 -weight Templates Raw fMRI
+> Resolution
+> Align
+> ~300 mins Time cost
+> Alignment
+> ~3 mins
+> ROI -based fMRI
+> parcels
+> 1
+> 2
+> N
+> 3
+> t
+> Diverse
+> Subject -Specific Template -Aligned
+> Unified
+> Template -Aligned
+> ~300 mins
+> Unified
+
+Fig. 1: fMRI preprocessing. Native fMRI is rapid and retains subject-specific anatomical information. However, it presents a challenge for deep learning due to its highly diverse resolution and non-aligned spatial coordinates. Template fMRI re-quires resource-intensive registration to align the image to a standard template brain, often consuming hours per subject. This eliminates individual differences, resulting in a unified and standardized resolution. ROI-based fMRI is derived from the registered Template fMRI using brain parcellation. It is reduced to a 2D representation (channels 
+
+× time), summarizing activity across defined regions of interest. 
+
+data with vastly higher resolution and developed a multitude of advanced ac-quisition sequences, providing researchers with more resolution options. This progress, while beneficial, has consequently introduced a critical challenge for deep learning methods: data aggregated from various sources are now character-ized by substantial variability in spatiotemporal resolution. Although all fMRI data is inherently 4D (3D spatial information across a time dimension), this res-olution heterogeneity is pronounced. Mainstream public datasets, for instance, exhibit spatial resolutions varying significantly from 2 mm to 4 mm , with tempo-ral sampling rates ranging drastically from 720 ms to over 3000 ms [6, 8, 23, 27]. Moreover, anatomical differences between subjects mean the explicit 4D data shape (i.e., voxel count) varies across individuals, further compounding this per-sonalized variability. To achieve the unified input required by deep learning models, the cur-rent mainstream fMRI pipeline typically addresses inherent data heterogeneity through comprehensive preprocessing. Despite the development of numerous dis-tinct libraries, the core preprocessing methodology remains fundamentally sim-ilar [1, 7, 11, 12]. As shown in Fig. 1, the multi-stage preprocessing pipeline first converts the Raw fMRI series into Native fMRI through rapid operations such as slice-timing correction and head-motion correction, which are performed in each subject’s original scanner space and typically require only a few minutes per sub-ject. Second, much more computationally demanding stage, the pipeline incor-porates the subject’s structural MRI (sMRI) to handle inter-subject anatomical variability: the sMRI undergoes intensive anatomical processing and the func-tional data are then non-linearly registered to a common standard template (e.g., FlexiBrain 3
+
+the MNI152 template), a procedure that often takes hours. This yields the Tem-plate fMRI , in which all subjects’ 4D fMRI volumes are warped into the same template-defined coordinate system and thus share an identical spatial struc-ture, i.e., the same voxel grid, spatial layout, and standardized resolution as the template brain. Deep learning models are subsequently trained either directly on these normalized 4D volumes [15, 16, 20, 26, 29, 30] or on dimensionality-reduced 
+
+ROI-based fMRI representations derived using brain parcellation atlases in tem-plate space [5, 9, 10, 31, 32]. While full preprocessing pipelines make deep learning on fMRI technically feasible, they introduce several structural limitations. First, model outputs are highly sensitive to preprocessing software and parameter choices, and different pipelines can yield systematically different representations. Second, mapping all subjects into a predefined template space inevitably suppresses subject-specific anatomical variability and introduces interpolation and partial-volume artifacts. Third, such pipelines are computationally intensive and difficult to scale. In the era of large foundation models trained on thousands or tens of thousands of subjects, repeated normalization and resampling become both economically and scientifically inefficient [5, 10, 32]. A natural alternative is to operate di-rectly on native-space fMRI. However, existing approaches typically rely on subject-specific projection networks to map native voxels into a shared latent space [24, 25]. While effective at small scale, this strategy prevents parameter sharing across heterogeneous datasets and becomes impractical for large-cohort foundation modeling. In this paper, we introduce FlexiBrain , a resolution-adaptive voxel-level encoding framework for native fMRI. Instead of defining patches by fixed voxel counts, FlexiBrain parameterizes patch sizes in real-world physical units (mil-limeters and seconds). This design ensures that each token corresponds to a com-parable anatomical and temporal receptive field across datasets with different spatial resolutions and fields of view. To enable parameter sharing without de-structive resampling, we develop a resolution-aware dynamic patch resizing that continuously resizes embedding kernels according to the input voxel spacing. As a result, resolution heterogeneity no longer requires dataset-specific adapters or retraining, allowing scalable native-space foundation modeling. To further reduce the computational burden of voxel-level modeling, we instantiate FlexiBrain with a purpose-designed Mamba-JEPA backbone. The Mamba architecture replaces quadratic self-attention with linear-complexity state-space modeling, enabling scalable processing of high-resolution 4D fMRI volumes. Meanwhile, the JEPA formulation shifts the objective from full signal reconstruction to latent predic-tive learning. By masking large background regions and avoiding heterogeneous voxel-wise reconstruction losses, this design improves computational efficiency while focusing representation learning on informative spatiotemporal dynamics. Across five diverse downstream neuroscience tasks, FlexiBrain consistently out-performs recent state-of-the-art methods, achieving performance gains of up to 12 percentage points, while operating directly in native space without template normalization. 4 M. Wang et al. 
+
+Our main contributions are summarized as follows: 
+
+– We identify resolution heterogeneity as a fundamental scalability bottle-neck for voxel-level fMRI foundation models, and propose a native-space framework that enables parameter sharing without template normalization or subject-specific adapters. 
+
+– We introduce FlexiBrain, a resolution-adaptive tokenization scheme that de-fines patches in physical units and dynamically resizes embedding kernels, allowing consistent receptive fields across heterogeneous spatial resolutions. 
+
+– Extensive experiments on five downstream diagnosis tasks demonstrate that FlexiBrain outperforms template-based methods while operating directly on native 4D fMRI data. 
+
+## 2 Related work 
+
+fMRI Preprocessing Recent pipelines for fMRI preprocessing follow a two-track routine [11]: anatomical processing (bias-field correction, skull stripping, tissue segmentation, surface reconstruction) and functional BOLD processing (refer-ence volume creation, motion/susceptibility correction, slice-timing correction, coregistration to anatomy, and resampling). A practical design choice is the output space. Processing in each subject’s native space is faster (fewer and cheaper resampling/warps) and preserves individual geometry and idiosyncratic anatomy, which benefits subject-specific modeling. In contrast, transforming to a standard template space (e.g., MNI) is slower due to non-linear normaliza-tion but unifies data into a common coordinate frame, simplifying batching, voxel correspondence, and cross-subject aggregation. Recent voxel-level mod-els adopt the standard space for ease of model design (fixed shapes, consistent spatial priors) and benchmarking [15,16,28]. Yet forcing all subjects into a com-mon template via non-linear warps inevitably introduces interpolation error and partial-volume artifacts, and can suppress subject-specific spatial variation (e.g., regional size/shape), potentially biasing downstream analyses. Beyond voxel-level methods, ROI-based fMRI represents the most widely adopted format in contemporary deep learning for neuroscience [5,9,10,32,33]. This format reduces the fMRI volume to a 2D representation (channels × time), where each channel contains the average signal within a specific Region-of-Interest (ROI) defined by a brain parcellation atlas. Since these atlases are typically designed and validated in the standard template space (e.g., MNI), ROI-based fMRI must inherently be derived from Template fMRI. Consequently, this highly popular data format inherits all the aforementioned disadvantages associated with non-linear normal-ization and damages fine-grained spatial information. 
+
+Deep Learning in Native fMRI While Native fMRI analysis is favored in tra-ditional neuroscience for its ability to minimize information loss and preserve subject-specific anatomy, its usage in large-scale deep learning remains chal-lenging due to significant cross-site and inter-subject heterogeneity. Data ex-hibit stark differences in acquisition protocols, such as the spatial/temporal FlexiBrain 5Target     
+
+> Mamba
+> Context
+> Mamba
+> MSE
+> MoE
+> Predictor
+> Patch
+> Sampling
+> Resize Patch
+> Embedding
+> b. Pretraining on Fixed Size Patches
+> Spatial Patch
+> Native fMRI
+> from datasets Context Patches
+> Patch with Real -world
+> Position Embeddings Target Patches
+> Target
+> Embedding
+> Prediction
+> Temporal Patch
+> 6 mm 3
+> 2.4 mm 3
+> 6 mm 3
+> 2 mm 3
+> 6 mm 3
+> 1.5 mm 3
+> 6s
+> 2 s
+> 6s
+> 1.5 s
+> 6s
+> 3 s
+> a. Heterogeneous Resolution Native fMRI
+
+Fig. 2: FlexiBrain Pipeline. (a) FlexiBrain accepts Native fMRI with heterogeneous resolution from diverse datasets. To achieve resolution-agnosticism, the foundational spatial patch size (millimeters) and temporal patch size (seconds) are defined in real-world physical units. FlexiBrain uses a dynamic patch resizing to accommodate the variable number of voxels (due to differing resolutions) within a fixed physical patch size. (b) The physical patches with position embeddings in real-world coordinate sys-tem are sampled to create target and context patches for a self-supervised approach. The framework employs a novel Mamba-JEPA that is specifically designed to avoid background input and utilizes the Mixture-of-Experts module to mitigate representa-tion collapse. 
+
+resolution gap between ABIDE ( ≈ 3mm, 2000 ms ) [8] and UK Biobank ( ≈
+
+2.4mm, 735 ms ) [4]. Furthermore, hardware evolution promises an influx of in-creasingly finer-grained spatiotemporal data, exacerbating this resolution diver-sity. This heterogeneity has traditionally prevented the application of a single, unified deep learning model, forcing most works into the restrictive standard template space. Research directly leveraging Native fMRI is scarce and largely confined to specialized tasks or small-sample cohorts. For example, recent fMRI-to-image reconstruction models include MindEye2 [24, 25], which focuses on subject-specific mapping. These methods select crucial voxels based on individual response features and train a dedicated mapping from the subject’s native voxels to a shared latent space (e.g., CLIP embeddings) for each participant. While effective for individual decoding, this approach does not scale to variable resolution 4D fMRI from large, diverse cohorts. 
+
+## 3 Method 
+
+Fig. 2 illustrates the overall framework of FlexiBrain. Heterogeneous fMRI data with varying spatial and temporal resolutions are tokenized using a dynamic patch resizing defined in physical units. This mechanism ensures that patch to-6 M. Wang et al. 
+
+kens correspond to consistent physical receptive fields across heterogeneous fMRI acquisitions, enabling resolution-agnostic parameter sharing and stable represen-tation learning directly in native space. By resizing existing filters to the target physical scale rather than relearning resolution-specific ones, the tokenizer can be seamlessly transferred across datasets without reconfiguration. The resulting fine-grained fMRI tokens are processed by a Mamba backbone, which enables efficient long-range modeling while significantly reducing computational cost. Training is guided by a JEPA-based proxy loss, which avoids heavy voxel-level reconstruction and mitigates loss imbalance arising from heterogeneous resolu-tions. 
+
+3.1 Dynamic Patch Resizing 
+
+Motivation. Voxel-level fMRI data exhibit substantial heterogeneity in spatial resolution and temporal sampling, making resolution-specific tokenizers brittle and difficult to transfer across datasets. To address the heterogeneity in 4D fMRI data across varying spatial resolutions and temporal resolution (TR), we introduce a Dynamic Patch Resizing (Fig. 2 a). Rather than relearning or dis-cretely redefining filters for each resolution, we continuously resize a shared set of base kernels to the target physical scale, ensuring smooth parameter sharing across heterogeneous inputs. This continuous adaptation preserves the functional semantics of the tokenizer across resolutions, enabling direct transfer without re-configuration or retraining. 
+
+Dynamic Patch Size Determination. Given a target physical temporal duration 
+
+τ (e.g., 6.0 seconds) and target spatial resolution ρ = ( ρx, ρ y , ρ z ) (e.g., 12 mm), the subject-specific patch sizes kt and kd as the discrete temporal and spatial patch dimensions are dynamically calculated based on the input’s time resolution (tr ) and voxel sizes (vx, v y , v z ),⌊⌉ indicates nearest integer rounding: 
+
+kt =
+
+j τtr 
+
+m
+
+, kd =
+
+ ρd
+
+vd
+
+
+
+for d ∈ { x, y, z } (1) 
+
+Continuous Kernel Resizing. Instead of randomly initializing distinct weights for every possible resolution, we maintain learnable base kernels W (base ) 
+
+> t
+
+for the temporal dimension and W (base ) 
+
+> sp
+
+for the spatial dimensions. To adapt these base kernels to the dynamically computed sizes kt and (kx, k y , k z ), we utilize R+, a geometric operator that optimally projects the weights via the Moore-Penrose pseudo-inverse of the forward interpolation matrix to preserve their functional mapping [3]: 
+
+Wt = R+1D
+
+
+
+W (base ) 
+
+> t
+
+→ kt
+
+
+
+(2) 
+
+Wsp = R+3D
+
+
+
+W (base ) 
+
+> sp
+
+→ (kx, k y , k z )
+
+
+
+(3) FlexiBrain 7
+
+Time-to-Space Forward Tokenization. First, a 1D temporal convolution with weight Wt and stride kt aggregates short-range temporal dynamics within each physical window, transforming the input X ∈ RD×H×W ×T into an intermediate feature map Xt ∈ RD×H×W ×Dm×T ′
+
+, where T ′ = T /k t and Dm denotes the intermediate channel dimension. To enable efficient spatial tokenization, we fold the reduced temporal dimen-sion T ′ into the channel dimension, 
+
+˜Xt = Reshape (Xt) ∈ R(Dm·T ′)×D×H×W ,
+
+such that temporal information is encoded as channel-wise features. Correspond-ingly, the spatial kernel Wsp is repeated T ′ times along its input channel dimen-sion to match ˜Xt, reflecting the assumption that spatial structure is invariant to temporal indexing. A 3D convolution with stride (kx, k y , k z ) is then applied to project the spatial grid into a Dout -dimensional latent space, yielding the fi-nal joint spatiotemporal patch embeddings. Finally, purely background patches are discarded using a subject-specific foreground mask, and the remaining valid tokens are flattened into a 1D sequence. 
+
+Continuous Physical 3D Positional Encoding. Discarding background patches disrupts the regular 3D grid, rendering standard discrete grid-based positional encodings ineffective, especially across subjects with varying spatial resolutions. To preserve precise anatomical awareness, we introduce a continuous physical 3D positional encoding. First, we determine the exact physical center of each valid patch in the anatomical world space. Let pi ∈ R3 denote the discrete voxel-space center index of the i-th patch. Using the subject-specific affine transformation matrix A ∈ R3×3 and translation vector t ∈ R3 extracted from the NIfTI headers, the continuous physical coordinate ci ∈ R3 is computed as: 
+
+ci = piA⊤ + t
+
+To map these continuous physical coordinates into a high-dimensional repre-sentation, we apply a spatial scaling factor to mitigate unit variance and gener-ate sinusoidal embeddings using logarithmically spaced frequency bands for each spatial axis. The concatenated features from all three axes are finally mapped to the target token dimension Dout via a learnable linear projection. Finally, these positional embeddings are added to the flattened 1D spatial token sequence. 
+
+3.2 Model Architecture: Mamba-JEPA 
+
+Motivation. Our architectural design is motivated by the need to efficiently model ultra-long, fine-grained token sequences while learning robust semantic representations from noisy 4D fMRI data. Native-space voxel-level tokeniza-tion yields thousands of tokens per subject, rendering standard self-attention prohibitively expensive. Moreover, voxel-level reconstruction objectives are ill-suited for fMRI, as they emphasize high-frequency noise rather than meaningful 8 M. Wang et al. 
+
+functional structure. To address these challenges, we combine a linear-time state-space backbone (Mamba) with a latent predictive learning objective (JEPA), fur-ther augmented by structural asymmetry via a lightweight Mixture-of-Experts (MoE) to prevent representation collapse (Fig. 2 b). 
+
+Mamba for Ultra-Long Sequences. Let X ∈ RD×H×W ×T denote the input 4D fMRI signal. A dynamic patch resizing first tokenizes X into a sequence Z with real-world physical positional embeddings. Even after aggressively discarding approximately 80% of the purely back-ground patches, the resulting token sequence Z still contains around 4,000 to-kens per subject. Processing sequences of this magnitude with standard self-attention incurs an intractable O(N 2) computational overhead. To accelerate training while preserving the ability to model complex spatial-temporal depen-dencies, we replace the standard self-attention mechanism with the Selective State Space Model (Mamba), which operates in linear time O(N ).During pre-training, a random masking strategy partitions the token se-quence into a visible set V and a masked set M. The context encoder fθ , built upon stacked Mamba blocks, processes only the visible tokens ZV .
+
+Latent Predictive Objective. For the self-supervised proxy task, Masked Autoen-coders (MAE) attempt to reconstruct masked tokens in the raw voxel space. However, fMRI data is notoriously noisy; forcing the network to reconstruct high-frequency voxel-level noise wastes computational capacity and degrades se-mantic representation quality. This issue is amplified in native-space, resolution-heterogeneous fMRI, where a reconstruction decoder would need to balance losses across different voxel grids and acquisition protocols. Meanwhile, given the variable resolution of fMRI inputs, fine-grained data would disproportionately dominate the MAE loss without appropriate weighting. Therefore, we adopt JEPA, which shifts the predictive reconstruction strictly into the semantic la-tent space. The target encoder fξ (sharing the same structural design as fθ ) processes the ground-truth masked tokens ZM to generate latent targets HM. To stabilize learning, the target encoder’s parameters ξ are updated via an exponential mov-ing average (EMA) of the context encoder’s parameters θ and μ is the weight: 
+
+ξ ← μξ + (1 − μ)θ
+
+Asymmetric Encoding via MoE to Prevent Collapse. A fundamental vulnerabil-ity of JEPA is representation collapse, where the encoder trivializes the objec-tive by mapping all inputs to a constant vector. To explicitly combat this, we introduce structural asymmetry between the encoding pathways by appending a lightweight MoE module hψ to the tail of the context encoder. The MoE is not intended to replace JEPA’s standard asymmetric context–target pathways or the EMA target encoder; rather, it complements them by adding token-adaptive transformations on the context side. This architectural asymmetry prevents triv-ial solutions by ensuring that the predictive pathway cannot collapse to a con-stant mapping shared by both encoders. Instead of relying on complex routing FlexiBrain 9
+
+equations, the MoE module simply employs a token-level router to adaptively compute soft mixture weights, routing each visible token to a subset of MLP-based expert networks. This yields enriched, token-adaptive context representa-tions bHV = hψ (fθ (ZV )) .
+
+State-Space Prediction and Loss. To perform the predictive task, we construct a full sequence by scattering the MoE-processed visible tokens bHV back to their original sequence positions and inserting a learned mask token m at the masked locations M. A shallow, Mamba-based predictor gϕ then diffuses information over this sequence to yield latent predictions bHM at the masked locations. We train the model by minimizing the ℓ2 distance between the normalized predictions and the EMA-generated targets: 
+
+L = 1
+
+|M| 
+
+X
+
+> i∈M
+
+bHi
+
+∥ bHi∥2
+
+− Hi
+
+∥Hi∥2
+
+> 22
+
+Downstream Adaptation. For downstream inference, the pre-trained Mamba backbone extracts feature representations from the input tokens. A learnable class token is prepended to this sequence, and the concatenated representation is processed by a lightweight transformer classifier head. Finally, the feature cor-responding to the class token is normalized and passed through an MLP to yield the final prediction logits. 
+
+## 4 Experiments 
+
+4.1 Data Preprocessing 
+
+We leveraged self-supervised training on three public neuroimaging datasets: the Autism Brain Imaging Data Exchange (ABIDE) [8]; the Alzheimer’s Disease Neuroimaging Initiative (ADNI) [13]; the ADHD-200 Sample (ADHD) [6] and used the Parkinson progression marker initiative (PPMI) [19] as an external dataset to assess the model’s generalization performance. These are all multi-site datasets comprising images collected across diverse centers and protocols; consequently, the temporal and spatial resolutions vary significantly across the cohorts. Details of datasets (e.g., voxel spacing and TR distribution) and task can be found in Appendix C . This exclusion was applied solely to match the subject set used by baselines that require structural scans, ensuring a fair comparison. For FlexiBrain, all images retain their temporal and spatial resolution. We further verified that neither temporal resolution nor spatial resolution was associated with the class labels, indicating that resolution heterogeneity does not induce shortcut learning or spurious label–resolution confounds. All images for baselines were preprocessed following the specific requirements in the corresponding paper. 10 M. Wang et al. 
+
+Table 1: Mean accuracy and standard deviations of predictions on disorder diagnosis over three random seeds. The best results are highlighted in bold , and second-best results are underlined. MCI: Mild cognitive impairment; AD: Alzheimer’s disease. * denotes a large effect size with Cohen’s d ≥ 0.8.                                                                                               
+
+> Model ADHD-200 ABIDE ADNI (MCI) ADNI (AD) PPMI
+> ACC% F1% ACC% F1% ACC% F1% ACC% F1% ACC% F1% BrainNetCNN [14] 54.46 ±2.47 53.07 ±3.89 57.90 ±3.25 57.84 ±3.21 59.74 ±4.50 56.48 ±6.04 74.01 ±3.91 66.47 ±4.18 64.24 ±2.41 58.15 ±1.44
+> BrainGNN [18] 55.87 ±3.88 54.93 ±4.46 54.67 ±3.72 53.45 ±3.28 63.20 ±7.38 58.36 ±12 .50 78.53 ±2.59 72.03 ±5.38 55.56 ±4.81 51.31 ±2.99
+> BrainMass [32] 60.78 ±0.49 60.05 ±0.79 63.33 ±1.18 65.35 ±2.00 62.39 ±0.60 61.35 ±0.60 73.45 ±3.91 62.10 ±0.70 58.68 ±4.21 51.95 ±2.23
+> Brain-JEPA [10] 59.74 ±0.23 55.20 ±6.40 59.74 ±2.64 54.94 ±11 .98 64.53 ±0.60 55.17 ±0.66 80.23 ±0.80 79.66 ±1.03 47.91 ±3.61 48.60 ±2.42
+> BrainHarmonix-F [9] 59.74 ±1.43 58.76 ±1.52 54.03 ±0.55 43.04 ±7.12 60.61 ±0.75 51.86 ±5.89 76.84 ±0.98 71.17 ±1.55 65.63 ±3.61 55.19 ±2.42
+> SwiFT [15] 62.50 ±1.50 59.99 ±4.71 61.02 ±0.28 61.36 ±3.05 65.38 ±1.29 72.54 ±0.16 74.90 ±1.88 80.76 ±0.33 61.55 ±2.52 58.23 ±4.20
+> NeuroSTORM [17] 59.51 ±1.01 59.05 ±1.01 54.52 ±2.40 53.04 ±0.70 66.67 ±1.06 62.17 ±8.93 84.26 ±0.80 83.91* ±0.75 68.25 ±1.18 65.18 ±1.19
+> FlexiBrain 69.76* ±1.75 69.85* ±1.69 65.45* ±0.69 64.82 ±0.52 79.16* ±1.48 78.82* ±1.51 82.34 ±2.39 79.41 ±4.42 74.31* ±1.77 70.54* ±1.19
+
+4.2 Disease Diagnosis 
+
+To validate the robustness of our model to heterogeneous data resolutions, we curated a mixed-resolution dataset for self-supervised pre-training by combin-ing three public fMRI sources: ABIDE, ADHD-200, and ADNI. For downstream evaluation, the pretrained model was fine-tuned and benchmarked against mul-tiple baselines on four tasks, using accuracy (ACC) and F1-score as evaluation metrics. Specifically, ABIDE and ADHD-200 were formulated as binary classifi-cation tasks, while ADNI was evaluated using two clinically meaningful binary settings: (i) mild cognitive impairment (MCI) vs. cognitively normal (CN), and (ii) Alzheimer’s disease (AD) vs. CN. To explicitly assess out-of-distribution gen-eralization, we further evaluated the pretrained model on the external, unseen PPMI dataset, where a three-class classification task was performed. Even com-pared to large-scale pretraining baselines [9, 10, 17, 32], our model consistently achieved strong performance as reported in Table 1. Detailed hyperparameter settings, and implementation details for both our model and the baselines are provided in Appendices A and B . We further audited this result under acquisi-tion heterogeneity. PPMI is treated as a leave-one-dataset-out evaluation because it is not used during pretraining; when stratified by voxel spacing, FlexiBrain obtains 74.40% weighted F1 on the dominant higher-resolution bin and 66.96% weighted F1 on the lower-resolution bin (Supplementary Table 4). A controlled PPMI downsampling study shows that performance declines under spatial and temporal degradation, especially when both are degraded, indicating that the physical-unit tokenizer shares parameters across resolutions without collapsing all resolutions into an equivalent representation (Supplementary Table 5). We also include gender prediction on the heterogeneous ABIDE and ADHD-200 co-horts as an additional downstream check (Supplementary Table 6). A stricter ABIDE leave-one-scanner-center-out analysis degrades when the held-out scan-ner center is unseen during both pretraining and downstream training; thus, FlexiBrain addresses resolution heterogeneity, but scanner-center domain shift remains an open challenge. FlexiBrain 11 Temporal duration (s) Spatial resolution (mm) 
+
+> 12 9624 18 12 6
+> 60
+> 66
+> 64
+> 62
+> 68
+> Accuracy (%)
+> Temporal duration = 6 s
+> Temporal duration = 12 s
+> Spatial resolution = 6 mm
+> Spatial resolution = 12 mm
+> Ours
+> Ours
+> 60
+> 66
+> 64
+> 62
+> 68
+
+Fig. 3: Left: Ablation of preprocessing steps on ADNI dataset. Comparison of classification accuracy and preprocessing time between three fMRI states ( Native fMRI, T1w fMRI, Template fMRI), with models trained from scratch. Right: Abla-tion study on patch size. The figure shows the accuracy of classification on ADHD dataset under different temporal duration and spatial resolution. Our settings with 6 s and 12 mm show best performance. AD: Alzheimer’s disease; MCI: Mild cognitive impairment; CN: Cognitively normal. 
+
+4.3 Choice of Preprocessing 
+
+The effect of the transformation on the predictions. Here we used different pre-processing states of fMRI to compare their performance by training the models from scratch. (i) Native fMRI / minimal (ours) : brain extraction only; head-motion parameters and slice-timing information are estimated, and the series remains in native space. (ii) T1w (weighted) fMRI: the native fMRI is first affinely registered to each subject’s T1w anatomical scan, and not nonlinearly warped into a population template. (iii) Template fMRI (standard space): a non-linear warp maps the data to a standard template, which is the most common preprocessing choice to align subjects into a standard space under heterogeneous resolutions. As shown in Fig. 3 Left, the native-space approach achieves the best performance while dramatically reducing preprocessing time from around 5 hours to 3 minutes. We hypothesize that the inferior performance of template fMRI is because spatial normalization reduces inter-subject variability and information entropy, while the requisite interpolation introduces noise artifacts. 
+
+Ablation of Patch Size. We systematically ablate the temporal duration τ and the spatial resolution ρ (Fig. 3 Right). We evaluated performance with ADHD by training it from scratch and find the best settings with τ = 6 seconds and ρ = 12 
+
+millimeters. Increasing τ beyond 6 seconds and ρ beyond 12 millimeters leads to coarser patches that blur details, while very small τ or voxel spacings cause dis-cretization, reducing sensitivity to subtle differences and harming generalization across protocols. 
+
+4.4 Choice of Architecture 
+
+Effectiveness of Mamba over ViT. To validate our backbone choice, we compare the Mamba backbone against a standard attention-based ViT under a compa-rable parameter budget ( ∼50M). Profiling results reveal that the ViT backbone 12 M. Wang et al. 
+
+Table 2: Ablation study on architecture. We compared four downstream tasks under different settings. The best results are highlighted in bold. MCI: Mild cognitive impair-ment; AD: Alzheimer’s disease. 
+
+Backbone Pre-training MoE ABIDE ADHD-200 ADNI (MCI) ADNI (AD) 
+
+ACC% F1% ACC% F1% ACC% F1% ACC% F1% Mamba ✓ ✗ 52.55 52.32 61.86 58.76 71.88 71.63 71.43 70.40 Mamba ✗ ✓ 59.85 59.66 65.98 61.37 68.75 68.25 80.95 80.59 
+
+ViT ✓ ✓ 61.31 60.41 63.92 59.03 66.66 66.60 76.85 72.92 Mamba ✓ ✓ 65.45 64.82 69.76 69.85 79.16 78.82 82.34 79.41 
+
+incurs substantial computational and memory overheads ( 28.24 GFLOPs, 8.29 
+
+GB memory). In contrast, Mamba significantly reduces the resource footprint to just 18.59 GFLOPs and 1.97 GB memory. Beyond these critical efficiency gains, we further evaluated both pre-trained architectures on downstream tasks. As shown in Table 2, the Mamba backbone achieves superior downstream per-formance. We attribute this empirical advantage to Mamba’s inherent capacity for modeling ultra-long, irregular voxel sequences (nearly 4,000 tokens), effec-tively bypassing the quadratic context bottleneck that degrades representation learning in standard self-attention mechanisms. Target Embedding Similarity         
+
+> Functional
+> Processing
+> Native fMRI Template fMRI
+> Resolution
+> Align
+> ~300 mins Time cost
+> Alignment
+> ~3mins
+> ROI -based fMRI
+> parcels
+> 1
+> 2
+> N
+> 3
+> t
+> Diverse
+> Subject -Specific Template -Aligned
+> Unified
+> Template -Aligned
+> ~300 mins
+> Unified
+> With MoE
+> Mean=0.2037, Std=0.2749
+> Token index
+> 01396
+> Token index
+> 01396
+> Token index
+> 0
+> 1396
+> 0
+> 1
+> Without MoE
+> Mean=0.6942, Std=0.5148
+
+Fig. 4: Target embedding similarity matrix exhibits strong vertical/horizontal streaks, indicating low-rank, directional convergence to a few dominant directions. 
+
+MoE and Pre-training. We com-pared the performance of our model with and without the MoE and pre-training. As shown in Table 2, there is a noticeable decline in model per-formance when the MoE module or the pre-training stage is removed. Pre-training on diverse data allows the model to learn a robust and generaliz-able feature representation. This rep-resentation serves as an initial distri-bution for fine-tuning, which in turn significantly boosts performance and data efficiency on downstream tasks. MoE effectively prevents model col-lapse. We visualized the tokens out-put by the target encoder (ordered by the position of tokens in the flattened 1D sequence of valid patch tokens) in cosine-similarity map (Fig. 4), which reveals a marked difference in representa-tional geometry. With MoE, the mean similarity drops substantially and the pat-tern becomes fine-grained and predominantly near-diagonal, indicating content-dependent structure rather than convergence to a few dominant directions. Ad-ditional experiments are provided in Appendix B .FlexiBrain 13 
+
+4.5 Interpretability Native fMRI  Template fMRI                                             
+
+> Native fMRI Template fMRI
+> ad mci cn ad mci cn
+> cn  mci  ad  cn  mci  ad
+> 0
+> 1
+> Native fMRI Template fMRI
+> Native fMRI Template fMRI
+> ad mci cn ad mci cn
+> cn  mci  ad  cn  mci  ad
+> -1
+> 1
+> Target
+> Source
+> 0.30
+> 0.30 0.20 0.52 0.61 1.00
+> 0.07 0.10 0.25 0.52 0.71
+> 0.01 0.14 0.34 0.51 0.69
+> -1.00 -0.50 -0.55 0.11 0.52
+> -0.45 -0.25 -0.24 0.59 0.61
+> -0.58 -0.42 -0.49 -0.16 0.09
+> 0.20 0.52 0.61 1.00
+> 0.10 0.25 0.52 0.71
+> 0.34 0.51 0.69
+> 0.11 0.52
+> 0.61
+
+Fig. 5: Transfer task illustrates the nor-malized domain relations and disease-dependent transferability. Warm color de-notes higher transferability, while cool colors indicate weaker transfer. 
+
+Transfer learning improves perfor-mance on a target task by leverag-ing knowledge acquired from a related source task. In general, stronger trans-fer gains indicate a closer relation-ship between the source and target tasks, thereby revealing their under-lying structural and semantic connec-tions [21, 22, 34]. Following this princi-ple, we employ a taskonomy-based anal-ysis to investigate whether native-space fMRI data capture richer individual-specific and structural information than template-space data, leading to im-proved transferability. Specifically, we train six source models using ADNI data across two spatial domains—Native space (FSL) and Template space (MNI)—and three diagnostic groups (AD, MCI, CN). This results in 30 directed source-to-target transfer experiments. All models share the same architecture and training objective as used during pretraining. For each ordered task pair (s, t ), we freeze the encoder pretrained on the source task and fine-tune a lightweight decoder on a small subset of the target task for 30 epochs, yielding a transfer loss Ls→t, where lower values indicate stronger transferability. For visualization, we apply global min–max normalization to map transfer scores to [−1, 1] and render the resulting taskonomy matrix as a heatmap (Fig. 5). The taskonomy reveals clear relationships between spatial domain choice and diagnostic transferability. Cross-domain transfers from Native-space fMRI (FSL) to Template-space fMRI (MNI) outperform the reverse direction, suggesting that native-space representations preserve richer individual-specific and structural in-formation, whereas template normalization improves spatial alignment at the cost of smoothing subject-specific signals. Within-domain transfers, both in Na-tive and Template spaces, exhibit consistently lower transfer losses, indicating strong internal consistency under a shared spatial processing framework. Across both within- and cross-domain transfers, AD demonstrates the strongest transferability, likely due to its pronounced and diverse pathological patterns. MCI shows intermediate transfer performance, consistent with its transitional clinical nature, while CN exhibits weaker cross-diagnostic transferability, reflect-ing more stable brain activity and reduced signal variability. Together, these results indicate that native-space representations contain richer transferable in-formation and that disease-related heterogeneity plays a key role in determining transferability across diagnostic tasks. 14 M. Wang et al. 
+
+## 5 Discussion 
+
+The transition from ROI-based analysis to fine-grained voxel-level modeling represents a natural evolution in fMRI research, analogous to the shift from static images to video modeling in computer vision. However, current voxel-level pipelines remain tightly coupled to heavy preprocessing, particularly spatial nor-malization to a common template. While such alignment enables cross-subject comparison, it also introduces structural and scalability constraints. First, template normalization inevitably alters subject-specific anatomical variability through interpolation and smoothing, potentially degrading analyses that depend on fine-grained structural fidelity. Second, the computational cost and diversity of preprocessing standards limit reproducibility and scalability. These issues become critical in the era of foundation models, where training on tens of thousands of subjects makes repeated large-scale normalization econom-ically and practically prohibitive. As open neuroimaging datasets continue to grow, this scalability bottleneck becomes increasingly prominent. In this work, we propose FlexiBrain, a native-space voxel-level architecture that shifts the burden of alignment from data preprocessing to model design. The central challenge of native fMRI lies in resolution heterogeneity across datasets. While temporal inconsistencies have been partially addressed in prior work [9], voxel-level spatial heterogeneity has remained largely unexplored. FlexiBrain addresses this challenge at the tokenization level. By defining patches in physical units (millimeters and seconds) and dynamically resizing embedding kernels, the model preserves consistent anatomical and temporal re-ceptive fields across heterogeneous resolutions. Real-world coordinate positional encoding further enforces semantic consistency in native space, enabling param-eter sharing without destructive resampling. To make voxel-level modeling computationally feasible, we instantiate Flex-iBrain with a Mamba-JEPA backbone. Linear-complexity state-space modeling replaces quadratic self-attention, enabling scalable processing of high-resolution 4D volumes. Meanwhile, the JEPA formulation shifts learning from voxel-wise reconstruction toward latent predictive objectives, avoiding heavy decoders and focusing representation learning on informative spatiotemporal dynamics. Across five downstream neuroscience tasks, FlexiBrain consistently outperforms recent state-of-the-art methods while operating directly in native space. 
+
+Limitations and Future Work. Although FlexiBrain demonstrates the feasibil-ity of template-free native-space modeling, several limitations remain. First, our experiments focus on disease-specific downstream tasks rather than training a large-scale foundation model. While the resolution-adaptive design is inherently suited to heterogeneous cohorts, validating its effectiveness in a truly large-scale pretraining setting remains future work. Second, we operate on minimally pre-processed native fMRI (e.g., motion-corrected) to ensure temporal consistency within sessions. Extending the framework to raw acquisition data would move closer to a fully end-to-end learning paradigm, potentially reducing reliance on traditional preprocessing pipelines and enabling the utilization of data currently FlexiBrain 15 
+
+excluded during quality control. Finally, while FlexiBrain enables parameter sharing across resolutions, acquisition-specific artifacts and scanner variability remain open challenges for native-space modeling. Our leave-one-scanner-center-out analysis indicates that resolution-adaptive tokenization alone does not elim-inate domain shift when a scanner center is absent from both pretraining and downstream training. Addressing these factors may further enhance robustness and cross-dataset generalization. Future work should combine physical-unit tok-enization with explicit site harmonization, nuisance auditing, or domain-adaptive pretraining for deployment across unseen acquisition centers. 
+
+## 6 Conclusion 
+
+We present FlexiBrain, a resolution-adaptive voxel-level framework for native fMRI modeling. By redefining tokenization in physical units and introducing dynamic patch resizing, FlexiBrain removes resolution heterogeneity as a barrier to parameter sharing across datasets. Combined with an efficient Mamba-JEPA backbone, the framework enables scalable representation learning directly in native space without template normalization. Our results demonstrate that native-space modeling can achieve superior performance while reducing computational overhead, suggesting a promising di-rection for future fMRI foundation models. We hope this work encourages a shift from data-centric alignment toward model-centric adaptation in large-scale neuroimaging research. 
+
+## References 
+
+1. Bellec, P., Chu, C., Chouinard-Decorte, F., Benhajali, Y., Margulies, D.S., Crad-dock, R.C.: The neuro bureau adhd-200 preprocessed repository. Neuroimage 144 ,275–286 (2017) 2. Belliveau, J.W., Kennedy, D.N., McKinstry, R.C., Buchbinder, B.R., Weisskoff, R.M., Cohen, M.S., Vevea, J., Brady, T.J., Rosen, B.R.: Functional mapping of the human visual cortex by magnetic resonance imaging. Science 254 (5032), 716– 719 (1991) 3. Beyer, L., Izmailov, P., Kolesnikov, A., Caron, M., Kornblith, S., Zhai, X., Min-derer, M., Tschannen, M., Alabdulmohsin, I.M., Pavetic, F.: Flexivit: One model for all patch sizes. 2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) pp. 14496–14506 (2022), https://api.semanticscholar. org/CorpusID:254685937 
+
+4. Bycroft, C., Freeman, C., Petkova, D., Band, G., Elliott, L.T., Sharp, K., Motyer, A., Vukcevic, D., Delaneau, O., O’Connell, J., et al.: The uk biobank resource with deep phenotyping and genomic data. Nature 562 (7726), 203–209 (2018) 5. Caro, J.O., Fonseca, A.H.d.O., Averill, C., Rizvi, S.A., Rosati, M., Cross, J.L., Mittal, P., Zappala, E., Levine, D., Dhodapkar, R.M., et al.: Brainlm: A foundation model for brain activity recordings. bioRxiv pp. 2023–09 (2023) 6. consortium, A..: The adhd-200 consortium: a model to advance the translational potential of neuroimaging in clinical neuroscience. Frontiers in systems neuro-science 6, 62 (2012) 16 M. Wang et al. 7. Craddock, C., Benhajali, Y., Chu, C., Chouinard, F., Evans, A., Jakab, A., Khun-drakpam, B.S., Lewis, J.D., Li, Q., Milham, M., et al.: The neuro bureau prepro-cessing initiative: open sharing of preprocessed neuroimaging data and derivatives. Frontiers in Neuroinformatics 7(27), 5 (2013) 8. Di Martino, A., Yan, C.G., Li, Q., Denio, E., Castellanos, F.X., Alaerts, K., An-derson, J.S., Assaf, M., Bookheimer, S.Y., Dapretto, M., et al.: The autism brain imaging data exchange: towards a large-scale evaluation of the intrinsic brain ar-chitecture in autism. Molecular psychiatry 19 (6), 659–667 (2014) 9. Dong, Z., Li, R., Chong, J.S.X., Dehestani, N., Teng, Y., Lin, Y., Li, Z., Zhang, Y., Xie, Y., Ooi, L.Q.R., et al.: Brain harmony: A multimodal foundation model unifying morphology and function into 1d tokens. arXiv preprint arXiv:2509.24693 (2025) 10. Dong, Z., Li, R., Wu, Y., Nguyen, T.T., Chong, J., Ji, F., Tong, N., Chen, C., Zhou, J.H.: Brain-jepa: Brain dynamics foundation model with gradient positioning and spatiotemporal masking. Advances in Neural Information Processing Systems 37 ,86048–86073 (2024) 11. Esteban, O., Markiewicz, C.J., Blair, R.W., Moodie, C.A., Isik, A.I., Erramuzpe, A., Kent, J.D., Goncalves, M., DuPre, E., Snyder, M., et al.: fmriprep: a robust preprocessing pipeline for functional mri. Nature methods 16 (1), 111–116 (2019) 12. Glasser, M.F., Sotiropoulos, S.N., Wilson, J.A., Coalson, T.S., Fischl, B., Ander-sson, J.L., Xu, J., Jbabdi, S., Webster, M., Polimeni, J.R., et al.: The minimal preprocessing pipelines for the human connectome project. Neuroimage 80 , 105– 124 (2013) 13. Jack Jr, C.R., Bernstein, M.A., Fox, N.C., Thompson, P., Alexander, G., Harvey, D., Borowski, B., Britson, P.J., L. Whitwell, J., Ward, C., et al.: The alzheimer’s disease neuroimaging initiative (adni): Mri methods. Journal of Magnetic Reso-nance Imaging: An Official Journal of the International Society for Magnetic Res-onance in Medicine 27 (4), 685–691 (2008) 14. Kawahara, J., Brown, C.J., Miller, S.P., Booth, B.G., Chau, V., Grunau, R.E., Zwicker, J.G., Hamarneh, G.: Brainnetcnn: Convolutional neural networks for brain networks; towards predicting neurodevelopment. NeuroImage 146 , 1038– 1049 (2017) 15. Kim, P., Kwon, J., Joo, S., Bae, S., Lee, D., Jung, Y., Yoo, S., Cha, J., Moon, T.: Swift: Swin 4d fmri transformer. Advances in Neural Information Processing Systems 36 , 42015–42037 (2023) 16. Kwon, J., Seo, J., Wang, H., Moon, T., Yoo, S., Cha, J.: Predicting task-related brain activity from resting-state brain dynamics with fmri transformer. Imaging Neuroscience 3, imag_a_00440 (2025) 17. Li, X., Wang, C., Jiang, Y., PENG, Z., Li, C., Bang, C., Zhao, L., Lv, J., Sepulcre, J., Yang, C., et al.: Towards a general-purpose foundation model for fmri analysis (2025) 18. Li, X., Zhou, Y., Dvornek, N., Zhang, M., Gao, S., Zhuang, J., Scheinost, D., Staib, L.H., Ventola, P., Duncan, J.S.: Braingnn: Interpretable brain graph neural network for fmri analysis. Medical Image Analysis 74 , 102233 (2021) 19. Marek, K., Jennings, D., Lasch, S., Siderowf, A., Tanner, C., Simuni, T., Coffey, C., Kieburtz, K., Flagg, E., Chowdhury, S., et al.: The parkinson progression marker initiative (ppmi). Progress in neurobiology 95 (4), 629–635 (2011) 20. Peng, Y.P., Cheung, V.K., Su, L.: Whole-brain transferable representations from large-scale fmri data improve task-evoked brain activity decoding (2025), https: //api.semanticscholar.org/CorpusID:280391640 FlexiBrain 17 21. Qu, Y., Jian, X., Che, W., Du, P., Fu, K., Liu, Q.: Transfer learning to decode brain states reflecting the relationship between cognitive tasks. In: International Workshop on Human Brain and Artificial Intelligence. pp. 110–122. Springer (2022) 22. Qu, Y., Xia, J., Jian, X., Li, W., Peng, K., Liang, Z., Wu, H., Liu, Q.: Uncover-ing cognitive taskonomy through transfer learning in masked autoencoder-based fmri reconstruction. In: International Workshop on Human Brain and Artificial Intelligence. pp. 35–50. Springer (2024) 23. Satterthwaite, T.D., Connolly, J.J., Ruparel, K., Calkins, M.E., Jackson, C., El-liott, M.A., Roalf, D.R., Prabhakaran, K., Hopson, R., Behr, M., Qiu, H., Mentch, F.D., Chiavacci, R., Sleiman, P.M.A., Gur, R.C., Hakonarson, H., Gur, R.E.: The philadelphia neurodevelopmental cohort: A publicly available resource for the study of normal and abnormal brain development in youth. NeuroImage (2016) 24. Scotti, P., Banerjee, A., Goode, J., Shabalin, S., Nguyen, A., Dempster, A., Ver-linde, N., Yundler, E., Weisberg, D., Norman, K., et al.: Reconstructing the mind’s eye: fmri-to-image with contrastive learning and diffusion priors. Advances in Neu-ral Information Processing Systems 36 , 24705–24728 (2023) 25. Scotti, P.S., Tripathy, M., Villanueva, C.K.T., Kneeland, R., Chen, T., Narang, A., Santhirasegaran, C., Xu, J., Naselaris, T., Norman, K.A., et al.: Mindeye2: Shared-subject models enable fmri-to-image with 1 hour of data. arXiv preprint arXiv:2403.11207 (2024) 26. Sun, Y., Chahine, D., Wen, Q., Liu, T., Li, X., Yuan, Y., Calamante, F., Lv, J.: Voxel-level brain states prediction using swin transformer. ArXiv abs/2506.11455 
+
+(2025), https://api.semanticscholar.org/CorpusID:279392087 
+
+27. Van Essen, D.C., Smith, S.M., Barch, D.M., Behrens, T.E., Yacoub, E., Ugurbil, K., Consortium, W.M.H., et al.: The wu-minn human connectome project: an overview. Neuroimage 80 , 62–79 (2013) 28. Wang, M., Peng, K., Tang, J., Wen, H., Liu, Q.: Dca: Graph-guided deep embed-ding clustering for brain atlases. arXiv preprint arXiv:2509.01426 (2025) 29. Wang, M., Xia, J., Ye, W., Liu, E., Peng, K., Feng, J., Liu, Q., Wen, H.: Slim-brain: A data-and training-efficient foundation model for fmri data analysis. arXiv preprint arXiv:2512.21881 (2025) 30. Wang, M., Ye, W., Xia, J., Zhang, J., Pan, X., Xu, M., Deng, H., Wen, H., Liu, Q.: Omni-fmri: A universal atlas-free fmri foundation model. arXiv preprint arXiv:2601.23090 (2026) 31. Xia, J., Ye, W., Pan, X., Shen, X., Wang, M., Liu, Q.: Brain-dit: A universal multi-state fmri foundation model with metadata-conditioned pretraining. arXiv preprint arXiv:2604.12683 (2026) 32. Yang, Y., Ye, C., Su, G., Zhang, Z., Chang, Z., Chen, H., Chan, P., Yu, Y., Ma, T.: Brainmass: Advancing brain network analysis for diagnosis with large-scale self-supervised learning. IEEE Transactions on Medical Imaging (2024) 33. Ye, Z., Qu, Y., Liang, Z., Wang, M., Liu, Q.: Explainable fmri-based brain decoding via spatial temporal-pyramid graph convolutional network. Human Brain Mapping 
+
+44 (7), 2921–2935 (2023) 34. Zamir, A.R., Sax, A., Shen, W., Guibas, L.J., Malik, J., Savarese, S.: Taskonomy: Disentangling task transfer learning. In: Proceedings of the IEEE conference on computer vision and pattern recognition. pp. 3712–3722 (2018) 18 M. Wang et al. 
+
+# Supplementary Material 
+
+## A Training details 
+
+We trained our model following the settings outlined in Table 3 for pre-training and downstream evaluation. The data were split into training, validation, and test sets with a ratio of 7:1:2. During the pre-training phase, model selection was based on the validation loss, with the best model was selected at epoch 54 for downstream evaluation. For the downstream evaluation, we conducted a grid search over key hyperparameters, including learning rate, weight decay, and the classifier MLP ratio. This search was performed with a fixed seed, and the opti-mal hyperparameter configuration for each dataset was determined across three random seeds. For both pre-training and downstream evaluation, we conducted our experiments on NVIDIA-L40S (48GB) devices with Batch sizes and gradient accumulation steps given below (Table 3) 
+
+## B Robustness and Additional Analyses 
+
+This section collects the additional analyses added after reviewer discussion. The goal is to separate resolution heterogeneity, which FlexiBrain is designed to handle, from broader scanner-center domain shift, which remains a harder deployment problem for native-space modeling. PPMI is not used during pretraining and therefore serves as a leave-one-dataset-out external test. The lower-resolution bin is smaller and more imbal-anced, so we interpret the result cautiously; nevertheless, the stratification shows that the external performance is not explained solely by one averaged metric over a single acquisition setting. Starting from the original native-resolution PPMI data, we generated de-graded variants by reducing temporal resolution, spatial resolution, or both by a factor of two. The performance drop under degradation, especially joint spa-tiotemporal downsampling, suggests that the model remains sensitive to infor-mation carried by higher-resolution fMRI while using physical-unit tokenization as a stable interface for parameter sharing. We additionally conducted a stricter zero-shot cross-site analysis on ABIDE using leave-one-scanner-center-out evaluation, where the held-out center is un-seen during both pretraining and downstream training. Performance degrades in this setting. This result separates resolution heterogeneity from broader scanner-center domain shift: FlexiBrain can process heterogeneous voxel spacings, but transfer to completely unseen acquisition centers may require harmonization, nuisance control, or domain adaptation. FlexiBrain 19 
+
+Table 3: Hyperparameter settings of our model. (GAS: Gradient accumulation steps; BS: Batch size) 
+
+config value 
+
+Pre-train configs 
+
+optimizer AdamW optimizer momentum β1, β 2 = 0 .9, 0.999 
+
+learning rate schedule warmup cosine schedule learning rate 5 × 10 −4
+
+weight decay 0.05 warmup epochs 3total batch size 4GAS × 4 BS = 16 training epochs 100 EMA momentum schedule linear EMA start momentum 0.996 EMA final momentum 0.9999 temporal duration 6s spatial resolution 12mm encoder depth 24 predictor depth 2mask ratio 0.65 embedding dimension 512 
+
+Downstream configs 
+
+learning rate schedule linear warmup and decay learning rate 1 × 10 −5
+
+weight decay 0.05 total batch size 4GAS × 4 BS = 16 warmup epochs 2training epochs 30 classifier head depth 2classifier head mlp ratio 4.0 classifier head drop rate 0.1 
+
+## C Details of baseline models 
+
+C.1 Introduction of baseline models 
+
+In this section, we introduce our baselines models. First three foundational mod-els for brain activity prediction: BrainMASS [32], Brain-JEPA [10], and Brain-Harmonix [9], each of which uses distinct parcellation schemes and is trained on large-scale, multi-site fMRI datasets. We also fine-tuned our downstream tasks using other end-to-end models: BrainNetCNN [14], BrainGNN [18] and SwiFT [15]. BrainMASS utilizes the Schaefer 100-region atlas to parcellate brain net-works. It was trained across 26 datasets, totaling 64,584 subjects, including data 20 M. Wang et al.  
+
+> Table 4: Resolution-stratified performance on the held-out PPMI dataset. Values are BACC/wF1 (%). Label counts are Prodromal/PD.
+
+Group n Labels BACC / wF1 
+
+All, TR=2.5s 90 61 / 29 69.39 / 74.05 Voxel 3.5 ×3.5 ×3.5 58 36 / 22 73.86 / 74.40 
+
+Voxel 3.5 ×3.5 ×3.6 32 25 / 7 48.00 / 66.96   
+
+> Table 5: Spatial and temporal downsampling on PPMI. Results are reported as BACC/wF1 (%).
+
+Condition Pretraining End-to-end 
+
+Original 67.05 / 68.97 70.83 / 68.12 
+
+T ×2 63.38 / 65.52 65.52 / 62.55 S ×2 61.74 / 65.36 67.24 / 67.57 S+T ×2 58.96 / 62.55 63.79 / 63.62 
+
+from UKB, HCP, and ADHD-200. This model focuses on learning representa-tions of functional brain networks by incorporating both masked ROI modeling and latent representation alignment techniques to improve its diagnostic capa-bilities. Brain-JEPA integrates a more complex parcellation strategy by combining the Schaefer-400 cortical regions with the Tian-Scale III subcortical regions, resulting in 450 regions of interest (ROIs). Trained on 80 % of the UKB data, it employs a joint-embedding predictive architecture, incorporating both spatial and temporal masking to capture dynamic brain activity patterns. BrainHarmonix is a recent multimodal framework designed to harmonize structural and functional neuroimaging signals while addressing variability in acquisition protocols (for example, differences in repetition times in fMRI). The model jointly incorporates structural MRI (T1-weighted) data along with func-tional connectivity from fMRI, introducing a pretraining strategy that aligns representations across different modalities and scanning conditions. BrainNetCNN is a convolutional neural network specifically designed for an-alyzing connectome-structured data. Unlike traditional models that operate on images or graphs, BrainNetCNN uses specialized filters—edge-to-edge, edge-to-node, and node-to-graph convolutional filters—that directly model pairwise con-nectivity patterns. In our experiments, the model takes as input a functional con-nectivity (FC) matrix, which is computed using Pearson correlation coefficients between regional fMRI time series. BrainGNN extends the capabilities of graph neural networks to analyze brain data at the population level by learning interpretable node- and region-specific biomarkers. For each subject, the FC matrix serves as the node-level feature rep-FlexiBrain 21       
+
+> Table 6: Additional gender classification results. Values are ACC/wF1 (%).
+> Model ABIDE ADHD-200
+> NeuroSTORM 80.00 / 75.06 59.47 / 54.34 FlexiBrain 83.33 / 76.77 71.05 / 70.08
+
+resentation, while the target label provides supervision to facilitate the discovery of anatomically meaningful subgraphs. Partial correlations between fMRI time series are utilized as edge attributes, enabling the model to capture conditional dependencies between brain regions rather than just simple pairwise correlations. SwiFT (Swin 4D fMRI Transformer) tackles the challenge of modeling high-dimensional spatiotemporal brain dynamics by learning directly from raw 4D fMRI volumes, avoiding the information loss of hand-crafted features [15]. Through its 4D windowed attention and efficient architecture, SwiFT outperforms re-cent state-of-the-art models on large-scale datasets. Additionally, contrastive self-supervised pretraining further enhances its downstream performance, high-lighting SwiFT’s effectiveness as an end-to-end framework for functional brain imaging. 
+
+C.2 Hyperparameters & Metric 
+
+For a fair comparison of the baseline models, we conduct baseline experiments with three random seeds: 0, 42, 999, as opposed to the random split policy used in BrainHarmonix [9]. This approach helps us evaluate the stability of different architectures. We perform a grid search for key hyperparameters while also adhering to the default hyperparameter settings when provided. To address the misleading nature of accuracy on imbalanced datasets, we report weighted F1 scores. The hyperparameter sweeps involve combinations of learning rates ( lr ∈{0.01 , 0.005 , 0.001 , 0.0005 , 0.0001 }) and weight decay ( wd ∈ { 0.05 , 0.005 , 0.0005 }). After completing the hyperparameter sweeps for a fixed seed, we select the best hyperparameter combinations per dataset based on two criteria: either the com-bination achieves the highest accuracy, or it is the closest to the default hyper-parameters. For the multi-modality model BrainHarmonix [9], we follow the guidelines provided in the official code. We conduct T1 and fMRI fusion experiments on the ADNI and PPMI datasets, as well as fMRI-based experiments on all available datasets. Due to a lack of detailed information, we report the results of the Full Finetuned BrainHarmonix-F model, following a similar process to that of Brain-Harmonix. The baseline models are finetuned on a slurm system with NVIDIA-L40S (48GB) devices. BrainHarmonixs are trained using the distributed training to accelerate the process. The batch size may vary to fully utilize the GPU mem-ory. 22 M. Wang et al. 
+
+C.3 Ablation on data size 
+
+We further evaluate the data efficiency of our model under a few-shot fine-tuning setting on the PPMI dataset. The data are partitioned into training, validation and test sets with a 7:1:2 ratio. We then subsample the training split and fine-tune the model using only 10 %, 20 %, 40 %, 80 % and 100 % of the available training samples for the three-class classification task. As reported in Table 7, our model achieved 58.33 % ACC and 49.92 % F1 when only 10 % of the training data are used, and its performance improves steadily as more data become available, reaching 76.04 % ACC and 71.94 % F1 with the full training set. These results highlight the strong label efficiency and robustness of our approach in low-data regimes.  
+
+> Table 7: Few-shot performance on PPMI
+
+Data Portion 10% 20% 40% 80% 100% ACC % 58.33 62.50 63.54 66,67 76.04 F1 % 49.92 58.63 61.66 64.42 71.94 
+
+C.4 Ablation on patch size 
+
+We systematically ablate the temporal duration τ and the spatial resolution ρ
+
+as shown in main text. We report the detailed values in Table 8. We evaluated performance with ADHD by training it from scratch and find the best settings with τ = 6 seconds and ρ = 12 millimeters. Increasing τ beyond 6 seconds and ρ
+
+beyond 12 millimeters leads to coarser patches that blur details, while very small 
+
+τ or voxel spacings cause discretization, reducing sensitivity to subtle differences and harming generalization across protocols.                              
+
+> Table 8: Ablation study of patch size on the ADHD dataset.
+> Space Temporal 6s 12s 18s ACC% F1 % ACC % F1 % ACC% F1 % 9mm 64.95 57.07 62.89 55.62 61.86 58.76 12mm 65.98 61.37 64.95 57.07 64.95 64.95
+> 18mm 63.92 57.34 61.86 60.65 61.86 58.76 24mm 61.86 54.90 60.82 50.76 59.79 55.88 FlexiBrain 23
+
+C.5 Analysis of JEPA Collapse 
+
+To systematically analyze the collapse of JEPA more meticulously, we computed the mean Effective Rank and Cosine Similarity of features as shown in the Ta-ble 9, in the model with MoE, the context features exhibit a higher effective rank and lower cosine similarity, indicating greater feature independence and diversity. In contrast, the prediction features in the model without MoE have a lower effective rank (60.15) and higher cosine similarity (0.7967), suggesting greater redundancy and potential information compression. The target features in the MoE model are also more dispersed, reflecting a broader distribution. To qualitatively analyze the collapse, we visualize the features output by the two encoders and the predictor. It is evident that the features from the model with MoE exhibit greater detail and dynamics, rather than converging into a limited set of patterns. (See Fig. 6).                       
+
+> Table 9: Collapse metrics
+> MoE Effective Rank ↑Cosine Similarity ↓
+> Context ✗145.94 0.4641 Target ✗60.15 0.7967 Pred ✗207.66 0.6786 Context ✓237.18 0.4181 Target ✓144.27 0.3247 Pred ✓178.37 0.2274
+
+## D Details of datasets and task 
+
+In this section, we detailed all the datasets with classification task. And we also give the distribution of spatiotemporal resolutions of different datasets (see Fig. 7). 
+
+D.1 Autism Brain Imaging Data Exchange 
+
+The Autism Brain Imaging Data Exchange (ABIDE) is a multi-site, open-access initiative that aggregates structural and resting-state fMRI scans - alongside rich phenotypic data - from individuals with autism spectrum disorder (ASD) and matched typically developing controls to accelerate reproducible neuroimaging research. In our experiments, we utilize 688 subjects [8]. 
+
+D.2 Attention Deficit Hyperactivity Disorder 
+
+The Attention Deficit Hyperactivity Disorder (ADHD-200) is an open multi-site neuroimaging resource with resting-state fMRI across eight contributing centers. 24 M. Wang et al.  
+
+> Fig. 6: Feature heatmaps showing the outputs of the context encoder, target encoder and predictor. The features in the upper section, without MoE, exhibit simpler patterns with lower variability in both the features and predictions. In contrast, the features in the lower section, with MoE, demonstrate a more complex representation of the context and target features, along with more diverse and accurate predictor outputs.
+
+For the classification task we merged all ADHD subtypes (Combined/Inattentive/Hyperactive-Impulsive) into a single ADHD label and treat typically developing controls as TDC with 481 subjects [6]. 
+
+D.3 Alzheimer’s Disease Neuroimaging Initiative 
+
+The Alzheimer’s Disease Neuroimaging Initiative (ADNI) is a large-scale, longi-tudinal, multi-center project initiated in 2004, designed to collect and publicly share rich multimodal biomarker, imaging, genetic, biofluid and clinical data from cognitively normal older adults, individuals with mild cognitive impair-ment (MCI) and patients with Alzheimer’s disease (AD). For our task, we sep-arated disorders into two classification with healthy controls at a total of 239 subjects [13]. 
+
+D.4 Parkinson’s Progression Markers Initiative 
+
+The Parkinson’s Progression Markers Initiative (PPMI) is an ongoing, interna-tional, longitudinal observational study launched in 2010 by The Michael J. Fox Foundation to identify and validate biomarkers of Parkinson’s disease (PD) risk, FlexiBrain 25 
+
+> Fig. 7: Distribution of Spatiotemporal Resolution
+
+onset, and progression. We combined two different diseases and healthy con-trols from the PPMI dataset to create a three-class classification task with 474 subjects [19]. 
+
+## E Details of Transfer learning 
+
+We use transfer learning to reveal the domain relationship for interpretability. Let (xT , y T ) denote target samples and labels, and let θS be the parameters pretrained on the source domain. Transfer learning adapts the source model to the target by optimizing 
+
+min 
+
+> θT
+
+E(xT ,y T )
+
+L f (xT ; θT | θS ), y T
+
+ , (4) where f (·; θT | θS ) represents the target model initialized from θS , and L is loss on the target domain. In practice, the encoder from θS is frozen, and only the lightweight decoder is fine-tuned on a small subset of target data to evaluate cross-task transferability. This design ensures that differences in transfer perfor-mance primarily reflect the quality and domain-specificity of the learned repre-sentations, rather than optimization effects or capacity differences. All transfers share identical training schedules, batch sizes, and optimization hyperparam-eters, following the same settings as pretraining where applicable, to ensure experimental consistency. The transferability from a source s to a target t is quantified by the transfer gap :
+
+∆L s→t = Lgold  
+
+> t
+
+− Ls→t, (5) where Ls→t is the target loss after transfer learning and Lgold  
+
+> t
+
+represents the loss of the gold model trained on the full target domain. A negative ∆L s→t
+
+indicates positive transfer, suggesting that knowledge from the source domain improves the target performance. This framework allows us to systematically quantify domain relationships, assess the robustness of representations under domain shift, and reveal how diagnostic categories (AD, MCI, CN) influence the ease of cross-domain adaptation.

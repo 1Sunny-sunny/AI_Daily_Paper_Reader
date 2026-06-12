@@ -1,0 +1,866 @@
+Title: Flow Matching with In-Context Priors for Out-of-Distribution Brain Dynamics
+
+URL Source: https://arxiv.org/pdf/2606.11833v1
+
+Published Time: Thu, 11 Jun 2026 01:05:49 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# Flow Matching with In-Context Priors for Out-of-Distribution Brain Dynamics 
+
+Sam Gijsen ∗ Michał Łukomski Marc-André Schulz Kerstin Ritter 
+
+Hertie Institute for AI in Brain Health, University of Tübingen, Germany Tübingen AI Center, University of Tübingen, Germany Charité – Universitätsmedizin Berlin, Department of Psychiatry and Psychotherapy, Germany German Center for Mental Health (DZPG), partner site Tübingen, Germany 
+
+Abstract 
+
+Flow matching and diffusion models enable conditional generation across domains ranging from images to proteins, with recent extensions to out-of-distribution contexts. Yet generative models of neural time series have largely remained restricted to categorical conditioning, precluding compositional and zero-shot generalization. In this work, we propose a per-timestep conditioned diffusion transformer for generating realistic fMRI brain dynamics during unseen cognitive tasks by injecting both compositional language and optional spatial priors in-context. Such zero-shot generation could enable counterfactual neuroscience by supporting in-silico design and evaluation of novel cognitive experiments before empirical validation. Leveraging this model, we evaluate across hundreds of held-out task conditions and characterize predictive performance in relation to the training manifold. From language alone, the model recovers region-specific recruitment across tasks and held-out spatial activation patterns. Spatial priors, when available, complement the text pathway by anchoring generation in regions of task space where language alone degrades, while retaining the compositional structure needed for counterfactual task specification. To our knowledge this is the first generative model of whole-cortex fMRI dynamics for unseen cognitive tasks, advancing counterfactual neuroscience and data-driven experimental design. 
+
+1 Introduction 
+
+Generative models trained to map a noise distribution to a target data distribution produce realistic samples across many modalities [Sohl-Dickstein et al., 2015, Lipman et al., 2022], including images [Rombach et al., 2022], audio [Liu et al., 2023], molecules [Hoogeboom et al., 2022], and proteins [Watson et al., 2023]. Much of the progress in conditional generation has been driven by conditioning on high-dimensional, continuous signals. Language model embeddings have proven especially effective: they provide a structured semantic space that supports compositional generalization [Radford et al., 2021, Saharia et al., 2022, Liu et al., 2023], while also enabling novel conditioning signals to be specified at inference time. For biological time series, however, it remains unclear how such conditioning can support extrapolation to experimental conditions that were never observed during training. Such generalization is particularly relevant for biological data: acquisition is costly and candidate interventions vastly outnumber measured examples. The promise is clearly evident in molecular and protein design, where generative models produce realistic samples even away from the direct training support [Lee et al., 2023, Watson et al., 2023]. Yet, generative models of neural time series have largely remained restricted to discrete categorical conditioning such as sex, disease labels, or  
+
+> ∗samgijsen@gmail.com, sam.gijsen@charite.de
+> Preprint. Code and pretrained models available at https://github.com/SamGijsen/pinc-flows
+> arXiv:2606.11833v1 [cs.LG] 10 Jun 2026
+
+experimental task identity, which prevents the flexible conditioning that enabled generalization in other domains. We focus on functional MRI, which non-invasively measures a proxy of neural activity [Logothetis et al., 2001]. The dominant paradigm is task-based: specifically, participants perform structured cognitive experiments (e.g., viewing emotional faces, recalling memories, responding via button presses) while their brain dynamics are recorded over time [Barch et al., 2013]. Each experiment is a temporally structured composition of stimuli, instructions, and motor responses. Modeling such experiments as discrete categories conflates this compositional structure into prespecified and fixed labels, foreclosing in-silico investigation of novel cognitive tasks and counterfactual interventions. Task-based fMRI is also acutely affected by data scarcity, as each new study requires expensive scanner time [Szucs and Ioannidis, 2020]. No existing approaches address the generation of realistic whole-cortex fMRI dynamics for out-of-distribution cognitive tasks that were never observed during training. In particular, encoding models yield deterministic point estimates of group-mean responses to stimuli, but do not provide temporal dynamics, individual variability, and no native mechanism for novel-task extrapolation. Meanwhile, generative models with categorical conditioning produce realistic dynamics but cannot express experimental structure beyond their fixed label set [Vetter et al., 2024, Seo et al., 2025, Hu et al., 2025]. What is missing is a generative model that produces realistic neural dynamics and extrapolates compositionally across experiments. Here we present such a model: a per-timestep conditioned diffusion transformer trained with a flow matching objective under two complementary conditioning regimes. First, we inject compositional language embeddings of each timestep’s stimulus, instruction, and response, enabling local and compositional generalization across experimental conditions. We characterize zero-shot generaliza-tion across task-space, finding strong text-only generation, albeit breaking down predictably with distance from the training support. Second, we simultaneously train the model to use in-context spatial priors via a self-supervised strategy. We show that spatial priors anchor generation in regions of task space where language alone degrades, enabling realistic data generation for any experimental design where activation patterns can be specified, while retaining the compositional structure needed for counterfactual task specification. Together, these pathways provide a first step toward generative modeling of whole-cortex fMRI dynamics for unseen cognitive tasks. 
+
+2 Related Work 
+
+Generative models of brain data. Prior work has generated functional connectivity matrices, task-based activation maps, or other aggregate neuroimaging targets rather than full neural time series [Tavor et al., 2016, Gal et al., 2022, Serin et al., 2025]. Recent diffusion models generate brain dynamics more directly [Zhai et al., 2025, Hu et al., 2025, Seo et al., 2025, Xia et al., 2026, Tew et al., 2025, Gao et al., 2026], but typically condition on fixed metadata such as demographics, diagnosis, or task identity, if at all. These models can synthesize realistic samples within observed labels, but cannot specify unseen tasks compositionally at inference time. 
+
+Continuous conditioning in neuroimaging. Encoding models predict brain responses from stimulus features, spanning hand-engineered methods [Naselaris et al., 2011] to pretrained language and vision representations [d’Ascoli et al., 2026]. Pretrained representations are used by decoding models to infer or reconstruct observed stimuli [Ozcelik and VanRullen, 2023, Scotti et al., 2023, Bosch et al., 2025] or in training foundation models to aid generalization [Gijsen and Ritter, 2025, Wei et al., 2025]. While these works show that continuous representation spaces can support generalization, they target deterministic prediction, stimulus reconstruction, or representation learning rather than diverse generation of task-fMRI dynamics under novel experimental designs. 
+
+Structured conditioning for biological extrapolation. Structured conditioning has enabled useful extrapolation in biological domains including protein design [Watson et al., 2023, Ingraham et al., 2023], molecular generation [Igashov et al., 2024, Schneuing et al., 2024], and single-cell perturbation modeling [Lotfollahi et al., 2019, 2023]. These settings share the central pressure of task fMRI: experiment spaces are combinatorial, acquisition is expensive, and directly observed conditions sparsely cover the space of scientific interest. 2p0
+
+> noise
+> ftxt
+> fspat
+> M
+> D
+> ptxt 1
+> pspat 1
+> ctxt
+> cspat
+> 1
+
+(a) s1 s2 · · ·    
+
+> · · ·
+> Ncounterfactuals
+> · · ·
+> Ncounterfactuals
+
+(b) 
+
+Figure 1: a) The flow model is trained to enable two conditional sampling functions ftxt and fspat ,with distinct induced densities. Solid paths denote intended transports to valid trajectories on M; the dashed path illustrates a possible failure mode under unsupported text conditioning. b) To alleviate overfitting to sequence ordering during training, we occasionally present counterfactual sequences. 
+
+Figure 2: We train a diffusion transformer (DiT) to sample trajectories of brain dynamics. The model is conditioned on context volumes, text embeddings of task captions, and spatial priors. Both conditioning pathways enable compositional generalization by decomposing experimental tasks. 
+
+3 Methods 
+
+We aim to model the distribution of brain dynamics that a participant would exhibit during any plausible cognitive experiment. Let M denote the manifold of valid task-fMRI trajectories induced by the space of such experiments, and let Dtrain ⊂ M denote the finite collection of trajectories captured by our training data. Although Dtrain covers only a small portion of M, two structural properties make generalization beyond it tractable. First, experimental conditions are compositional: each is a structured combination of stimuli, instructions, and motor responses, components that recur across experiments and enable natural language descriptions. Second, both the temporal and spatial signature of activation for a given cognitive operation have a significant shared structure between studies and subjects. We exploit both properties through a dual conditioning scheme depicted in Figure 1a. A text-guided sampler ftxt uses the compositional structure of natural-language descriptions, supporting local and compositional extrapolation across M. However, when queried with unsupported or far-extrapolative text conditions, ftxt may fail to extrapolate within M, instead producing trajectories that leave the manifold of valid task-fMRI dynamics. A spatially guided sampler fspat instead conditions on an explicit activation map, helping to anchor generation within a constrained region of M while requiring the activation pattern to be provided or estimated externally. Together, the two pathways trade compositional flexibility against distributional anchoring and provide complementary coverage of M.We instantiate the above as a generative model of fMRI dynamics with three design choices. First, whereas prior work conditions diffusion models through global mechanisms such as adaptive layer-norm, which do not allow per-timestep resolution, we instead insert conditioning tokens directly into the transformer context. This allows the cognitive content of each timestep to be specified 3independently and enables counterfactual interventions on event timing and composition. Second, both conditioning pathways operate in continuous, structured spaces, making local and compositional generalization possible at inference. Third, we train the model end-to-end with a flow matching objective, yielding realistic and diverse trajectories rather than deterministic point predictions. We detail the architecture and training procedure below. 
+
+3.1 Generative Model 
+
+We model parcellated fMRI sequences. At each timestep t, we represent the activation as two hemispheric vectors xht ∈ RP/ 2 for h ∈ { L, R } with P parcels. A training sample spans T = Tc +Tg
+
+timesteps, with Tc real-data context volumes and Tg generation volumes. The latter are noised during training and iteratively denoised at inference. Hemisphere-specific encoders EL, E R project 
+
+xht 7 → zht ∈ RD , whereas the decoders Dec L, Dec R map back to parcel space. 
+
+Architecture. We use a Diffusion Transformer [Peebles and Xie, 2023] over the flat token sequence of length 6T consisting of six tokens per timestep: 
+
+(zLt , zRt , cspat ,L t , cspat ,R t , ctxt  
+
+> t
+
+, cσt ) Tt=1 
+
+to which we add a learnable temporal embedding et and token-type embedding. The brain tokens zht
+
+are the hemisphere-encoded activations for t ≤ Tc, and the noised target for t > T c. The spatial-prior tokens cspat ,h t = Eh(βht ) project a per-timestep spatial prior map βht ∈ RP/ 2 (defined below) through the same hemispheric encoder used for brain tokens; this shared projection ensures that brain-state and spatial-prior tokens occupy a common representational space. The language token ctxt  
+
+> t
+
+is constructed compositionally from three captions describing the cognitive content at t: a sensory caption (e.g., “visual: photos of human faces”), an instruction caption (“choose the most attractive option”), and a response caption (“right thumb button press”). Each caption is embedded with a pretrained sentence transformer [Xiao et al., 2023], linearly projected to dimensions 
+
+0.4D, 0.4D, 0.2D, and concatenated to form a single language token in RD . By embedding the three components independently, the language token decomposes the experimental description along its natural axes of variation, allowing recombinations unseen during training. We randomly mask components during training. To improve robustness to specific phrasings, we generate six phrase variants per caption with a language model (Appendix J) and sample randomly. Finally, the signal-level token cσt embeds the scalar signal level σt. To enable classifier-free guidance at inference, language tokens, spatial-prior tokens, and context volumes are independently dropped during training. We condition on natural-language descriptions rather than modality-specific stimulus encoders (e.g., CLIP image embeddings, audio encoders). This unifies the sensory, instruction, and response components of a task in a single embedding space and scales to datasets in which raw stimulus files are unavailable (e.g. the Nakai dataset introduced below). 
+
+Self-supervised spatial prior. The spatial-prior pathway is trained self-supervised, exploiting a fundamental property of the fMRI signal. Neural activity drives a slow hemodynamic response function hrf (t), well-modeled as a canonical double-gamma kernel peaking at ≈ 5 s and decaying over ≈ 15 s [Friston et al., 1998]. The general linear model (GLM) routinely used in fMRI analysis models the signal as 
+
+yp(t) = X
+
+> k
+
+βp,k (hrf ∗ sk)( t) + εp(t),
+
+where sk(t) is the onset indicator of event type k and βp,k is a per-parcel regression coefficient. Because the HRF spreads each event’s effect over the upcoming temporal window, the event coefficient encodes the spatial pattern expected to modulate the upcoming response window. Concretely, for an event of type k with an onset at timestep t, we refer to the coefficients {βp,k } over parcels p
+
+belonging to hemisphere h as the vector βht ∈ RP/ 2. To train fspat , we supply βht to the model at the matching timestep, and the GLM is fit on the subject’s own run. Because the prior is derived from the same data the model reconstructs, no external labels are required, and learning to use the prior reduces to a well-posed self-supervised objective. We estimate βht per event type rather than jointly across events, facilitating counterfactual edits to the event composition at inference. To alleviate overfitting to specific task signatures and to promote sample diversity, we estimate βht per subject rather than per task. At inference, the spatial prior can 4be dropped, predicted from text, or supplied from external empirical sources such as prior task-fMRI studies. In our evaluation, priors estimated from held-out recordings define an oracle empirical setting. This setting is not a zero-resource prediction benchmark like ftxt , but tests the intended use of fspat .Namely, spatially anchored generation without retraining, where supplied or recombined activation patterns are realized as realistic temporal dynamics under event, response, and timing compositions unseen during training. 
+
+Flow matching. Let z = {zht : h ∈ { L, R }, t > T c} denote the collection of brain tokens at the generation timesteps, and let cctx = {zht }t≤Tc denote the context volumes. We group the conditioning as c = ( ctxt , c spat , c ctx ). We learn a velocity field vθ (zτ , τ, c ) that transports p0 = N (0 , I ) to a conditional data distribution p1(· | c) along the linear probability path zτ = (1 − τ ) z0 + τ z 1 with FM time τ ∈ [0 , 1] [Lipman et al., 2022]. The network uses an endpoint-prediction parameterization: it predicts ˆz1 = gθ (zτ , τ, c ), and the velocity is computed as vθ = (ˆ z1 − zτ )/(1 − τ ). Training draws 
+
+τ ∼ U (0 , 1) , z0 ∼ p0, and minimizes ∥ˆz1 − z1∥2 on generation timesteps. At inference we generate samples by K-step Euler integration, zτ +∆ τ = zτ + ∆ τ v θ (zτ , τ, c ) with ∆τ = 1 /K . Appendix E describes a stochastic variant used only for calibration analyses. 
+
+Conditional samplers. The two pathways introduced above correspond to running the learned dynamics under different conditioning sets, inducing distinct approximate transports from p0 to pathway-specific conditional endpoint distributions: 
+
+ftxt : p0 → pθ
+
+ z1 | ctxt , c ctx  ≈ ptxt  
+
+> 1
+
+(z1) := p1
+
+ z1 | ctxt , c ctx  ,fspat : p0 → pθ
+
+ z1 | ctxt , c spat , c ctx  ≈ pspat  
+
+> 1
+
+(z1) := p1
+
+ z1 | ctxt , c spat , c ctx  .ftxt relies on compositional language conditioning alone; fspat additionally anchors generation to an explicit activation map. 
+
+Classifier-free guidance. Independent dropout of language, spatial-prior, and context tokens during training allows vθ to be evaluated using arbitrary subsets of c [Ho and Salimans, 2022]. At inference we group the conditioning into two channels: a task channel ctask , which is ctxt under ftxt and (ctxt , c spat )
+
+under fspat , and the context channel cctx . When a channel is omitted, we replace its conditioning tokens with a learned null token, denoted here ∅. With task scale wtask and context scale wctx , each Euler step combines three forward passes, 
+
+˜v = wtask vθ (ctask , c ctx ) + ( wctx − wtask ) vθ (∅, c ctx ) + (1 − wctx ) vθ (∅, ∅),
+
+equivalent to the unconditional velocity plus a context contribution wctx 
+
+ vθ (∅, c ctx ) − vθ (∅, ∅) and a task contribution wtask 
+
+ vθ (ctask , c ctx ) − vθ (∅, c ctx ).
+
+Counterfactual training. Task-fMRI runs contain fixed condition orderings, so the model can overfit to observed condition transitions. We diversify training by splicing discontinuous segments from the same subject (Figure 1b), creating novel condition-to-condition transitions. Because the splice introduces an artificial signal discontinuity, we downweight the loss immediately after the splice and inform its restoration trajectory based on the hemodynamic response function. We provide the precise weighting scheme in Appendix H. 
+
+4 Experimental Setup 
+
+Whereas models typically are assessed on a handful of tasks, both training a model capable of generalizing across tasks and performing a robust evaluation requires unique datasets. To this end, we focus on including a large set of varied experimental conditions. This enables evaluation along two axes. First, we verify the generated time series themselves to investigate realism in terms of spectral content, variance, autocorrelation, functional connectivity, and correspondence with real data. Second, we investigate the model’s capability to generate data conditioned on tasks unseen during training. 
+
+Data. We combine four complementary datasets spanning large subject cohorts and broad task coverage. HCP provides large-scale task-fMRI across seven tasks [Barch et al., 2013], IBC provides dense within-subject coverage across 53 tasks [Ponce et al., 2026], Nakai adds 103 rapidly alternating task conditions for training [Nakai and Nishimoto, 2020], and UK Biobank contributes large-scale resting-state data for unconditional training [Miller et al., 2016]. All data are parcellated with the Schaefer-400 atlas, resampled to 1 Hz, low-pass filtered at 0.25 Hz, and parcel-wise z-scored. 5We evaluate zero-shot task generation with seven task-held-out folds. Each fold holds out one HCP task and approximately eight IBC tasks, such that every task is held out once; the dynamics model is trained from scratch for each fold. For HCP, we additionally hold out 100 subjects across all tasks, enabling simultaneous evaluation of held-out-task and held-out-subject generalization. Dataset details are provided in Appendix A. 
+
+Evaluation. For task-level evaluation, we generate synthetic counterparts of held-out recordings and analyze them with the same GLM used for the real data. Because the model generates windows rather than entire runs in one pass, we tile each held-out recording with non-overlapping generation windows of length Tg , conditioning each window on the task conditioning and leakage-controlled context volumes. The resulting synthetic sequence is then analyzed as a run-level recording. The model receives sensory, instruction, and response captions at every timestep. The evaluation GLM follows standard fMRI practice and jointly fits event regressors: each event regressor is weighted by its duration or fractional occupancy within a volume and convolved with the canonical HRF. We fit identical design matrices to matched real and synthetic samples, yielding contrast maps βk and ˆβk,which we compare across parcels. For brevity, we use “contrast” to refer both to single event maps and differences between event maps. To prevent task information from leaking through the context window, context volumes are offset from the generated task segment. When available, we use pre-task periods with fixation conditioning; otherwise, we sample subject-specific context from a different task and mask its task conditioning. Task annotations are provided only for generated timesteps. Real and synthetic GLMs are always fit on matched samples and matched events (further details are given in Appendix I). For ftxt , we provide only text embeddings as task conditioning. For fspat , we additionally evaluate two spatial-prior regimes: predicted priors from the Direct model and oracle empirical priors estimated for the held-out events and responses, none of which are seen by the dynamics model during training. We refer to this latter setting as fspat unless otherwise specified. 
+
+Baseline: To the best of our knowledge, no prior generative model targets out-of-distribution task-fMRI dynamics. We therefore construct a strong text-to-contrast baseline ( Direct ) that predicts contrast maps directly from the same language conditioning used by our model. Direct provides both an evaluation anchor for held-out contrast recovery and, when no empirical spatial prior is available, an alternative source of spatial priors for the dynamics model. Unlike our dynamics model, however, Direct predicts static contrast maps rather than full time series, and therefore cannot model temporal dynamics, sample diversity, individual variability, or counterfactual changes to event timing. We also evaluate our model without task conditioning and fully in-distribution as reference points. 
+
+Hyperparameters We use hemispheric encoders to keep the total token sequence length compact despite the multiple token types injected for each timestep. These, as well as the decoders are learned linear projections. We use the Schaefer-400 atlas [Schaefer et al., 2018] similar to recent foundation modeling efforts [Dong et al., 2024, Lane et al., 2026, Gijsen et al., 2026]. Our default parameters are as follows. We use Tc = 8 , Tg = 16 , which yields 144 total tokens per window. We train a DiT with 12 layers and D = 1024 for 100K steps (compute use is described in Appendix D). At inference, we perform 64 Euler steps with guidance scales wtask = wctx = 1 .5. We provide further optimization and model parameters in Appendix C. 
+
+5 Results 
+
+Generated trajectories recover activation patterns of unseen task conditions. We first ask whether trajectories generated under unseen task conditioning recover the activation structure, by comparing ˆβk for condition k recovered from real and generated trajectories. Critically, these activation maps are not predicted directly by the model, but rather are recovered from sampled fMRI trajectories. As such, successful contrast recovery requires the model to generate temporally structured task-evoked dynamics rather than merely outputting static activation maps. The resulting OOD results are shown in Table 1 with visualizations in Figure 3. Text-only generation performs strongly under held-out task conditioning: DiT-ftxt reaches r = 0 .60 for HCP single conditions and r = 0 .47 for IBC task contrasts. Empirical but unseen spatial priors further improve performance, with DiT-fspat reaching r = 0 .88 and r = 0 .77 , respectively. This condition should be interpreted as a spatial-anchoring test rather than a zero-resource prediction benchmark: the 6Table 1: Out-of-distribution prediction evaluated by comparing GLM β weights from the real data with those recovered from synthetic data. n are number of conditions or contrasts. predicted prior: Direct’s prediction is used for conditioning. We show mean ±std across tasks. 
+
+HCP IBC Model n Single Cond. Task Contrasts n Single Cond. Task Contrasts Direct 17/13 0.280 ± 0.269 0.262 ± 0.375 191/60 0.245 ± 0.230 0.240 ± 0.243 DiT-Unconditioned 17/13 0.435 ± 0.407 0.039 ± 0.219 191/60 0.00 ± 0.197 0.017 ± 0.161 DiT-ftxt 17/13 0.601 ± 0.313 0.346 ± 0.212 191/60 0.418 ± 0.306 0.469 ± 0.324 DiT-fspat (predicted prior) 17/13 0.534 ± 0.251 0.293 ± 0.221 191/60 0.378 ± 0.247 0.407 ± 0.300 DiT-fspat (oracle empirical prior) 17/13 0.883 ± 0.128 0.749 ± 0.158 191/60 0.641 ± 0.211 0.766 ± 0.172 DiT-fspat In-Distribution 17/13 0.916 ± 0.146 0.889 ± 0.094 191/60 0.700 ± 0.220 0.839 ± 0.133 -0.191         
+
+> ftxt
+> r=0.57r=0.87
+> 0.191
+> real fspat
+> -0.135
+> ftxt
+> r=0.25r=0.94
+> 0.135
+> real fspat
+> -0.259
+> ftxt
+> r=0.62r=0.79
+> 0.259
+> real fspat
+> -0.218
+> ftxt
+> r=0.58r=0.72
+> 0.218
+> real fspat
+> Working memory (2-back)
+> Listening to Math
+> Single Event Maps
+> Hariri: Emotional Faces - Shapes Gambling: Loss - Reward Feedback
+> Contrast Maps Variability
+
+Figure 3: Example β-maps recovered from generated timeseries under unseen task conditioning. We show median cases as well as a failure case in the bottom right, where the contrast map by ftxt was not able to capture emotional processing during a perceptual masking task. supplied maps provide the target spatial hypothesis, but the model must still realize it as temporally structured fMRI trajectories under held-out event, response, and timing compositions. We evaluate in-distribution as well, to provide an approximate upper bound on performance, as it implicitly accounts for contrast reliability and shared evaluation idiosyncrasies (e.g. generating tiled windows). We note that the large standard deviations result primarily from a diverse task set, rather than noisy model evaluation. For example, the difference between DiT-ftxt and the Direct baseline is significant with t(280; pooled; paired over tasks ) = 11 .70 , p < 10 −25 . The unconditioned DiT model performs well on HCP single conditions due to the model generating prototypical visual task activations, which maps well to some of its conditions with rapid visual presentation. Beyond asking whether each generated task map matches the corresponding real task map, we also investigate whether individual regions are recruited appropriately across unseen tasks. For each region, we correlate predicted and real β values across held-out tasks. This evaluates whether the model recovers region-specific functions over the OOD task space. We observe high correlations for both ftxt (median r = 0 .78 ) and fspat (median r = 0 .79 ; Figure 4a). 
+
+Spatial priors stabilize extrapolation away from the training manifold. We next investigate the relationship between the predictability of unseen task conditioning and its distance to the training manifold, pooling single conditions and task contrasts. We compute distance via nearest-neighbor distance to the training manifold in both text and β-space (Figure 4b). As expected, OOD performance degrades as targets move further from the training manifold. However, this degradation is considerably muted for fspat compared to ftxt . This supports its intended role: when text conditioning becomes unreliable far from the training manifold, explicit spatial hypotheses can anchor generation while preserving the ability to compose event content, responses, and timing at inference. 7(a) 0.15 0.20 0.25 0.30 0.35     
+
+> Distance to training support
+> −0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> Synth/real  β correlation
+> Text-support distance
+> ftxt : slope=-2.18 [-2.63, -1.71]
+> fspat : slope=-0.74 [-1.08, -0.40]
+> 0.2 0.4 0.6 0.8
+> Distance to training support
+> β-support distance
+> ftxt : slope=-1.22 [-1.43, -1.01]
+> fspat : slope=-0.57 [-0.74, -0.41]
+
+(b) 
+
+Figure 4: a) Per-region recruitment across tasks. b) The two conditional samplers are compared in their OOD performance as a function of the distance to the training manifold. 0.0 0.1 0.2 0.3                             
+
+> frequency
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> mean PSD
+> Power spectrum
+> 12345
+> lag
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> mean autocorrelation
+> Autocorrelation
+> 0100 200 300 400
+> ROI rank by real variance
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> variance
+> ROI variance profile
+> 0510 15 20
+> time position
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> accuracy
+> Subject ID accuracy
+> real wtask =wctx = 1 wtask =wctx = 1.5 wtask =wctx = 2 wtask =wctx = 3
+
+Figure 5: General statistics of the generated data distribution and subject recoverability. 
+
+Generated samples exhibit realistic time-series statistics and subject structure. Because the primary evaluation above reduces generated trajectories to GLM contrasts, we next verify that the model also captures broader properties of the time-series distribution under unseen conditioning. We observe that our model produces realistic data in terms of power spectrum, autocorrelation, and variance (Figure 5). Naturally, these statistics depend on the guidance parameters w, which guide generation to emphasize context volumes, task conditioning, or both. We find that the default setting 
+
+wtask = wctx = 1 .5 produces sensible statistics. We then ask whether context volumes steer generation toward subject-specific dynamics. A subject-identification classifier trained on real held-out-subject HCP windows recovers subject identity from generated samples, and identity evidence increases with context guidance (Figure 5). Functional connectivity provides a more calibrated test: agreement is highest for the correct context, lower for same-subject misaligned context, lower again for different-subject context, and lowest without context (Figure 6A). This ordering indicates that the model uses context to capture subject-specific structure rather than merely producing generic task dynamics. At high guidance, generated FC can become overly similar to the conditioning context; in Appendix E, we show that stochastic latent sampling reduces this over-conditioning while preserving the expected context ordering. 
+
+Counterfactual temporal interventions. We study whether the model has learned temporally structured task responses rather than only static spatial associations. We use counterfactual generation to test this, varying both future task conditioning and the content of the context window. The model produces HRF-like responses to counterfactual stimulus presentation, and generated trajectories are sensitive to the recent context history. Interestingly, longer task durations in the context lead to reduced subsequent responses, indicating the model learned dynamics consistent with repetition inhibition (Figure 6; Larsson and Smith [2012]). This supports per-timestep task conditioning as a mechanism for counterfactual interventions on event timing and composition. 
+
+Generated trajectories preserve semantic structure in task space. Beyond individual contrasts, we test whether generations preserve the organization of task space. We embed each GLM item using its sensory and instruction captions, compute semantic PCA axes, and compare real and synthetic coefficient maps obtained by regressing β values onto these axes. The resulting maps agree across real and generated data, and visualizing the first two semantic axes shows that fspat maintains broader coverage where ftxt degrades (Figure 7; Appendix F). 8Figure 6: A) Functional connectivity correlations under different context regimes (mean ±std). Counterfactual generations are shown for single- (B) and averaged-trajectories (C). D) Longer task presentation in context induces parametric repetition-inhibition effects.   
+
+> (a) Coefficient maps resulting from regressing β-values onto task space PCA scores.
+> (b) Task conditions (dots) along their first two PCA axes, colored using the spatial β-map correla-tion.
+
+Figure 7 Table 2: Synth/real β correla-tions under hierarchical compo-nent dropping of language to-ken ctxt .                                   
+
+> |C|Dropped components Cr
+> 0∅(DiT-ftxt ).440
+> 1r(response) .410 ∗
+> i(instruction) .397 ∗
+> s(sensory) .395 ∗
+> 2i+r.350 ∗
+> s+r.355 ∗
+> i+s.229 ∗
+> 3i+s+r(uncond. ).023 ∗
+> n= 281 . All 12 paired one-sided t-tests over tasks ∗pBonf <10 −4.
+
+Compositional language for generation. Finally, we investigate the effect of dropping language-conditioning components on the synth/real β correlation (Table 2). Each ablation significantly de-creases performance, with stronger degradation when multiple con-ditioning components are removed. This suggests that the model uses the conditioning signal compositionally, while also exhibiting partial redundancy between components. We observe substantial variation in degradation strength across contrasts, which we visualize in Appendix G. 
+
+6 Conclusion and Limitations 
+
+We introduced a per-timestep conditioned diffusion transformer for generating whole-cortex fMRI dynamics under unseen cognitive tasks. Across held-out task conditions, the model recovers task-evoked activation patterns from generated trajectories, preserves region-specific recruitment across task space, and supports counter-factual changes to event timing and composition. Some limitations deserve mention. Our model extrapolates around the task-fMRI manifold covered by the training datasets, rather than to arbitrary cognitive experiments. Although HCP and IBC provide broad task coverage, far-extrapolative text conditions remain difficult and performance degrades with distance from the training support. Further, language conditioning underspecifies fine-grained perceptual content, especially in low-level sensory cortex. Hybrid conditioning with modality-specific encoders is a natural extension, while our results indicate that the current language pathway remains well matched to whole-cortex cognitive dynamics. Finally, the empirical spatial prior used by fspat is oracle-like when derived from held- out data, so general use requires externally measured or predicted priors. 9The prior pathway is nevertheless useful beyond generating data of existing tasks without re-training, by enabling counterfactual designs by combining priors across sources. 
+
+7 Acknowledgements 
+
+This research was funded by Gemeinnützigen Hertie-Stiftung and the Deutsche Forschungsgemein-schaft (DFG) through FOR 5187 (project number 442075332). Additional support was provided by the Machine Excellence Cluster and DFG through the Germany’s Excellence Strategy (EXC 2064 - project number 390727645) and the following projects: CRC 1404 (project number 414984028), TRR 265 (project number 402170461), and RU 5363 (project number 459422098). We thank Moritz Seiler, Nicolas Münster, and Connor Lane for their valuable comments on an early version of this manuscript. Finally, we are grateful to all dataset providers for access (UKB application number: 25163). 10 References 
+
+Deanna M Barch, Gregory C Burgess, Michael P Harms, Steven E Petersen, Bradley L Schlaggar, Maurizio Corbetta, Matthew F Glasser, Sandra Curtiss, Sachin Dixit, Cindy Feldt, et al. Function in the human connectome: task-fmri and individual differences in behavior. Neuroimage , 80: 169–189, 2013. Victoria Bosch, Daniel Anthes, Adrien Doerig, Sushrut Thorat, Peter König, and Tim Christian Kietzmann. Brain-language fusion enables interactive neural readout and in-silico experimentation. 
+
+arXiv preprint arXiv:2509.23941 , 2025. Zijian Dong, Ruilin Li, Yilei Wu, Thuan T Nguyen, Joanna S Chong, Fang Ji, Nathanael R Tong, Christopher L Chen, and Juan H Zhou. Brain-jepa: Brain dynamics foundation model with gradient positioning and spatiotemporal masking. Advances in Neural Information Processing Systems , 37: 86048–86073, 2024. Stéphane d’Ascoli, Jérémy Rapin, Yohann Benchetrit, Teon Brookes, Katelyn Begany, Joséphine Raugel, Hubert Banville, and Jean-Rémi King. A foundation model of vision, audition, and language for in-silico neuroscience. arXiv preprint arXiv:2605.04326 , 2026. Karl J Friston, Paul Fletcher, Oliver Josephs, ANDREW Holmes, Michael D Rugg, and Robert Turner. Event-related fmri: characterizing differential responses. Neuroimage , 7(1):30–40, 1998. Shachar Gal, Yael Coldham, Niv Tik, Michal Bernstein-Eliav, and Ido Tavor. Act natural: Functional connectivity from naturalistic stimuli fmri outperforms resting-state in predicting brain activity. 
+
+NeuroImage , 258:119359, 2022. Yunlong Gao, Jinbo Yang, Li Xiao, Haiye Huo, Yang Ji, Hao Wang, Aiying Zhang, and Yu-Ping Wang. Braincast: A spatio-temporal forecasting model for whole-brain fmri time series prediction. 
+
+arXiv preprint arXiv:2603.13361 , 2026. URL https://arxiv.org/abs/2603.13361 .Sam Gijsen and Kerstin Ritter. EEG-language pretraining for highly label-efficient clinical phenotyp-ing. In Proceedings of the 42nd International Conference on Machine Learning . PMLR, 2025. URL https://proceedings.mlr.press/v267/gijsen25a.html .Sam Gijsen, Marc-Andre Schulz, and Kerstin Ritter. Brain-semantoks: Learning semantic tokens of brain dynamics with a self-distilled foundation model. In International Conference on Learning Representations , 2026. arXiv:2512.11582. Jonathan Ho and Tim Salimans. Classifier-free diffusion guidance. arXiv preprint arXiv:2207.12598 ,2022. Emiel Hoogeboom, Vıctor Garcia Satorras, Clément Vignac, and Max Welling. Equivariant diffusion for molecule generation in 3d. In International conference on machine learning , pages 8867–8887. PMLR, 2022. Yufan Hu, Wuyang Li, and Yixuan Yuan. Synthesizing realistic fmri: a physiological dynamics-driven hierarchical diffusion model for efficient fmri acquisition. In The Thirteenth International Conference on Learning Representations , 2025. Ilia Igashov, Hannes Stärk, Clément Vignac, Arne Schneuing, Victor Garcia Satorras, Pascal Frossard, Max Welling, Michael Bronstein, and Bruno Correia. Equivariant 3d-conditional diffusion model for molecular linker design. Nature Machine Intelligence , 6(4):417–427, 2024. John B Ingraham, Max Baranov, Zak Costello, Karl W Barber, Wujie Wang, Ahmed Ismail, Vincent Frappier, Dana M Lord, Christopher Ng-Thow-Hing, Erik R Van Vlack, et al. Illuminating protein space with a programmable generative model. Nature , 623(7989):1070–1078, 2023. Connor Lane, Mihir Tripathy, Leema Krishna Murali, Ratna Sagari Grandhi, Shamus Sim Zi Yang, Sam Gijsen, Debojyoti Das, Manish Ram, Utkarsh Kumar Singh, Cesar Kadir Torrico Villanueva, Yuxiang Wei, Will Beddow, Gianfranco Cortés, Suin Cho, Daniel Z. Kaplan, Benjamin Warner, Tanishq Mathew Abraham, and Paul S. Scotti. Scaling vision transformers for functional mri with flat maps. arXiv preprint arXiv:2510.13768 , 2026. doi: 10.48550/arXiv.2510.13768. Accepted to ICML 2026. 11 Jonas Larsson and Andrew T Smith. fmri repetition suppression: neuronal adaptation or stimulus expectation? Cerebral cortex , 22(3):567–576, 2012. Seul Lee, Jaehyeong Jo, and Sung Ju Hwang. Exploring chemical space with score-based out-of-distribution generation. In International Conference on Machine Learning , pages 18872–18892. PMLR, 2023. Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. arXiv preprint arXiv:2210.02747 , 2022. Haohe Liu, Zehua Chen, Yi Yuan, Xinhao Mei, Xubo Liu, Danilo Mandic, Wenwu Wang, and Mark D Plumbley. Audioldm: Text-to-audio generation with latent diffusion models. arXiv preprint arXiv:2301.12503 , 2023. Nikos K Logothetis, Jon Pauls, Mark Augath, Torsten Trinath, and Axel Oeltermann. Neurophysio-logical investigation of the basis of the fmri signal. nature , 412(6843):150–157, 2001. Mohammad Lotfollahi, F Alexander Wolf, and Fabian J Theis. scgen predicts single-cell perturbation responses. Nature methods , 16(8):715–721, 2019. Mohammad Lotfollahi, Anna Klimovskaia Susmelj, Carlo De Donno, Leon Hetzel, Yuge Ji, Ignacio L Ibarra, Sanjay R Srivatsan, Mohsen Naghipourfar, Riza M Daza, Beth Martin, et al. Predicting cellular responses to complex perturbations in high-throughput screens. Molecular systems biology ,19(6), 2023. Karla L Miller, Fidel Alfaro-Almagro, Neal K Bangerter, David L Thomas, Essa Yacoub, Junqian Xu, Andreas J Bartsch, Saad Jbabdi, Stamatios N Sotiropoulos, Jesper LR Andersson, et al. Multimodal population brain imaging in the uk biobank prospective epidemiological study. Nature neuroscience , 19(11):1523–1536, 2016. Tomoya Nakai and Shinji Nishimoto. Quantitative models reveal the organization of diverse cognitive functions in the brain. Nature communications , 11(1):1142, 2020. Thomas Naselaris, Kendrick N Kay, Shinji Nishimoto, and Jack L Gallant. Encoding and decoding in fmri. Neuroimage , 56(2):400–410, 2011. Furkan Ozcelik and Rufin VanRullen. Natural scene reconstruction from fmri signals using generative latent diffusion. Scientific Reports , 13(1):15666, 2023. William Peebles and Saining Xie. Scalable diffusion models with transformers. In Proceedings of the IEEE/CVF international conference on computer vision , pages 4195–4205, 2023. Ana Fernanda Ponce, Himanshu Aggarwal, Swetha Shankar, Juan Jesús Torre, Ana Luísa Pinho, Alexis Thual, Chantal Ginisty, Yann Lecomte, Valérie Berland, Lucile Beriot, et al. Individual brain charting: fifth release of high-resolution fmri data for cognitive mapping. Scientific data ,2026. Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In International conference on machine learning , pages 8748–8763. PmLR, 2021. Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer. High-resolution image synthesis with latent diffusion models. In Proceedings of the IEEE/CVF confer-ence on computer vision and pattern recognition , pages 10684–10695, 2022. Chitwan Saharia, William Chan, Saurabh Saxena, Lala Li, Jay Whang, Emily L Denton, Kamyar Ghasemipour, Raphael Gontijo Lopes, Burcu Karagol Ayan, Tim Salimans, et al. Photorealistic text-to-image diffusion models with deep language understanding. Advances in neural information processing systems , 35:36479–36494, 2022. Alexander Schaefer, Ru Kong, Evan M Gordon, Timothy O Laumann, Xi-Nian Zuo, Avram J Holmes, Simon B Eickhoff, and BT Thomas Yeo. Local-global parcellation of the human cerebral cortex from intrinsic functional connectivity mri. Cerebral cortex , 28(9):3095–3114, 2018. 12 Arne Schneuing, Charles Harris, Yuanqi Du, Kieran Didi, Arian Jamasb, Ilia Igashov, Weitao Du, Carla Gomes, Tom L Blundell, Pietro Lio, et al. Structure-based drug design with equivariant diffusion models. Nature Computational Science , 4(12):899–909, 2024. Paul Scotti, Atmadeep Banerjee, Jimmie Goode, Stepan Shabalin, Alex Nguyen, Aidan Dempster, Nathalie Verlinde, Elad Yundler, David Weisberg, Kenneth Norman, et al. Reconstructing the mind’s eye: fmri-to-image with contrastive learning and diffusion priors. Advances in Neural Information Processing Systems , 36:24705–24728, 2023. Jungwoo Seo, David Keetae Park, Shinjae Yoo, and Jiook Cha. Scalable diffusion transformer for conditional 4d fmri synthesis. arXiv preprint arXiv:2511.22870 , 2025. Emin Serin, Kerstin Ritter, Gunter Schumann, Tobias Banaschewski, Andre Marquand, and Henrik Walter. Generating synthetic task-based brain fingerprints for population neuroscience using deep learning. Communications Biology , 8(1):1572, 2025. Jascha Sohl-Dickstein, Eric Weiss, Niru Maheswaranathan, and Surya Ganguli. Deep unsupervised learning using nonequilibrium thermodynamics. In International conference on machine learning ,pages 2256–2265. pmlr, 2015. Denes Szucs and John PA Ioannidis. Sample size evolution in neuroimaging research: An evaluation of highly-cited studies (1990–2012) and of latest practices (2017–2018) in high-impact journals. 
+
+NeuroImage , 221:117164, 2020. Ido Tavor, O Parker Jones, Rogier B Mars, Stephen M Smith, Timothy E Behrens, and Saad Jbabdi. Task-free mri predicts individual differences in brain activity during task performance. Science ,352(6282):216–220, 2016. Hwa Hui Tew, Junn Yong Loo, Yee-Fan Tan, Xinyu Tang, Hernando Ombao, Fuad Noman, Raphael C-W Phan, and Chee-Ming Ting. T2i-diff: fmri signal generation via time-frequency image transform and classifier-free denoising diffusion models. arXiv preprint arXiv:2509.20822 , 2025. URL https://arxiv.org/abs/2509.20822 .Julius Vetter, Jakob H Macke, and Richard Gao. Generating realistic neurophysiological time series with denoising diffusion probabilistic models. Patterns , 5(9), 2024. Joseph L Watson, David Juergens, Nathaniel R Bennett, Brian L Trippe, Jason Yim, Helen E Eisenach, Woody Ahern, Andrew J Borst, Robert J Ragotte, Lukas F Milles, et al. De novo design of protein structure and function with rfdiffusion. Nature , 620(7976):1089–1100, 2023. Yuxiang Wei, Yanteng Zhang, Xi Xiao, Chengxuan Qian, Tianyang Wang, and Vince D Calhoun. fmri-lm: Towards a universal foundation model for language-aligned fmri understanding. arXiv preprint arXiv:2511.21760 , 2025. Junfeng Xia, Wenhao Ye, Xuanye Pan, Xinke Shen, Mo Wang, and Quanying Liu. Brain-dit: A universal multi-state fmri foundation model with metadata-conditioned pretraining. arXiv preprint arXiv:2604.12683 , 2026. Shitao Xiao, Zheng Liu, Peitian Zhang, and Niklas Muennighoff. C-pack: Packaged resources to advance general chinese embedding, 2023. BT Thomas Yeo, Fenna M Krienen, Jorge Sepulcre, Mert R Sabuncu, Danial Lashkari, Marisa Hollinshead, Joshua L Roffman, Jordan W Smoller, Lilla Zöllei, Jonathan R Polimeni, et al. The organization of the human cerebral cortex estimated by intrinsic functional connectivity. Journal of neurophysiology , 2011. Rongquan Zhai, Yechen Hu, Liping Zheng, Shitong Xiang, Chao Xie, Lei Peng, Tobias Ba-naschewski, Gareth J Barker, Arun LW Bokde, Rüdiger Brühl, et al. Brain diffusion trans-former for personalized neuroscience and psychiatry. bioRxiv preprint , 2025. URL https: //www.biorxiv.org/content/10.1101/2025.04.12.648506v1 .13 A Dataset Details 
+
+We combine four datasets that differ in subject count, task diversity, and recording structure. The Human Connectome Project (HCP; Barch et al. [2013]) provides approximately 1,100 subjects across seven tasks, supporting held-out-subject evaluation. The Individual Brain Charting dataset (IBC; [Ponce et al., 2026]) includes 12 subjects who each perform 53 tasks, providing broad task-space coverage with at least one dedicated recording run per task and subject. The Nakai dataset [Nakai and Nishimoto, 2020] comprises 6 subjects across 103 task conditions. Because Nakai task conditions alternate rapidly within each run across 18 runs per subject, we use it only for training to avoid biased task-level evaluation through temporal leakage. UK Biobank (UKB; Miller et al. [2016]) contributes approximately 39 ,000 subjects of resting-state data, used unconditionally during training to improve modeling of intrinsic brain activity. We match the sampling rate to 1 s across datasets. Since the slowest original repetition time is 2 s, we apply a 0.25 Hz low-pass filter before resampling and z-score each parcel. Overall, the combined dataset contains 3.6M task-fMRI timepoints and 13.9M resting-state timepoints. Due to dataset imbalance, batches are sampled with non-uniform dataset weights to preserve gradient pressure on task data: 
+
+wHCP = 1 .0, wIBC = 0 .85 , wNakai = 0 .15 , wUKB = 0 .2.
+
+Access. Data access is governed by the original providers of each dataset and can be requested through the procedures described in the respective dataset citations. All datasets require a data-use or data-sharing agreement, and all have been widely used in prior neuroimaging and machine learning research. 
+
+B Direct Text-to-Contrast Baseline 
+
+The Direct baseline predicts static contrast maps from the same language-derived task annotations used by the dynamics model. It decomposes each timestep’s conditioning into an event component and, when applicable, a response component. Event components ˆβevent 
+
+are predicted from the concatenated sensory and instruction embeddings using ridge regression. Response components 
+
+ˆβresp 
+
+are predicted by nearest-neighbor lookup over the training fold, reflecting the small and discrete response space. When both event and response components are present, the predicted map is their sum; otherwise, the available component is used directly. Hyperparameters are selected by fold-internal cross-validation, with no held-out task leakage. We search ridge penalties 
+
+α ∈ { 1, 10 , 100 , 10 3, 10 4, 10 5}
+
+and response nearest-neighbor values 
+
+k ∈ { 1, 5, 10 , 20 }.
+
+Model selection uses Pearson correlation between predicted and held-out training-fold contrast maps. We found that strong ridge regularization is typically selected, typically α = 10 4, which improves spatial pattern recovery but shrinks prediction magnitudes. To restore realistic amplitudes without using held-out tasks, we rescale predictions within each Yeo-17 network to match the training-fold contrast norms. These networks by Yeo et al. [2011] are widely-used in the neuroscience literature. The resulting Direct maps are used both as a baseline in contrast-recovery analyses and as optional predicted spatial priors for the dynamics model. 14 C Additional Model and Optimization Hyperparameters 
+
+Table 3: Summary of model architecture, dropout probabilities, and optimization hyperparameters. 
+
+Hyperparameter Value 
+
+Architecture & Dimensions 
+
+Embedding dimension 1024 Number of heads 16 Number of layers 12 MLP ratio 4.0 Dropout 0.05 Context frames 8Generation frames 16 Max context length 24 
+
+Dropout Probabilities ( pdrop )
+
+Spatial prior 0.5 Context volumes 0.2 Condition context a 0.15 Condition future b 0.1 Instruction embedding 0.1 Sensory embedding 0.1 Response embedding 0.1 
+
+Training & Optimization 
+
+Batch size 256 Number of epochs 1000 (100 steps/epoch) Mixed precision ( use_amp ) True Gradient accumulation steps 1Optimizer AdamW Learning rate 2.4 × 10 −4
+
+Weight decay 0.05 AdamW betas (0 .9, 0.999) 
+
+Learning rate schedule Cosine decay with warmup c
+
+Warmup epochs 10 Minimum LR ratio 0.3 Cosine epochs 500 
+
+Text Embedding Model 
+
+Model BAAI/bge-large-en-v1.5 [Xiao et al., 2023] Dimensionality 1024        
+
+> aAll task conditioning for context volumes.
+> bAll task conditioning for generation volumes.
+> cAfter warmup, cosine decay over cosine_epochs , then constant at min_lr_ratio ×lr .
+
+D Compute Usage 
+
+Training our model for 100K steps takes 1.5 days on a single L40 GPU (48GB). Across seven folds, this results in an aggregate 10.5 days. While evaluation costs themselves are negligible, they require model inference for synthetic data generation. This takes approximately three hours per fold on a 20GB GPU. The main results compare five models across 7 folds, yielding an approximate 105 hour compute usage. We ablate two models under 4 guidance scales and one model under 7 dropout settings, yielding another 315 hours of 20GB GPU usage. In total, the experiments reported in the paper therefore use about 672 GPU hours. We estimate preliminary work to have consumed twice this amount at approximately 1400 GPU hours. 15 E Stochastic Sampling 
+
+All main task-generation results use deterministic Euler sampling. We additionally evaluate a stochastic sampler to test whether context-related over-conditioning can be reduced without changing the trained model. At each Euler step except the final step, we add temporally correlated AR(1) Gaussian noise in latent space with autocorrelation ρ = 0 .7 and scale ε = 0 .6, scaled by √∆τ (1 − τ )
+
+so that stochasticity decreases as the sampler approaches τ = 1 .Deterministic sampling produces realistic task contrasts and basic time-series statistics, but generated FC can be more similar to the conditioning context than expected from real run-to-run FC. Stochastic sampling improves calibration, reducing generated-context FC correlations toward the real reference distribution while preserving the expected monotonic effect of context guidance. 1 1.5 2          
+
+> wctx
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> FC correlation
+> Deterministic: Average FC recovery
+> 11.5 2
+> wctx
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> FC correlation
+> Stochastic latent: Average FC recovery
+> 11.5 2
+> wctx
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> FC correlation
+> Deterministic: Per-window FC fidelity
+> 11.5 2
+> wctx
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> FC correlation
+> Stochastic latent: Per-window FC fidelity
+> correct same_subject_misaligned different_subject no_context real-vs-real median
+
+Figure 8: Functional connectivity in generated trajectories can be modulated via guidance and is better calibrated using stochastic sampling. Mean ±std across subjects (left) and windows (right). 
+
+F Task Space PCA 
+
+Following PCA of the concatenated sensory and instruction text embeddings, we investigated the resulting low-dimensional semantic axes. To interpret these axes, we projected all experimental events onto the first five PCs. We then examined the items (comprising single conditions and task contrasts) with the high positive and negative dot product scores for each PC. Top and bottom four scores are presented in Table 4. This analysis revealed clear semantic distinctions for four of the five axes. For instance, PC 1 discriminates between tasks involving language processing (e.g., “auditory theory of mind,” “audio sentence,” “listen to the story,” “general auditory,” “audio story about false beliefs”) and motor execution (e.g., “move right/left hand,” “move right/left foot”). PC 2 differentiates visual evaluation tasks (e.g., gamble presentation, preferences for faces/paintings/houses/food) from auditory stimulation (e.g., listening to different sounds). PC 3 separates visual encoding (e.g., dots/letters stimuli) from motor tasks. PC 5 contrasts embodied processes (e.g., moving tongue/hand, face preference, emotion recognition) with mental simulation tasks (e.g., mental time travel west-east/north-south). However, we did not find a clearly identifiable semantic boundary in PC 4, therefore it was excluded from the visualization. Table 4: Semantic PCA axes 1-5 - conditions and contrasts text representations projected onto the respective PC axes and sorted by the resulted dot product (score). We present the first and last 4 values. Item kinds are abbreviated as s. (single condition) and c. (contrast).                                                                               
+
+> axis rank score dataset task kind item name 112.355 IBC MathLanguage s. events:theory_of_mind_auditory 22.332 IBC ArchiStandard s. events:audio_sentence 32.293 HCP LANGUAGE s. story_listen 42.276 IBC MathLanguage s. events:general_auditory ..................-4 -1.588 HCP MOTOR c. move_rf_gt_fixation -3 -1.588 HCP MOTOR s. move_rf -2 -1.612 HCP MOTOR c. move_rh_gt_fixation -1 -1.612 HCP MOTOR s. move_rh 211.905 IBC NARPS s. events:narps_gamble_gain_hi_loss_hi 21.902 IBC NARPS s. events:narps_gamble_gain_lo_loss_hi 31.901 IBC NARPS c. stim_gt_fixation 41.900 IBC NARPS s. events:narps_gamble_gain_hi_loss_lo ..................-4 -2.647 IBC Audi s. events:french_speech -3 -2.672 IBC Audi s. events:alphabet_audio
+
+16 Table 4: Semantic PCA axes 1-5 (continued). 
+
+axis rank score dataset task kind item name -2 -2.678 IBC Audi s. events:coughing_sounds -1 -2.687 IBC Audi c. all_audio_gt_silence 3 1 1.918 IBC MVIS s. events:six_dots_array 2 1.851 IBC MVIS s. events:four_dots_array 3 1.846 IBC MVEB s. events:four_letters_same_string 4 1.811 IBC MVEB c. string_encoding_gt_fixation ..................-4 -2.176 HCP MOTOR s. move_rf -3 -2.205 HCP MOTOR s. move_rh -2 -2.205 HCP MOTOR c. move_rh_gt_fixation -1 -2.230 IBC MTTWE s. events:westside_event_audio 4 1 1.946 IBC MVEB s. events:two_letters_different_string 2 1.934 IBC MVEB c. string_encoding_gt_fixation 3 1.924 IBC MVEB s. events:two_letters_same_string 4 1.900 IBC MVEB s. events:four_letters_different_string ..................-4 -2.717 IBC BiologicalMotion2 s. events:modified_inverted -3 -2.729 IBC BiologicalMotion2 s. events:natural_upright -2 -2.768 IBC BiologicalMotion2 c. biological_motion_gt_fixation -1 -2.799 IBC BiologicalMotion2 s. events:natural_inverted 5 1 1.894 IBC Moto s. events:tongue_left 2 1.884 IBC Moto s. events:hand_left 3 1.848 IBC Moto s. events:tongue_right 4 1.815 IBC Moto c. saccade_gt_other_movements ..................-4 -3.455 IBC MTTNS s. events:southside_close_event -3 -3.478 IBC MTTNS c. all_events_gt_fixation -2 -3.478 IBC MTTNS c. space_event_gt_time_event -1 -3.483 IBC MTTNS s. events:northside_close_event 
+
+17 G Language-Token component dropout - extra results −0.4 −0.2 0.0 0.2 0.4 0.6 0.8 1.0 
+
+beta r 
+
+VSTMC: stim 
+
+Moto: saccade_gt_other_movements 
+
+WardAndAllport: planning_problem_gt_move_execution 
+
+TheoryOfMind: belief_gt_photo 
+
+MTTWE: time_event_audio_gt_space_event_audio 
+
+StopSignal: stop_trial_gt_go_trial 
+
+ItemRecognition: probe_digit_decision_gt_arrow_direction_decision 
+
+SpatialNavigation: encoding_phase 
+
+EmotionalPain: emotional_pain_story_gt_physical_pain_story 
+
+Lec1: word_gt_pseudoword_and_random_string 
+
+Checkerboard: checkerboard_stimulation_gt_fixation 
+
+Catell: oddball_gt_fixation 
+
+MTTNS: all_events_gt_fixation 
+
+ArchiSocial: social_gt_fixation 
+
+MTTNS: space_event_gt_time_event 
+
+FingerTap: fingertap_gt_fixation 
+
+Enumeration: high_gt_low_numerosity_linear 
+
+SelectiveStopSignal: critical_stop_gt_noncritical_ignore 
+
+BreathHolding: hold_breath 
+
+DotPatterns: all_stimuli 
+
+ItemRecognition: probe_digit_decision 
+
+SpatialNavigation: experimental_gt_control 
+
+ColumbiaCards: task_gt_fixation 
+
+BreathHolding: hold_breath_gt_breathe 
+
+MTTWE: all_event_audio_gt_fixation 
+
+Audi: all_audio_gt_silence 
+
+EmotionalPain: pain_story_gt_fixation 
+
+Lec1: all_trials_gt_fixation 
+
+MVEB: string_encoding_gt_fixation 
+
+TheoryOfMind: task_gt_fixation 
+
+BiologicalMotion1: global_gt_natural 
+
+TwoByTwo: task_stimulus_gt_fixation 
+
+EmoMem: object_overlay 
+
+Catell: hard_oddball_gt_easy_oddball 
+
+PreferenceFaces: face_evaluation_gt_fixation 
+
+ArchiStandard: sentences_gt_fixation 
+
+RSVPLanguage: reading_blocks_gt_fixation 
+
+Enumeration: enumeration_gt_fixation 
+
+Color: stimulus_blocks_gt_fixation 
+
+NARPS: stim_gt_fixation 
+
+WardAndAllport: planning_problem_gt_fixation 
+
+VSTM: all_stimuli_gt_fixation 
+
+PreferenceFood: food_gt_fixation 
+
+StopSignal: task_trials 
+
+Stroop: task_all 
+
+VisualSearch: task_stimuli 
+
+MVIS: task_gt_fixation 
+
+PainMovie: movie_scenes_gt_fixation 
+
+MathLanguage: task_stimuli 
+
+Self: task_gt_fixation 
+
+ArchiSpatial: task_gt_fixation 
+
+Discount: discount_trials_gt_fixation 
+
+MCSE: low_salience_gt_high_salience 
+
+SelectiveStopSignal: task_gt_fixation 
+
+MCSE: search_gt_fixation 
+
+PreferencePaintings: paintings_gt_fixation 
+
+BiologicalMotion2: biological_motion_gt_fixation 
+
+EmoReco: face_perception 
+
+PreferenceHouses: houses_gt_fixation 
+
+BiologicalMotion1: biological_motion_gt_fixation 
+
+IBC contrasts by forced drop 
+
+instruction response sensory 
+
+0.00 0.25 0.50 0.75 
+
+max-min r 
+
+spread 
+
+Figure 9: We show the effects on synth/real β correlations for individual IBC contrasts when dropping out a single language token components during OOD evaluation. 
+
+H Counterfactual Training details 
+
+fMRI runs use fixed condition orderings, so the model repeatedly observes the same condition-to-condition transitions and tends to overfit to them, which harms compositional generalization. To diversify transitions, with probability pcf we splice two discontinuous segments from the same subject, creating a novel condition transition with a temporal discontinuity at splice point ts.We therefore weight the per-timestep loss for t > t s by 
+
+˜wt =
+
+
+
+hrf (t − ts)
+
+hrf (τpeak ) , ts ≤ t ≤ ts + τpeak ,
+
+1, ts + τpeak < t ≤ Tg ,wt = Tg
+
+PTg
+
+u=1 ˜wu
+
+˜wt.
+
+18 Here hrf is the canonical double-gamma HRF and τpeak ≈ 5 s is the location of its peak. The unnor-malized weight ˜wt is zero at the splice point, where the model cannot reconstruct the discontinuity, and recovers smoothly over the HRF rise time. We rescale to wt so that PTg 
+
+> t=1
+
+wt = Tg , preserving the average loss scale over the generation window across spliced and unspliced samples. 
+
+I Synthetic Run Construction and GLM Evaluation 
+
+Windowed generation. The dynamics model generates fixed-length windows rather than full runs in a single forward process. For evaluation, we therefore construct synthetic counterparts of held-out task recordings by repeatedly generating non-overlapping windows of length Tg . Each generated window receives the task annotations for the corresponding target timesteps and leakage-controlled context volumes. The generated windows are then concatenated into a synthetic run-like sequence and analyzed with the same GLM machinery as the corresponding real data. For HCP, generation windows begin at the start of each task block. This covers nearly all task-relevant volumes, although short inter-block or trailing periods may not be represented. HCP also includes pre-task and fixation periods, allowing context volumes to be drawn from periods whose task conditioning can be truthfully specified as fixation. For IBC, which does not provide the same block structure, we generate non-overlapping windows along the target recording. Because IBC provides little pre-task signal, context is drawn from a different task recording from the same subject; task-conditioning tokens are masked for these context timesteps to prevent leakage. Across datasets, task conditioning is supplied only for generated volumes. 
+
+Matched real and synthetic GLMs. Although the generative model receives sensory, instruction, and response captions at every timestep, evaluation follows standard task-fMRI practice and uses event-level GLMs. Each event regressor encodes the event’s duration or fractional occupancy within each volume and is convolved with the canonical HRF. Thus, a brief stimulus occupying half of a 1-second volume contributes weight 0.5, whereas sustained events contribute positive weights, typically 1, across multiple successive volumes. For each held-out condition or contrast, we fit identical design matrices to matched real and synthetic samples. This yields a real contrast map βk and a synthetic contrast map ˆβk, which are compared across parcels. Real and synthetic analyses are always matched in sample size and event coverage, even when the dataset-specific windowing strategy does not cover every volume of the original run. For brevity, we use “contrast” to refer both to single event maps and to differences between event maps. 
+
+I.1 Contrast Inventory and Filtering Filtering. The GLM inventory below includes only contrasts that passed the reliability screen used before the notebook analysis. In particular, IBC contrasts with split-half reliability below r = 0 .25 
+
+were excluded. 
+
+HCP contrasts. For HCP, contrasts are defined per task as follows: 
+
+EMOTION. face-shape perceptual blocks, plus shape against fixation. 
+
+GAMBLING. reward and loss feedback events in both directions. 
+
+LANGUAGE. story listening against math listening. 
+
+MOTOR. each movement block (left/right hand, left/right foot, tongue) against fixation. 
+
+RELATIONAL. relational reasoning blocks against shape-matching control blocks. 
+
+SOCIAL. mental-interaction movie blocks against random-motion movie blocks. 
+
+WM. 2-back working-memory blocks against 0-back blocks. 
+
+IBC contrast approach. IBC contrasts are task-specific linear combinations of event and, where needed, response regressors. Broad task-vs-baseline contrasts are used for tasks with a clear overall activation target; narrower task-vs-task contrasts are used when the experiment has a natural within-task comparison. Multi-condition contrasts average related regressors with equal or prespecified 19 weights, while fixation/rest/silence terms are treated as baseline terms rather than standalone single conditions. 
+
+HCP contrast definitions. 
+
+EMOTION. Contrasts: stim_face_gt_stim_shape = stim_face − stim_shape ; stim_shape_gt_fixation = stim_shape − fixation . Single condi-tions: stim_face , stim_shape .
+
+GAMBLING. Contrasts: reward_feedback_gt_loss_feedback = reward_feedback − loss_feedback ; loss_feedback_gt_reward_feedback =
+
+loss_feedback − reward_feedback . Single conditions: reward_feedback , loss_feedback .
+
+LANGUAGE. Contrasts: story_listen_gt_math_listen = story_listen − math_listen . Single conditions: story_listen , math_listen .
+
+MOTOR. Contrasts: move_lh_gt_fixation = move_lh − fixation ; move_rh_gt_fixation = move_rh − fixation ; move_lf_gt_fixation = move_lf 
+
+− fixation ; move_rf_gt_fixation = move_rf − fixation ; move_t_gt_fixation = move_t − fixation . Single conditions: move_lh ,
+
+move_rh , move_lf , move_rf , move_t .
+
+RELATIONAL. Contrasts: block_rel_gt_block_match = block_rel − block_match . Single conditions: block_rel , block_match .
+
+SOCIAL. Contrasts: movie_mental_gt_movie_random = movie_mental − movie_random . Single conditions: movie_mental , movie_random .
+
+WM. Contrasts: block_2bk_gt_block_0bk = block_2bk − block_0bk . Single conditions: block_2bk , block_0bk .
+
+HCP total: 13 contrasts and 17 single conditions. 
+
+IBC contrast definitions. 
+
+ArchiSocial. Contrasts: social_gt_fixation = 0.25 events:false_belief_audio_story + 0.25 events:false_belief_video_story +0.25 events:false_belief_why_prompt + 0.25 events:triangle_mental . Single conditions: events:false_belief_audio_story ,
+
+events:false_belief_video_story , events:false_belief_why_prompt , events:triangle_mental .
+
+ArchiSpatial. Contrasts: task_gt_fixation = 0.2 events:object_grasp + 0.2 events:object_orientation + 0.2 events:rotation_hand 
+
++ 0.2 events:rotation_side + 0.2 events:saccade - events:fixation . Single conditions: events:object_grasp ,
+
+events:object_orientation , events:rotation_hand , events:rotation_side , events:saccade .
+
+ArchiStandard. Contrasts: sentences_gt_fixation = 0.5 events:audio_sentence + 0.5 events:video_sentence - events:fixation . Single conditions: 
+
+events:audio_sentence , events:video_sentence .
+
+Audi. Contrasts: all_audio_gt_silence = 0.08333 events:alphabet_audio + 0.08333 events:animal_sounds + 0.08333 events:coughing_sounds 
+
++ 0.08333 events:crying_sounds + 0.08333 events:environmental_sounds + 0.08333 events:french_speech +0.08333 events:human_non_speech_sounds + 0.08333 events:laughing_sounds + 0.08333 events:music_audio +0.08333 events:reversed_speech + 0.08333 events:suomi_speech + 0.08333 events:yawning_sounds - events:silence_baseline .Single conditions: events:alphabet_audio , events:animal_sounds , events:coughing_sounds , events:crying_sounds ,
+
+events:environmental_sounds , events:french_speech , events:human_non_speech_sounds , events:laughing_sounds ,
+
+events:music_audio , events:reversed_speech , events:suomi_speech , events:yawning_sounds .
+
+BiologicalMotion1. Contrasts: biological_motion_gt_fixation = 0.25 events:global_inverted + 0.25 events:global_upright 
+
++ 0.25 events:natural_inverted + 0.25 events:natural_upright - events:fixation ; global_gt_natural =0.5 events:global_inverted + 0.5 events:global_upright - 0.5 events:natural_inverted - 0.5 events:natural_upright .Single conditions: events:global_inverted , events:global_upright , events:natural_inverted , events:natural_upright .
+
+BiologicalMotion2. Contrasts: biological_motion_gt_fixation = 0.25 events:modified_inverted + 0.25 events:modified_upright +0.25 events:natural_inverted + 0.25 events:natural_upright - events:fixation . Single conditions: events:modified_inverted ,
+
+events:modified_upright , events:natural_inverted , events:natural_upright .
+
+BreathHolding. Contrasts: hold_breath = events:hold_breath ; hold_breath_gt_breathe = events:hold_breath - events:breathe . Single condi-tions: events:hold_breath , events:breathe .
+
+Catell. Contrasts: oddball_gt_fixation = 0.5 events:easy_oddball + 0.5 events:hard_oddball - events:fixation ;
+
+hard_oddball_gt_easy_oddball = events:hard_oddball - events:easy_oddball . Single conditions: events:easy_oddball ,
+
+events:hard_oddball .
+
+Checkerboard. Contrasts: checkerboard_stimulation_gt_fixation = events:checkerboard_stimulation - events:fixation . Single conditions: 
+
+events:checkerboard_stimulation .
+
+Color. Contrasts: stimulus_blocks_gt_fixation = 0.5 events:achromatic_block + 0.5 events:chromatic_block - events:fixation . Single condi-tions: events:achromatic_block , events:chromatic_block .
+
+ColumbiaCards. Contrasts: task_gt_fixation = 0.3333 events:cards_risk_hi + 0.3333 events:cards_risk_lo + 0.3333 events:reward_feedback -
+
+events:fixation . Single conditions: events:cards_risk_hi , events:cards_risk_lo , events:reward_feedback .
+
+Discount. Contrasts: discount_trials_gt_fixation = 0.25 events:discount_amt_hi_del_late + 0.25 events:discount_amt_hi_del_soon 
+
++ 0.25 events:discount_amt_lo_del_late + 0.25 events:discount_amt_lo_del_soon - events:fixation . Single con-ditions: events:discount_amt_hi_del_late , events:discount_amt_hi_del_soon , events:discount_amt_lo_del_late ,
+
+events:discount_amt_lo_del_soon .
+
+DotPatterns. Contrasts: all_stimuli = 0.25 events:cue_a + 0.25 events:cue_b + 0.25 events:probe_x + 0.25 events:probe_y . Single conditions: 
+
+events:cue_a , events:cue_b , events:probe_x , events:probe_y .
+
+EmoMem. Contrasts: object_overlay = events:object_overlay . Single conditions: events:object_overlay .
+
+EmoReco. Contrasts: face_perception = 0.25 events:angry_female_face + 0.25 events:angry_male_face + 0.25 events:neutral_female_face 
+
++ 0.25 events:neutral_male_face . Single conditions: events:angry_female_face , events:angry_male_face ,
+
+events:neutral_female_face , events:neutral_male_face .
+
+EmotionalPain. Contrasts: pain_story_gt_fixation = 0.5 events:emotional_pain_story + 0.5 events:physical_pain_story - events:fixation ;
+
+emotional_pain_story_gt_physical_pain_story = events:emotional_pain_story - events:physical_pain_story . Single conditions: 
+
+events:emotional_pain_story , events:physical_pain_story .
+
+Enumeration. Contrasts: enumeration_gt_fixation = 0.125 events:enumeration_response_1 + 0.125 events:enumeration_response_2 +0.125 events:enumeration_response_3 + 0.125 events:enumeration_response_4 + 0.125 events:enumeration_response_5 +0.125 events:enumeration_response_6 + 0.125 events:enumeration_response_7 + 0.125 events:enumeration_response_8 
+
+- events:fixation ; high_gt_low_numerosity_linear = -0.4375 events:enumeration_response_1 -0.3125 events:enumeration_response_2 - 0.1875 events:enumeration_response_3 - 0.0625 events:enumeration_response_4 
+
++ 0.0625 events:enumeration_response_5 + 0.1875 events:enumeration_response_6 + 0.3125 events:enumeration_response_7 +0.4375 events:enumeration_response_8 . Single conditions: events:enumeration_response_1 , events:enumeration_response_2 ,
+
+events:enumeration_response_3 , events:enumeration_response_4 , events:enumeration_response_5 ,
+
+events:enumeration_response_6 , events:enumeration_response_7 , events:enumeration_response_8 .
+
+20 FingerTap. Contrasts: fingertap_gt_fixation = events:fingertap - events:fixation . Single conditions: events:fingertap .
+
+ItemRecognition. Contrasts: probe_digit_decision = events:probe_digit_decision ; probe_digit_decision_gt_arrow_direction_decision 
+
+= events:probe_digit_decision - events:arrow_direction_decision . Single conditions: events:probe_digit_decision ,
+
+events:arrow_direction_decision .
+
+Lec1. Contrasts: all_trials_gt_fixation = 0.3333 events:word_trial + 0.3333 events:pseudoword_trial + 0.3333 events:random_string_trial 
+
+- events:fixation ; word_gt_pseudoword_and_random_string = events:word_trial - 0.5 events:pseudoword_trial -0.5 events:random_string_trial . Single conditions: events:word_trial , events:pseudoword_trial , events:random_string_trial .
+
+MCSE. Contrasts: search_gt_fixation = 0.25 events:high_salience_left + 0.25 events:high_salience_right + 0.25 events:low_salience_left 
+
++ 0.25 events:low_salience_right - events:fixation ; low_salience_gt_high_salience = 0.5 events:low_salience_left 
+
++ 0.5 events:low_salience_right - 0.5 events:high_salience_left - 0.5 events:high_salience_right . Single conditions: 
+
+events:high_salience_left , events:high_salience_right , events:low_salience_left , events:low_salience_right .
+
+MTTNS. Contrasts: all_events_gt_fixation = 0.125 events:after_close_event + 0.125 events:after_far_event +0.125 events:before_close_event + 0.125 events:before_far_event + 0.125 events:northside_close_event +0.125 events:northside_far_event + 0.125 events:southside_close_event + 0.125 events:southside_far_event -
+
+events:fixation ; space_event_gt_time_event = 0.25 events:northside_close_event + 0.25 events:northside_far_event 
+
++ 0.25 events:southside_close_event + 0.25 events:southside_far_event - 0.25 events:after_close_event -0.25 events:after_far_event - 0.25 events:before_close_event - 0.25 events:before_far_event . Single condi-tions: events:after_close_event , events:after_far_event , events:before_close_event , events:before_far_event ,
+
+events:northside_close_event , events:northside_far_event , events:southside_close_event , events:southside_far_event .
+
+MTTWE. Contrasts: all_event_audio_gt_fixation = 0.25 events:after_event_audio + 0.25 events:before_event_audio 
+
++ 0.25 events:eastside_event_audio + 0.25 events:westside_event_audio - events:fixation ;
+
+time_event_audio_gt_space_event_audio = 0.5 events:after_event_audio + 0.5 events:before_event_audio -0.5 events:eastside_event_audio - 0.5 events:westside_event_audio . Single conditions: events:after_event_audio ,
+
+events:before_event_audio , events:eastside_event_audio , events:westside_event_audio .
+
+MVEB. Contrasts: string_encoding_gt_fixation = 0.1667 events:two_letters_different_string + 0.1667 events:two_letters_same_string 
+
++ 0.1667 events:four_letters_different_string + 0.1667 events:four_letters_same_string +0.1667 events:six_letters_different_string + 0.1667 events:six_letters_same_string - events:fixation . Single condi-tions: events:two_letters_different_string , events:two_letters_same_string , events:four_letters_different_string ,
+
+events:four_letters_same_string , events:six_letters_different_string , events:six_letters_same_string .
+
+MVIS. Contrasts: task_gt_fixation = 0.125 events:empty_grid + 0.125 events:probe_dot_decision + 0.125 events:two_dots_array 
+
++ 0.125 events:two_dots_control_array + 0.125 events:four_dots_array + 0.125 events:four_dots_control_array +0.125 events:six_dots_array + 0.125 events:six_dots_control_array - events:fixation . Single conditions: events:empty_grid ,
+
+events:probe_dot_decision , events:two_dots_array , events:two_dots_control_array , events:four_dots_array ,
+
+events:four_dots_control_array , events:six_dots_array , events:six_dots_control_array .
+
+MathLanguage. Contrasts: task_stimuli = 0.08333 events:arithmetic_fact_auditory + 0.08333 events:arithmetic_fact_visual 
+
++ 0.08333 events:arithmetic_principle_auditory + 0.08333 events:arithmetic_principle_visual +0.08333 events:colorlessg_auditory + 0.08333 events:colorlessg_visual + 0.08333 events:general_auditory +0.08333 events:general_visual + 0.08333 events:geometry_fact_auditory + 0.08333 events:geometry_fact_visual 
+
++ 0.08333 events:theory_of_mind_auditory + 0.08333 events:theory_of_mind_visual . Single conditions: 
+
+events:arithmetic_fact_auditory , events:arithmetic_fact_visual , events:arithmetic_principle_auditory ,
+
+events:arithmetic_principle_visual , events:colorlessg_auditory , events:colorlessg_visual , events:general_auditory ,
+
+events:general_visual , events:geometry_fact_auditory , events:geometry_fact_visual , events:theory_of_mind_auditory ,
+
+events:theory_of_mind_visual .
+
+Moto. Contrasts: saccade_gt_other_movements = 0.5 events:saccade_left + 0.5 events:saccade_right - 0.125 events:finger_left -0.125 events:finger_right - 0.125 events:foot_left - 0.125 events:foot_right - 0.125 events:hand_left - 0.125 events:hand_right 
+
+- 0.125 events:tongue_left - 0.125 events:tongue_right . Single conditions: events:saccade_left , events:saccade_right ,
+
+events:finger_left , events:finger_right , events:foot_left , events:foot_right , events:hand_left , events:hand_right ,
+
+events:tongue_left , events:tongue_right .
+
+NARPS. Contrasts: stim_gt_fixation = 0.25 events:narps_gamble_gain_hi_loss_hi + 0.25 events:narps_gamble_gain_hi_loss_lo +0.25 events:narps_gamble_gain_lo_loss_hi + 0.25 events:narps_gamble_gain_lo_loss_lo - events:fixation . Single conditions: 
+
+events:narps_gamble_gain_hi_loss_hi , events:narps_gamble_gain_hi_loss_lo , events:narps_gamble_gain_lo_loss_hi ,
+
+events:narps_gamble_gain_lo_loss_lo .
+
+PainMovie. Contrasts: movie_scenes_gt_fixation = 0.5 events:mental_movie_scene + 0.5 events:pain_movie_scene - events:fixation . Single conditions: events:mental_movie_scene , events:pain_movie_scene .
+
+PreferenceFaces. Contrasts: face_evaluation_gt_fixation = 0.5 events:face_score_hi + 0.5 events:face_score_lo - events:fixation . Single conditions: events:face_score_hi , events:face_score_lo .
+
+PreferenceFood. Contrasts: food_gt_fixation = 0.5 events:food_score_hi + 0.5 events:food_score_lo - events:fixation . Single conditions: 
+
+events:food_score_hi , events:food_score_lo .
+
+PreferenceHouses. Contrasts: houses_gt_fixation = 0.5 events:house_score_hi + 0.5 events:house_score_lo - events:fixation . Single conditions: 
+
+events:house_score_hi , events:house_score_lo .
+
+PreferencePaintings. Contrasts: paintings_gt_fixation = 0.5 events:painting_score_hi + 0.5 events:painting_score_lo - events:fixation . Sin-gle conditions: events:painting_score_hi , events:painting_score_lo .
+
+RSVPLanguage. Contrasts: reading_blocks_gt_fixation = 0.1667 events:complex_sentence + 0.1667 events:simple_sentence +0.1667 events:word_list + 0.1667 events:jabberwocky + 0.1667 events:pseudoword_list + 0.1667 events:consonant_strings -
+
+events:fixation . Single conditions: events:complex_sentence , events:simple_sentence , events:word_list , events:jabberwocky ,
+
+events:pseudoword_list , events:consonant_strings .
+
+SelectiveStopSignal. Contrasts: task_gt_fixation = 0.25 events:critical_go + 0.25 events:critical_stop + 0.25 events:noncritical_go 
+
++ 0.25 events:noncritical_ignore - events:fixation ; critical_stop_gt_noncritical_ignore = events:critical_stop 
+
+- events:noncritical_ignore . Single conditions: events:critical_go , events:critical_stop , events:noncritical_go ,
+
+events:noncritical_ignore .
+
+Self. Contrasts: task_gt_fixation = 0.25 events:other_adjective_judgment + 0.25 events:self_adjective_judgment 
+
++ 0.25 events:recognition_yes + 0.25 events:recognition_no - events:fixation . Single conditions: 
+
+events:other_adjective_judgment , events:self_adjective_judgment , events:recognition_yes , events:recognition_no .
+
+SpatialNavigation. Contrasts: encoding_phase = 0.5 events:encoding_intersection + 0.5 events:encoding_navigation ;
+
+experimental_gt_control = events:experimental_approach - events:control_approach . Single conditions: 
+
+events:encoding_intersection , events:encoding_navigation , events:experimental_approach , events:control_approach .
+
+StopSignal. Contrasts: task_trials = 0.5 events:go_trial + 0.5 events:stop_trial ; stop_trial_gt_go_trial = events:stop_trial -
+
+events:go_trial . Single conditions: events:go_trial , events:stop_trial .
+
+Stroop. Contrasts: task_all = 0.5 events:congruent + 0.5 events:incongruent . Single conditions: events:congruent , events:incongruent .
+
+21 TheoryOfMind. Contrasts: task_gt_fixation = 0.25 events:belief_story + 0.25 events:belief_question + 0.25 events:photo_story +0.25 events:photo_question - events:fixation ; belief_gt_photo = 0.5 events:belief_story + 0.5 events:belief_question 
+
+- 0.5 events:photo_story - 0.5 events:photo_question . Single conditions: events:belief_story , events:belief_question ,
+
+events:photo_story , events:photo_question .
+
+TwoByTwo. Contrasts: task_stimulus_gt_fixation = events:task_stimulus - events:fixation . Single conditions: events:task_stimulus .
+
+VSTM. Contrasts: all_stimuli_gt_fixation = 0.08333 events:vstm_encode_load_1 + 0.08333 events:vstm_encode_load_2 +0.08333 events:vstm_encode_load_3 + 0.08333 events:vstm_encode_load_4 + 0.08333 events:vstm_encode_load_5 
+
++ 0.08333 events:vstm_encode_load_6 + 0.08333 events:vstm_probe_load_1 + 0.08333 events:vstm_probe_load_2 
+
++ 0.08333 events:vstm_probe_load_3 + 0.08333 events:vstm_probe_load_4 + 0.08333 events:vstm_probe_load_5 +0.08333 events:vstm_probe_load_6 - events:fixation . Single conditions: events:vstm_encode_load_1 , events:vstm_encode_load_2 ,
+
+events:vstm_encode_load_3 , events:vstm_encode_load_4 , events:vstm_encode_load_5 , events:vstm_encode_load_6 ,
+
+events:vstm_probe_load_1 , events:vstm_probe_load_2 , events:vstm_probe_load_3 , events:vstm_probe_load_4 ,
+
+events:vstm_probe_load_5 , events:vstm_probe_load_6 .
+
+VSTMC. Contrasts: stim = 0.3333 events:stimulus_load1 + 0.3333 events:stimulus_load2 + 0.3333 events:stimulus_load3 . Single conditions: 
+
+events:stimulus_load1 , events:stimulus_load2 , events:stimulus_load3 .
+
+VisualSearch. Contrasts: task_stimuli = 0.09091 events:sample_item + 0.09091 events:memory_array_two +0.09091 events:memory_array_four + 0.09091 events:probe_item_two_absent + 0.09091 events:probe_item_two_present +0.09091 events:probe_item_four_absent + 0.09091 events:probe_item_four_present + 0.09091 events:search_array_two_absent 
+
++ 0.09091 events:search_array_two_present + 0.09091 events:search_array_four_absent +0.09091 events:search_array_four_present . Single conditions: events:sample_item , events:memory_array_two ,
+
+events:memory_array_four , events:probe_item_two_absent , events:probe_item_two_present , events:probe_item_four_absent ,
+
+events:probe_item_four_present , events:search_array_two_absent , events:search_array_two_present ,
+
+events:search_array_four_absent , events:search_array_four_present .
+
+WardAndAllport. Contrasts: planning_problem_gt_fixation = events:planning_problem - events:fixation ;
+
+planning_problem_gt_move_execution = events:planning_problem - events:move_execution . Single conditions: 
+
+events:planning_problem , events:move_execution .
+
+IBC total: 60 contrasts and 191 single conditions. 
+
+J LLM Use 
+
+We use LLMs to generate and rephrase captions of task instructions, sensory presentations, and responses. A mixture of GPT-5.4-codex by OpenAI and Claude Opus 4.6 by Anthropic were used for this purpose. 22
