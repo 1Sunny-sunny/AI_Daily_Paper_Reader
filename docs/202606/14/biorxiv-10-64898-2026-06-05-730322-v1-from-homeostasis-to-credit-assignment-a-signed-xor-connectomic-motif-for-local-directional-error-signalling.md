@@ -1,0 +1,27 @@
+---
+title: "From homeostasis to credit assignment: a signed-XOR connectomic motif for local directional error signalling"
+title_zh: 从稳态到信用分配：一种用于局部方向性误差信号的有符号异或连接组基元
+authors: "Pena Fernandez, M., Gonzalez Rios, A., Lloret Iglesias, L., Marco de Lucas, J."
+date: 2026-06-09
+pdf: "https://www.biorxiv.org/content/10.64898/2026.06.05.730322v1.full.pdf"
+tags: ["query:sr"]
+score: 8.0
+evidence: 提出用于局部错误信号的有符号XOR神经基序
+tldr: 本文提出一种名为signed-XOR的八神经元回路模体，能将预测与感觉信号的错配转化为方向性误差信号，分别通过两条反馈通道指示突触增强或抑制，且符合Dale原理。研究提供开源工具在连接组水平搜索该模体，发现它在秀丽隐杆线虫、果蝇和小鼠皮层中显著富集，尤其富集于皮层2/3-5层。模拟证实该模体可稳健计算方向误差并依赖快发放抑制神经元。这为神经网络中的局部信用分配提供了一种可能的生物实现机制。
+source: biorxiv
+selection_source: fresh_fetch
+motivation: 生物神经网络缺乏全局误差信号，需要局部机制来指示突触调整方向，以支持无反向传播的学习。
+method: 构建了八神经元有向signed-XOR回路，通过连接组搜索和统计富集分析，并在三种物种的神经连接数据中验证；同时用泄漏积分发放神经元模型进行仿真验证。
+result: 该模体在C. elegans中富集24.3倍，在果蝇多个脑区显著富集，在小鼠V1模型2/3-5层富集高达315倍且6层缺失，模拟显示需要快发放抑制性枢纽神经元才能正常工作。
+conclusion: signed-XOR模体是一种能够提供局部方向性误差信号的候选回路，可能与生物脑中的稳态误差消除和信用分配相关，有望应用于神经形态计算。
+---
+
+## 摘要
+生物神经回路被广泛认为需要局部误差信号，不仅告诉突触预测错误，而且指示向哪个方向改变。我们之前提出，一个六神经元异或基元充当稳态比较器：匹配的感觉和预测信号在局部抵消，而不匹配则传播误差信号。我们还表明，一个浅层自编码器可以使用有符号异或学习规则，结合局部解码器误差和随机反馈对齐，在没有梯度反向传播的情况下学习MNIST。在此，我们引入有符号异或基元，这是一个八神经元、十二条边的有向有符号回路，通过两个具有相反神经递质身份的反馈通道扩展了异或比较器。通过构建，该基元可以将二元不匹配转换为方向性误差信号，其中一个通路编码增强，另一个编码抑制，同时遵循戴尔原则。我们提供开源工具，在连接组规模上枚举该基元，并测试其在保持度和符号的零模型上的富集情况。该基元在秀丽隐杆线虫中富集24.3倍（Z = 52.2），在包括AVLP_L在内的59/80个FlyWire果蝇神经纤维网中显著富集（13.9倍，Z = 94.4），并在生物物理详细的小鼠初级视觉皮层模型的第2/3至5层中强烈富集（全局315倍；每枢纽中位数高达852倍），而在第6层中不存在。同样的层特异性模式在经轴突校对过的、通过电子显微镜重建的MICrONS连接组子集中也被发现。Brian2漏整合发放模型实现再现了有符号异或真值表，对泊松驱动保持鲁棒性，产生分级有符号误差，并需要一个快发放的小清蛋白样枢纽。这些结果将有符号异或识别为一种与局部稳态误差消除和方向性信用分配信号兼容的循环连接组模式。
+
+作者摘要：大脑在犯错时如何决定调整哪些连接？与人工网络不同，它没有来自外部的全局误差信号：每个连接只能对其直接接触的神经元做出反应。我们询问一种小的、重复出现的布线模式是否能够提供这样的局部校正信号。我们研究的模式，即有符号异或基元，将传入信号与大脑自身的预测进行比较。当两者一致时，回路保持安静，从而不将已预期的活动继续传递。当不一致时，它不仅仅是标记错误：它还指示修复的方向，将其路由到两个独立的通道中，一个意味着“增强”，另一个意味着“减弱”，这与每个神经元以单一符号起作用的生物学规则一致。我们提供开放软件，在三种神经系统中搜索这种模式：线虫、果蝇和小鼠视觉皮层的详细模型，发现它比随机布线所预测的更常出现，并且在皮层中具有显著的层特异性分布。我们还在真实的脉冲神经元中模拟了八细胞回路，并确认它能够执行计算，但仅当其抑制性细胞是快发放类型时才有可能，就像那些在富集层中集中的神经元类型。我们并不声称任何大脑使用这种回路来学习或记忆。我们提供的是一种特定的基元，它可以传递局部、方向性的误差信号，可能对神经形态实现有用。
+
+## Abstract
+AO_SCPLOWBSTRACTC_SCPLOWBiological neural circuits are widely thought to require local error signals that tell synapses not only that a prediction is wrong, but also in which direction to change. We previously proposed that a six-neuron XOR motif acts as a homeostatic comparator: matched sensory and predictive signals cancel locally, whereas mismatches propagate an error signal. We also showed that a shallow autoencoder can learn MNIST using a signed-XOR learning rule with local decoder errors and random feedback alignment, without gradient backpropagation. Here we introduce the signed-XOR motif, an eight-neuron, twelve-edge directed signed circuit that extends the XOR comparator with two feedback channels of opposite neurotransmitter identity. By construction, the motif can convert a binary mismatch into directional error signalling, with one pathway encoding potentiation and the other depression, while respecting Dales principle. We provide open-source tools to enumerate the motif at connectome scale and test its enrichment against degree- and sign-preserving null models. The motif is enriched 24.3x in C. elegans (Z = 52.2), significantly enriched in 59/80 FlyWire Drosophila neuropils including AVLP_L (13.9x, Z = 94.4), and strongly enriched in layers 2/3-5 of a biophysically detailed mouse primary visual cortex model (global 315x; per-pivot medians up to 852 x) while absent from layer 6. The same layer-specific pattern is found in the axon-proofread subset of the EM-reconstructed MICrONS connectome. A Brian2 leaky integrate-and-fire implementation reproduces the signed-XOR truth table, remains robust to Poisson drive, produces a graded signed error, and requires a fast-spiking parvalbumin-like pivot. These results identify signed-XOR as a recurrent connectomic pattern compatible with local homeostatic error cancellation and directional credit-assignment signals.
+
+Author SummaryHow does a brain decide which of its connections to adjust when it makes a mistake? Unlike an artificial network, it has no global error signal supplied from outside: each connection can react only to the neurons it directly touches. We ask whether a small, repeating wiring pattern could provide such a local correction signal. The pattern we study, the signed-XOR motif, compares an incoming signal with the brains own prediction of it. When the two agree, the circuit stays quiet, so already-expected activity is not relayed onward. When they disagree, it does more than flag an error: it also indicates the direction of the fix, routing it through two separate channels, one meaning "strengthen", the other "weaken", consistent with the biological rule that each neuron acts with a single sign. We provide open software to search for this pattern in three nervous systems, a worm, a fly, and a detailed model of mouse visual cortex, and find it more often than chance wiring predicts, with a striking layer-specific distribution in cortex. We also simulated the eight-cell circuit with realistic spiking neurons and confirmed that it can perform the computation, but only when its inhibitory cell is a fast-spiking type like those concentrated in the enriched layers. We do not claim that any brain uses this circuit to learn or memorize. What we provide is a specific motif that could deliver a local, directional error signal that may be useful for a neuromorphic implementation.
