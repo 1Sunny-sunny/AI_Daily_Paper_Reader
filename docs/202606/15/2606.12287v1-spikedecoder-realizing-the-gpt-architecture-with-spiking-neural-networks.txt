@@ -1,0 +1,788 @@
+Title: SpikeDecoder: Realizing the GPT Architecture with Spiking Neural Networks
+
+URL Source: https://arxiv.org/pdf/2606.12287v1
+
+Published Time: Thu, 11 Jun 2026 01:26:51 GMT
+
+Number of Pages: 32
+
+Markdown Content:
+# SpikeDecoder: Realizing the GPT Architecture with Spiking Neural Networks 
+
+Claas Beger 1,* , Florian Walter 1, and Alois Knoll 11Chair of Robotics, Artificial Intelligence and Real-time Systems Technical University of Munich, Germany 
+
+> *
+
+Corresponding author: claas.beger@tum.de 
+
+Abstract 
+
+The Transformer architecture is widely regarded as the most powerful tool for natural language processing, but due to a high number of complex operations, it inherently faces the issue of high energy consumption. To address this issue, we consider Spiking Neural Networks (SNNs), which are an energy-efficient alternative to conventional Artificial Neural Networks (ANNs) due to their naturally event-driven approach to processing information. However, this inherently makes them difficult to train. Often, many SNN-based models circumvent this issue by converting pre-trained ANNs. More recently, attempts have been made to design directly trainable SNN-based adaptations of the Transformer model structure. Although the results showed great promise, the application field was computer vision. Moreover, the proposed model incorporates only encoder blocks. In this paper, we propose SpikeDecoder, a fully SNN-based implementation of the Transformer decoder block, for applications in natural language processing. In a series of experiments, we analyze the impact of exchanging different blocks of the ANN model with spike-based alternatives to identify trade-offs and significant sources of performance loss. We further investigate the role of residual connections and the selection of SNN-compatible normalization techniques. Besides the work on the model architecture, we formulate and compare different embedding methods to project text data into spikes. Finally, we demonstrate that our proposed SNN-based decoder block reduces the theoretical energy consumption by 87% to 93% compared to the ANN baseline. 
+
+Keywords: spiking neural networks, natural language processing, transformer decoder block, self-attention, neuromorphic computing, brain-inspired computing, gpt 
+
+# 1 Introduction 
+
+Transformer models demonstrate notable proficiency in addressing tasks related to natural language, performing well in both sequence-to-sequence translation and language generation. More specifi-cally, OpenAI’s GPT models have garnered considerable public attention due to their impressive 1
+
+> arXiv:2606.12287v1 [cs.NE] 10 Jun 2026
+
+capabilities. However, their implementation, which is based on Artificial Neural Networks (ANNs), struggles with high energy consumption due to the complex computations required during inference. Spiking Neural Networks (SNNs) have experienced rising popularity as the third generation of neural networks (Maass (1997), Ghosh-Dastidar and Adeli (2009)). Due to the all-or-nothing principle employed in their brain-inspired approach to information propagation, they have the potential to reduce energy consumption, particularly when executed on neuromorphic processors Walter et al. (2015). This could enable the efficient implementation of GPT-based models while preserving as much of the original performance as possible. To design such a model, the self-attention mechanism proposed by Vaswani et al. (2017) is a key work with high relevance. Their innovative approach has become the dominant one for natural language processing. However, while powerful, multi-head self-attention consists of a set of (at least) two matrix dot products and a softmax operation, which are by nature ill-suited for an SNN-based implementation. This issue was addressed by Zhou et al. (2022), who introduced the Spiking Self Attention (SSA) block in an encoder-only architecture for image classification. While the model also includes common linear layers, its main components remain neuromorphic due to an alternating structure featuring spiking neurons. The Spikformer model outperformed the majority of SNN-based image classification models and even reached a competitive level with ANNs on some datasets. As only binary values are used, the matrix dot product can be formulated in a way that avoids MAC operations, and, in addition, the softmax operation also becomes obsolete. Zhou et al. (2023) extended the Spikformer model by adjusting the residual connections in order to prevent MAC operations on the sum of binary outputs passed to the linear layers. This is done by re-ordering the affected blocks and placing a spiking node directly after the summation operator. This not only reduces the cost of operations but also increases the model performance. Another SNN-based model that adapts the Vision Transformer architecture was proposed by Li et al. (2022). They employ an adapted attention mechanism that considers both spatial and temporal information. However, this approach is not exclusively spiking and computationally more expensive than Spikformer. Apart from the decoder-based architecture, one of the stronger directly trained SNN networks is spike-element-wise ResNet, which was introduced in Fang et al. (2021) and outperformed all directly trained SNN models on major image datasets prior to Spikformer. In the field of natural language processing, there have been very few attempts at SNN-based architectures. Most relevant is the work by Zhu et al. (2023), who proposed SpikeGPT, the first spiking model directly trained for language generation. It is worth noting that this model does not use self-attention but instead employs RWKV, a technique based on Recurrent Neural Networks. Additionally, this model is not fully spiking and applies MAC operations at various points throughout the model. Mueller et al. (2021) presented an effective way of ANN-SNN conversion, which adapts the structure and weights of a pre-trained Transformer model into a rate-coded SNN architecture. While the resulting model is fully spiking and performs well, it is not trained directly. Thus, a fully trainable spiking (decoder-only) Transformer language model has yet to be developed. In this work, we present a novel, fully spiking model based on the GPT architecture for natural 2language generation. Additionally, we examine the effect of normalization, embedding, and residual connections on the resulting structure. Since there is no prior work on the development of a directly trainable SNN-based GPT model, we closely analyze the process of transitioning from an established ANN-based GPT architecture to a purely SNN-based model. Finally, we provide an outlook on optimization opportunities, both in terms of performance and pure spiking behavior. Since there is no prior benchmark for a comparable SNN architecture in this application field, we do not investigate performance optimizations. Instead, we focus on building a stable starting point. The proposed model structure features a novel decoder block and a spike-compatible token embedding. Moreover, we show how normalization, residual connections, and time step unification can be realized in the proposed architecture. We develop and evaluate our model to process single characters rather than than full words. This decision is primarily influenced by the complex task of translating natural language tokens into spikes while preserving information, which falls outside the scope of this work. 
+
+# 2 Materials and Methods 
+
+In the following subsections, we introduce the technical foundations and design choices that guide the development of our final SpikeDecoder model in Section 3. We first describe the spiking neuron model used throughout the architecture, including the Multi-Step Leaky Integrate-and-Fire dynamics and their implications for spike-based computation. We then discuss how textual inputs can be represented in a spike-compatible form, covering character embeddings, positional encodings, and the trade-offs between one-hot, binary, static, and learned representations. Next, we examine normalization strategies and their suitability for Transformer-like SNN architectures, before addressing the adaptation of residual connections to reduce floating-point operations while preserving trainability. We further consider how linear and normalization layers may be combined for deployment to improve computational efficiency. Finally, we describe strategies for handling the synthetic time-step dimension introduced by spiking computation and compare different approaches for reuniting temporal outputs before classification. 
+
+2.1 Spiking Neuron Implementation 
+
+While several software libraries for SNNs are available, SpikingJelly (Fang et al., 2020) is one of the most efficient (Lenz, 2023) and has been utilized in the research most relevant to this work, including Spikformer and SpikeGPT. Our model employs the Multi-Step Leaky Integrate-and-Fire (LIF) neuron. On the subthreshold level, the corresponding neuron dynamics are described in the following manner: 
+
+V [t] = V [t − 1] + 1
+
+τ (X[t] − (V [t − 1] − Vreset )) (1) 
+
+τ is the membrane time constant, V [t] is the voltage level at the respective time step t, and X[t] is the input at time step t. The dynamics of this model can be divided into three main phases: First, the input adds or subtracts a computed voltage according to the given membrane time constant and the potential from the previous time step. Second, a Heaviside step function is applied to the 3difference between the updated voltage and the spiking threshold, which corresponds to the neuron firing a spike when it exceeds the threshold. For backpropagation during training, this function is replaced by a differentiable surrogate. For our proposed model, we employ the Sigmoid function. Utilizing a surrogate gradient is a common practice that allows for mimicking spiking functionality in a way that enables gradient descent (Neftci et al., 2019). Third, a neuronal reset is triggered immediately after a spike, causing the voltage to return to its reset value. By default, this value is set to zero. For the Multi-Step LIF implementation, the input is expected to be a tensor containing a time step along the first dimension. It is processed by generating a spike flag and an internal voltage value for each timestep. In addition to integrating the incoming voltages, the model also features a leaky behavior, meaning that it loses voltage over time. This is realized by propagating a default value of zero for a time step without an input value, which halves the voltage under τ = 2. The corresponding potential is computed using the time constant and the previous neuronal charge, if an input is present. 
+
+2.2 Spike-Based Character Embedding 
+
+To enable the model to process, a suitable embedding is required. It should not only encode the characters but also position data to retain sequence information. Most often, such information is expressed through a corresponding value array. The desired embedding should generally produce a binary value range in order to conform to the fully spiking design, with one exception, which will be further discussed in Section 2.4. As a first approach, the characters can be encoded as one-hot vectors, meaning they are mapped to a distinct position in an enumerated representation of the alphabet. This fulfills the requirement of a value range between zero and one, but does not yet include positional data and has large space demands, especially when anticipating usage on whole words. One-hot encoding is also unsuitable for displaying similarities and relationships between tokens. To encode the input position, one-hot encoding can also be used, and the two vectors can be combined to yield a representation with two spikes instead of one. The embeddings produced by this method are large and thus only suitable for structural validation. A similar approach is to encode the position in binary form, producing a significantly smaller but denser vector. When it comes to encoding the surrounding information of a specific signal beyond its identity, however, there are more capable alternatives. Following the original Transformer architecture (Vaswani et al., 2017), we consider learning token embeddings using a sophisticated objective. In addition, we evaluate the original positional encoding, which alternates between cosine and sine values based on the token position in the input. We also consider a learned positional embedding, which often yields similar results but, according to the authors, is less suitable for very long input sequences. For our last approach, we employ float-based learning/encoding and project to binary values. We have formulated an overview of these alternative variants to one-hot encoding for a structured evaluation: 
+
+• Binary : Representing an absolute position index in a binary value (spike or no spike), common 4base two encoding is an option. While this approach may be the most size-effective one ( ⌈log 2⌉
+
+of the vocabulary size or maximum input length), it will likely be difficult for the model to work with. This is due to the volatile character of the corresponding function, which is hard to approximate, especially as compared to the one-hot or static encoding. 
+
+• Static : The original Transformer structure uses a form of static encoding through sine and cosine values based on the positional index. Although these functions are not well suited for spike-based computing, this can be circumvented by saving the results in a lookup table prior to model deployment or training. The static creation of the table would be suitable for the scope of the model since it saves computational power throughout application. In order to obtain a binary input value range for the linear layers at the beginning of the decoder block, we employ an additional LIF unit or directly apply the Heaviside step function with a corresponding surrogate. The information loss from the transformation could be at least partially compensated by extending the value vector while retaining the size advantage over standard one-hot encoding. 
+
+• Learned : We can employ a common embedding objective to learn a representational position or token vector consisting of floating-point values to express the index or character in the input sequence. Similar to the static approach, this would require the use of an LIF neuron or an activation function block for binary mapping. Contrary to natural language vocabulary, positions can generally be represented by an ascending enumeration. However, such a fixed encoding could suggest wrong connections when applied to natural language tokens and thus make it difficult for the model to work with. Hence, we disregard the static token-embedding strategy in the following. An overview of the application of different approaches is shown in Figure 1. Looking more closely at the resulting mapping from the static approach, it is apparent that the encoding is biased towards positive values, resulting in ∼75% (static encoding of 256 positions using an encoding vector of size 30) ones/spikes due to the Heaviside function. This suggests an inability to make optimal use of the position vector length, since this would result in approximately equal numbers of ones and zeros. However, mitigating this effect by subtracting a small positional bias resulted in insignificant changes in model performance, so we do not consider this correction further. The results of mapping the static position vectors to binary values, both with and without bias, are demonstrated in Figure 2. 
+
+2.3 Normalization 
+
+Using normalization layers to rescale activations is a common practice in ANNs to stabilize training and improve generalization. For the purpose of this model, normalization seems necessary, as output values of the matrix dot product in the decoder block range to a maximum of emb dim ∗ seq len if the following LIFs produce a lot of spikes, which is undesirable. Firstly, we consider Batch Normalization 5Learned Token 
+
+Learned/Static Position 
+
+Sum Surrogate 
+
+# +
+
+> 
+> 
+
+Figure 1: Overview of the different spiking embedding/encoding approaches. (BN), which is a common technique that has been used in similar models (Zhou et al. (2022)). Alternatively, we also consider Layer Normalization (LN), which is a natural match for natural language applications. In contrast, Batch Normalization may pose issues, as it is a poor choice for processing natural language and has been shown to degrade performance, especially for Transformer-based models (Wang et al. (2022)). As a third option, we evaluate Power Normalization (PN) (Shen et al. (2020)) to address this issue, which aims to provide a Transformer-compatible version of BN. In addition to performance, it is essential to factor in SNN compatibility. This, and other differences between these three normalization approaches and their respective shortcomings, will be further discussed in 2.5. Prior to that, we identify some issues with avoiding multiply-accumulate floating point operations that are inherent to normalization in the next subsection. 
+
+2.4 Spike-Compatible Usage of Residual Connections 
+
+The Transformer architecture includes residual connections around multi-head self-attention and feedforward blocks, which need to be adapted to appropriately handle spikes. A straightforward implementation proposed in Spikformer (Zhou et al., 2022) is shown in the first row of Figure 3. It relies primarily on spike-conforming calculations that can produce values outside the spike range due to residual connections around the decoder block components. If chained, applying such decoder 6Figure 2: Visualization of the static positional encoding, with the position up to 128 on the x-axis and the embedding vector of size 30 on the y-axis. The first plot shows the common float encoding used in ANN transformer structures. The second plot shows the corresponding binary mapping through the Heaviside function. A slight bias towards the value 1 and a potential underutilization of higher-index embedding values can be observed. The third plot shows a static encoding with a subtracted bias of 0.02 before the mapping, producing a better distribution of values and a better utilization of higher embedding indices. blocks will result in floating-point multiplications. This is intuitive, since the residual connection combines two value ranges limited to 0,1, expanding them to 0,1,2 or even further in some cases. Not only do the resulting float operations increase energy consumption, but they also reduce the overall model performance, according to Zhou et al. (2023). We further review the marked points in the Spikformer model where the issue originates. At the beginning of the MLP, floating-point multiplications are applied in the first layer due to the summation operator before it, which can be avoided by reordering the LIF neurons as shown in the second row for the Spikingformer model(Zhou et al., 2023). Since the output of the SMHA, together with the other element of the residual connection, is now directly mapped to the binary range again, the results of the SMHA block also no longer have to be binary. While a floating-point result makes the following operation a floating-point addition, this is tolerable for the sake of our model. 7ANN functionality applied on floating point values  
+
+> potential addition of spikes and floating point results addition of floating point results
+
+Figure 3: Different residual structures in Spikformer, Spikingformer, and the pure spiking variant which will be tested in this work. In general, this model will, however, rely on structure 2. In addition to the depicted changes, an internal LIF is moved from the end to the beginning of the SMHA from the Spikformer to the Spikingformer block. Therefore, the LIF neuron from the end of the SMHA block is moved to the beginning. This also solves another issue, where the first layers of subsequent blocks were applied to the results of the final residual connection of the preceding block, which are again non-binary. Thus, LIF neurons at the beginning of the MLP and the SMHA ensure that the input data for the following ANN neurons are binary. This removes all floating-point multiplications caused by the residual connections. Zhou et al. (2023) adapted this new structure to improve energy consumption and overall performance of Spikformer. The resulting structure is depicted in the second row of Figure 3. The restructuring also enables modifications to the embedding block, which we exploit to evaluate the performance impacts of using float instead of spike input embeddings. This is possible since the new LIF at the start of the SMHA now maps a corresponding embedding vector to spikes, regardless of value range. While we include both approaches, floats incur a mixed-type addition in the residual around the SMHA in the first decoder block. The corresponding point is marked in the second row of Figure 3. This summation is undesirable, and we show that it can be avoided by a different placement of the first input value of the residual connection in the first block. However, there is still an issue between the linear layer and the subsequent normalization layer in the MLP and SMHA, since both apply float multiplication, and it would be useless to place an LIF neuron between them, since spikes do not need to be normalized. Because both components apply linear transformations, fusing them in deployment would eliminate the need for 8additional normalization (cited in Zhou et al. (2023)). Intuitively, the idea is to combine both linear transformations, redefining the weights of the ANN layer to conform to the normalization principle. Despite these modifications, the model still relies on floating-point additions for the residual connections. While this is likely an essential part of avoiding vanishing gradients for optimizing the ANN components, exploring pure spike-based communication is interesting. For this purpose, we evaluate an adapted version of the decoder block in which the addition for the residual connections is applied only directly after the LIF neurons. The corresponding structure is presented in the third row of Figure 3 and will be further analyzed in subsection 4.4. It is important to note that this change does not concern MAC operations, so the previous structure generally remains valid for our purposes. 
+
+2.5 Combining Linear Layers and Normalization for Deployment 
+
+Combining an ANN layer with a subsequent normalization layer in the MLP to avoid MAC operations has already been explored for a convolutional layer followed by batch normalization (Zhou et al. (2023)). For this work, we present an additional fusion of layer normalization and linear layers, as discussed in Section 2.3. The layers apply a linear transformation of the following nature: 
+
+ylin = wLin ∗ xi + bLin (2) And the layer normalization may be expressed as 
+
+yi = LN γ,β (xi) = γ xi − μl 
+
+> √1
+> H
+> ∑Hi=1
+
+(ali − μl)2 + ϵ
+
++ β
+
+= γ 
+
+> √1
+> H
+> ∑Hi=1
+
+(ali − μl)2 + ϵxi + β − γ ∗ μl 
+
+> √1
+> H
+> ∑Hi=1
+
+(ali − μl)2 + ϵ
+
+(3) Where μl is the arithmetic layer mean across all units, ali is the output value of one layer unit, γ
+
+and β are the learnable parameters of the applied linear transformation, and ϵ a small factor to avoid division by zero. Now, since both apply a general linear transformation, they may be fused for deployment in the form of 
+
+yi = wLN (wLin ∗ xi + bLin ) + bLN 
+
+= wLN ∗ wLin ∗ xi + wLN ∗ bLin + bLN 
+
+(4) The result eliminates the float multiplications by combining weight and bias vectors. The corresponding fusion would consist of a weight parameter and a bias made up by 
+
+W = wLN ∗ wLin (5) 9B = wLN ∗ bLin + bLN (6) However, this formulation is not sensible for this normalization approach, since Layer Normal-ization, unlike Batch Normalization, still dynamically computes the arithmetic mean and standard deviation during inference. Computing them by averaging over past samples during training and freezing them prior to inference, as in BN, would likely lead to similar issues to BN in Transformers (2.3). For the concrete formulation of the corresponding fusion of BN and linear layers, we refer to Zhou et al. (2023). Lastly, we evaluate the possibility of employing Power Normalization, which provides a similar functionality to BN by applying a fixed linear transformation during inference. Generally, this technique relaxes some BN operations in order to address named issues and employs a running average. It can be formulated as: 
+
+ψ2 
+
+> B
+
+= 1
+
+B
+
+> B∑
+> i=1
+
+x2 
+
+> i
+
+(7) 
+
+ˆX = Xψ (8) 
+
+Y = γ · ˆX + β (9) 
+
+ψ2 = αψ 2 + (1 − α)ψ2 
+
+> B
+
+(10) Which is the definition proposed by Shen et al. (2020). Here, ψ2 
+
+> B
+
+represents the quadratic mean of batch B, which will be factored into the running average with factor α (constrained between 0 and 1) in eq. 10. In order to enable sensible backpropagation, they suggest a gradient approximation to circumvent backtracking through the prior iterations. Similar to LN and BN, γ and β represent learnable parameters of the final linear transformation. As obvious from eq. 9, the normalization function may be combined with a linear layer for deployment in a manner similar to the one described previously in this section. 
+
+2.6 Reuniting Synthetic Time Steps 
+
+To leverage the event-driven nature of SNNs, additional adjustments to the input structure are needed. The resulting shape is known as neuromorphic or time-varying and includes an explicit time-step dimension. The easiest way to achieve such a shape is through repetition if the corresponding input is static. However, this comes with many arbitrary operations and provides only pseudo-events to the SNN. Regardless, since the model structure is still very new, this strategy is a natural choice, with the option to explore other approaches in the future. Naturally, the LIF neurons consider this dimension when calculating the current potential before integrating the next charge. During inference, there are multiple strategies for deriving data from the time-step dimension. Specifically, we have formulated four approaches: 10 • Average : We evaluate the usage of an averaging operation over the time dimension prior to the classification head to aggregate time step information. While this approach is biologically inspired (similar to rate coding), the conversion itself is challenging to design in a spike-compatible manner. 
+
+• Accumulate : A similar approach to averaging, that does not employ the problematic float division, is spike accumulation. Since accumulation comes naturally to SNN models, while the provided information is almost identical to the average, this is a promising approach 
+
+• Concatenate : We present a concatenation operation over the time step results. While very straightforward and without information loss, this strategy requires adjusting the subsequent linear layer size accordingly. This would produce spike-form results and is SNN-compatible, but slightly increases the number of parameters in the head component. 
+
+• Final : For the final approach, we consider ignoring all but the last results, meaning the model will be trained to produce a spike over n inputs to the LIF, where n is the number of time steps. While this is easy to implement, it inherently produces information loss since spikes before the final step are discarded. Additionally, the neurons’ reset behavior inhibits the production of a spike if one was produced in the previous timestep, which may further complicate training. Figure 4 shows an overview of the different approaches. The choice of structure can be assumed to correlate strongly with model performance. Therefore, a non-spiking variant that performs linear-layer computations on floating-point values is also considered. For all of these strategies, we further discuss the choice of the location at which reunion is performed and required adjustments to the classification head. 0 1 0 1 1 0                                                     
+
+> 110000
+> 001110
+> 110011
+> Average
+> (Rel. Spike Frequency)
+> Accumulate
+> (Abs. Spike Frequency)
+> Concatenate
+> Final
+> 0.5 0.75 0.25 0.5 0.75 0.25
+> 231231
+> 010110110000001110110011
+> 110011
+> Spike Data
+> T1
+> T2
+> T3
+> T4
+
+Figure 4: Approaches for the reunion of synthetic time steps. Displayed on the left are the outputs of the respective LIFs for each of the four time steps, and to the right are the corresponding results according to the approach. Furthermore, for the design of the fully spiking variant, which contains an additional LIF, there 11 are multiple options for the placement of the time-step unification block. Both before and after this LIF neuron are valid choices, which are displayed in rows two and three of Figure 5. Placing a LIF after the UT block may seem unintuitive, but just constitutes the application of a Heaviside function with a suitable surrogate for backpropagation. This property can be utilized to map the unified data sequence to Spike-form again before applying the linear layer. In general, if not specified otherwise, we use the structure featuring an LIF before the UT block. Non Spiking  
+
+> (with or without time-steps)
+> Spiking, Reunite on Spikes
+> Spiking, Reunite on Floats
+> UT
+> *if time-steps contained
+> L
+> *
+> UT L
+> UT
+> *Heaviside, no new time-steps
+> L*
+
+Figure 5: The head structure is dependent on the spiking property of the head, as well as the choice of the unify time steps (UT) object placement. 12 3 Results 
+
+In the following subsections, we first describe the non-spiking baseline decoder architecture before introducing the architecture of our SpikeDecoder model based on the components identified in the last section. 
+
+3.1 Non-Spiking Decoder Model 
+
+Before describing the architecture of the proposed spiking model, we introduce an ANN-based decoder structure. This will serve as a baseline and may be consulted to compare performance later on. We adopt the decoder-only model architecture proposed by Karpathy (2022). In addition to the original attention mechanism, this model uses learned floating-point token embeddings. Also, the aforementioned static position encoding can be directly added (position-wise) to the token embeddings. Besides that, we employ techniques from previous sections that are ill-suited to SNN-based architectures, such as applying softmax in the multi-head attention blocks and including an activation layer (GELU) in the MLP. The complete architecture of the non-spiking model can be found in Figure 6. It is also noteworthy that the linear layers with the following normalization are not combined in this scenario. Having revisited the basic model outline for a decoder-only model, we now proceed to the architecture of the fully spiking model, SpikeDecoder. Q
+
+K
+
+V
+
+> Scaled-Martix
+> Dot-Product
+
+N
+
+N
+
+N
+
+> Martix
+> Dot-Product
+
+L
+
+L
+
+L        
+
+> Linear Normalization
+> 0.46 0.21 -0.18 1.46 0.31 1.85 1.58 -0.26
+> 0.52 0.48 1.21 0.75 -0.28 0.18 1.67 1.56
+> 0.19 3.04 0.00 -0.65 1.36 0.19 0.54 1.03
+> 0.28 -0.65 0.27 0.33 1.56 0.79 1.54 -0.22
+> 0.06 0.17 -0.99 -0.65 0.89 0.56 1.21 -1.39
+> - ∞ Masking
+> Softmax
+> Dropout
+> N
+> L
+> 1.46 0.68 1.48 0.21 1.02 0.67 1.72 0.38
+> Token Embedding
+> Positional Encoding
+
++       
+
+> 0.19 2.04 -0.03 -1.64 1.07 -0.39 -0.46 0.89
+> bgfedcha
+> iwodnw
+> 1.00 0.03 0.99 0.29 0.58 0.14 0.00 1.00 *
+> *static positional encoding of index 4
+
+Non-Spiking Decoder Model 
+
+> L
+> MHA
+> MLP
+> GELU
+> L
+> N
+> L
+> N
+> i
+> w
+> n
+> d
+> o
+> w
+
+N * 
+
+Figure 6: Full non-spiking model architecture, consisting of N decoder blocks, an encoding object and a classification head. Special attention should be paid to the different embedding processes of the input data and the different steps following the QKV operations in the Multi-Head-Attention. 
+
+3.2 SpikeDecoder Architecture 
+
+In comparison with the non-spiking version, we need multiple alterations to support spikes. Firstly, as subsection 2.5 explained, we merge normalization with the preceding linear layers. Similarly, we 13 adjust the look-ahead mask and remove the softmax operation. Lastly, we employ the SpikingJelly Multistep LIFs. An overview of the isolated spiking decoder block can be seen in Figure 7a. Further-more, we employ the spike-compatible text embedding, as explained in Section 2.2. Concerning the residual connections, it is worth noting that the model employs directly following spiking neurons to project results to a binary value range again, as was proposed in Zhou et al. (2023). Finally, we insert a LIF, followed by a unification time step (UT) object, into the classification head before the final linear layer. As discussed in 2.6, the spiking neuron in the classification head may be omitted for performance improvement. Similarly, the position and strategy of the UT object may be shifted. The full model, including embedding and classification head, is displayed in Figure 7b. Notably, the model does not output probability values since softmax or other variants are not spike-compatible. This prevents the structure from employing probability-based search algorithms like Beam Search over the generated tokens, which is generally associated with improved result quality. Similarly, we cannot regulate the sampling temperature. In the future, exploring how such features can be suitably realized in SNNs may be interesting. 
+
+3.3 Partially Spiking decoder Models 
+
+Several differences exist between the spiking and non-spiking decoder models. To investigate further whether there is a decrease in performance and, if so, where it originates during the transition to spikes, it is a sensible next step to implement a hybrid model that includes both non-spiking and spiking components. This partially spiking decoder model can be structurally separated into four major parts: the embedding, the SMHA, the MLP, and the classification head. While the embedding block functionality may not appear as a noticeable difference since the position of the first LIF in the SMHA also enables float embedding for the spiking decoder model, for simplicity’s sake, this may be treated as a delayed variant of binary embedding. Secondly, it is necessary to establish a partially spiking decoder block to separate multi-head attention and MLP from an implementation perspective. A visualization of the structures that correspond to the different spike degrees is shown in Figure 8. The spike degrees can be categorized in the following manner: 
+
+• Spike Degree 0 : Formally equal to a non-spiking decoder model. 
+
+• Spike Degree 1 : Common non-spiking embedding block is replaced by a spiking embedding block. The strategies can still be customized, but in general, learned token and static positional encodings are used to provide a natural transition. Unlike the usual spiking embedding, this degree does not provide a time-step dimension. 
+
+• Spike Degree 2 : Float-based multi-head attention is exchanged with the SMHA component. To combine it with the non-spiking MLP, this model includes a partially spiking decoder block. Since this is the first model to feature SNN nodes, the embedding block generates synthetic time steps. Therefore, it is also necessary to include a UT object in the classification head to join the time step information before the final prediction. 14 • Spike Degree 3 : The partially spiking decoder block is replaced with a fully spiking one. This change replaces the non-spiking MLP with the one used in the fully spiking decoder model. 
+
+• Spike Degree 4 : The final degree includes an LIF node in the classification head. The placement of the unification process also remains unchanged. This model is equal to the fully spiking decoder model (SpikeDecoder). With these degrees, we can effectively analyze the performance fluctuations in the transition process and other potential side effects. 15 Spiking Decoder Block 
+
+> SMHA
+
+Spiking Multi-Head Attention SMHA 
+
+> LN
+> LN
+
+MLP 
+
+Q
+
+K
+
+V
+
+> S
+> S
+> S
+> Martix
+> Dot-Product
+
+Mask 
+
+> Scale
+> Martix
+> Dot-Product
+> Drop
+> out
+
+LN 
+
+LN 
+
+LN 
+
+Element-wise Add 
+
+Spike Sequence 
+
+Spike Neuron Layer  
+
+> S
+> LN
+
+Combined Linear Layer 
+
+and Normalization 
+
+> LN
+
+Element-wise logical OR (a) Model architecture of the spiking decoder block. Notable differences to the encoder block of Zhou et al. (2022) are the usage of dropout, the look-ahead mask, and the different choice of normalization. Spiking Decoder Model 
+
+> SMHA
+> LN
+> LN
+> MLP
+
+L 
+
+> Input Encoding Positional
+> Encoding
+
++0 0 0 1 0 0 0 0 0 0 0 1 0 0           
+
+> windo w abcdefgh
+
+*may be excluded for performance 
+
+improvement 
+
+N * 
+
+UT 
+
+*
+
+Q
+
+K
+
+V
+
+> S
+> S
+> S
+> Martix
+> Dot-Product
+
+Mask 
+
+> Scale
+> Martix
+> Dot-Product
+> Drop
+> out
+
+LN 
+
+LN 
+
+LN 
+
+> LN
+
+(b) Full model architecture, consisting of N decoder blocks, an encoding object, and a classification head. 
+
+Figure 7: Architectures used in this work. 16 Spiking Embedding Block 
+
+Spike Degree > 0
+
+Non-Spiking Embedding Block 
+
+Spike Degree = 0
+
+Partially Spiking Decoder Block 
+
+Spike Degree = 2
+
+> SMHA
+> NSMLP
+> GELU
+> L
+> N
+> L
+> N
+> * Employing a PSD Block also includes an unsqueeze operation to simulate
+> time-steps, directly after the embedding block
+
+Non-Spiking Decoder Block 
+
+Spike Degree < 2
+
+> MHA
+> NSMLP
+> GELU
+> L
+> N
+> L
+> N
+> SMHA
+> MLP
+> L
+> N
+> L
+> N
+
+Spiking Decoder Block 
+
+Spike Degree > 2
+
+Non-Spiking Classification 
+
+Head without Time-steps 
+
+L
+
+Spike Degree = 1
+
+Non-Spiking Classification 
+
+Head with Time-steps 
+
+UT L
+
+1 < Spike Degree < 4
+
+UT L
+
+Spiking Classification Head 
+
+Spike Degree = 4
+
++    
+
+> 0.19 2.04 -0.03 -1.64 1.07 -0.39 -0.46 0.89
+> bgfedcha
+> iwodnw
+> 1.00 0.03 1.00 0.30 0.58 0.14
+
++0 1 0 1 0 0 1 1 1 1 1 1 0 1
+
+w i n d o w a b c d e f g h
+
+> 1.00 0.00
+
+Figure 8: Overview of the different PSD variants separated by the spiking degree. The model is composed of one element per colored sector (blocks are still chained). In addition to the non-spiking and spiking blocks, this structure incorporates partially spiking decoder blocks, which contain spiking multi-head attention and a non-spiking MLP. For the transition, we disregard the combination of linear layer and normalization. 17 4 Evaluation 
+
+In this section, training results will be discussed for both spiking and non-spiking models, the specifications during the transition to the fully spiking variant, and the effects of further structural changes. We also estimate the theoretical energy consumption. For a swift comparison of different model applications, we provide a synoptic results table in Figure 9. For general performance measurement, we use prediction accuracy relative to the source text training set. Since the model is supposed to learn general language generation, this is not an optimal choice, but it is intuitive for the current scope. It is also important to note that readable text outputs are considerably more difficult to generate for this model since there is no predefined word vocabulary to refer to. In addition, the model does not produce probability outputs, meaning it cannot fall back on corresponding search algorithms. In turn, a single mistake in earlier predictions can result in greater difficulties in later sections. 
+
+4.1 Non-Spiking decoder Performance 
+
+For testing the model on natural language, we use “War and Peace” by Leo Tolstoy. Due to the size, the train set is shortened to make training comparisons possible in a feasible time. The data is reduced to a 100,000-character-long excerpt, combined with a 90/10 train/test split and a random sampler. The input length is set to 256, enabling the model to generate about 1.5 to 2 sentences with a reasonable input prompt. The model is trained using an embedding dimension of 80 (combined token and positional encoding), eight attention heads, and six chained decoder blocks. This results in a parameter number of about 1.4 million and is chosen to enable a suitable comparison through the transition process. Using this configuration, the model achieves 98.5% accuracy after a short training period. Generally, the model performs about as well as should be expected. It generates suitable text excerpts from input prompts that are similar to the source text’s style and content. However, due to the comparatively small training set, even the ANN model struggles to operate on texts that are far from the source text. This may imply increased performance in bigger use cases later on. Having established a stable performance baseline, we begin preparing for the transition to spikes. In turn, the different embedding options proposed in Section 2.2 will be formally compared next. While the non-spiking decoder uses a position-wise addition of learned token embeddings with static positional encoding, there is little to no research on the most effective form of embeddings for spiking Transformers in natural language processing. This is a natural next step to prepare for the training of spike degree one. 
+
+4.2 Embedding Performance Comparison 
+
+We generally consider both spike and floating-point embeddings, due to the reordering discussed in Section 2.4. Since the choice of embedding strategies inherently influences the model’s size, it is rather difficult to produce an objective comparison. Although extending the length of binary 18 Model Type  Blocks  Heads  Other  Parameters  Accuracy 
+
+NSD  6 8 Token, 
+
+Position 
+
+added in place 
+
+1.40e6  98.5% 
+
+PSD 1  6 8 - 1.40e6  98.4% 
+
+PSD 2  6 8 - 1.40e6  72.6% 
+
+PSD 2  12  10  - 2.80e6  92.2% 
+
+PSD 2  12  5 - 2.80e6  95.5% 
+
+PSD 3  12  8 - 2.83e6  74.6% 
+
+PSD 3  12  5 - 2.83e6  82.0% 
+
+PSD 4  12  5 - 2.83e6  78.5% 
+
+PSD 4  12  1 - 2.83e6  87.0% 
+
+SD  12  5 Spiking 
+
+Residual 
+
+around MLP 
+
+2.83e6  41.6% 
+
+SD  12  5 Spiking 
+
+Residuals 
+
+around MLP 
+
+and SMHA 
+
+2.83e6  18.1% 
+
+SD  12  5 Reuniting on 
+
+floats 
+
+2.83e6  78.1% 
+
+SD  12  5 Parameterized 
+
+LIFs 
+
+2.83e6  89.3% 
+
+SD  12  1 Parameterized 
+
+LIFs 
+
+2.83e6  93.1% 
+
+SD  12  5 Batch 
+
+Normalization 
+
+2.83e6  73.5% 
+
+SD  12  5 Power 
+
+Normalization 
+
+2.83e6  76.2% 
+
+SD  12  5 Power 
+
+Normalization 
+
++
+
+Concatenate 
+
+on Spikes 
+
+2.84e6  81.7% Figure 9: Comparison of the train set accuracy of different model variants. ND refers to non-spiking decoder model, PSD to partially spiking decoder model with the respective degree and SD refers to the fully spiking decoder model (equal to spike degree 4). 19 or other static embeddings by padding would be possible, this would be counterintuitive, since their biggest advantage is their reduced size. In a similar manner, the one-hot encoding approach produces a large model, which, in turn, improves performance. The accuracy overview in Figure 10 clearly shows significant disparities across different combina-tions, partially due to size differences. For the following sections, however, a couple of approaches can be eliminated. The One-Hot approach is not suitable for modeling large input sizes, as it leads to an explosion in model parameters. On the contrary, binary embedding is very well suited for this task but almost halves the average overall performance, potentially also due to the reasoning mentioned in Section 2.2. Learned and static approaches for the positional embedding-only feature show only minor performance differences between them. While static embeddings are computationally less demanding, learned embeddings may adjust better to the subsequent mapping to binary values, which could be useful since static encoding was developed for floating-point representations. Also, a decision must be made on whether to concatenate or to add the token and position embeddings. While concatenating the two increases the input size, it may be difficult for the input to preserve positional information when computing the sum. 
+
+Figure 10: The left table displays the accuracy of next character prediction given the respective combination. The right table shows the number of parameters, and is strongly dominated by the combinations with linear positional encoding. The token embedding is shown on the y-axis, and the position is on the x-axis. In the last row (marked with Learned ∗), the position and token embeddings are added, which is why one-hot and binary position embeddings are excluded. In addition to the combinations in the comparison table, we have considered delaying the projection to the binary range until the first LIF unit in the SMHA block. Surprisingly, this approach did not improve the performance of the top-performing combination with a reasonable size and, on average, even slightly decreased it by about 1. Overall, the concatenation of learned token embeddings and static positional encoding showed the greatest promise, with moderate and dynamic size requirements and very stable performance. Static position encoding also provides dynamic size allocation and already has a solid theoretical foundation. 20 4.3 Transitioning to Spike-Form: Partially Spiking Decoder Models 
+
+To identify the pain points for the new model, the structure will be gradually transitioned to use binary values, employ LIF neurons in the Multi-Head-Attention, and finally eliminate all MAC operations within the model. Correspondingly, we investigate the partially spiking model architectures presented in Section 3.3 and their respective performance. Although float embeddings have not shown any significant performance increase in the previous sections, we employ them to avoid the mixed-type addition mentioned in Section 2.4. Since spike degree 0 is equivalent to the fully non-spiking decoder model, we do cover it again. Throughout the transition, we will directly address and incorporate factors to compensate for performance drops. This is done to arrive at a final result as close as possible to the ANN model’s capacity. In transitioning from a non-spiking to a spiking model, we observe nuanced changes in performance across the different spike degrees. For Spike Degree 1, using a spiking embedding block yields comparable loss and accuracy, with test prompt outputs of similar quality. Notably, a reduction of the token embedding from 80 to 50, as well as the shift to binary values, does not significantly impact performance, as demonstrated in Appendix Figure 12. The new binary embedding retains a clear, unique mapping from characters to vectors that features similarities in shorter sequences for more closely related characters, such as ’u’ and ’v’. Moving to Spike Degree 2, incorporating spiking multi-head attention results in the most significant performance decline of 25%. Strategies such as increasing the amount of decoder blocks and reducing the number of attention heads partially mitigate this decrease, achieving an accuracy of 92.2%. In Spike Degree 3, replacing the MLP leads to a 13% accuracy decrease, but the model retains acceptable performance, especially in comparison to non-spiking counterparts. Finally, introducing a spiking classification head in Spike Degree 4 causes a 4% accuracy drop, which can be compensated by reducing attention heads to one, resulting in a final accuracy of 87.0%. Adjustments in model accuracy throughout the transition are illustrated in Appendix Figure 13. Overall, while performance decreases are observed in transitioning to spiking components, strategic adjustments mitigate these effects to create a functional SpikeDecoder model instance, which performs around 11.4% worse than the used ANN counterpart. 
+
+4.4 Design Exploration and Performance Trade-Offs 
+
+In addition to the exploration of the transition from an ANN-based on an SNN-based model, several components of the SpikeDecoder architecture may further influence the model performance. For example, as shortly addressed in Section 2.6, one may consider the different positions of the UT object and the corresponding unification strategies. Also, when investigating the fully spiking model, it is sensible to examine the importance of the floating-point addition residual connections. Presumably, they constitute a vital part of the optimization process, since the LIF neurons might otherwise cause vanishing gradients during backpropagation. However, eliminating the corresponding floating-point additions would reduce the 21 model’s overall energy consumption and make it a native SNN. The structural approach to realize this change consists of adding one LIF directly behind the SMHA and one at the end of the MLP. Additionally, we adjust the position of the residual connection by pulling the respective internal LIFs in front of the connections around SMHA and MLP. The resulting design is shown in the third row of Figure 3. Moreover, we separated the normalization type from the transition process for simplicity’s sake. Regardless of this choice, it is necessary to replace the default layer normalization with a pure spiking model, as discussed in 2.5. Comparing the potential candidates of Batch and Power Normalization is another interesting point to consider. Lastly, the current LIF implementation is static, meaning properties such as spiking threshold or reset value cannot be adjusted during backpropagation. Registering either of them as trainable parameters may increase the model’s flexibility. For all the following experiments, we use final model of the transition process, but employ five attention heads instead of one. 
+
+4.4.1 Residual Connection 
+
+First, we investigate a pure spiking residual connection structure in the decoder block, meaning we solely add binary values in the surrounding add connections. We have already discussed the resulting structure (Figure 3, bottom row) and will compare it with the one with floating-point-based residuals. We separate the two residuals of the structure according to the component they surround for testing purposes. Introducing the residual connection only around the MLP already reduces performance to 41.6%. This is only about half of the original accuracy and again shows the vital role that the residuals play in model optimization. Adding the new structure around the SMHA model further worsens the final accuracy to 18.1%. The model evidently depends on residual connections to compute valid gradients, which are needed for functional backpropagation. In turn, this also indicates that the spiking residual connection structure proposed here is not a suitable approach for designing the model’s communication in a more spike-driven manner. 
+
+4.4.2 Timestep Unification 
+
+Multiple approaches exist to join the time-step information prior to classification. First, we compare the different strategies employed in the unification object (see Figure 4). After reduced training (25 instead of 50 epochs), the strategies result in the following accuracies: average: 71.5%, accumulate: 72.2%, concatenate: 70.0%, and final: 63.2%. Intuitively, the final strategy restricts the available information to the model during inference, resulting in lower accuracy. The similarity in the results of the other strategies can be explained by the fact that their results convey essentially the same information. Next, we investigate the placement of the UT object inside the classification head. Commonly, the model reunites the temporal dimension of spike sequences. This means that the output of the final decoder block is first projected to spike range through a LIF node and then combined via the unification object. Alternatively, we consider applying the UT block directly to the output of the 22 decoder block. For strategies besides average , this is spike-compatible. However, since the data is now floats, another LIF is needed after this unification. To avoid creating new time steps, this node will serve only as an adjusted Heaviside function without integrating over time. The non-spiking structure, including a UT object, was already tested indirectly in spike degree three. The spiking structure that reunites on floats can be reviewed in the third row of Figure 5. Using this head structure, combined with the averaging strategy, the common SpikeDecoder configuration achieves 78.1% accuracy. As a reminder, the corresponding performance with the spike-based unification structure using the average strategy achieved 78.5%. Since reuniting on spikes without either the 
+
+final or concatenate strategy produces floating-point values for the final linear layer to work on, it is unsurprising that this version performs a little better, but the difference is generally negligible. Overall, we conclude that the unification strategy has a limited influence on total performance, except for the final strategy. Besides performance, the strategy’s suitability for SNN-based implementation must be considered. 
+
+accumulate can be modeled using spiking components but produces non-spiking values. concatenate 
+
+and final can be modeled in this manner as well, but produce spike-values, which makes them suited for the placement reuniting on spikes. Since the final strategy has been observed to reduce performance, concatenate appears to be the most suitable candidate for a pure spiking architecture that reunites on spikes. For the alternative positioning, the unification doesn’t need to produce spike values, meaning accumulate and concatenate are both valid approaches. For the pure spiking variants in this work, we use the strategy concatenate on spikes since it enables the classification head to operate on absolute spike frequency. 
+
+4.4.3 Parameterizing LIFs with a Learnable Threshold 
+
+Our chosen LIF neuron model has several parameters that are set to static values by default. In the following, we investigate learning the spike threshold parameter. An experiment with the final transition model results in a performance increase to 89.3%. Investigating the resulting model further, there are a couple of interesting properties about the new thresholds. Figure 11 depicts the arithmetic mean values over the twelve blocks. It is apparent that all threshold values have been decreased from their default value of one. The first MLP LIF and the respective key and query LIFs have particularly low spiking thresholds. When looking further into the different block values, this instance also reveals processing flaws regarding the biological motivation of the LIF neuron. This is due to some key and query LIFs in middle blocks, which now feature a negative threshold value. Most likely, this is caused by the inputs, which are normalized but not restricted to positive values. While this is not problematic for the application of the model itself, biological neurons are not meant to receive negative currents. Application-wise, this could be addressed by restricting the value range of the linear transformation parameters, but this is beyond the scope of this work. Generally, the dynamic nature of the new LIFs appears to enable the model to further tailor the functionality of certain parts. Correspondingly, query and key generate spikes very easily, while the 
+
+value is rather conservative. Similar behavior may be observed in the MLP, where thresholds are 23 much more diverse across blocks. Spiking Decoder Model with Learnable Threshold    
+
+> SMHA
+> LN
+> LN
+> MLP
+> L
+> N *
+> UT
+> Q
+> K
+> V
+> S
+> S
+> S
+> Martix
+> Dot-Product* 1
+> Mask
+> Scale
+> Martix
+> Dot-Product
+> Drop
+> out
+> LN
+> LN
+> LN
+> LN
+> 0.05
+> 0.03
+> 0.48
+> 0.15 0.15
+> 0.07 0.17 0.77
+
+Figure 11: Average learned threshold values for respective LIFs throughout the decoder model. 
+
+4.4.4 Normalization 
+
+As discussed in Section 2.5, Layer Normalization is not suited for the fully spiking decoder model. Despite this, we used it by default for the prior experiments since it speeds up training and can easily be incorporated implementation-wise. Now, we investigate possible effects on the performance when replacing layer normalization with Batch (BN) or Power Normalization (PN). Generally, one can observe that both BN and PN take about twice as long as Layer Normalization during training. This may be partially due to the computation of running averages and the additional reshape operations needed to incorporate BN. Expectedly, the Batch Normalization has a negative effect on the overall model performance. The accuracy decreases to a value of 73.5%, which corresponds to a performance loss of about 5%. This performance drop is undesirable, making Batch Normalization a subpar choice for SpikeDecoder. Power Normalization, however, appears to have a less significant effect on accuracy, which decreases to 76.2%. Since this normalization type prevents the fusion of linear layers with their corresponding normalization after training, it is an intuitive choice for the pure spiking variant. Compared to Layer Normalization, the biggest disadvantages are the increased training time and the higher memory requirements, which have to be tolerated in this case. After investigating these additional structural adaptations, which enable the design of a fully spiking model, namely Power or Batch Normalization, and one of the spike-compatible time-step unification strategies, we want to validate the performance of SpikeDecoder. After training with Power Normalization and reuniting on spikes with the concatenate strategy, the model reaches a stable accuracy level of 81.7%. This successfully demonstrates SpikeDecoder’s ability to operate at the purely spiking level without employing any floating-point MAC operations. 24 4.5 Theoretical analysis of the Model’s Energy Consumption 
+
+After analyzing the performance merits of the model thoroughly, we present the estimated energy savings. In a similar manner to Zhou et al. (2023), we estimate by distinguishing between FLOPs (multiply-and-accumulate of floating point values) and SOPS (theoretical synaptic operations). Generally, we estimate the number of operations of a matrix dot-product between A (a,b) and B (b,c) using: 
+
+F LOP s A,B = (2 b − 1) ac (11) Which we adapt for a sparse, spike-form matrix through 
+
+SOP s A,B = T ∗ 2 ∗ nnz A ∗ c (12) We use a slightly different estimation than the authors of Spikformer, who directly multiply using the respective neuron firing rate. Here, nnz A refers to the non-zero values in matrix A, and T to the time-steps created through static repetitions. For estimation purposes, we have computed average rates for the respective matrices in the multi-head attention and the subsequent Multi-Layer Perceptron. Depending on the number of time steps, the values generally range from 10% to 36%. Assuming MAC and AC (SOPS) to be implemented on 45nm equipment according to Horowitz (2014), we calculate results with energy consumptions EM AC = 4 .6pJ and EAC = 0 .9pJ . The theoretical consumption of a SpikeDecoder block can thus be formulated as 
+
+EDecoderBlock = EAC ∗ (SOP s SM HA + SOP s M LP ) (13) 
+
+SOP s SM HA = T ∗ (6 ∗ nnz in ∗ E + 4 ∗ S ∗ E + 2 ∗ nnz Q ∗ S + 2 ∗ nnz QK ∗ E + 2 ∗ nnz Atn ∗ E) (14) 
+
+SOP s M LP = T ∗ (2 ∗ nnz i ∗ dim hid ∗ E + S ∗ E ∗ dim hid + 2 ∗ (nnz o) ∗ E + S ∗ E) (15) Where S is the sequence, E is the embedding dimension, nnz the corresponding amount of nonzero values and dim hid the hidden dimension in the MLP. For simplicity’s sake, we disregard the separation into different attention heads. Both the application of a linear layer (after parameters have been fused with normalization) and the two main parts of the spiking self-attention can be formulated as a matrix multiplication (and a following element-wise addition for the layer). It is worth noting that this is the fully spiking variant. In addition, the assumptions about LinearNorm only hold for normalization of type BatchNorm or PowerNorm. The corresponding reasoning has been addressed in 2.5. Now, to illustrate the distance between the non-spiking decoder and the SpikeDecoder block, we 25 compare the theoretical energy consumptions. For this purpose, we first define a parameter set with sequence length S = 256, embedding size E = 60, and dim hid = 16. Considering one decoder block with four time steps, SMHA and MLP, we arrive at a total of 114.24 million SOPs, which translates roughly to 102.82 μJ. The consumption can be further reduced to 53.14 μJ (59.04 million SOPs) by employing only two time steps. Now, applying the same considerations to floating-point operations in the non-spiking decoder block, we arrive at roughly 167.71 million FLOPs or 768.66 μJ. These values exclude scaling for both variants, since it is an optimization and not inherently needed. Also, the softmax and GELU activations in the non-spiking decoder block are disregarded because of their complex behavior. Nevertheless, this evidently shows SpikeDecoder’s capability to reduce the total power consumption by 86.7% or 92.3% compared the non-spiking decoder block, respectively. Even with additional time steps and an increased embedding dimension, SpikeDecoder maintains a highly efficient operation mode that is only a fraction of that in the common ANN variant. 
+
+# 5 Discussion 
+
+In this work, we aimed to combine the powerful decoder-only Transformer architecture with Spiking Neural Networks. To enable a functional end product, we have focused on practical applications of the corresponding components and deferred some SNN-specific issues or opportunities, such as sophisticated spike encoding and custom backpropagation, to future work. This enabled us to focus more closely on the transition process and the effects of employing spiking neurons for specific model parts. Also, we identified and investigated key structures in the final fully SNN-based decoder model. In addition to the insights we have gained during the conversion from a non-spiking to a spiking architecture, we have implemented an interactive tool to directly compare generated outputs of a common pre-trained ANN decoder, a partially spiking decoder, and the final SpikeDecoder variant. Finally, we have provided an overview of the full model development and the insights gained through the transition process. 
+
+5.1 Methodology and Findings Review 
+
+Throughout this work, we have analyzed the current research landscape of Transformer-based SNN models, particularly in natural language applications. We went over prerequisites and specific implementation requirements for creating and processing data with spikes. Similarly, we have revisited a number of structural choices made in previous models and evaluated their suitability for our purposes. While we were able to directly adapt some techniques, such as Spiking-Self-Attention, we had to develop custom alternatives for others, such as normalization and time-step unification. We also addressed some implementation preliminaries related to the shift from computer vision to natural language processing and from encoder to decoder. After revisiting a common GPT ANN model, we presented our novel purely spike-based decoder-only architecture, SpikeDecoder, for application to natural language. To illustrate the transition from a non-spiking to a spiking architecture, we have structured the final architecture into four segments and described the individual 26 effects of making them SNN-based and how to compensate for the corresponding performance loss. Additionally, we have re-evaluated several architectural choices, including residual connections and parameterized LIFs. After showing objective performance measurements, we derived the reduced theoretical energy consumption. Our final model achieves stable accuracy on smaller test sets and has the potential to serve as a starting point for future development of transformer-based, directly trained SNN models. A few possibilities to start this development will be presented in the next section. 
+
+5.2 Future Research Opportunities 
+
+There have already been some indications of potential investigation points mentioned throughout this work. Namely, due to difficulties with GPU parallelization and hardware limitations, we have yet to apply the model on large datasets and explore parameter sizes beyond ∼20 million. For this purpose, we have already distributed the text8 dataset in the model repository, which is a lowercase semi-clean version of enwik8, a text corpus made up of Wikipedia entries. To further motivate this direction, we compare generated text excerpts from models trained on a one-million-character dataset for ten epochs in Appendix Figure 14a, showing considerable improvement in quality. Another issue that could be further investigated is the adaptation of search algorithms without having to employ softmax. In a similar manner, SpikeDecoder has been developed with a character-level application in mind, but it would also be suitable to be applied to whole words, with some changes to the embedding block. We also motivate this approach through Figure 14b in the appendix and include it in the current implementation. Also, regarding the embedding block, the positional encoding used has not been designed with binary structures in mind. In the future, it would be sensible to introduce a more sophisticated strategy that is designed for binary representation. Besides application data, the spike-encoding strategy may also be worth investigating further. We have already briefly mentioned possible alternatives when introducing our use of static repetition for synthetic time steps, which can be incorporated with some minor changes to the embedding block. Since information from earlier processing steps can influence later computations, resembling recurrent dynamics, conducting a more thorough comparison between transformer-based and RNN-based models, such as SpikeGPT, would be very interesting as well. With regard to the SpikeDecoder architecture, one could further investigate other suitable normalization and backpropagation techniques. Also, there may be alternatives to the presented residual structures that do not degrade performance as much when operating on spike values. As an alternative to the tested dynamic threshold, one could enable other learnable properties, such as the reset value. This may also be a good opportunity to introduce a proper refractory period, which would increase the biological validity of the SNN nodes. Generally, the potential of the architecture has not yet been fully explored, and SpikeDecoder can be seen as a functional proof for the capabilities of a directly trained spiking decoder model and, correspondingly, a starting point for future optimization. 27 Conflict of Interest Statement 
+
+The authors declare that the research was conducted in the absence of any commercial or financial relationships that could be construed as a potential conflict of interest. 
+
+# Author Contributions 
+
+CB: Conceptualization, Methodology, Visualization, Software and Writing - original draft. FW: Conceptualization, Supervision, Writing - review and editing. AK: Supervision. 
+
+# Funding 
+
+The author(s) received no financial support for the research, authorship, and/or publication of this article. 
+
+# Data Availability Statement 
+
+The repository for this study can be found on github. 
+
+# References 
+
+Wei Fang, Yanqi Chen, Jianhao Ding, Ding Chen, Zhaofei Yu, Huihui Zhou, Timothée Masquelier, Yonghong Tian, and other contributors. Spikingjelly. https://github.com/fangwei123456/ spikingjelly , 2020. [Accessed 25-Jun-2023]. Wei Fang, Zhaofei Yu, Yanqi Chen, Tiejun Huang, Timothée Masquelier, and Yonghong Tian. Deep residual learning in spiking neural networks. In M. Ranzato, A. Beygelzimer, Y. Dauphin, P.S. Liang, and J. Wortman Vaughan, editors, Advances in Neural Information Processing Systems , vol-ume 34, pages 21056–21069. Curran Associates, Inc., 2021. URL https://proceedings.neurips. cc/paper_files/paper/2021/file/afe434653a898d-a20044041262b3ac74-Paper.pdf .Samanwoy Ghosh-Dastidar and Hojjat Adeli. Third generation neural networks: Spiking neural networks. In Advances in computational intelligence , pages 167–178. Springer, 2009. Mark Horowitz. 1.1 computing’s energy problem (and what we can do about it). In 2014 IEEE International Solid-State Circuits Conference Digest of Technical Papers (ISSCC) , pages 10–14, 2014. doi: 10.1109/ISSCC.2014.6757323. Andrej Karpathy. Karpathy/mingpt: A minimal pytorch re-implementation of the openai gpt (gen-erative pretrained transformer) training, 2022. URL https://github.com/karpathy/minGPT/ tree/master .28 Gregor Lenz. Snn library benchmarks, 8 2023. URL https://open-neuromorphic.org/p/ snn-library-benchmarks/ .Yudong Li, Yunlin Lei, and Xu Yang. Spikeformer: A novel architecture for training high-performance low-latency spiking neural network. arXiv preprint -arXiv:2211.10686 , 2022. Wolfgang Maass. Networks of spiking neurons: the third generation of neural network models. 
+
+Neural networks , 10(9):1659–1671, 1997. Etienne Mueller, Viktor Studenyak, Daniel Auge, and Alois Knoll. Spiking transformer networks: A rate coded approach for processing sequential data. In 2021 7th International Conference on Systems and Informatics (ICSAI) , pages 1–5, 2021. doi: 10.1109/ICSAI53574.2021.9664146. Emre O. Neftci, Hesham Mostafa, and Friedemann Zenke. Surrogate gradient learning in spiking neural networks, 2019. Sheng Shen, Zhewei Yao, Amir Gholami, Michael W. Mahoney, and Kurt Keutzer. Powernorm: Rethinking batch normalization in transformers, 2020. Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, and Illia Polosukhin. Attention is all you need, 2017. Florian Walter, Florian Röhrbein, and Alois Knoll. Neuromorphic implementations of neurobiological learning algorithms for spiking neural networks. Neural Networks , 72:152–167, 2015. ISSN 0893-6080. doi: https://doi.org/10.1016/j.neunet.2015.07.004. Neurobiologically Inspired Robotics: Enhanced Autonomy through Neuromorphic Cognition. Jiaxi Wang, Ji Wu, and Lei Huang. Understanding the failure of batch normalization for transformers in nlp. Advances in Neural Information Processing Systems , 35:37617–37630, 2022. Chenlin Zhou, Liutao Yu, Zhaokun Zhou, Han Zhang, Zhengyu Ma, Huihui Zhou, and Yonghong Tian. Spikingformer: Spike-driven residual learning for transformer-based spiking neural network, 2023. Zhaokun Zhou, Yuesheng Zhu, Chao He, Yaowei Wang, Shuicheng Yan, Yonghong Tian, and Li Yuan. Spikformer: When spiking neural network meets transformer. arXiv preprint arXiv:2209.-15425 ,2022. Rui-Jie Zhu, Qihang Zhao, and Jason K. Eshraghian. Spikegpt: Generative pre-trained language model with spiking neural networks, 2023. 29 A Additional Figures and Examples 
+
+Figure 12: The different token embedding vectors, with corresponding characters on the y-axis. The first table shows the embedding vector for the non-spiking decoder model, which has a dimension of 80. The second table shows the raw values of the embedding object from the Partially Spiking decoder model with spike degree 1, which has a reduced dimension of 50 (the rest is used for positional encoding). The third table shows the true token embedding values, which are calculated using the Heaviside function. 30 0 1 2 3 4 
+
+> Spike Degree
+> 70
+> 75
+> 80
+> 85
+> 90
+> 95
+> 100
+> Accuracy
+> 98.5 98.4
+> 72.6
+> 92.2
+> 74.6
+> 82.0
+> 78.5
+> 87.0
+
+Spike Transition 
+
+> 6 Blocks, 8-10 Heads
+> 12 Blocks, 8-10 Heads
+> 12 Blocks, 5 Heads
+> 12 Blocks, 1 Head
+
+Figure 13: Display of the accuracy values by spike degree. After large drops, we modify the model through adding depth or reducing the number of heads, in order to stay as close as possible to the original performance. 31 Input Prompt Non-Spiking Model Partially Spiking Model Spiking Model 
+
+“it is all about war and 
+
+peace…” 
+
+“… it by contrary to the 
+
+enemy's possible' here. i 
+
+have writes to spend 
+
+them and the prisoners 
+
+all that would be 
+
+wounded. how do you 
+
+expect you teat with 
+
+him. he might pod in and 
+
+replied replied the same 
+
+dowag. his stormed 
+
+mysteri ”
+
+“… and a card by beauty 
+
+our married the said the 
+
+count and the another 
+
+and the region man who 
+
+had been abasend taken 
+
+prisonce andrew with a 
+
+pleasant the and the 
+
+other face regiment in 
+
+which the came to 
+
+perform he and more 
+
+grently ”
+
+“… to the count what 
+
+was the thought the 
+
+sound of the 
+
+conversation who was a 
+
+strange the regiment of 
+
+the count and the 
+
+regiment of the 
+
+commander the sofa the 
+
+regiment and the 
+
+regiment and the staff of 
+
+the soldiers and the 
+
+regiment ”(a) Comparison of generated text excerpts from the three main model types trained on one million characters. Partially spiking refers to spike degree 2 in this context. Input Prompt  “finally  anna heard of  helene's  death . she was sad and could only think…”           
+
+> SpikeDecoder Output
+> using Word Embedding
+> “… what she ought to do or what was going on . he the meaning of the force of that
+> very original and his love did not enter his happiness . she was himself a dream . and
+> what then he thought . love would propose to himself he able to be able to sacrifice
+> himself . so and for that end to his will not to him pierre . the sight of the longed to
+> pierre . the execution of the of that part in which there seemed to kill him still in him a
+> quiet white silk quilt and sleep . he made an turn . iwon't speak to the third in the”
+
+(b) SpikeDecoder output using a full word embedding. The model noteably infers the name of Pierre, Helenes widower, but ignores Annas inclusion in the prompt. 
+
+Figure 14: Generated text analyses. 32
