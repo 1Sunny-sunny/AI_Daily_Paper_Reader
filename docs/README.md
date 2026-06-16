@@ -1,63 +1,61 @@
 ## 最新日报
-- 最新运行日期：2026-06-16
-- 运行时间：2026-06-16 05:48:06 北京时间
+- 最新运行日期：2026-06-17
+- 运行时间：2026-06-17 06:26:45 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今日聚焦脑机接口与神经编码：15篇论文中精选脉冲神经网络进化集成、图片命名脑电解码两项突破，二者同获9.0高分，揭示类脑智能与语义认知的前沿共振。  
-速读亮点是FAConformer——用频域卷积Transformer精准解码听觉注意力，以及将自适应组合器与多层生物模型结合的在线学习新框架。  
-建议先啃精读两篇，再拿FAConformer当桥梁，把脉冲进化与听觉解码串成一条从算法到认知的线索。
-- 详情：[/202606/16/README](/202606/16/README)
+今日精读2篇顶刊：小清蛋白神经元通过塑造噪声几何提升猕猴V1感觉辨别力，以及用膜电位对齐实现脉冲神经网络测试时自适应的脑机解码新方法。最值得关注的是感觉编码新原理——抑制性神经元重塑噪声结构以实现高效感知，以及脉冲神经网络在神经解码中的实时自适应突破。推荐读者从速读中挖掘皮层几何诱导偏置、网格码重放与新认知等价神经元三篇佳作，尤其关注计算神经科学如何从连接组与功能中学习。
+- 详情：[/202606/17/README](/202606/17/README)
 
 ### 精读区论文标签
-1. [Co-Evolved Spiking Neural Network Ensembles via Marginal Contribution Fitness](/202606/16/2606.13985v1-co-evolved-spiking-neural-network-ensembles-via-marginal-contribution-fitness)  
+1. [Parvalbumin-expressing interneurons improve sensory discrimination by shaping noise geometry in primate V1](/202606/17/biorxiv-10-64898-2026-06-11-731577-v1-parvalbumin-expressing-interneurons-improve-sensory-discrimination-by-shaping-noise-geometry-in-primate-v1)  
+   标签：评分：10.0/10、query:sr
+   evidence：塑造灵长类V1峰电位活动的噪声几何
+2. [Test-Time Adaptation of Spiking Neural Networks for Intracortical Neural Decoding using Membrane Potential Alignment](/202606/17/2606.14866v1-test-time-adaptation-of-spiking-neural-networks-for-intracortical-neural-decoding-using-membrane-potential-alignment)  
    标签：评分：9.0/10、query:sr
-   evidence：脉冲神经网络集成协同进化
-2. [Decoding Semantic Categories from Picture-Naming EEG](/202606/16/2606.14614v1-decoding-semantic-categories-from-picture-naming-eeg)  
+   evidence：用于皮层内神经解码的SNN测试时适应方法
+3. [Sensory Restoration via Brain-Computer Interfaces: A Unified 2 x 2 Framework and Convergence Roadmap](/202606/17/2606.15091v1-sensory-restoration-via-brain-computer-interfaces-a-unified-2-x-2-framework-and-convergence-roadmap)  
    标签：评分：9.0/10、query:sr
-   evidence：从图片命名的EEG中解码语义类别
-3. [Invariant Neural Representation of Parts of Speech in the Human Brain](/202606/16/biorxiv-10-1101-2024-01-15-575788-v2-invariant-neural-representation-of-parts-of-speech-in-the-human-brain)  
+   evidence：提出统一框架用于脑机接口感觉恢复
+4. [RECTOR: Masked Region-Channel-Temporal Modeling for Affective and Cognitive Representation Learning](/202606/17/2606.15278v1-rector-masked-region-channel-temporal-modeling-for-affective-and-cognitive-representation-learning)  
    标签：评分：9.0/10、query:sr
-   evidence：神经信号区分眶额皮层的词类
-4. [Frequency-specific theta states in the hippocampus are linked to reconfiguration of population activity with respect to behavioural context](/202606/16/biorxiv-10-1101-2024-12-11-627908-v2-frequency-specific-theta-states-in-the-hippocampus-are-linked-to-reconfiguration-of-population-activity-with-respect-to-behavioural-context)  
+   evidence：用于EEG解码的自监督时序建模
+5. [Task-guided cross-subject latent alignment: a multi-encoder-decoder VAE](/202606/17/2606.15989v1-task-guided-cross-subject-latent-alignment-a-multi-encoder-decoder-vae)  
    标签：评分：9.0/10、query:sr
-   evidence：海马体theta状态重组群体活动
-5. [Cross-cue reconstruction of perceived 3D object structure from human visual cortex](/202606/16/biorxiv-10-64898-2026-06-08-730830-v2-cross-cue-reconstruction-of-perceived-3d-object-structure-from-human-visual-cortex)  
-   标签：评分：9.0/10、query:sr
-   evidence：从fMRI重建3D物体结构
+   evidence：跨主体神经解码通过潜在对齐
 
 ### 速读区论文标签
-1. [FAConformer: Frequency-Aware Convolutional Transformer for Auditory Attention Decoding](/202606/16/2606.14120v1-faconformer-frequency-aware-convolutional-transformer-for-auditory-attention-decoding)  
+1. [Harnessing cortical geometry, wiring, and function as inductive biases for recurrent neural networks](/202606/17/2606.14975v1-harnessing-cortical-geometry-wiring-and-function-as-inductive-biases-for-recurrent-neural-networks)  
    标签：评分：8.0/10、query:sr
-   evidence：基于脑电的听觉注意时域解码算法
-2. [A Programmer's Guide to Cascaded Adaptive Combiners: Online Learning by Biologically Accurate Models of Multilayer Neuron Networks](/202606/16/2606.14146v1-a-programmers-guide-to-cascaded-adaptive-combiners-online-learning-by-biologically-accurate-models-of-multilayer-neuron-networks)  
+   evidence：利用皮层连接构建可解释的RNN神经编码模型
+2. [Hippocampal replay reconfigures grid codes to support flexible navigation](/202606/17/biorxiv-10-1101-2023-02-19-529130-v5-hippocampal-replay-reconfigures-grid-codes-to-support-flexible-navigation)  
    标签：评分：8.0/10、query:sr
-   evidence：生物精确神经元模型解释内部工作机制
-3. [Joint Nuclear and $\ell_1$ Regularization for Logistic Matrix Regression with Applications to Brain Imaging](/202606/16/2606.14436v1-joint-nuclear-and-ell1-regularization-for-logistic-matrix-regression-with-applications-to-brain-imaging)  
+   evidence：使用时序MEG解码海马回放和网格细胞活动
+3. [Equivariant neuronal populations enable simultaneous tuning and invariance](/202606/17/biorxiv-10-1101-2024-08-02-606398-v2-equivariant-neuronal-populations-enable-simultaneous-tuning-and-invariance)  
    标签：评分：8.0/10、query:sr
-   evidence：提出带核范数和L1范数的可解释逻辑矩阵回归用于脑成像
-4. [Prospective Coding and Path Integration Emerge as Equilibrium Solutions of Self-Organizing Neural Networks with Firing-Rate Adaptation](/202606/16/2606.14649v1-prospective-coding-and-path-integration-emerge-as-equilibrium-solutions-of-self-organizing-neural-networks-with-firing-rate-adaptation)  
+   evidence：等变框架连接视觉视角与神经活动
+4. [Representational geometry as a fidelity metric for connectome-constrained networks: evidence from the Drosophila visual system](/202606/17/biorxiv-10-64898-2026-06-10-731214-v2-representational-geometry-as-a-fidelity-metric-for-connectome-constrained-networks-evidence-from-the-drosophila-visual-system)  
    标签：评分：8.0/10、query:sr
-   evidence：自组织吸引子网络将空间变量与神经动力学关联的理论框架
-5. [Extracting Governing Equations from Latent Dynamics via Multi-View Contrastive Learning](/202606/16/2606.13260v1-extracting-governing-equations-from-latent-dynamics-via-multi-view-contrastive-learning)  
+   evidence：表征几何作为神经模型生物保真度度量
+5. [A Kuramoto-von Mises Time Series Model for Probabilistic Modeling of Coupled Oscillators](/202606/17/2606.15012v1-a-kuramoto-von-mises-time-series-model-for-probabilistic-modeling-of-coupled-oscillators)  
    标签：评分：7.0/10、query:sr
-   evidence：从观测中提取潜在动力学的数学框架
-6. [A single evidence accumulation process informs perceptual choices and subsequent confidence reports](/202606/16/biorxiv-10-1101-2025-06-05-658071-v3-a-single-evidence-accumulation-process-informs-perceptual-choices-and-subsequent-confidence-reports)  
+   evidence：耦合振荡器概率模型用于神经同步
+6. [EEGDash: An open-source platform for machine learning on public neurophysiological data](/202606/17/2606.16041v1-eegdash-an-open-source-platform-for-machine-learning-on-public-neurophysiological-data)  
    标签：评分：7.0/10、query:sr
-   evidence：使用证据积累和神经信号模型感知选择和信心报告
-7. [The electro-MICA toolbox for integrating electrophysiology within multimodal imaging and connectomics workflows](/202606/16/biorxiv-10-64898-2026-06-08-730888-v1-the-electro-mica-toolbox-for-integrating-electrophysiology-within-multimodal-imaging-and-connectomics-workflows)  
+   evidence：支持解码研究的神经生理数据平台
+7. [EPICURUS: E-field-based spatial filtering procedure for an accurate estimation of local EEG activity evoked by Transcranial Magnetic Stimulation](/202606/17/biorxiv-10-1101-2025-02-16-638512-v2-epicurus-e-field-based-spatial-filtering-procedure-for-an-accurate-estimation-of-local-eeg-activity-evoked-by-transcranial-magnetic-stimulation)  
    标签：评分：7.0/10、query:sr
-   evidence：提供将EEG/iEEG特征投影到皮层表面的工具箱
-8. [Connectome wiring shapes population-level neural geometry in the Drosophila visual system](/202606/16/biorxiv-10-64898-2026-06-10-731214-v1-connectome-wiring-shapes-population-level-neural-geometry-in-the-drosophila-visual-system)  
+   evidence：基于电场空间滤波从TMS中估计局部脑电
+8. [Continuous partitioning of neuronal variability](/202606/17/biorxiv-10-1101-2025-07-23-666404-v4-continuous-partitioning-of-neuronal-variability)  
    标签：评分：7.0/10、query:sr
-   evidence：果蝇视觉系统中的群体神经几何结构
-9. [Predictions for and lack of maximal information transmission in the neuromuscular junction](/202606/16/2606.12712v1-predictions-for-and-lack-of-maximal-information-transmission-in-the-neuromuscular-junction)  
+   evidence：双重随机模型分割尖峰序列变异性
+9. [Deep Spectral Learning of Embedded Latent Transfer Operators for Stochastic Dynamical Systems](/202606/17/2606.14079v1-deep-spectral-learning-of-embedded-latent-transfer-operators-for-stochastic-dynamical-systems)  
    标签：评分：6.0/10、query:sr
-   evidence：使用信息最大化将神经递质浓度与突触后电流关联
-10. [A Stationarity-and-Coupling Criterion for Training-Free Time-Lagged Spectral Embeddings of Multivariate Time Series](/202606/16/2606.13823v1-a-stationarity-and-coupling-criterion-for-training-free-time-lagged-spectral-embeddings-of-multivariate-time-series)  
+   evidence：谱学习方法用于潜在时序动力学
+10. [VL2Spike: Spike-driven Distillation from VLMs for Low-Power Visual Perception in Embodied AI](/202606/17/2606.15898v1-vl2spike-spike-driven-distillation-from-vlms-for-low-power-visual-perception-in-embodied-ai)  
    标签：评分：6.0/10、query:sr
-   evidence：无训练的时间滞后谱嵌入用于多元时间序列分类
+   evidence：脉冲神经网络用于高效视觉感知
 
