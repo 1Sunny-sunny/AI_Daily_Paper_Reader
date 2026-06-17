@@ -1,0 +1,1719 @@
+Title: Size Doesn't Matter: Cosine-Scored Sparse Autoencoders
+
+URL Source: https://arxiv.org/pdf/2606.15054v1
+
+Published Time: Tue, 16 Jun 2026 00:26:49 GMT
+
+Number of Pages: 31
+
+Markdown Content:
+# Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders 
+
+Silen Naihin 1 Lev Stambler 2
+
+## Abstract 
+
+Sparse autoencoders (SAEs) detect features via inner product, so a feature’s activation scales with both its directional alignment and the in-put’s norm. Under BatchTopK, high-norm tokens inflate all pre-activations simultaneously, claim-ing dictionary slots regardless of content align-ment. This matters because sublayer normaliza-tion has already discarded the magnitude the score measures, so the encoder detects a quantity the model does not read. We replace the score with a learned blend of cosine similarity and input mag-nitude, letting the optimizer choose how much norm to use; a per-feature extension lets each feature decide independently. In both regimes, training is free to recover inner product but never does, with no feature ever choosing more than half-magnitude dependence. At matched recon-struction, the cosine encoder learns features that align with human-recognizable concepts far more often than standard, filling dictionary slots that inner product wastes on norm detectors. Loss reweighting that equalizes gradients barely closes the gap, confirming forward-pass score geometry as the lever. The advantage is not universal across tasks or depths, but we believe cosine scoring should be the default for dictionary learning on normalized representations. 
+
+## 1. Introduction 
+
+Sparse autoencoders are a standard dictionary-learning tool for mechanistic interpretability (Bricken et al., 2023; Cun-ningham et al., 2023; Gao et al., 2024; Bussmann et al., 2024; Karvonen et al., 2025). A trained SAE is read as a feature dictionary: if feature i fires on activation x, then x is taken to contain the concept represented by the correspond-ing decoder direction. The interpretation depends on how the encoder detects those directions. The standard rule is an 
+
+> 1
+
+Experiential Labs 2Tear Labs. Correspondence to: Silen Nai-hin <silen@experientiallabs.ai >.
+
+Spotlight paper at the ICML 2026 Workshop on Mechanistic Inter-pretability . Copyright 2026 by the author(s). 
+
+inner product ⟨wi, x ⟩, so a feature fires in proportion to both its directional alignment with x and the magnitude ∥x∥.This is the wrong scoring geometry for transformers with pre-sublayer normalization. The inner-product score mixes content alignment with token norm, but normalization strips that norm before the model reads the activation; the en-coder detects a quantity the downstream computation ig-nores. Under BatchTopK selection (Bussmann et al., 2024), this mismatch compounds: a single batch-wide threshold de-termines which features fire, and high-norm tokens inflate all their pre-activations past this threshold, claiming dispropor-tionately many slots regardless of content alignment. Over training, this selection pressure starves content-encoding features: they rarely win TopK slots, receive no learning signal, and never develop. The result is a dictionary domi-nated by features that fire on magnitude rather than meaning. This is not a minor calibration issue. If dictionary elements fire on norm rather than content, they cannot reliably be used for sparse probing, feature-based steering, or circuit analysis; the practitioner interprets them as model concepts, but the features encode a quantity the model discards. A score aligned with what the model actually reads should depend on direction, not magnitude. We replace the inner-product score with a cosine score scaled by a learned exponent a on the input norm: 
+
+si(x) = ∥x∥a · cos( x, w i) + benc ,i ,
+
+which interpolates between cosine ( a = 0 ) and inner prod-uct ( a = 1 ); we use unit-normalized encoder rows so a=0 
+
+recovers cosine cleanly (§3). 1 We study two parameter regimes: a single global a shared across features, and a per-feature extension ai = abase + δi that lets each feature learn its own norm dependence. The key property is that the optimizer is free to recover inner product ( a=1 ) if magni-tude is genuinely useful, but is not forced to use it by default. This lets training discover the right geometry rather than assuming it. In both regimes, training consistently drives a
+
+toward zero; no feature ever approaches the inner-product regime, confirming that direction, not magnitude, is the useful signal. Through experiments on Qwen3-8B and Gemma-2-2B, we demonstrate that cosine-scored SAEs match standard Batch-
+
+> 1
+
+Up to a learned global temperature; see §3. 
+
+1
+
+> arXiv:2606.15054v1 [cs.LG] 13 Jun 2026
+
+Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders Standard 
+
+wi, xc     
+
+> couples direction + magnitude
+> Cosine
+> ebxcacos( xc,wi)
+> wiunit-normalized
+> BatchTopK Wdec
+> dsae
+
+xc x     
+
+> FVE (reconstruction)
+> .770
+> .771
+> Std
+> Cos
+> Probing top-1 (interpretability)
+> .667
+> .815
+> Std
+> Cos +14.9%
+> Learned a
+> 01
+> inner product pure cosine
+> global = 0.26
+> per-feat mean = 0.08
+
+Figure 1. The cosine encoder: architecture and headline results. Left: Standard SAE encoder computes ⟨wi, x c⟩, coupling alignment with norm. Cosine encoder unit-normalizes wi and replaces the score with eb∥xc∥a cos( xc, w i) + benc ,i ; a interpolates between pure cosine ( a=0 ) and inner product ( a=1 ). Right: Matched reconstruction (FVE ≈ 0.77 ) with +14 .9% sparse-probing top-1. Training drives a ≈ 0.26 , far from the inner-product limit. Qwen3-8B L18, 500M tokens, dsae =65 ,536 .
+
+TopK on reconstruction fidelity, model-behavior preserva-tion, and per-feature interpretability, while producing dic-tionaries that align far more often with human-recognizable concepts. A matched-feature decomposition reveals that the majority of the probing gap comes not from improv-ing shared features, but from features the standard encoder never learns at all; its dictionary slots are instead occupied by norm detectors. We isolate the cause to forward-pass TopK selection under norm inflation: loss reweighting that equalizes gradients across norm levels barely closes the gap, confirming that the score geometry itself, not the training signal, is the lever. The advantage replicates across layers and models, though it is not universal; deep LayerNorm lay-ers and sentiment are exceptions where magnitude carries task-relevant signal. 
+
+Contributions. 
+
+• Architecture. We introduce cosine-scored sparse autoen-coders, replacing the inner-product encoder score with a learned-exponent cosine score that interpolates between pure cosine ( a=0 ) and inner product ( a=1 ). We study global and per-feature parameterizations and identify the design choices that make each stable (§3). • Result. At matched reconstruction, KL, and per-feature interpretability, the cosine encoder lifts sparse-probing top-1 by +14 .9% on Qwen3-8B. A matched-feature de-composition shows that the majority of the gap comes from features the standard encoder never learns at all, rather than from improving shared features. The result replicates across layers and on Gemma-2-2B (§4.1, §4.3). • Mechanism. The standard encoder’s unmatched features fire overwhelmingly on high-norm tokens; they encode magnitude, not content. Forward-pass TopK selection under norm inflation is the primary cause; loss reweight-ing that equalizes gradients across norm levels barely closes the gap, confirming that the score geometry it-self is the lever. The optimizer independently confirms this: training drives a far from the inner-product regime, with no feature ever choosing more than half-magnitude dependence (§4.3, §4.3). For practitioners, this is a drop-in encoder change that pro-duces more interpretable dictionaries at no reconstruction cost. More broadly, it suggests that scoring geometry is an underexplored design axis for dictionary learning: if inner product is the wrong inductive bias for normalized repre-sentations, standard SAE dictionaries trained on modern transformers may systematically undercount content fea-tures. We believe cosine scoring should be the default for dictionary learning on normalized representations, and that the failure mode we identify likely affects any inner-product SAE trained on a post-RMSNorm site. 
+
+## 2. Background 
+
+A sparse autoencoder (SAE) takes an activation x ∈ Rd,projects it through a single-layer encoder–decoder pair to a sparse code z ∈ Rdsae , and reads the decoder rows {Wdec ,i }
+
+as a feature dictionary: 
+
+z = σ (x − bdec )W⊤ 
+
+> enc
+
++ benc 
+
+ ˆx = zW dec + bdec .
+
+with reconstruction loss: L = ∥x − ˆx∥2. Different SAE variants make σ sparse in different ways, including TopK (Gao et al., 2024), BatchTopK (Bussmann et al., 2024), JumpReLU (Rajamanoharan et al., 2024b), gated activa-tions (Rajamanoharan et al., 2024a), and AbsTopK (Zhu et al., 2025). SAEs tend to assume the linear representa-tion hypothesis: concepts correspond to linear directions 2Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders 0.5 0.6 0.7 0.8 0.9 1.0   
+
+> Probing accuracy (top-1)
+> language
+> code
+> occupation B
+> occupation A
+> occupation C
+> topic
+> category
+> sentiment
+> MEAN
+> +35%
+> +30%
+> +20%
+> +19%
+> +15%
+> +3%
+> -4%
+> +14.9%
+> low high
+> token norm
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> firing share
+> uniform
+> 29% gap
+> on high-norm
+> low high
+> token norm
+> 0
+> 1
+> 5
+> 10
+> output norm / input norm
+> perfect
+> Std output is
+> 9.5× too big
+
+(A) (B) (C) Cosine wins per-task probing Firings vs token norm Recon size vs token norm  
+
+> Qwen3-8B L18, 500M tokens Standard Cosine (per-feature)
+
+Figure 2. Cosine-scored SAEs win on probing because standard features fire on token norm. (A) Result: sparse-probing top-1 across eight tasks (Qwen3-8B L18, 500M tokens, dsae =65 ,536 , matched FVE ≈ 0.77 ). Per-feature cosine wins on 7/8 tasks; sentiment is the only exception. (B) Cause: standard’s unmatched features (those with no nearest-neighbor counterpart in cosine’s dictionary) fire 22 × more on the highest-norm token quartile than on the lowest, versus 4.7× for cosine; they encode magnitude, not content. (C) 
+
+Confirmation: on the same high-norm tokens, the standard SAE reconstructs at 9.5× the input norm, while cosine stays close to the input scale ( 0.55 ×). Removing the ∥x∥ factor from the score recovers content-encoding features. Provenance: Appendix D.2. 
+
+in activation space (Park et al., 2024; 2025; Elhage et al., 2022). Recent variants modify dictionary geometry (Ko-rznikov et al., 2025; Bussmann et al., 2025) or loss shape (Nasiri-Sarvi et al., 2026) but leave the encoder score un-changed. A feature’s pre-activation is still an inner product 
+
+⟨wi, x ⟩ = ∥wi∥ ∥ x∥ cos( wi, x ), so larger-norm tokens raise the score even when directional alignment is unchanged. Following standard practice (Bricken et al., 2023; Gao et al., 2024; Karvonen et al., 2025), decoder rows are constrained to unit norm during training: re-normalized after each op-timizer step, with the component of the decoder gradient parallel to each row projected away to account for the Adam-normalization interaction (Gao et al., 2024). The dictionary therefore represents directions, and any per-feature scale is absorbed into the encoder. The encoder reads the input centered on the decoder bias ( x 7 → x − bdec , as in the equa-tion above), tying its zero point to the reconstruction origin (Bricken et al., 2023). We hook the SAE on the residual stream: the activation x
+
+that flows untouched through every transformer block, with each sublayer adding to it. Most modern transformers place an RMSNorm (Zhang & Sennrich, 2019) on the path into 
+
+every sublayer: 
+
+RMSNorm( x) = √d x
+
+∥x∥ ⊙ g, g ∈ Rd.
+
+Each sublayer therefore reads x/ ∥x∥ up to the per-coordinate gain g, not x itself. The SAE, hooked one step earlier on the residual stream, still sees x in full. Two ac-tivations with the same direction and different norms look nearly identical to the model but very different to an inner-product encoder, which scores them in the ratio of their norms. Residual-stream norms are heavy-tailed in practice, driven by rogue dimensions (Timkey & van Schijndel, 2021) and outlier features (Dettmers et al., 2022), so this bias is not hypothetical. Directly swapping activation directions between random token pairs (no SAE involvement) produces 219 × more downstream KL-divergence than swapping their norms at the same layer (Appendix C.1). The model’s computation is direction-dominated; the SAE’s encoder should be too. We use BatchTopK throughout (Bussmann et al., 2024), the SAEBench default (Karvonen et al., 2025). BatchTopK im-poses a single batch-wide activation budget rather than forc-ing exactly k features per token, letting the model allocate more features to complex tokens and fewer to simple ones. Given pre-activations u = σ(xW ⊤ 
+
+> enc
+
++ benc ) ∈ RN ×dsae 
+
+over a batch of N tokens, z = BatchTopK( u) keeps only the kN largest entries and zeros the rest. This flexibility also means high-norm tokens can claim disproportionately many slots: their inflated pre-activations dominate the batch-wide ranking regardless of directional alignment. Our co-sine score modifies only the encoder pre-activation, not the sparsity mechanism; it is compatible in principle with any selector (TopK, JumpReLU, gated), though we test only BatchTopK here (cf. Appendix A). More broadly, modern architectures are adding normaliza-tion (QK-norm (Henry et al., 2020; Dehghani et al., 2023), nGPT (Loshchilov et al., 2024)), strengthening the case for direction-aware SAE encoders. 3Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders 0.0 0.5 1.0                       
+
+> cos( xc,wi)
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> xc (relative)
+> 1. Standard ( a= 1 )
+> 0.0 0.5 1.0
+> cos( xc,wi)
+> 2. Cosine ( a= 0 )
+> 0.0 0.5 1.0
+> cos( xc,wi)
+> 3. Adaptive ( a= 0.258 )
+> Per-feature ai= 0.076
+> Cosine a= 0 Global a= 0.258 a= 1 inner product
+> Per-feature aidistribution (L18, 500M)
+
+Figure 3. Score-surface geometry. Each panel plots the encoder pre-activation ∥xc∥a cos( xc, w i) over alignment (x-axis) and input norm (y-axis). Black curves join equally-scored pairs. Left: a=1 (inner product); hyperbolic curves, high-norm tokens outscore better-aligned low-norm ones. Center: a=0 (cosine); vertical curves, norm ignored. Right: global learned a≈0.26 ; mild tilt, close to cosine. Bottom: per-feature ai distribution at the headline setting. 
+
+Evaluation metrics. We follow SAEBench (Karvonen et al., 2025) throughout. Reconstruction is reported as frac-tion of variance explained, FVE = 1 − E∥x − ˆx∥2/Var( x),computed per token and aggregated. Sparse probing fits a linear probe restricted to the k SAE features that best pre-dict a labeled concept and reports the resulting accuracy (top-k) over eight classification datasets; top-1 isolates the single best feature and is the most direct test of whether one dictionary direction matches a human-recognizable concept. Auto-interp asks an LLM to describe a feature from its top-activating contexts and a second LLM to score whether the description predicts the firing pattern; we report the fraction of features judged interpretable (Appendix F.1). 
+
+## 3. The Cosine Encoder 
+
+The fix is straightforward in principle: remove ∥x∥ from the score. The design question is how much norm information to retain, since the decoder must still reconstruct x at full scale. We define a one-parameter family that lets the optimizer answer this question. 
+
+Notation. Let xc = x − bdec be the input centered on the decoder bias. We keep encoder rows wi unit-normalized, re-computing wi ← wi/∥wi∥ on every forward pass with gra-dients flowing through the normalization. 2 Decoder rows are also unit-normalized, per the held-fixed community recipe. Encoder unit-normalization is what makes the score true cosine. Dropping it (keeping input-side normalization but using raw wi) yields ∥wi∥ · cos( xc, w i), a half-cosine that 
+
+> 2
+
+So cosine is just an inner product on the sphere: with ∥wi∥ =1, cos( xc, w i) = ⟨xc/∥xc∥, w i⟩, and at a=1 the score below reduces to ⟨xc, w i⟩ exactly. 
+
+reintroduces ∥wi∥ as a magnitude factor. ∥wi∥ then drifts unconstrained (no loss term penalizes it) and the dictionary collapses to 93 % dead features at L27/50M. 3
+
+Score, pipeline, and initialization. We define the pre-activation as 
+
+si(x) = exp  a log ∥xc∥ + b| {z } 
+
+> eb∥xc∥a
+
+· cos( xc, w i) + benc ,i ,
+
+The log-exp parameterization makes the scale explicit: a linear fit log(scale) = a log ∥xc∥ + b exponentiates to 
+
+scale = eb∥xc∥a, where a is the norm-dependence expo-nent and eb is the scale at ∥xc∥=1 rather than a separately introduced temperature. This form gives well-conditioned gradients in a regardless of ∥x∥ (Appendix B). It also in-terpolates cleanly between two familiar cases. When a=0 ,
+
+∥xc∥a=1 and si = eb cos( xc, w i) + benc ,i is pure cosine at scale eb. When a=1 , si = eb ⟨xc, w i⟩ + benc ,i is inner product up to a global scale, since wi is unit-norm. Af-ter applying a ReLU, this score is passed to BatchTopK (Bussmann et al., 2024). The decoder remains unchanged: 
+
+ˆx = zW dec + bdec , with L = ∥x − ˆx∥2. We initialize a = 0 
+
+and b = log √dmodel .The body tracks the two variants used in the headline 500M comparison. A third corner of the family, pinned cosine (a=0 , where a is frozen and only b trains), is deferred to App. B.3, alongside the full design-space ablation in App. B.2. 
+
+Global learned a. A single scalar a ∈ R shared across 
+
+> 3
+
+The full design-space matrix (these three settings plus per-axis ablations on encoder/decoder normalization and post-decode norm restoration) is in Appendix B.2. 
+
+4Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders 0.6 0.7 0.8 0.9    
+
+> Probe accuracy
+> top-1
+> top-2
+> top-5
+> 0.678 0.815
+> 0.728 0.852
+> 0.789 0.883
+
+Aggregate sparse-probing accuracy         
+
+> Standard Per-feature cosine
+> Figure 4. Aggregate sparse-probing accuracy. Top-1, top-2, and top-5 probe accuracy across all eight SAEBench datasets. FVE-matched at ≈0.77 .Black: standard SAE; violet: per-feature cosine encoder. The gap narrows at higher kbut remains large (+9 .4% at top-5). Per-dataset breakdown: Fig. 2 Panel A.
+
+features, freed at initialization. Pinning a=0 (pure cosine) discards all norm information from the encoder; since the decoder reconstructs x at full scale, the system must recover magnitude from the sparse code alone, and in practice this collapses (Appendix B.2). Freeing a lets the optimizer retain exactly as much magnitude as reconstruction requires. 
+
+Per-feature ai. Different features may want different norm dependence; a position-encoding feature plausibly needs more magnitude than a semantic one. The direct replace-ment a → ai, b → bi gives si(x) = ebi ∥xc∥ai cos( xc, w i)+ 
+
+benc ,i , adding ≤ 0.1% parameters. Fully free ai values are unstable at deep layers (cascading to extreme values at L27; Appendix B.2). We instead parameterize ai = abase + δi as a shared base plus per-feature offset (both initialized to 0); bi
+
+remains fully free. The shared base anchors the distribution while per-feature deltas allow heterogeneity. 
+
+Training recipe. All experiments use the community SAEBench recipe (Karvonen et al., 2025): BatchTopK with 
+
+k = 80 , Adam at learning rate 5·10 −5, the AuxK auxiliary loss of Gao et al. (2024) to revive dead features, unit-norm decoder rows, and geometric-median initialization for bdec .The encoder is initialized as the transpose of the decoder. The recipe is held fixed across the standard baseline and all cosine variants; only the encoder score changes. Appendix J gives the full hyperparameters and recipe-lineage detail. 
+
+## 4. Experiments 
+
+Unless stated otherwise, results use Qwen3-8B at layer 18, 500M FineWeb tokens, dsae = 65 ,536 , and the recipe in §3. Mechanism sweeps use the same model at smaller budgets (2–50M tokens). Appendix E gives cross-layer and cross-model checks on Qwen L9/L27, Gemma-2-2B, and three LayerNorm models; Appendix B.2 gives the architecture ablation. 
+
+4.1. Reconstruction and sparse probing 
+
+At the headline scale, reconstruction is tied between the stan-dard BatchTopK SAE and both cosine variants. Aggregate FVE differs by ≤ 0.4%, and the SAEBench substitution metrics (KL-score and CE-score, both bounded [0 , 1] with 
+
+1 meaning the SAE preserves the model’s logits exactly) agree to within 0.001 (0.984 –0.985 KL-score, 0.991 –0.993 
+
+CE-score; Appendix D). The difference is in feature use. On the eight SAEBench single-feature top-k probing datasets, the global cosine regime improves top-1 by 
+
++13 .3% and the per-feature regime by +14 .9% (Table 1). This gap is approximately 24 × the 5-seed probe-training noise of ±0.63 %. A 3-seed SAE-training run at 50M tokens bounds SAE-training variance at SD < 0.001 
+
+FVE (Appendix K). Single-feature probing directly mea-sures whether individual dictionary elements correspond to human-recognizable concepts (Karvonen et al., 2025), the core desideratum of interpretability tools. The gap is not a capacity artifact: giving the standard encoder 3×
+
+more dictionary slots at matched L0 makes dead rates worse 
+
+(89 .4% vs. 77 .4%), not better (Figure 24). Per-feature inter-pretability remains matched: an LLM-judged evaluation on 
+
+1000 stratified features scores 80 .1% (per-feature cosine) vs. 
+
+82 .1% (standard) on the ≥ 4 auto-interp criterion ( p = 0 .88 ;Appendix F.1). The gain is uneven across tasks (Fig. 4). Language and code detection account for the largest gaps, but the per-feature advantage remains +9 .1% after removing both. Sentiment is the one reversal: standard is higher by +3 .5%, consistent with magnitude carrying task-relevant signal there. We return to this case in §5. The learned norm dependence remains far from the inner-product limit (Fig. 3, Table 1). The global a converges to ≈ 0.26 ; the per-feature ai have mean ≈ 0.08 , with no 
+
+ai > 0.5. Both regimes initialize at a = 0 , so these values are learned rather than imposed. Appendix K reports ini-tialization sweeps and a postnorm-MSE alternative where a
+
+becomes negative. 
+
+4.2. High-norms break inner-product reconstruction 
+
+Aggregate FVE matches, but the standard SAE fails on the high-norm tail predicted by §2. We bin tokens by ∥xc∥ into quartiles and write Q4 for the highest quartile (the 25% of tokens with the largest ∥xc∥). Standard and cosine match on Q1–Q3, but the standard encoder over-activates on Q4: for the standard SAE we trained under the community recipe of 5Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders 
+
+Table 1. Matched reconstruction. Qwen3-8B L18, 500M to-kens. Only the score changes. Single SAE-training seed at 500M (variance bounded at 50M, Appendix K); Q4 FVE diagnoses the standard baseline’s per-quartile failure (§4.2). Provenance: Ap-pendix D.2. Standard Global a Per-feature FVE 0.770 0.769 0.771 
+
+Probing top-1 0.667 0.800 0.815 
+
+Q4 FVE −184 +0.33 +0.25 
+
+Dead % 0.0 0.0 0.0 Learned a — 0.258 mean 0.076 
+
+§3 (the same SAE used in Table 1), Q4 reconstructions have 
+
+9.5× the input norm, and Q4 FVE is −184 .4 Both cosine regimes keep Q4 FVE positive (Fig. 6). An independently trained reference SAE shows the same pathology, with Q4 FVE = −136 (Karvonen et al., 2025). This is the failure mode predicted in §2: the inner-product score writes ∥x∥ into the sparse code, and the decoder turns that scale information into inflated reconstructions, even though downstream RMSNorm has already discarded it. 
+
+4.3. Comparing the learned dictionaries 
+
+The standard SAE does not merely encode content worse; it fails to learn content features at all, spending most of its ca-pacity on features that detect token magnitude instead. The 
+
++14 .9% sparse-probing gap from §4.1 persists at matched aggregate FVE, so the two architectures must learn qualita-tively different dictionaries. This section identifies which features each one learns. Dead features do not explain the gap. With the auxiliary loss enabled, both architectures keep ≥ 99% of features alive and match on reconstruction and on LLM-judged per-feature interpretability ( 80 .1% vs. 82 .1% , p = 0 .88 ; Appendix F). The dead-feature margin closes, but the +14 .9% sparse-probing gap remains. We pair features across the standard and cosine dictionaries when their per-token activation traces have Pearson corre-lation ≥ 0.7 and their decoder rows have cosine similarity 
+
+> 0.7: i.e., they activate on the same tokens and point in the same direction in residual space. This matches 8,661 
+
+features. [exp58b] The remaining 55 ,789 standard-only fea-tures behave as norm-conditioned features : they fire on ∥x∥
+
+rather than on a content direction. [exp58c] 
+
+• Selective. 86% of their nonzero activations land in Q4 
+
+> 4
+
+The large negative per-quartile number does not contradict aggregate FVE parity: per-quartile FVE normalizes by within -quartile variance ( 1 − MSE q /Var q (x)), and within-Q4 variance is small relative to the global variance that aggregate FVE normalizes against, so Q4’s large absolute MSE contributes only modestly to the aggregate numerator. 0.65   
+
+> 0.75
+> 0.85
+> 0.95
+> Probe accuracy
+> +15%
+> top-1
+> shared all
+> +12%
+> top-2
+> +11%
+> top-5
+> Discovery dominates separability
+> Standard Cosine
+
+Figure 5. Discovery dominates separability. Sparse-probing accuracy when each SAE uses only features shared with the other dictionary (“shared features”) versus its full dictionary (“all fea-tures”). Standard’s flat slope shows its unique features add no probe signal; cosine’s steep rise shows its unique features encode interpretable concepts. The gap on the right is the total probing advantage, driven almost entirely by feature discovery rather than cleaner encoding of shared directions. 
+
+(vs. the 25% a content-blind detector would receive), so they fire on high-norm tokens. • Strong. When they do fire on a Q4 token, their mean activation is 48 × the per-token mean across the full token population. • Crowding. BatchTopK on a high-norm token therefore spends most of its sparse-code budget on these fea-tures, leaving little capacity for direction-encoding ones (Fig. 6). On tokens where cosine-unique features fire, the standard SAE fires 328 features/token vs. cosine’s 122 
+
+(Appendix G). Of the standard SAE’s 64 ,450 alive features, only 13 .4% 
+
+direction-encode under this criterion; the rest primarily en-code norm. [exp58c] The between-quartile component drives most of the overall cos >inner rate ( 80 –87% ). Within in-dividual quartiles the advantage is a more modest 40 –70% 
+
+(Figure 14), consistent with norm variation corrupting TopK selection across the full distribution rather than within each quartile independently. [exp19] We call these features “norm-conditioned” descriptively: they may encode ∥x∥-correlated information our probing tasks do not measure (auto-interp parity is consistent with this; Appendix F), but they do not encode the eight concept categories sparse probing targets. Restricting both dictionaries to the 8,661 matched features drops the top-1 gap from +14 .9% to +2 .0% (Fig. 5). Read-ing +2 .0% as the separability contribution and the residual 
+
++12 .9% as the discovery contribution: ∼ 87% of the gap comes from features the cosine encoder discovers and stan-dard does not, ∼ 13% from cleaner encoding of shared di-rections. The unmatched standard features add almost noth-ing to top-5. The unmatched cosine features add +7 .8%, confirming that the discovered features encode content, not 6Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders 0 0.25 0.5 0.75 1.0 
+
+> Share of activations by token-norm quartile
+> Std unmatched
+> 55,789 features
+> Cos unmatched
+> 55.2K features
+> Std matched
+> 8.7K features
+> Cos matched
+> 9.5K features
+> 86%
+> 57%
+> 30%
+> 48%
+
+Standard's unmatched features fire 
+
+predominantly on high-norm tokens    
+
+> Q1 (low norm) Q2 Q3 Q4 (high norm)
+
+Figure 6. Norm-conditioned feature allocation. Standard’s un-matched features fire overwhelmingly on Q4; cosine’s unmatched features spread across all quartiles. The standard encoder spends most of its capacity on features whose firing is locked to token norm. Per-quartile reconstruction: Appendix G.1. 
+
+just norm-correlated firing. [exp58b] Direct behavioral steering produces matched KL divergence for both architectures (ra-tio 0.94 –1.00 ×); the quality gap is which features exist, not their individual intervention power (Appendix G). [exp55d] 
+
+Ruling out gradient equalization. A natural alterna-tive is that cosine helps by equalizing gradient magnitudes across norm quartiles (inner-product gradients scale with 
+
+∥xc∥). The asymmetry is real: the median Q4/Q1 gradi-ent ratio is 1.6–2.0× for standard vs. 0.8–1.0× for cosine. But reweighting the standard loss to equalize gradients by construction closes only 1.9–6.8% of the probing gap (Ap-pendix G.3); the forward-pass TopK selection geometry, not backward-pass gradient flow, is the lever. Four qualitatively different lines of evidence converge on the same root cause: behavioral (sparse probing), structural (norm-detector characterization), interventional (gradient falsification), and architectural (learned a) all point to the inner-product encoder’s conflation of direction and magni-tude in the BatchTopK competition. 
+
+4.4. Removing the auxiliary loss for dead features 
+
+The headline runs in §4.1 keep the auxiliary dead-feature loss (Gao et al., 2024) enabled in both arms, which equal-izes alive-feature counts ( ≥ 99% ) and reconstruction (FVE within 0.4%) so that the surviving +14 .9% sparse-probing gap cannot be attributed to a dead-feature artifact. Dis-abling the auxiliary loss isolates what the score swap does to the dead-feature distribution on its own. All major public SAE recipes we are aware of (Bricken et al., 2023; Gao et al., 2024; Karvonen et al., 2025) include this loss or an equivalent, so this is a research-only stress test rather than a deployment recipe. 25 50 75 
+
+Dead (%) 
+
+> L9
+> L18
+> L27
+
+Dead features   
+
+> 61 41
+> 83 72
+> 78 28
+> 0.65 0.70 0.75
+
+FVE 
+
+Reconstruction 
+
+> .71 .68
+> .65 .64
+> .73 .66
+
+No auxiliary loss: Qwen3-8B, 50M tokens  
+
+> Standard Per-feature
+
+Figure 7. Without the auxiliary dead-feature loss, per-feature cosine wins at every layer. Qwen3-8B, 50M tokens, dsae =16 ,384 ,√d init. Left: dead-feature %; right: FVE. With the auxiliary loss on (community recipe; headline at dsae =65 ,536 ), both architec-tures hit ∼ 0% dead and FVE parity (§4.1); the gap here is what the auxiliary loss masks. The global-a variant is omitted for read-ability; see the body. 
+
+Without the auxiliary loss the cosine advantage survives, but only for the per-feature variant. At Qwen3-8B, 50M tokens, 
+
+dsae =16 ,384 (Fig. 7), per-feature cosine reduces dead fea-tures at every layer (L9 61 .0 → 41 .1% , L18 82 .8 → 72 .4% ,L27 78 .3 → 28 .1% ) and improves FVE at every layer (+3 .5/ + 1 .6/ + 7 .6%). The global-a variant tracks per-feature at L9 and L27 but actually loses to Standard at L18 (85 .3% dead vs. 82 .8% ): a single learned scale is a poor compromise at L18’s mid-range norm, and the per-feature flexibility is what closes that gap. The pattern reproduces on Gemma-2-2B at 50M tokens: the standard encoder leaves 
+
+54 –69% of features dead across L7/L13/L19, while cosine stays at 0.0–0.1% , with FVE gains of +3 .9 to +6 .7% (Ta-ble 10; Fig. 20). Full convergence curves are in Appendix E. 
+
+4.5. Cross-model behavior 
+
+Our results persist on Gemma-2-2B (a different RMSNorm family, dsae = 9 ,216 ) but do not persist as strongly on non-RMSNorm models. On Gemma-2-2B, the fixed-SAE top-1 gap is +3 .4±0.3%, smaller than on Qwen but same-signed; the gap scales with model and dictionary size, since a 7×
+
+smaller dictionary gives the TopK competition less room for norm-detector degeneracy. On three LayerNorm models (Pythia-2.8B/6.9B, Falcon-7B), cosine loses its advantage at deep layers (Appendix E.3). A plausible explanation is that LayerNorm’s mean subtraction preserves magnitude-correlated structure that RMSNorm erases: the residual stream’s per-coordinate mean carries norm information into the sublayer, so inner-product scoring is partially correct at depth in LayerNorm models. We lack a direct intervention 7Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders 
+
+test and flag this as an open question. The cosine encoder trained on 50M tokens exceeds the stan-dard’s 500M sparse-probing top-1 at L9 ( +17 .3%) and L27 (+8 .7%), a 10 × token-budget saving (Appendix E). Norm-conditioned feature allocation and discovery dominance both reproduce across these settings, with magnitude scal-ing with dictionary size (Appendix E). 
+
+## 5. Limitations and Future Works 
+
+Open mechanism gaps and scope bounds. The mechanism is not fully isolated: §4.3 rules out gradient flow as the load-bearing lever, but a reverse score-swap on a trained cosine checkpoint and an initialization sweep over a remain future work. The decoder is also not norm-invariant: under norm-noise training (Uniform (0 .5, 2.0) ), cosine FVE drops 
+
+4.5–5.8% vs. 1.8–3.4% for standard, so a deployment norm shift may erode the gain (Appendix H). The gain is also bounded in scope: cosine loses to inner product at deep LayerNorm layers (Pythia-2.8B drops from 100% at L8 to 40% at L24; Appendix E.3), sentiment is the one task reversal (standard +3 .5% top-1), and the 500M headline is single-seed and dictionary-level rather than feature-paired (Leask et al., 2025). Untested selectors (TopK, JumpReLU, gated), scale ( > 8B), instruction-tuned/RLHF checkpoints, circuit-level interventions, and competing geometries (QK-norm, nGPT) are deferred to Appendix H. 
+
+Future works. Several recipe choices deserve a closer look. The first is decoder unit-norm: dropping it costs roughly 22 
+
+FVE points in the magnitude-bypass variant (Table 2), but the constraint is not mirrored in the model’s normalized read-out, and exploring softer regularizers (norm penalties, sched-uled annealing, or absorbing ∥wi∥ into a per-feature bias) would tell us whether unit-norm is truly essential or just convenient. A second direction is to fold the per-coordinate RMSNorm gain g ∈ Rd into the score itself: the current cosine score cos( xc, w i) ignores g, but downstream sub-layers read g ⊙ xc (§2), so a variant like cos( g ⊙ xc, w i)
+
+would align the encoder strictly with what the model actu-ally consumes. Finally, the auxiliary dead-feature loss may be unnecessary under cosine: even without it, cosine retains 
+
++6 .3% FVE and 2.39 × more alive features than standard at L27 (Appendix E, Table 9), so a cleaner, auxiliary-free recipe looks within reach. 
+
+## 6. Discussion and Conclusion 
+
+For SAEs trained on normalized residual streams, raw inner-product scoring is the wrong default; the mismatch is stark-est under RMSNorm, which erases global scale entirely. It mixes content alignment with token norm, while the down-stream transformer path removes most of that global scale before reading the residual stream. Replacing the score with a learned norm-scaled cosine keeps reconstruction matched, but changes which features the dictionary spends capacity on. At matched FVE, KL/CE substitution scores, and per-feature LLM-judged interpretability, our cosine SAE recov-ers substantially better single-feature coverage of probing targets (§4.3, §4.1). The global-a version is the practical recipe: it adds one scalar, worked at every scale we tested, and recovers most of the per-feature gain. The per-feature extension gives the strongest numbers, but is less minimal; the full recipe is in Appendix J. The evidence points to the forward-pass TopK selection geometry as the primary mechanism. Equalizing gradi-ent magnitudes closes only 1.9–6.8% of the gap (§4.3): the inner-product score still inflates all pre-activations on high-norm tokens, BatchTopK still selects the same norm-conditioned features, and the same firing pattern reappears. This mechanism matters because pre-sublayer normalization has already discarded or attenuated token-level magnitude from the downstream computation; the norm-conditioned features that dominate the standard dictionary encode in-formation the model does not fully read. Whether the gain is best understood as TopK selection geometry alone or as a combination of selection geometry and RMS-geometric alignment remains open; both point to the same practical recommendation: practitioners training SAEs on normal-ized models should use cosine scoring as the default encoder, with the strongest gains expected under RMSNorm. Concretely: unit-normalize encoder rows on each forward pass, replace the score with eb∥xc∥a cos( xc, w i) + benc ,i ,and initialize a=0 , b= log √dmodel . The global variant adds two scalar parameters; the per-feature variant parameterizes 
+
+ai = abase + δi with per-feature bi, adding 1 + 2 dsae pa-rameters ( < 0.1% overhead). 
+
+## Impact Statement 
+
+This paper advances mechanistic interpretability and dic-tionary learning. We do not identify additional societal consequences beyond those generally associated with inter-pretability research. 
+
+## References 
+
+Arora, A., Wu, Z., Steinhardt, J., and Schwettmann, S. Lan-guage model circuits are sparse in the neuron basis, 2026. Basu, S. et al. Interpretability without actionability, 2026. Borobia, A. et al. How pruning reshapes features, 2026. Bricken, T., Templeton, A., Batson, J., Chen, B., Jermyn, A., Conerly, T., Turner, N. L., Anil, C., Denison, C., Askell, A., Lasenby, R., Wu, Y., Kravec, S., 8Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders 
+
+Schiefer, N., Maxwell, T., Joseph, N., Hatfield-Dodds, Z., Tamkin, A., Nguyen, K., McLean, B., Burke, J. E., Hume, T., Carter, S., Henighan, T., and Olah, C. Towards monosemanticity: Decomposing lan-guage models with dictionary learning. Anthropic tech-nical report; https://transformer-circuits. pub/2023/monosemantic-features , 2023. Bussmann, B., Leask, P., and Nanda, N. BatchTopK sparse autoencoders, 2024. Bussmann, B., Nabeshima, N., Karvonen, A., and Nanda, N. Learning multi-level features with matryoshka sparse autoencoders, 2025. Chanin, D. and Garriga-Alonso, A. SynthSAEBench: Eval-uating sparse autoencoders on scalable realistic synthetic data, 2026. Chanin, D., Wilken-Smith, J., Dulka, T., Bhatnagar, H., and Bloom, J. A is for absorption: Studying feature splitting and absorption in sparse autoencoders. In Advances in Neural Information Processing Systems (NeurIPS) , 2025. Oral presentation. Cunningham, H., Ewart, A., Riggs, L., Huben, R., and Sharkey, L. Sparse autoencoders find highly interpretable features in language models, 2023. Dehghani, M., Djolonga, J., Mustafa, B., Padlewski, P., Heek, J., Gilmer, J., Steiner, A., Caron, M., Geirhos, R., Alabdulmohsin, I., Jenatton, R., Beyer, L., Tschannen, M., Arnab, A., Wang, X., Riquelme, C., Minderer, M., Puigcerver, J., Evci, U., Kumar, M., van Steenkiste, S., Elsayed, G. F., Mahendran, A., Yu, F., Oliver, A., Huot, F., Bastings, J., Collier, M. P., Gritsenko, A., Birodkar, V., Vasconcelos, C., Tay, Y., Mensink, T., Kolesnikov, A., Pavetic, F., Tran, D., Kipf, T., Lucic, M., Zhai, X., Keysers, D., Harmsen, J., and Houlsby, N. Scaling vision transformers to 22 billion parameters. In International Conference on Machine Learning (ICML) , 2023. Dettmers, T., Lewis, M., Belkada, Y., and Zettlemoyer, L. LLM.int8(): 8-bit matrix multiplication for transformers at scale. In Advances in Neural Information Processing Systems (NeurIPS) , 2022. Elhage, N., Hume, T., Olsson, C., Schiefer, N., Henighan, T., Kravec, S., Hatfield-Dodds, Z., Lasenby, R., Drain, D., Chen, C., Grosse, R., McCandlish, S., Kaplan, J., Amodei, D., Wattenberg, M., and Olah, C. Toy models of superposition. Anthropic technical report, 2022. Engels, J., Liao, I., Michaud, E. J., Gurnee, W., and Tegmark, M. Not all language model features are one-dimensionally linear. In International Conference on Learning Representations (ICLR) , 2025. Friedman, D., Lampinen, A., Dixon, L., Chen, D., and Ghan-deharioun, A. Interpretability illusions in the generaliza-tion of simplified models. In International Conference on Machine Learning (ICML) , 2024. Gao, L., la Tour, T. D., Tillman, H., Goh, G., Troll, R., Radford, A., Sutskever, I., Leike, J., and Wu, J. Scaling and evaluating sparse autoencoders, 2024. Grindrod, J. Sparse auto-encoders and holism about large language models, 2026. Gulko, A., Peng, Y., and Kumar, S. CE-Bench: Towards a re-liable contrastive evaluation benchmark of interpretability of sparse autoencoders, 2025. BlackboxNLP Workshop @ EMNLP. Henry, A., Dachapally, P. R., Pawar, S., and Chen, Y. Query-key normalization for transformers. In Findings of the As-sociation for Computational Linguistics: EMNLP , 2020. Jedryszek, J. and Crook, O. Stable and steerable sparse autoencoders with weight regularization, 2026. Karvonen, A., Rager, C., Lin, J., Tigges, C., Bloom, J., Chanin, D., Lau, Y.-T., Farrell, E., Conmy, A., Mc-Dougall, C., Lo Piano, F., Templeton, A., Marks, S., Wright, B., Bricken, T., Conerly, T., Smith, L., and Nanda, N. SAEBench: A comprehensive benchmark for sparse autoencoders in language model interpretability. In In-ternational Conference on Machine Learning (ICML) ,2025. Kempf, L. et al. Simple LLM baselines are competitive for model diffing, 2026. Koromilas, P. et al. PolySAE: Modeling feature interactions in sparse autoencoders via polynomial decoding, 2026. Korznikov, V., Belrose, N., and Sharkey, L. OrtSAE: Or-thogonal sparse autoencoders uncover atomic features, 2025. Leask, P., Bussmann, B., et al. Sparse autoencoders do not find canonical units of analysis. In International Conference on Learning Representations (ICLR) , 2025. Liu, Z. Provably extracting the features from a general superposition, 2025. Loshchilov, I., Hsieh, C.-P., Sun, S., and Ginsburg, B. nGPT: Normalized transformer with representation learning on the hypersphere, 2024. Luo, H. et al. From atoms to trees: Building a structured fea-ture forest with hierarchical sparse autoencoders, 2026. Ma, L. et al. Falsifying sparse autoencoder reasoning fea-tures in language models, 2026. 9Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders 
+
+Miller, A., Draye, Y., and Sch ¨olkopf, B. Identifying in-tervenable and interpretable features via orthogonality regularization, 2026. Minder, J., Tao, F., Costa, J. B., Hannemann, T., Geiger, A., and Ravfogel, S. Overcoming sparsity artifacts in crosscoders to interpret chat-tuning, 2025. Narayanaswamy, S. et al. Improving robustness in sparse autoencoders via masked regularization, 2026. Nasiri-Sarvi, A. et al. MonoLoss: A training objective for interpretable monosemantic representations, 2026. Park, K., Choe, Y. J., and Veitch, V. The linear representa-tion hypothesis and the geometry of large language mod-els. In International Conference on Machine Learning (ICML) , 2024. Park, K., Choe, Y. J., Jiang, Y., and Veitch, V. The geometry of categorical and hierarchical concepts in large language models. In International Conference on Learning Repre-sentations (ICLR) , 2025. Oral presentation. Prieto, L. et al. From data statistics to feature geometry: How correlations shape superposition, 2026. Qwen Team. Qwen-Scope: Sparse autoencoders for Qwen3.5 models. Hugging Face collection; 
+
+https://huggingface.co/collections/ Qwen/qwen-scope , 2026. Accessed 2026-05-03. Rajamanoharan, S., Conmy, A., Smith, L., Lieberum, T., Varma, V., Kram ´ar, J., Shah, R., and Nanda, N. Improv-ing dictionary learning with gated sparse autoencoders, 2024a. Rajamanoharan, S., Lieberum, T., Sonnerat, N., Conmy, A., Varma, V., Kram ´ar, J., and Nanda, N. Jumping ahead: Improving reconstruction fidelity with JumpReLU sparse autoencoders, 2024b. Saraswatula, S. S. and Klindt, D. A. Data whitening im-proves sparse autoencoder learning, 2025. Saurez, A., Lee, Y., and Har, D. Why linear interpretability works: Invariant subspaces as a result of architectural constraints, 2026. Shafran, A. et al. From directions to regions: Decomposing activations in language models via local geometry, 2026. Tian, C., Tian, K., and Hu, N. Measuring sparse autoencoder feature sensitivity, 2025. Tigges, C., Hollinsworth, O. J., Geiger, A., and Nanda, N. Linear representations of sentiment in large language models, 2023. Timkey, W. and van Schijndel, M. All bark and no bite: Rogue dimensions in transformer language models ob-scure representational quality. In Proceedings of the Con-ference on Empirical Methods in Natural Language Pro-cessing (EMNLP) , 2021. Wang, J. et al. Dimensional collapse in transformer attention outputs: A challenge for sparse dictionary learning, 2025. Wu, Z., Arora, A., Geiger, A., Wang, Z., Huang, J., Jurafsky, D., Manning, C. D., and Potts, C. AxBench: Steering LLMs? even simple baselines outperform sparse autoen-coders, 2025. Yang, W. et al. Step-level sparse autoencoder for reasoning process interpretation, 2026. Zhang, B. and Sennrich, R. Root mean square layer normal-ization. In Advances in Neural Information Processing Systems (NeurIPS) , 2019. Zhu, X., Khalili, M. M., and Zhu, Z. AbsTopK: Rethinking sparse autoencoders for bidirectional features, 2025. Zou, A., Phan, L., Chen, S., Campbell, J., Guo, P., Ren, R., Pan, A., Yin, X., Mazeika, M., Dombrowski, A.-K., Goel, S., Li, N., Byun, M. J., Wang, Z., Mallen, A., Basart, S., Koyejo, S., Song, D., Fredrikson, M., Kolter, J. Z., and Hendrycks, D. Representation engineering: A top-down approach to AI transparency, 2023. 10 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders 
+
+## A. Extended Related Work 
+
+This appendix supplements the body Related Work (§2). 
+
+Residual-stream geometry. Whitening preprocessing (Saraswatula & Klindt, 2025) and dimensional collapse in attention outputs (Wang et al., 2025); representation engineering (Zou et al., 2023), sentiment-direction work (Tigges et al., 2023), and invariant subspaces forced by linear interfaces (Saurez et al., 2026). 
+
+Adjacent objective-level work. Latent-scaling crosscoders (Minder et al., 2025) and MonoLoss (vision SAEs) (Nasiri-Sarvi et al., 2026). 
+
+Alternative SAE benchmarks. CE-Bench (Gulko et al., 2025); SynthSAEBench (Chanin & Garriga-Alonso, 2026). 
+
+Concurrent failure modes. Feature absorption (Chanin et al., 2025) and proposed fixes via masked regularization (Narayanaswamy et al., 2026), orthogonality (Miller et al., 2026), hierarchical decoders (Luo et al., 2026), weight regulariza-tion (Jedryszek & Crook, 2026); polynomial decoders (Koromilas et al., 2026), correlation-shaped superposition (Prieto et al., 2026), provable feature extraction (Liu, 2025); sensitivity gaps (Tian et al., 2025), superficial reasoning features (Ma et al., 2026), pruning robustness (Borobia et al., 2026); multi-dimensional features (Engels et al., 2025), region-based decompositions (Shafran et al., 2026). 
+
+SAE limitations and baselines. Prompting outperforms SAE steering (Wu et al., 2025); raw MLP neurons match SAE sparsity for circuit discovery (Arora et al., 2026); LLM baselines match SAE-based model diffing (Kempf et al., 2026); SAE features fail to translate into actionable corrections (Basu et al., 2026); interpretability illusions OOD (Friedman et al., 2024). SAEs remain in use for polysemantic neurons (Cunningham et al., 2023; Grindrod, 2026); reasoning-process SAEs (Yang et al., 2026). 
+
+Position relative to prior SAE variants. Only the encoder score changes; the sparsity mechanism, decoder, and training objective are held fixed. The intervention is compatible with concurrent improvements (Matryoshka, JumpReLU, AbsTopK, masked regularization). Released SAE suites for the Qwen family (Qwen Team, 2026) are available for large Qwen-family runs. 
+
+## B. Cosine SAE Architecture 
+
+This appendix provides the formal variant definitions for reproducibility (§B.1), documents the design-space exploration that led to the final architecture (§B.2), and reports what the optimizer learns when given freedom (§B.3). 
+
+B.1. Variant Definitions 
+
+Notation: x ∈ Rd residual-stream activation; xc = x − bdec ; Wenc , W dec ∈ Rdsae ×d; normalize( ·) is ℓ2-normalization along the last axis. All variants share BatchTopK ( k = 80 ), optimizer, training data, token budget, and the recipe of §J. 
+
+Standard BatchTopK SAE (baseline). 
+
+z = BatchTopK   ReLU( xcW ⊤ 
+
+> enc
+
++ benc ),
+
+ˆx = zW dec + bdec , L = ∥x − ˆx∥2.
+
+Encoder rows unconstrained: si(x) = ∥Wenc ,i ∥ ∥ xc∥ cos( Wenc ,i , x c).
+
+Adaptive Cosine SAE (global a). 
+
+xunit = normalize( xc),Wunit = normalize( Wenc , dim= −1) ,
+
+cos( xc, w i) = ( xunit W ⊤
+
+> unit
+
+)i,γ(x) = exp  a log ∥xc∥ + b, a, b ∈ R,si(x) = γ(x) cos( xc, w i) + benc ,i ,z = BatchTopK   ReLU( s),
+
+ˆx = zW dec + bdec , L = ∥x − ˆx∥2.
+
+11 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders 
+
+At a = 0 , si = eb cos( xc, w i); at a = 1 , si = eb⟨Wunit ,i , x c⟩. Init: a = 0 , b = log √dmodel . Added params: 2 scalars. 
+
+Per-Feature Adaptive Cosine SAE (base+delta). 
+
+ai = abase + δi, abase , {δi} ∈ R1+ dsae ,γi(x) = exp  ai log ∥xc∥ + bi
+
+,si(x) = γi(x) cos( xc, w i) + benc ,i .
+
+Encode/decode/loss as Adaptive Cosine. Init: abase = 0 , δi = 0 , bi = log √dmodel . Added params: 2dsae + 1 scalars (≤ 0.1% ). The base+delta parameterization prevents per-feature instability at deep layers (§B.2.2). 
+
+Magnitude-Bypass SAE. 
+
+xunit = xc/∥xc∥, Wunit = normalize( Wenc , dim= −1) ,z = BatchTopK   ReLU( xunit W ⊤
+
+> unit
+
+),W u 
+
+> dec
+
+= normalize( Wdec , dim= −1) ,xraw = zW u
+
+> dec
+
+,
+
+ˆx = ∥xc∥ · xraw 
+
+∥xraw ∥ + bdec , L = ∥x − ˆx∥2.
+
+Encoder activations bounded in [0 , 1] ; magnitude ∥xc∥ enters only the decoder rescale. The sparse code carries no magnitude information. 
+
+Gradient asymmetry. For an active feature i:
+
+∂s std 
+
+> i
+
+∂W enc ,i 
+
+= xc ⇒ ∂s std 
+
+> i
+
+∂W enc ,i 
+
+= ∥xc∥.
+
+For all cosine variants, si depends on xc through xc/∥xc∥ and a scalar, so the encoder-gradient norm is bounded indepen-dently of input magnitude. 
+
+Held fixed across variants. BatchTopK k = 80 ; geometric-median init of bdec ; decoder columns Kaiming + unit-norm; encoder = W ⊤ 
+
+> dec
+
+(0.1 · W ⊤ 
+
+> dec
+
+for Standard); Adam, learning rate, schedule; token budget; dsae . All † and unmarked rows use the AuxK auxiliary loss of Gao et al. (2024); the ‡ rows (from an early 5M-token sweep) predate its adoption but exp46 confirms aux-k is a no-op for cosine-encoder architectures at that budget (§B.2.3). 
+
+B.2. Design-Space Exploration 
+
+The final architecture emerged from a series of failures. Each design choice prevents a specific collapse mode. Table 2 summarizes the full ablation; the subsections below explain the rationale. B.2.1. W HY THE SCALE PARAMETER IS NECESSARY 
+
+The most natural first attempt is pure cosine scoring: normalize both the input and the encoder rows, so si = cos( xc, w i) + 
+
+benc ,i . This removes all norm dependence from feature selection. It also fails catastrophically: FVE = 0 .009 with 97 % dead features (Table 2, row “naive cosine”). [exp10] 
+
+The failure is a reconstruction-scale mismatch. Cosine scores are bounded in [−1, 1] ; after BatchTopK and ReLU, the sparse code z has entries in [0 , 1] . The decoder must reconstruct x at its full scale ( ∥xc∥ ∼ 64 –400 depending on layer), but zW dec produces vectors of order ∥z∥1 · 1 ≈ k = 80 . At shallow layers where ∥xc∥ ≈ 64 this nearly works; at L27 where ∥xc∥ ≈ 407 the decoder cannot bridge the gap. Features receive near-zero gradient because reconstruction error is dominated by the global scale mismatch rather than directional errors, and 97 % die within the first few thousand steps. Adding a learned global intercept b (so the scale is eb, a single scalar) partially recovers: FVE rises to 0.449 but 76 % of features still die (row “global b, no a”). The intercept provides a fixed boost but cannot adapt to the token-level norm variation that the decoder needs. Freeing the exponent a (so scale = ea log ∥xc∥+b = eb∥xc∥a) lets the encoder pass exactly as much per-token magnitude as reconstruction requires. The optimizer converges to a ≈ 0.26 globally and ¯ai ≈ 0.08 
+
+per-feature; 0% dead, FVE = 0 .77 . [exp12] [exp42c] 
+
+12 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders 
+
+Table 2. Design-space ablation. Headline setting: Qwen3-8B L18, 500 M tokens; † from L27/ 50 M (same recipe); ‡ from L27/ 5M (early sweep; no aux-k, but exp46 confirms aux-k is a no-op at this budget). Cos >inner is the per-feature win rate (%) on the diagnostic of §C. [exp40/42c/44] [exp46] [exp48]                                                                                                                                                                                                  
+
+> Variant Design knobs Metrics
+> Input norm Unit enc. Unit dec. Restore ∥x∥Scale Enc. bias FVE Dead% Probe top-1 Cos >inner Learned a
+> inner-product baseline ——✓—none ✓0.770 0.00.667 62 —naive cosine ( ×)✓✓✓—none ✓0.009 ‡97 .0‡———global b, no a✓✓✓—global b✓0.449 ‡76 ‡———
+> global aencoder ✓✓✓—global a, b ✓0.769 0.00.800 63 0.258
+> per-feature ai(no anchor) ✓✓✓—per-feat ai, b i✓0.721 †83 .4†—71 †0.022
+> per-feature base+delta ✓✓✓—base +δi✓0.771 0.00.815 62 0.076
+> no enc. norm, per-feat bi✓—✓—per-feat bi✓0.770 †0.4†—61 †0.201 †
+> no enc. norm, global a, b (×)✓—✓—global a, b ✓0.614 †93 .2†——0.620 †
+> magnitude-bypass ✓✓✓✓none —0.767 4.30.783 69 —encoder rows free ✓—✓✓none —0.754 †0.3†—67 †—decoder rows free ✓✓—✓none —0.550 ‡0.0‡———both encoder/decoder free ✓——✓none —0.554 ‡0.0‡———w/o norm restore ( ×)✓✓——none —0.082 ‡88 .5‡———input norm only, no scale ( ×)✓—✓—none ✓0.297 †93 .5†—58 †—no enc. norm, base +δi✓——✓base +δi✓0.740 †20 .0†—61 †−0.59 †
+
+B.2.2. P ER -FEATURE INSTABILITY AND THE BASE +DELTA FIX 
+
+Allowing each feature its own exponent ai is appealing: a positional feature may need more norm information than a semantic one. The direct parameterization ( ai free, initialized at 0) works at shallow layers and short budgets (L9/5M: 
+
+0% dead, matching the global variant). At L27 with 50 M tokens, it collapses: 83 .4% dead ( 54 ,657 of 65 ,536 features). This cascade occurs even with encoder unit-normalization active and is specific to the per-feature degree of freedom in the exponent, not to missing normalization constraints. [exp47] 
+
+The failure mechanism is a winner-take-all cascade. At L27, ∥xc∥ ≈ 407 while the initial scale eb = √d = 64 , a 
+
+6.4× mismatch. Some features randomly receive slightly more gradient early in training (due to initialization variance in 
+
+Wenc directions), fire more often, and grow their ai to capture more of the high-norm tokens. As their ai increases, their pre-activations on high-norm tokens inflate further, raising the batch-wide TopK threshold. Features that started with slightly less gradient now fall below the threshold, receive zero gradient, and die. The cascade is self-reinforcing: at step 5,500 ,approximately 43 ,000 features die simultaneously in a single 500 -step window. By step 10 ,000 the dictionary has 83 % dead features and cannot recover. The base+delta parameterization ai = abase + δi prevents this cascade. The shared abase moves all features together during early training, ensuring the global scale tracks ∥xc∥ before any per-feature divergence can occur. Once abase has converged (typically by step 5,000 ), the per-feature δi offsets begin differentiating. The result: 0.4% dead at L27/ 50 M (vs. 83 .4%unconstrained), with FVE = 0 .772 vs. 0.721 . [exp47] 
+
+At the headline setting (L18, 500 M tokens), base+delta achieves the best sparse probing in the entire table ( 0.815 ) at 0%dead and matched FVE ( 0.771 ). B.2.3. S TABILIZATION MECHANISMS : ENCODER NORMALIZATION AND NORM RESTORATION 
+
+Once input normalization strips ∥x∥ from the encoder’s view, something must prevent norm-dominance from re-entering through other paths. Two mechanisms independently solve this problem: (1) encoder unit-normalization, which prevents encoder-row magnitudes from drifting and recapitulating norm dominance on the weight side; and (2) post-decode norm restoration, which rescales the reconstruction to match ∥xc∥ externally. Either one suffices; removing both is catastrophic. 
+
+Encoder normalization. Unit-normalizing encoder rows ( wi ← wi/∥wi∥ on each forward pass) ensures the cosine score is a true cosine similarity. Dropping this constraint while keeping input normalization (row “input norm only, no scale”) gives FVE = 0 .297 at 93 .5% dead. The failure mode: without ∥wi∥ = 1 , encoder row norms drift freely. Rows that happen to grow large dominate the TopK competition (their pre-activations scale with ∥wi∥), starving smaller rows of gradient. This recapitulates the same norm-dominance pathology we set out to fix, but now on the encoder side rather than the input side. The collapse is layer-independent: free-encoder adaptive cosine dies at 90 .8% (L9), 94 .6% (L18), and 93 .2% (L27), all at 
+
+50 M tokens. [exp23] [exp45] 
+
+13 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders 0 5000 10000 15000 20000                    
+
+> Training step
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Fraction of alive features
+> 43K features die
+> (A) Feature survival
+> Per-feature (unconstrained)
+> Per-feature (base+delta)
+> 05000 10000 15000 20000
+> Training step
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> FVE
+> (B) Reconstruction quality
+> Per-feature instability at L27 / 50M tokens (Qwen3-8B, dsae =65,536)
+> Figure 8. Winner-take-all cascade in unconstrained per-feature ai.Qwen3-8B L27, 50 M tokens. (A) Unconstrained per-feature (red) loses 67 % of features in a single 500 -step window at step 5,500 ; base+delta (blue) retains all features throughout. (B) Base+delta also achieves higher final FVE ( 0.77 vs. 0.72 ) because surviving features encode useful content rather than fighting for norm-dominated TopK slots. [exp47]
+
+Releasing encoder normalization while keeping post-decode norm restoration and a global learned a, b (row “no enc. norm, global a, b ”) also collapses: 93 .2% dead, with a running away to 0.62 (toward inner product). The restoration step helps the decoder but cannot prevent the encoder-side norm drift that kills feature selection. The one exception: per-feature bi
+
+with free encoder rows achieves 0.4% dead (row “no enc. norm, per-feat bi”). Here each feature’s individual scale ebi can compensate for encoder-row magnitude variation, effectively absorbing ∥wi∥ into bi. This works but at a cost: FVE matches the baseline ( 0.770 ); sparse-probing performance is untested for this variant. [exp46] 
+
+Norm restoration. Within the magnitude-bypass family (no learned a, sparse codes bounded in [0 , 1] ), norm restoration is the load-bearing stabilizer. A factorial ablation at L27/ 5M shows: restoration-on variants all land within 0.8% FVE (0.550 –0.558 ) at 0% dead regardless of encoder/decoder normalization; restoration-off variants collapse to ∼ 89 % dead with FVE 0.08 –0.14 (Figure 9). Encoder and decoder unit-norm constraints are decorative when restoration is active. [exp46] 
+
+Learned exponent as a third path. With a learned exponent a (the adaptive and per-feature variants), neither encoder normalization nor norm restoration is strictly necessary. The per-feature base+delta variant achieves 0% dead and FVE 0.771 
+
+with encoder normalization but without restoration (Table 2, row 6). Conversely, base+delta without encoder normalization but with restoration achieves FVE = 0 .740 at 20 % dead (row “no enc. norm, base+ δi”); functional but degraded. The learned exponent provides partial self-stabilization: pre-activations scale as ∥xc∥ai , so the sparse code carries per-token magnitude directly and the decoder can reconstruct at the correct scale without an external rescale. The base+delta parameterization is uniquely robust because the shared abase anchors all features to a common scale (preventing the encoder-side divergence that kills free-encoder variants) while the per-feature δi offsets allow heterogeneity without competitive pressure. This is why it survives with only one stabilizer active. Other parameterizations (global a,unconstrained per-feature) require encoder normalization. 
+
+Summary and open questions. In practice, our recommended variants use encoder normalization (which is cheap and guarantees true cosine geometry). The adaptive/per-feature family does not use norm restoration; the magnitude-bypass family relies on it. We have not ablated all pairwise combinations at the headline setting. Specifically, (1) per-feature base+delta with both encoder normalization and norm restoration active, and (2) per-feature base+delta without either, remain untested at 500 M tokens. Whether the 20 % dead rate of the no-enc-norm variant (exp48, L27/ 50 M) improves with longer training or worsens is unknown. These are natural directions for future exploration. 14 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders enc + dec 
+
+> (full NoC)
+> enc only
+> (dec free)
+> dec only
+> (enc free)
+> neither
+> (restore only)
+> enc + dec
+> (no restore)
+> neither
+> (input norm only)
+
+0.0 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+> FVE
+
+.554 .550 .558 .554 
+
+.082 
+
+.138 
+
+> 0% dead
+> 0% dead
+> 0% dead
+> 0% dead
+> 88%
+> dead
+> 89%
+> dead
+
+With norm restoration Without 
+
+Magnitude-bypass family: norm restoration is load-bearing; 
+
+encoder/decoder normalization is decorative 
+
+(L27, 5M tokens, aux-k on but confirmed no-op) 
+
+Restoration ON (0% dead) 
+
+Restoration OFF (88 89% dead)           
+
+> Figure 9. Magnitude-bypass family: norm restoration is load-bearing; encoder/decoder normalization is decorative. L27, 5Mtokens, aux-k on (confirmed no-op). All four restoration-on variants (blue) achieve FVE ≈0.55 at 0% dead regardless of enc/dec norm. Restoration-off variants (red) collapse to ≥88 % dead. For the adaptive family, encoder normalization plays the equivalent stabilizing role (see text above). [exp46]
+
+B.2.4. I NITIALIZATION SENSITIVITY 
+
+The scale parameter b is initialized to log √dmodel , which sets the initial pre-activation magnitude to √d · cos( θ) ≈ 64 for Qwen3-8B. This works when residual-stream norms are of similar order or larger (Qwen L9: ∥x∥ ≈ 58 , L27: ≈ 407 ). It fails catastrophically when norms are much smaller. [exp42] 
+
+On Mistral-7B, activation norms at L8 are only 6.3 (10 × smaller than √d = 64 ). The √d initialization overshoots: pre-activations are an order of magnitude too large, features saturate and die immediately ( 100 % dead at L8, 97 .6% at L16). No gradient flows from dead features, so the optimizer cannot recover. This is the opposite failure mode from Qwen L27, where √d undershoots (∥x∥ = 407 vs. √d = 64 ) but features stay alive and the optimizer climbs toward the correct scale. [exp25] 
+
+The asymmetry: undershoot is recoverable (gradients still flow), overshoot is not (dead features produce no gradient). We resolve this with a norm-adaptive initialization rule: if the mean centered activation norm mean ∥xtrain − bdec ∥ differs from √dmodel by more than 2×, use b = log(mean ∥x∥) instead. With this fix, Mistral achieves positive cosine advantage at all layers ( +1 .9% FVE at L8, +3 .0% at L24, 55 % fewer dead features). [exp42] 
+
+A subtlety at longer budgets: on Qwen L27 at 50 M tokens, norm-adaptive init hurts relative to √d because it removes the gradient pressure that teaches a to compensate for scale (the optimizer “needs to struggle” with a wrong b to discover that magnitude matters). The √d default works when norms exceed the init; norm-adaptive is necessary only in the overshoot regime. [exp34] [exp41] 
+
+B.2.5. G ROUP -SIZE EXPERIMENTS 
+
+Rather than one global a or 65 ,536 free ai values, an intermediate option shares each a across a group of G features. We tested G ∈ { 1, 4, 16 , 64 , 256 , 9216 } at L13 on Gemma-2-2B/ 50 M tokens. [exp37] 
+
+G = 4 (4 groups of 2,304 features) achieves the best SAEBench composite in this sweep: KL-score 0.9785 , CE-score 15 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders 
+
+Table 3. Initialization sensitivity across models. The direction of the mismatch determines recoverability. [exp42] [exp42c] 
+
+Model Layer ∥x∥ Init Tokens Outcome Qwen L27 407 √d (undershoot) 500M best Qwen L27 407 norm-adaptive 50M hurts ( a stuck) Mistral L8 6.3 √d (overshoot) 5M 100% dead Mistral all varied norm-adaptive 50M cosine wins 
+
+0.9786 , RAVEL 0.619 , outperforming both the fully global setting ( G = 1 : KL 0.9767 , RAVEL 0.618 ) and the fully free setting ( G = 9216 : KL 0.9783 , RAVEL 0.609 ). Dead-feature rates decrease monotonically with group size ( 41 % at G = 1 
+
+to 20 % at G = 9216 ), but downstream task performance is non-monotone. We note two caveats. First, this experiment uses Gemma-2-2B at 50 M tokens with a smaller dictionary ( dsae = 9 ,216 ); results may not transfer directly to the headline Qwen3-8B/ 65 ,536 setting. Second, differences between adjacent group sizes are small (within 0.002 on KL-score), so the G = 4 optimum is suggestive rather than definitive. The broader conclusion is more robust: some per-feature heterogeneity in norm dependence improves downstream metrics relative to a single global a,while fully unconstrained per-feature freedom can hurt. 1 4 16 64 256 9216 
+
+Group size G     
+
+> 20
+> 25
+> 30
+> 35
+> 40
+> Dead features (%)
+> 1416 64 256 9216
+
+Group size G 
+
+> 0.975
+> 0.976
+> 0.977
+> 0.978
+> 0.979
+> KL-score
+> KL-score
+> RAVEL 0.59
+> 0.60
+> 0.61
+> 0.62
+> RAVEL score
+
+(A) Dead features vs group size (B) SAEBench downstream metrics 
+
+> Group-size sweep (Gemma-2-2B L13, 50M tokens, d sae =9,216)
+> Note: KL-score varies < 0.002 across all G
+
+Figure 10. Group-size sweep. Gemma-2-2B L13, 50 M tokens, dsae = 9 ,216 . (A) Dead-feature rate decreases monotonically with group size. (B) KL-score and RAVEL peak at G = 4 (star), though differences are small ( < 0.002 KL-score between adjacent sizes). The result is suggestive of an intermediate optimum but has not been replicated at the headline scale. [exp37] 
+
+In practice, we use per-feature base+delta rather than group-sharing because: (a) it achieves 0% dead at the headline setting; (b) the shared base provides a similar anchoring effect to small group sizes; (c) it adds negligible parameter overhead (2dsae scalars). A systematic comparison of group-sharing vs. base+delta at the headline scale (Qwen3-8B, 500 M tokens, 
+
+dsae = 65 ,536 ) remains a natural future direction. B.2.6. S UMMARY OF DESIGN LESSONS 
+
+1. Pure cosine (no scale) fails because the decoder cannot bridge the norm gap between bounded sparse codes and real activation magnitudes (§B.2.1). 2. The learned exponent a lets the encoder pass exactly as much magnitude as reconstruction requires; the optimizer consistently chooses a ≪ 1 (§B.3). 3. Per-feature ai must be anchored (base+delta) to prevent winner-take-all cascades at deep layers where ∥xc∥ ≫ √d
+
+(§B.2.2). 4. Either encoder unit-normalization or post-decode norm restoration prevents collapse; the magnitude-bypass family 16 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders 
+
+requires restoration, while the adaptive family requires encoder norm. Per-feature base+delta can partially survive with only one, but works best with encoder normalization (§B.2.3). 5. Moderate per-feature freedom (base+delta or G = 4 ) outperforms both fully global and fully free parameterizations (§B.2.5). 6. Initialization must not overshoot: √d works when norms exceed the init; norm-adaptive is needed otherwise (§B.2.4). 
+
+B.3. Empirical Convergence 
+
+What does the optimizer choose when given freedom? This section reports the learned values of a and ai at the headline setting. 
+
+Table 4. Learned a across layers (Qwen3-8B, community recipe, 500M tokens). [exp42c] 
+
+Layer Variant a (or mean ai) % near 0 Max ai
+
+L9 Global 0.025 — —L9 Per-Feature −0.011 — < 0.5
+
+L18 Global 0.258 — —L18 Per-Feature 0.076 23% < 0.5
+
+L27 Global 0.257 — —L27 Per-Feature 0.362 23% < 0.5
+
+At L9 the optimizer drives a to near zero (pure cosine); at deeper layers it retains modest norm dependence ( a ≈ 0.26 ). No feature at any layer or token budget learns ai > 0.5; the inner-product regime ( a = 1 ) is never preferred. Per-feature means are consistently lower than the global a, suggesting that when features can individually tune their norm dependence, most want less magnitude rather than more. 0.0 0.2 0.4 0.6 0.8 1.0        
+
+> per-feature ai
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> density (log scale)
+> inner-product
+> limit ( a= 1)
+> Per-feature norm-sensitivity (Qwen3-8B L27)
+> 5M tokens (mean a= +0.016)
+> 50M tokens (mean a= +0.112)
+
+Figure 11. Per-feature ai distribution at three token budgets (Qwen3-8B L27). Mass shifts toward larger ai with more data; no ai > 0.5
+
+in any setting. [exp42c] 
+
+Table 5. {ai} statistics across token budgets. [exp42c] [exp16] [exp17] 
+
+Setting Tokens Mean ai % near 0 Max ai
+
+Qwen L27 5M ≈ 0.01 88–99% < 0.5
+
+Qwen L27 50M 0.113 60% < 0.5
+
+Qwen L27 500M 0.362 23% < 0.5
+
+Qwen L18 500M 0.076 23% < 0.5
+
+At short budgets ( 5M), 88 –99 % of features remain near ai ≈ 0. With more data, the distribution shifts: at 500 M only 23 %stay near zero. This suggests that early in training, features learn content directions first (cosine is sufficient), and only later differentiate their norm dependence as finer-grained reconstruction demands emerge. Even at 500 M, the distribution remains far below the inner-product limit ( a = 1 ), confirming that the optimizer consistently prefers direction-dominated scoring. 
+
+Pinned cosine ( a = 0 ). Freezing a at 0 and training only b produces a fixed-scale cosine encoder. The trained-{ai}
+
+distributions above show this is suboptimal: the optimizer wants a > 0 at deeper layers, and pinned cosine cannot adapt to 17 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders 
+
+per-token norm variation. This variant is included in the ablation table for completeness but is not recommended; global a
+
+adds one scalar and strictly dominates. 
+
+## C. Diagnostic: Cosine vs. Inner Product as a Causal Predictor 
+
+Extended version of §4.2. Given fixed decoder directions from a trained Standard SAE, does cosine score have higher absolute correlation with a causal projection-ablation effect than inner product? 
+
+Definitions. Projection ablation : for unit decoder direction df , ablate( x; f ) = x − (d⊤ 
+
+> f
+
+x) df , re-installed via a forward hook at the ablation layer. KL-divergence ablation effect : yt = KL   porig (· | xt) ∥ pabl (· | xt; f ) .
+
+Win-rate protocol. For each feature f with unit decoder direction df and m held-out tokens: scos  
+
+> t
+
+= cos( xt, d f ),
+
+sip  
+
+> t
+
+= ⟨xt, d f ⟩, and yt is the KL-divergence ablation effect defined above. Decoder directions df are taken from trained Standard SAEs. Cosine wins iff |corr( scos , y )| > |corr( sip , y )|, averaged over features. The 50 % null corresponds to no systematic advantage for either scoring rule. Projection ablation makes the perturbation magnitude exactly ⟨x, d f ⟩, biasing KL toward |⟨ x, d f ⟩| , which means the diagnostic is conservative with respect to cosine (Figure 12). x                                      
+
+> df
+> (dfx)df
+> ablate( x;f)
+> =x(dfx)df
+> (a) Ablation: project out the feature direction activation xi
+> (layer , token i)
+> scos
+> i= cos( xi,df)
+> sip
+> i=xi,df
+> ablate( xi;f)
+> =xi(dfxi)df
+> run forward pass
+> from layer logits yi= KL( porig pabl )
+> rcos
+> f= corr( scos ,y)
+> rip
+> f= corr( sip ,y)
+> feature is a cosine win if | rcos
+> f| > | rip
+> f|;
+> win rate = 1
+> F f
+> 1[|rcos
+> f| > | rip
+> f|]
+> (b) Per-sample pipeline per-feature correlations win rate
+
+Figure 12. Win-rate diagnostic protocol. (a) Projection ablation removes a decoder direction from the residual stream; the downstream KL-divergence measures its causal importance. (b) Per-sample cosine and inner-product scores are correlated with this causal effect; the scoring rule with higher absolute correlation “wins” for that feature. 
+
+Depth dependence on RMSNorm. Qwen3-8B: L9 ≈ 44% , L18 ≈ 65% , L27 ≈ 78% . Norm-patching at L18 produces 
+
+∼ 10 × less downstream-KL change than direction-patching at fixed norm. Cross-model RMSNorm: Mistral-7B 74–88%; Gemma-2-2B matches Qwen with a low value at L20. LayerNorm (Pythia-2.8B / Pythia-6.9B / Falcon-7B) drops from 
+
+∼ 90% shallow to 40–57% deep (Fig. 13). [exp25] On constructed token pairs (high-cosine / low-norm vs. low-cosine / high-norm), the high-cosine token has the larger KL effect on ∼ 90% of features at deep layers. 
+
+Caveats. Within a single norm quartile the rate drops to 40–70%, so the 70–90% rate is partly between-quartile (Simpson’s paradox; Figure 14); the training-time results in §4.1 do not depend on this measurement. The inflation gap grows with depth ( +18 % at L9, +23 % at L18, +33 % at L27), consistent with deeper layers having more norm variation driving the between-quartile effect. The magnitude-bypass 69% rate at 500M (§4.3) does not replicate at 5M tokens (27–53% across four restoration-on variants). [exp44] [exp46] [exp19] 
+
+C.1. SAE-Free Direction vs. Norm Patching 
+
+The cos >inner diagnostic in §C relies on SAE decoder directions. This subsection removes that dependency entirely: for 500 
+
+random cross-prompt token pairs at each layer, we decompose the residual-stream activation into direction ( ˆx = x/ ∥x∥) and magnitude ( ∥x∥), then measure KL-divergence from the unpatched output after swapping each component independently (Figure 15). 
+
+Scaling test. Replacing a single token’s direction with a random unit vector (at fixed norm) causes 2.2× (L9), 3.5×
+
+(L18), and 11 .6× (L27) more KL than scaling its norm by 0.5–5× at fixed direction. The depth gradient is consistent with RMSNorm progressively erasing magnitude from the sublayer-input path. 18 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders Shallow Mid Deep 
+
+Qwen3-8B 
+
+(RMSNorm) 
+
+Pythia-2.8B 
+
+(LayerNorm) 
+
+Pythia-6.9B 
+
+(LayerNorm) 
+
+Falcon-7B 
+
+(LayerNorm) 
+
+# 80% 76% 74% 
+
+# 100% 90% 49% 
+
+# 87% 70% 60% 
+
+# 95% 73% 44% 
+
+# Cosine > Inner-Product Win Rate (%) 
+
+# Across Models and Layer Depths 
+
+30 
+
+40 
+
+50 
+
+60 
+
+70 
+
+80 
+
+90 
+
+100   
+
+> Win Rate (%)
+> Figure 13. Cosine-vs.-inner-product win rate by depth. Deep RMSNorm: 70–90%. Deep LayerNorm: at chance. [exp25]
+
+## D. Sparse-Probing Coverage at Matched FVE 
+
+Setup. Qwen/Qwen3-8B-Base layer 18, 500M FineWeb tokens, dsae = 65 ,536 , recipe in §J. Four architectures: Standard, Adaptive Cosine SAE, Per-Feature Adaptive Cosine SAE, Magnitude-Bypass SAE. Body presentation: §4.1. 
+
+Not held fixed across variants. Encoder score range (cosine ∈ [−1, 1] vs. unbounded inner product); learned scale parameter a (≤ 0.1% extra parameters); encoder initialization (norm-aware vs. √d); activation dynamic range; wall-clock time (8–14% overhead). 
+
+Reconstruction parity. FVE ∈ [0 .767 , 0.771] ; KL-div score ∈ [0 .984 , 0.985] ; CE-loss score ∈ [0 .991 , 0.993] ; dead features 
+
+≤ 4.3% .
+
+Sparse probing. Top-1 differences from Standard: +11 .6% (Magnitude-Bypass SAE), +13 .3% (Adaptive Cosine SAE), 
+
++14 .9% (Per-Feature Adaptive Cosine SAE). Per-dataset breakdown: Table 8. Robustness to dataset removal: 
+
+Decoder direction overlap. Mutual nearest-neighbor matching: 73–78%. Strict > 0.95 -cosine + Jaccard: 6–17%. Restricted to alive-and-paired subset at n = 3 –6: < 1% (§H). Headline comparisons are not paired feature-to-feature tests. [exp56b] 
+
+Per-feature interpretability. 80 .1% (Per-Feature Adaptive Cosine SAE) vs. 82 .1% (Standard), p = 0 .88 (§F). Without the auxiliary loss, total interpretable features differ by ≈ 4.5× (§F.1). 
+
+Compute overhead. Training wall-clock vs. Standard: +8% (Adaptive Cosine SAE), +10% (Per-Feature Adaptive Cosine SAE), +14% (Magnitude-Bypass SAE). Inference: one extra log ∥xc∥ + exp per token before BatchTopK (Adaptive Cosine SAE, Per-Feature Adaptive Cosine SAE); post-decode norm-and-multiply for Magnitude-Bypass SAE. 19 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders Q1 Q2 Q3 Q4 All 
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+> cos > inner win rate (%)
+> +18pp
+
+Layer 9 
+
+Q1 Q2 Q3 Q4 All 
+
+> +23pp
+
+Layer 18 
+
+Q1 Q2 Q3 Q4 All 
+
+> +33pp
+
+Layer 27 
+
+Simpson's paradox: overall cos>inner rate inflated by between-quartile norm variation 
+
+Within-quartile win rate Overall win rate (all quartiles pooled) Chance (50%) 
+
+Figure 14. Simpson’s paradox in the cos >inner diagnostic. Within individual norm quartiles (blue), the win rate hovers at 40 –70% ; the overall rate (red) is 80 –87% . The gap grows with depth as residual-stream norm variation increases. This confirms that the between-quartile component (norm variation corrupting cross-token TopK selection) drives most of the overall cos >inner rate. Standard SAE, Qwen3-8B, 50M tokens. [exp19] 
+
+Table 6. Core SAEBench metrics, Qwen3-8B L18, 500M tokens, dsae = 65 ,536 . [exp40/42c/44] 
+
+Std. Adapt. Cos. PF Adapt. Cos. Mag.-Byp. FVE 0.770 0.769 0.771 0.767 
+
+KL-div score 0.985 0.985 0.985 0.984 
+
+CE-loss score 0.993 0.993 0.993 0.991 
+
+Dead % 0.0 0.0 0.0 4.3
+
+Probing top-1 0.667 0.800 0.815 0.783 
+
+Probing top-2 0.731 0.853 0.853 0.798 
+
+Probing top-5 0.789 0.891 0.883 0.805 
+
+Overall 0.944 0.957 0.959 0.914 
+
+D.1. Per-Dataset Sparse Probing 
+
+Table 8 reports the single-feature top-1 by dataset for all four architectures. Per-Feature Adaptive Cosine SAE has higher or equal top-1 to Standard on seven of eight datasets; amazon sentiment is the one dataset on which Standard is higher. 
+
+D.2. Per-Architecture Sparse-Probing Bars 
+
+Figure 16 plots the per-dataset top-1 numbers from Table 8 alongside aggregate top-1/2/5 across the eight datasets, comparing Standard against Per-Feature Adaptive Cosine SAE; this is the provenance figure referenced from Fig. 2 and Table 1. 
+
+## E. Sample Efficiency and Cross-Model Generalization 
+
+Without auxiliary loss. The headline of §4.1 keeps the auxiliary loss enabled in both arms. With the auxiliary loss removed, the alive-feature differences become visible: on Gemma-2-2B at 50M tokens, Standard shows 54–69% dead vs. ≈ 0% for Adaptive Cosine SAE (Table 10). At 500M on Qwen3-8B with √d init, dsae = 16 ,384 , no auxiliary loss, the global-a
+
+Adaptive Cosine SAE shows +6 .3% FVE and 2.39 × alive features over Standard at L27 (Table 9). Both architectures 20 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders Layer 9 Layer 18 Layer 27        
+
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> KL divergence
+> 87× 219×
+> 2560×
+> (A) Random pair patching
+> Direction swap
+> Norm swap
+> Layer 9 Layer 18 Layer 27
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> 12
+> 14
+> KL divergence
+> (B) Scaling vs. rotation
+> Random rotation
+> Norm scaling (avg 0.5×/2×/5×)
+
+Figure 15. The model reads direction, not magnitude. KL-divergence caused by swapping direction (blue) vs. norm (orange) between random token pairs at three Qwen3-8B layers. Direction patches cause 87 –2,560 × more disruption; the ratio grows with depth as fewer subsequent layers remain for magnitude to influence direction. n = 500 pairs per layer. [exp8] 
+
+Table 7. Top-1 vs. Standard, with high-margin datasets removed. [exp40] 
+
+Removed Adapt. Cos. PF Adapt. Cos. Mag.-Byp. none +13 .3% +14 .9% +11 .6% 
+
+europarl +10 .3% +12 .0% +8 .6% 
+
+europarl + github-code +9 .0% +9 .1% +5 .6% 
+
+plateau by 300M tokens. 
+
+Cross-model coverage. RMSNorm: Qwen3-8B, Gemma-2-2B, Mistral-7B. LayerNorm: Pythia-2.8B, Pythia-6.9B, Falcon-7B, Pythia-70M. Token budgets vary (500M for the Qwen L18 run, 50M for most cross-model rows, 5M for some); rows in Table 11 are not normalized for budget or recipe. 
+
+Variance. n = 3 seeds at Qwen L27, 50M tokens: FVE 0.737 (Adaptive Cosine SAE) vs. 0.657 (Standard); seed-wise SD 
+
+< 0.001 in both arms; alive-feature ratio 3.26 ×. [exp34] The 500M L18 sparse-probing run is single-seed. Cos > inner above 50% at L27: p < 2.4 × 10 −6. Per-feature interpretability rate difference: p = 0 .88 . [exp33] 
+
+E.1. Depth Dependence Within Qwen3-8B 
+
+Figure 18 shows the four main variants at L9, L18, and L27 (all 50 M tokens, same recipe). The key observations: 1. Architectures converge at shallow layers. At L9 ( ∥x∥ ≈ 58 ≈ √d), all four variants achieve 0% dead features and FVE within 0.6%. The norm/sqrt( d) ratio is near unity, so the scale mismatch that drives divergence at deeper layers does not arise. 2. Cos >inner is below 50 % at L9. Inner product is a better causal predictor at L9 ( 33 –44 %), consistent with magnitude carrying genuine signal at shallow layers where RMSNorm has not yet accumulated. The diagnostic crosses 50 %between L9 and L18, and reaches 67 –78 % at L27. 3. Per-feature (no anchor) collapses only at L27. At L18 ( ∥x∥/√d = 1 .53 ), the unconstrained per-feature variant survives with 0% dead and the best FVE ( 0.726 ). At L27 ( ∥x∥/√d = 6 .3), it collapses to 83 .4% dead. The cascade (§B.2.2) is gated by the norm-to-init ratio, not by absolute depth. 4. Learned a tracks the magnitude-as-noise gradient. Global a rises from 0.025 (L9) to 0.257 (L27); at L9 the optimizer wants pure cosine, at L27 it retains modest norm sensitivity for reconstruction. No value exceeds 0.3; the inner-product regime ( a = 1 ) is never approached. The depth story connects the mechanism (§4.3) to the architecture (§B.2): RMSNorm progressively erases magnitude from 21 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders   
+
+> Table 8. Single-feature top-1 by dataset. [exp40]
+
+Dataset Std. Adapt. Cos. PF Adapt. Cos. Mag.-Byp. europarl (languages) 0.644 0.986 0.992 0.978 
+
+github-code (programming) 0.515 0.700 0.813 0.784 
+
+bias in bios set 1 0.669 0.798 0.862 0.786 
+
+bias in bios set 2 0.559 0.762 0.758 0.766 
+
+bias in bios set 3 0.612 0.778 0.766 0.763 
+
+amazon reviews categories 0.712 0.713 0.715 0.675 
+
+amazon sentiment 0.915 0.924 0.880 0.795 
+
+ag news (topics) 0.705 0.736 0.735 0.720 0.6 0.7 0.8 0.9 
+
+Probe accuracy 
+
+top-1 
+
+top-2 
+
+top-5    
+
+> 0.678 0.815
+> 0.728 0.852
+> 0.789 0.883
+
+Aggregate sparse-probing accuracy    
+
+> Standard Per-feature cosine
+> Figure 16. Per-feature top-1 by dataset (Standard vs. Per-Feature Adaptive Cosine SAE) and aggregate top-k.[exp40]
+
+the residual stream at deeper layers, making inner-product scoring progressively worse as a feature detector. The cosine encoder’s advantage grows with depth because the “noise” it removes (magnitude) becomes a larger fraction of the total signal at deeper layers. This explains why the headline result (L18, 500 M) is a moderate case; deeper layers show an even larger divergence between cosine and inner-product dictionaries, but at the cost of requiring more careful parameterization (base+delta rather than free per-feature). 
+
+E.2. Cross-Budget Sparse Probing 
+
+Comparing our 50M-token cosine SAEs against the independently trained reference SAE (Karvonen et al., 2025) at 500M tokens (same model, same BatchTopK recipe, different codebase): The reference SAE matches our own standard baseline within noise at L18 (both ≈ 0.679 at 500M), confirming it is representative. The cross-budget gap is largest at L9, where the cosine encoder’s direction-only scoring is most beneficial relative to the shallow-layer norm distribution. 
+
+E.3. Cross-Model Summary 
+
+On Gemma-2-2B at 50M, dsae = 9 ,216 : fixed-SAE top-1 sparse-probing difference +3 .4 ± 0.3% . [exp57c] On Pythia-2.8B, Pythia-6.9B, Falcon-7B, the cosine top-1 advantage at deep layers does not hold; cos > inner drops from ∼ 100% at shallow to 40% at deep (Pythia-2.8B L24 sharpest). [exp25] 
+
+Scaling with model size and expansion ratio. A 3 × 3 matrix (Qwen3-1.7B/4B/8B × 4×/8 ×/16 × expansion, 50M tokens, same recipe) isolates the two potential drivers (Figure 19). Model size is the primary factor: the row mean jumps from 22 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders 
+
+Table 9. Reference runs at 500M Qwen3-8B. Aux: with the auxiliary loss; No-aux: without. [exp40] [exp42c] 
+
+Run Layers dsae Recipe Cosine vs. Standard A L9, L18, L27 16k No-aux init-contaminated at L18/L27 B L18 65k Aux Standard reference, 0% dead C L9, L18, L27 16k No-aux, √d init +6 .3% FVE, 2.39 × alive at L27 D L18 65k Aux FVE parity 50 100 200 500       
+
+> training tokens (M)
+> 0.64
+> 0.66
+> 0.68
+> 0.70
+> 0.72
+> 0.74
+> 0.76
+> FVE
+> cosine 50M = 0.716
+> > standard 500M = 0.711
+> Layer 9
+> 50 100 200 500
+> training tokens (M)
+> 0.60
+> 0.62
+> 0.64
+> 0.66
+> 0.68
+> Layer 18
+> 50 100 200 500
+> training tokens (M)
+> 0.62
+> 0.64
+> 0.66
+> 0.68
+> 0.70
+> 0.72
+> 0.74
+> Layer 27
+> Standard
+> Adaptive Cosine
+> FVE vs. token budget (Qwen3-8B, our recipe)
+
+Figure 17. FVE vs. token budget on Qwen3-8B (500M, our recipe). Adaptive Cosine SAE at the 50M checkpoint reaches Standard’s 500M FVE at L9. [exp42c] 
+
++6 .1% at dmodel = 2048 to +11 .6% at dmodel = 2560 , then plateaus. Expansion ratio has no systematic effect (column means +9 .5/+8 .7/+10 .1%). This revises the earlier interpretation that dictionary size drives the gap; the Gemma-2-2B result ( +3 .4% at dmodel = 2304 , 4 × expansion) is explained by its small model dimension, not its small dictionary. [exp57] 
+
+E.4. FVE and Dead-Feature Trends Without Auxiliary Loss 
+
+By-layer view of the no-auxiliary-loss runs cited in §4.1 (Qwen3-8B, 50M tokens, dsae = 16 ,384 ). FVE (Fig. 20, left) places Adaptive Cosine SAE and Per-Feature Adaptive Cosine SAE above Standard at L9 and L27, with the gap narrowing at L18. Dead-feature rate (right) separates the cosine variants at L18: Per-Feature stays below Standard, while the single-global-a
+
+Adaptive variant matches Standard there and only recovers at L27. With the auxiliary loss restored, the dead-feature gap collapses to 1.9% at L18 (500M tokens). 
+
+## F. Feature Interpretability 
+
+Setup. 1000 features per architecture, balanced across activation-norm strata; Sonnet 4.5 as LLM judge scoring 1–5 on description-prediction accuracy; “interpretable” iff score ≥ 4. Single-judge protocol; no human spot check. 
+
+Per-feature rates. 80 .1% (Per-Feature Adaptive Cosine SAE) vs. 82 .1% (Standard); p = 0 .88 . [exp33] 
+
+Total interpretable. Without the auxiliary loss: ≈ 13 ,100 (Per-Feature Adaptive Cosine SAE) vs. ≈ 2,900 (Standard). With the auxiliary loss (Table 6): both ≥ 50 k alive. 
+
+Decoder direction overlap. > 0.7 cosine match: 31% of 1000 sampled features. Strict-identity overlap is 6–17% 
+
+(§4.1). [exp56b] 
+
+F.1. Reference Counts 
+
+Table 13. LLM-judged interpretability (1000 stratified features, Sonnet 4.5). [exp33] 
+
+Variant Per-feature ≥ 4 Alive Total ≥ 4
+
+Standard 100M 82 .1% 3,529 ≈ 2,900 
+
+Per-Feature Adaptive Cosine SAE 100M 80 .1% 16 ,332 ≈ 13 ,100 
+
+23 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders                                                                                                
+
+> Table 10. Without auxiliary loss, Gemma-2-2B, 50M tokens. [exp35]
+> Layer Variant FVE Dead % Alive Gini L7 Standard 0.759 54 .24,176 0.890
+> L7 Adapt. Cos. 0.798 0.19,098 0.662
+> L13 Standard 0.696 68 .82,802 0.906
+> L13 Adapt. Cos. 0.747 0.09,024 0.648
+> L19 Standard 0.788 60 .23,616 0.875
+> L19 Adapt. Cos. 0.855 0.09,161 0.651
+> Table 11. Cross-model behavior. cos >inner : per-feature win rate on the diagnostic of §C (50% null); “ a→b” on LayerNorm rows is shallow →deep. FVE ∆: cosine −standard, in absolute FVE units. Alive ×: alive-feature ratio of cosine over standard. [exp25] [exp35]
+> Model Norm cos >inner FVE ∆Alive ×
+> Qwen3-8B RMS 62–89% +0 .6to +8 .01.7–3.3 Gemma-2-2B RMS 52–90% +2 .5to +6 .71.4–3.2 Mistral-7B RMS 74–88% +0 .6to +3 .0varies Pythia-2.8B LN 100 →40 +0 .8to +5 .02.3(L24) Pythia-6.9B LN 83–90 →50–70 +1 .8to +3 .3varies Falcon-7B LN 90–100 →40–47 +5 .0(L24) 4.5(L8)
+
+F.2. LLM Interpretability at 500M Tokens 
+
+At 500 M tokens with the production recipe (matched alive counts via aux-k), LLM-judged describe-then-predict rates show no cosine advantage (Table 14). Standard achieves the highest per-feature rate ( 25 .0%), with per-feature cosine close (24 .0%) and global cosine lower ( 19 .0%). The frequency breakdown reveals a crossover: per-feature cosine wins on low-frequency features ( 38 .0% vs. 25 .5%) but loses on high-frequency ones ( 14 .0% vs. 24 .0%). This is consistent with sparse probing’s finding that cosine discovers rare-concept features; the LLM judge finds these features harder to describe (fewer activating examples to form a pattern from) but they align better with labeled concepts. The describe-then-predict protocol favors features that fire frequently enough for the judge to identify a simple pattern, biasing toward high-frequency features where standard excels. Sparse probing, which uses ground-truth labels, is not subject to this frequency bias. 
+
+## G. Mechanism: Gradient Equalization and Q4 Reconstruction 
+
+This section uses the three cosine variants from §3: global a (single learned exponent), per-feature (ai = abase + δi), and 
+
+magnitude-bypass (pinned a=0 with norm restoration; Appendix B). 
+
+Encoder-gradient asymmetry. For an active feature under a fixed BatchTopK/ReLU mask, the inner-product score gradient is ∂s i/∂w i = xc, so the encoder update inherits a factor of ∥xc∥. Cosine scoring replaces this with a normalized direction times a scalar ∥xc∥a; the trained a ≪ 1 (Table 4). 
+
+Equalization signature. Cosine scoring compresses the gradient ratio toward unity. The median per-feature Q4/Q1 ratio drops from 1.55 × (Standard) to 1.03 × (per-feature cosine). Only 13 .5% of cosine features exceed Q4/Q1 > 2, versus 
+
+35 .3% under standard scoring. Q1-specialized features increase from 18 to 562 (Fig. 22). [exp28] 
+
+Recipe and dictionary-size context. On Gemma-2-2B ( dsae = 9 ,216 , 4 × expansion, 50M tokens), the saprmarks recipe’s auxiliary loss eliminates dead features for both architectures, narrowing the cosine advantage to +3 .4%. The scaling matrix (§E.3) shows that model dimension, not expansion ratio, drives the gap; the headline +14 .9% emerges at Qwen3-8B’s 
+
+dmodel = 4096 . [exp57c] [exp57] 
+
+Discovery vs. separability. How much of the probing gap comes from features the cosine encoder discovers versus cleaner encoding of shared features? We restrict both 500M dictionaries to 8,661 mutually matched features (activation correlation 
+
+≥ 0.7 and decoder cosine > 0.7). On matched features alone, top-1 difference shrinks from +14 .87% to +1 .95% ; top-5 from +10 .56% to +2 .70% . The standard SAE’s unmatched features contribute nothing beyond its matched set (full −
+
+matched at top-5: 0.7831 − 0.7837 ). The cosine SAE’s unmatched features add +7 .8% (0.8888 − 0.8108 ). [exp58b] 
+
+24 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders L9                  
+
+> ( x 58)
+> L18
+> ( x 98)
+> L27
+> ( x 405)
+> 0.68
+> 0.70
+> 0.72
+> 0.74
+> 0.76
+> 0.78
+> 0.80
+> FVE
+> (A) Reconstruction
+> Standard
+> Global a
+> Per-feature ai
+> (no anchor)
+> Magnitude-
+> bypass
+> L9
+> ( x 58)
+> L18
+> ( x 98)
+> L27
+> ( x 405)
+> 0
+> 10 0
+> 10 1
+> 10 2
+> Dead features (%)
+> (B) Dead features
+> L9
+> ( x 58)
+> L18
+> ( x 98)
+> L27
+> ( x 405)
+> 30
+> 40
+> 50
+> 60
+> 70
+> 80
+> Cos > inner (%)
+> (C) Causal diagnostic
+> L9
+> ( x 58)
+> L18
+> ( x 98)
+> L27
+> ( x 405)
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+> Learned  a
+> (D) Norm dependence
+> Global a
+> Per-feature ai(mean)
+> inner product ( a=1)
+
+Figure 18. Architecture behavior across depth. Qwen3-8B, 50 M tokens, all four main variants. (A) FVE converges at L9 and diverges at L27. (B) Per-feature (no anchor) collapses catastrophically at L27; magnitude-bypass shows mild dead features at L18. (C) Cos >inner crosses 50 % between L9 and L18, reaching 78 % for magnitude-bypass at L27. (D) The optimizer drives a toward zero at shallow layers and toward ∼ 0.26 at deep layers, never approaching a = 1 . [exp43c/43d/43] 
+
+Table 12. Sparse-probing top-1 across token budgets. The cosine SAE at 10 × fewer tokens surpasses the standard reference at L9 and L27. [exp51] 
+
+Layer Cosine 50M Standard 500M ∆
+
+L9 0.786 0.613 +17 .3%L27 0.849 0.762 +8 .7%
+
+Unmatched features by norm quartile. Where do each model’s unique features fire? Among strict-unmatched features at L18, 86 .3% of Standard activations fall in Q4 vs. 56 .9% for per-feature cosine. The mean norm of Standard-unique activations is 9,689 (48 × the sampled token mean). On tokens where per-feature cosine-unique features fire, Standard fires 
+
+328 features/token vs. 122 for per-feature cosine. [exp58c] 
+
+Decoder geometry control. For ten cached TPP probe directions, wprobe W ⊤ 
+
+> dec
+
+has matched concentration: entropy ratio 
+
+1.00001 , effective-dimension ratio 1.00007 . [exp58a] 
+
+Feature steering behavioral equivalence. To verify that the sparse-probing gap reflects feature discovery , not per-feature 
+
+power , we directly steer individual features at amplification factors 0.5×, 2×, and 5× and measure downstream KL-divergence. Across 11 top-activating standard features and 9 cosine features ( 50 prompts each), mean KL ratios are 
+
+1.04 × (0.5×), 1.00 × (2×), and 1.00 × (5×)—cosine and standard features produce indistinguishable behavioral effects at matched amplification. This confirms that the +14 .9% probing gap is not explained by standard features being individually “stronger”; rather, cosine discovers more concept-aligned directions. [exp55d] 
+
+Q4 reconstruction. Q1–Q3 FVE is matched; Q4 splits: Standard −183 .5, global cosine 0.33 , per-feature cosine 0.25 ,magnitude-bypass −0.20 . Reconstruction-norm ratio (output-norm / input-norm) on Q4: Standard 9.5×; cosine variants 
+
+≈ 1×. [exp55c] 
+
+Controls. Can cosine scoring be applied post-hoc to a trained Standard SAE? No: FVE drops −18 to −33% , L0 jumps from 80 to 500, and < 11% of features overlap with from-scratch cosine (§G.2). [exp29] [exp17] Input normalization without unit-norm encoder rows kills 33% of alive features. [exp45] Global cosine has higher FVE than Standard at every learning rate tested. [exp30] 
+
+Dictionary size control. Giving the standard encoder 3× more dictionary slots at matched L0 makes dead rates worse , not better: 89 .4% dead (49k, k=80 ) vs. 77 .4% (16k, k=80 ), while a 16k global cosine achieves 28 .2% dead (Figure 24). The gradient concentration is a property of the scoring function, not dictionary capacity. With 3× dictionary and 3× L0 ( k=240 ,
+
+3× parameters, 3× compute), the standard SAE can slightly exceed the cosine SAE’s FVE ( 0.751 vs. 0.737 ), confirming that cosine is ∼ 3× more parameter-efficient. [exp26] 
+
+Cos > inner across architectures. Which variant actually shows a cos >inner metric difference? At L18 (community recipe), only magnitude-bypass reaches 69% . global cosine ( a = 0 .258 ), per-feature cosine (mean ai = 0 .076 ), and Standard all cluster at 62 –63% . Only the architecture that removes magnitude entirely from z separates on this metric. [exp44] 
+
+Architectures and the cos-vs-inner difference. All cosine variants improve sparse probing: magnitude-bypass +11 .6% 
+
+top-1, global cosine +13 .3% , per-feature cosine +14 .9% . Only magnitude-bypass shows the cos-vs-inner metric difference. 25 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders 4× 8× 16× 
+
+# Qwen3-1.7B ( d = 2048) 
+
+# Qwen3-4B ( d = 2560) 
+
+# Qwen3-8B ( d = 4096) 
+
+# +4.9 +6.5 +6.8 
+
+# +12.9 +12.3 +9.5 
+
+# +10.7 +7.3 +14.0 
+
+# +6.1 
+
+# +11.6 
+
+# +10.7 
+
+## mean 
+
+# +9.5 +8.7 +10.1 mean 
+
+Figure 19. Model size, not expansion ratio, drives the cosine advantage. Sparse-probing top-1 gap (cosine − standard, in percentage points) across the Qwen3 family. Row means (right) show a 2× jump from 1.7B to ≥4B; column means (bottom) are flat. All cells use saprmarks recipe, 50M tokens, k = 80 . [exp57] L9 L18 L27   
+
+> 0.55
+> 0.60
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> FVE
+> 0.679
+> 0.733
+> FVE by layer (50M tokens)
+> Standard
+> Adaptive Cosine
+> Per-Feature Adaptive Cosine L9 L18 L27
+> 0
+> 25
+> 50
+> 75
+> 100
+> dead features (%)
+> 61.0%
+> 28.1%
+> 2.8x fewer
+
+Dead features by layer   
+
+> Standard Adaptive Cosine Per-Feature
+> Adaptive Cosine
+
+Figure 20. Without auxiliary loss, FVE and dead-feature rate by layer (Qwen3-8B, 50M tokens). At 500M tokens the L18 dead-feature gap (Per-Feature Adaptive Cosine SAE vs. Standard) is 1.9% . [exp17] [exp42c] 
+
+The RMS-geometric-alignment mechanism is depth-dependent; the gradient-equalization signature appears for all cosine variants. At L9, cos > inner falls below 50%, yet both cosine variants still improve sparse probing. [exp40/42c/44] 
+
+G.1. Norm-Stratified FVE 
+
+Per-quartile values are reported once in Table 15 above. Reconstruction-norm ratio on Q4 tokens: Standard 9.5×; cosine variants ≈ 1.0×. The reference SAE of Karvonen et al. (2025) reproduces the pattern with Q4 FVE = −136 . [exp55c] 
+
+G.2. Post-Hoc Normalization 
+
+Cosine scoring applied at inference time to a trained Standard SAE: FVE −18 to −33% , L0 from 80 to 500 , Jaccard with from-scratch global cosine 10 .6% . [exp29] 
+
+26 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders Low Freq Medium Freq High Freq  
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> 70
+> Interpretability Rate (%)  58%
+> 40%
+> 22%
+> 48%
+> 40%
+> 20%
+> Interpretability by Frequency Band
+> Standard
+> Adaptive Cosine
+> Standard Adaptive Cosine
+> 0
+> 2000
+> 4000
+> 6000
+> 8000
+> 10000
+> Number of Features
+> 1,323
+> 3,267 (3,308 alive)
+> (8,830 alive)
+> 2.5x more
+> interpretable
+> Total Interpretable Features
+> Alive features
+> Interpretable features
+> Feature Interpretability: Standard vs. Adaptive Cosine (Layer 27)
+
+Figure 21. Per-feature interpretability rates; total interpretable feature counts differ by ≈ 4.5× when the alive-feature gap is open (no auxiliary loss). [exp33] 
+
+Table 14. LLM-judged interpretability at 500 M tokens, 200 stratified features per architecture, Sonnet 4.5 judge. Interpretable iff ≥ 50 %prediction accuracy. [exp53] 
+
+Variant Rate Low-freq High-freq Standard 25 .0% 25 .5% 24 .0% 
+
+Global a 19 .0% 21 .6% 16 .0% 
+
+Per-feature 24 .0% 38 .0% 14 .0% 
+
+G.3. Per-Feature Gradient Ratio 
+
+For each alive feature i: average ∥∇ wi L∥ over tokens in each ∥xc∥ quartile, take Q4-to-Q1 ratio, report median across alive features (Fig. 25). At Qwen L9/L18/L27 with 10M tokens: median Q4/Q1 is 1.6–2.0× (Standard) vs. 0.8–1.0× (global cosine); Q1-specialized features grow ∼ 4× under cosine. [exp54] 
+
+Reweighting test. If gradient asymmetry were the primary cause, equalizing it should close the gap. Reweighting the Standard reconstruction loss equalizes per-quartile gradient contributions by construction, without modifying the score. We test mild reweighting ( 1/∥xc∥) and strong reweighting ( 1/∥xc∥2), spanning partial to near-complete cancellation of the encoder-gradient norm factor. At 50M tokens with FVE ≥ 0.97 , per-feature cosine reaches top-1 0.648 . Standard moves from 0.530 (no reweighting) to 0.532 (mild) and 0.536 (strong). Across k ∈ { 1, 2, 5}, reweighting closes only 1.9–6.8% of the cosine difference. The forward pass still inflates every pre-activation on Q4 tokens, BatchTopK still selects the same features, and the same norm-conditioned firing pattern reappears. [exp59] 
+
+## H. Limitations and Scope 
+
+Scope. All results are on the residual stream; no MLP-internal, attention-internal, head-output, or pre-norm activations. Causal diagnostics use greedy decoding and deterministic activation collection. Multi-layer / 50M+ runs cover Qwen3-8B fully; Gemma-2-2B partially; Mistral-7B after the init fix; Pythia and Falcon at 5M. No model is > 8B; no QK-norm or per-head-norm models. Training data: FineWeb (English-dominant). SAEBench is English-only (europarl is English-vs-other classification, not multilingual concept probing). No claim about multilingual residual streams, vision, audio, multimodal, or instruction-tuned / RLHF models. 
+
+Where the metric difference weakens. At Qwen L9, cos > inner is below 50% . Deep LayerNorm: cos > inner drops from 
+
+100% to 40% on Pythia-2.8B between L8 and L24 (inner-to-KL correlation 0.441 vs. cos-to-KL 0.271 ); Gemma-2-2B L20 (RMSNorm) is at ≈ 53% . Within-norm-quartile rates on Qwen are 40 –70% (Simpson’s paradox; the 70–90% rate is partly between-quartile). The architectural FVE / alive-feature differences persist across these settings. [exp25] 
+
+Architecture-specific failure modes. Without auxiliary loss: Adaptive Cosine SAE retains 3.3× alive-feature ratio over Standard. With auxiliary loss: both architectures reach ∼ 0% dead. Per-Feature Adaptive Cosine SAE: 83% dead at 50M / L27 ( 65 k independent scale parameters do not converge under low budget at high norms). Magnitude-Bypass SAE: 4.3% 
+
+persistent dead at 500M (auxiliary-loss gradients ∼ 6 orders weaker through bounded [0 , 1] activations; §B.2.3). At 5M the 27 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders >2x >10x   
+
+> Q4/Q1 gradient ratio
+> 0
+> 10
+> 20
+> 30
+> 40
+> features (%)
+> 35.3
+> 18.1
+> 13.5
+> 8.3
+> High-norm gradient bias
+> Standard
+> Cosine
+> 10 100 1k
+> alive features (log)
+> Standard
+> Cosine
+> 18
+> 562
+> 31x more
+> Q1-specialized features
+> Gradient equalization signature (Layer 27)
+
+Figure 22. Encoder-gradient ratio Q4 (high-norm) / Q1 (low-norm). Standard: 35 .3% of features have Q4/Q1 > 2. Per-feature cosine: 
+
+13 .5% . [exp28] Q1 Q2 Q3 Q4             
+
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> FVE  +0.33
+> +0.25
+> Standard Q4 FVE = 184
+> (ref. SAE Q4 = 136 )
+> Per-quartile FVE
+> Q1 Q2 Q3 Q4
+> Token-norm quartile (xclow high)
+> 0
+> 1
+> 2
+> 3
+> 4
+> x / x
+> 1.00
+> 9.5 ×
+> Standard Global aPer-feature
+
+Figure 23. Per-quartile FVE (top) and reconstruction-norm ratio ∥ˆx∥/∥x∥ (bottom). [exp55c] 
+
+auxiliary loss is inert for Magnitude-Bypass SAE (§4.3). Adaptive Cosine SAE is the architecture without these failure modes in our coverage. 
+
+Initialization. Mistral has ∥x∥ ≈ 6 vs. Qwen ≈ 400 . √d init on Mistral: > 95% dead. Norm-adaptive init helps at 5M but reduces FVE at 50M+ on Qwen. Default: √d when ∥x∥ is within 2× of √d, else log(mean ∥x∥) (§B.2.4). [exp42] 
+
+Evaluation scope. The 500M Qwen L18 sparse-probing run is single-seed. Cross-layer and cross-model SAEBench replications are pending (§H.1). No feature steering, circuit-level interventions, or downstream task accuracy. Sentiment is the only top-1 reversal in Table 8 (Standard 0.915 vs. Per-Feature Adaptive Cosine SAE 0.880 ). 
+
+Decoder under norm shift. Under norm-noise training (Uniform (0 .5, 2.0) ), cosine FVE drops 4.5–5.8% vs. 1.8–3.4% 
+
+for Standard. [exp31] The encoder is norm-invariant; the decoder reconstructs x and depends on norm. Where train and eval norms diverge, the headline difference may erode. adaptive l2 achieves FVE 0.738 ; postnorm-loss achieves SAE → KL 
+
+0.380 ; postnorm forces a → − 0.4. [exp22] [exp14] 
+
+Architectures discover different features. Strict-identity overlap of alive features between Standard and Per-Feature Adaptive Cosine SAE at L18: < 1% at n = 3 –6 paired, consistent with the non-canonical nature of SAE dictionaries (Leask et al., 2025). Headline aggregate comparisons are across disjoint feature sets. Inner-product ablation (x · f )f scales with 
+
+∥x∥, biasing the comparison toward Standard; under norm-invariant ablation, the Standard SAE → KL difference shrinks by 
+
+70% at L27. [exp56b] 
+
+H.1. Open Gaps Coverage gaps. Whether Standard’s dead features overlap the cosine-only sparse-probing features is not known. LLM-judged interpretability ran at L27 only; L9 / L18 untested. No 8B+ LayerNorm model at 50M+ tokens. Cross-architecture coverage stops at 5M for some models. 28 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders                       
+
+> Table 15. FVE by activation-norm quartile (Q1 lowest, Q4 highest). [exp55c]
+> Std. Global aPer-feat. Mag.-byp. Q1 0.738 0.732 0.733 0.738
+> Q2 0.763 0.760 0.762 0.762
+> Q3 0.778 0.777 0.778 0.775
+> Q4 −183 .50.329 0.252 −0.200
+
+Std 16k 
+
+(k=80) 
+
+Cosine 16k 
+
+(k=80) 
+
+Std 49k 
+
+(k=80) 
+
+Std 49k 
+
+(k=240) 
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+> Dead features (%)
+
+77.4% 
+
+28.2% 
+
+89.4% 
+
+31.2% 
+
+> 3× slots
+> MORE dead
+
+A. Dead features 
+
+Std 16k 
+
+(k=80) 
+
+Cosine 16k 
+
+(k=80) 
+
+Std 49k 
+
+(k=80) 
+
+Std 49k 
+
+(k=240) 
+
+0.55 
+
+0.60 
+
+0.65 
+
+0.70 
+
+0.75 
+
+0.80 
+
+> FVE
+
+0.658 
+
+0.737 
+
+0.673 
+
+0.751 
+
+> 3× params + 3× compute to match
+
+B. Reconstruction (FVE) 
+
+Larger dictionary does not fix dead features (Qwen3-8B L27, 50M tokens)                
+
+> Figure 24. Larger dictionary does not fix dead features. Qwen3-8B L27, 50M tokens. (A) Tripling dictionary slots at the same L0 increases the dead rate from 77 .4% to 89 .4%; the cosine SAE at 1/3the dictionary achieves 28 .2%. (B) Matching cosine’s FVE requires
+> 3×parameters and 3×L0. The dead-feature problem is a scoring-function pathology, not a capacity limitation. [exp26]
+
+Production-scale variance. Gradient-equalization measurements are at 5M; 500M re-measurement is pending. 
+
+Architecture-design open questions. Per-Feature Adaptive Cosine SAE vs. Magnitude-Bypass SAE as the preferred magnitude-stripping architecture is unsettled. The base +δ parameterization as a fix for Per-Feature Adaptive Cosine SAE’s 50M dead-feature regime has not been validated at scale. No mechanistic account exists for why Per-Feature Adaptive Cosine SAE leads at top-1 while Adaptive Cosine SAE leads at top-5. 
+
+Beyond sparse probing. OOD shift and stochastic decoding (high temperature, nucleus) are not tested. 
+
+## I. Extended Discussion 
+
+Triangulation across architectures. Magnitude-Bypass SAE ( +11 .6% top-1), Adaptive Cosine SAE ( +13 .3% ), and Per-Feature Adaptive Cosine SAE ( +14 .9% ) all gain at matched FVE (§4.1). [exp40/42c/44] Fitted a = 0 .258 at the headline setting; ai ∈ [−0.5, 0.5] across 65 ,536 features (Table 4). [exp42c] 
+
+Mechanism dissociation. The cos-vs-inner score advantage requires fully removing magnitude (Magnitude-Bypass SAE only); the gradient-equalization signature appears for all cosine variants (§4.3). Cos > inner is below 50% at L9, yet both cosine probes still improve sparse probing at L9. 
+
+Open questions. Can magnitude be retained where informative (e.g. sentiment) without dominating feature detection? Do the dead features of the standard SAE correspond to the cosine features that drive sparse probing? Decoder-cosine overlap between cosine and standard dictionaries is 6–17% at the > 0.95 threshold (§4.1, consistent with Leask et al. (2025)); a stitching or meta-SAE analysis across cosine seeds is needed to distinguish stable-target densification from dictionary resampling. [exp56b] 
+
+29 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders 0.5 1.0 1.5 2.0 
+
+# median Q4/Q1 grad ratio 
+
+# balanced 
+
+# L9 
+
+# L18 
+
+# L27 
+
+# Standard Cosine 
+
+# A. Gradient symptom 
+
+# 1.98 0.90 
+
+# 1.64 0.78 
+
+# 1.63 1.00 
+
+# 0.50 0.55 0.60 0.65 
+
+# sparse-probing top-1 
+
+# Standard 
+
+# +grad-eq 
+
+# Cosine 
+
+# 0.530 
+
+# 0.532 
+
+# 0.648 
+
+# +11.8% gap 
+
+## closes only 1.9% 
+
+# B. Falsification 
+
+Figure 25. Gradient asymmetry exists, but does not explain the probing gap. (A) Median per-feature Q4/Q1 gradient ratio across Qwen layers (10M tokens). (B) Equalizing per-quartile gradients in the standard encoder by reweighting the reconstruction loss ( 1/∥xc∥;50M tokens) negligibly shifts top-1. Per-feature ratio definition and full reweighting sweep in text below. 
+
+## J. Training Recipe 
+
+Training uses the Marks-lab dictionary learning library (https://github.com/saprmarks/ dictionary_learning ) accessed via sae-bench (Karvonen et al., 2025). The recipe matches OpenAI’s TopK SAE training (Gao et al., 2024) except for the BatchTopK selection rule (Bussmann et al., 2024) and the encoder-score swap (§B). 
+
+Table 16. Headline training recipe (Qwen3-8B L18, 500M tokens). All four architectures (Standard, Adaptive Cosine SAE, Per-Feature Adaptive Cosine SAE, Magnitude-Bypass SAE) share these settings. [exp40] 
+
+Setting Value Model / site Qwen/Qwen3-8B-Base , residual, layer 18 Activation / dictionary dim dmodel = 4096 , dsae = 65 ,536 
+
+Tokens / steps 500 M tokens, 244 ,140 steps Batch / sparsity batch 2048 , BatchTopK k = 80 
+
+Optimizer / LR Adam, LR 5 · 10 −5, seed 42 
+
+LR schedule 1000-step warmup; constant until 80%, then linear decay Auxiliary loss weight 1/32 , kaux = 2048 , dead threshold 10 M tokens Decoder unit-norm decoder rows after each step; geometric-median bdec 
+
+Stability gradient clipping max norm 1.0; bf16 activations Eval cache 2M held-out tokens 
+
+Data. Training tokens come from the FineWeb sample-10BT subset ( HuggingFaceFW/fineweb ), tokenized with each model’s bundled tokenizer. SAEBench probing datasets are at the versions shipped with sae-bench .
+
+Reproducibility. Code and full experiment scripts are available at https://github.com/SilenNaihin/ cosine-scored-saes . SAE checkpoints will be released on acceptance. 30 Size Doesn’t Matter: Cosine-Scored Sparse Autoencoders 
+
+## K. Statistical Summary 
+
+Table 17. Effect sizes and significance. Claim Strength FVE difference +8 .0% at L27, 50M tokens, no auxiliary loss [exp34] 41 .7σ, n = 3 seeds Dead-feature difference 48 .7% [exp17] 37 .5σ
+
+Cos > inner above 50% at L27 [exp25] p < 2.4 × 10 −6
+
+Dictionary efficiency: 16k Adaptive Cosine SAE alive > 49k Standard alive [exp17] Cohen’s h = 1 .358 
+
+Gradient Q4 dominance: 35 .3% vs. 13 .5% [exp28] Cohen’s h = 0 .519 
+
+Per-feature interpretability difference [exp33] p = 0 .88 (n.s.) Sparse probing top-1 +14 .9% [exp40/42c/44] single seed at 500M 
+
+Sparse probing is single-seed at 500M; FVE, dead-feature, and diagnostic rows have n = 3 seed bounds at 50M. 31
