@@ -1,63 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-06-18
-- 运行时间：2026-06-18 05:18:08 北京时间
+- 最新运行日期：2026-06-19
+- 运行时间：2026-06-19 06:21:10 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今日从 AI 记忆痕迹与增强现实脑-机器人接口等15篇论文中精读2篇、速读3篇，聚焦认知与交互前沿。  
-最值得关注：AI记忆痕迹研究揭示模型内部记忆形成的具体机制，增强现实脑-机器人接口则用视觉反馈实现通用机械臂意念操控。  
-若对智能本质或神经工程好奇，不妨先读这两篇精读，再速览脑电词图分类模型，看词语与图像如何激发不同脑区。
-- 详情：[/202606/18/README](/202606/18/README)
+从单神经元语义“叙事”到轻量脑机接口架构，今日精读聚焦神经编码与交互新范式。  
+值得关注：视觉皮层单个神经元可表达复杂语义，而量化感知轻量网络SwitchBraidNet为混合脑机接口带来高效且可部署的方案。  
+建议读者跟进单细胞电生理自动分析工具及刺激属性对EEG解码的影响，探索更鲁棒的神经数据处理管线。
+- 详情：[/202606/19/README](/202606/19/README)
 
 ### 精读区论文标签
-1. [AI Engram: In Search of Memory Traces in Artificial Intelligence](/202606/18/2606.14997v1-ai-engram-in-search-of-memory-traces-in-artificial-intelligence)  
+1. [Can neurons speak? Semantic narration of vision at single-cell resolution](/202606/19/2606.18667v1-can-neurons-speak-semantic-narration-of-vision-at-single-cell-resolution)  
    标签：评分：9.0/10、query:sr
-   evidence：使用神经科学标准识别神经网络中记忆痕迹的几何框架
-2. [An Augmented Reality Brain-Robot Interface for Generalist Robot Arm Manipulation](/202606/18/2606.16413v1-an-augmented-reality-brain-robot-interface-for-generalist-robot-arm-manipulation)  
+   evidence：将尖峰活动解码为自然语言叙述
+2. [SwitchBraidNet: Quantisation-Aware Lightweight Architecture for Hybrid Brain-Computer Interface](/202606/19/2606.18816v1-switchbraidnet-quantisation-aware-lightweight-architecture-for-hybrid-brain-computer-interface)  
    标签：评分：9.0/10、query:sr
-   evidence：增强现实脑-机器人接口，通过EEG运动想象和眼动控制机器人
-3. [Learning aligned EEG representations with subject-specific encoders](/202606/18/2606.16462v1-learning-aligned-eeg-representations-with-subject-specific-encoders)  
+   evidence：轻量级脑机接口架构用于时序解码
+3. [Retrieval-Based Brain Decoding by Alignment, not Complexity](/202606/19/2606.19081v1-retrieval-based-brain-decoding-by-alignment-not-complexity)  
    标签：评分：9.0/10、query:sr
-   evidence：使用特定主题编码器进行运动想象的脑电解码
-4. [SUP-MCRL: Subject-aware Unified Pseudo-feature Coded Multimodal Contrastive Representation Learning for EEG Visual Decoding](/202606/18/2606.16615v1-sup-mcrl-subject-aware-unified-pseudo-feature-coded-multimodal-contrastive-representation-learning-for-eeg-visual-decoding)  
+   evidence：使用基础模型对齐的fMRI检索式脑解码
+4. [Simultaneous detection and estimation in olfactory sensing](/202606/19/biorxiv-10-1101-2025-11-01-686013-v2-simultaneous-detection-and-estimation-in-olfactory-sensing)  
    标签：评分：9.0/10、query:sr
-   evidence：通过对比表征学习进行EEG视觉解码
-5. [Dynamic geometry remapping of neural activity within frontal and subcortical areas during decision-making](/202606/18/biorxiv-10-64898-2026-06-11-731612-v1-dynamic-geometry-remapping-of-neural-activity-within-frontal-and-subcortical-areas-during-decision-making)  
+   evidence：用于同时检测和估计的嗅觉压缩感知模型
+5. [The frequency dependence of EEG-speech envelope tracking does not reflect the rates of speech units or pitch](/202606/19/biorxiv-10-64898-2026-06-14-732143-v1-the-frequency-dependence-of-eeg-speech-envelope-tracking-does-not-reflect-the-rates-of-speech-units-or-pitch)  
    标签：评分：9.0/10、query:sr
-   evidence：决策过程中的动态神经几何
+   evidence：EEG语音包络追踪解码神经对语音的反应
 
 ### 速读区论文标签
-1. [Controlled Dynamics Attractor Transformer](/202606/18/2606.15207v1-controlled-dynamics-attractor-transformer)  
+1. [APpar: automated action potential parameter analysis software for reproducible electrophysiological measurements in neurons](/202606/19/biorxiv-10-64898-2026-06-10-731446-v1-appar-automated-action-potential-parameter-analysis-software-for-reproducible-electrophysiological-measurements-in-neurons)  
    标签：评分：8.0/10、query:sr
-   evidence：具有CANN动力学的吸引子神经网络模型用于群体编码
-2. [Learning Hybrid Biophysical Neuron Models with Neural ODEs](/202606/18/2606.16693v1-learning-hybrid-biophysical-neuron-models-with-neural-odes)  
+   evidence：自动从神经记录中提取动作电位参数
+2. [Stimulus identity rather than emotion drives EEG classification on the FACED dataset](/202606/19/biorxiv-10-64898-2026-06-12-731889-v1-stimulus-identity-rather-than-emotion-drives-eeg-classification-on-the-faced-dataset)  
    标签：评分：8.0/10、query:sr
-   evidence：神经ODE混合生物物理模型用于可解释性
-3. [EEG-based classification models reveal differential neural processing of words and images](/202606/18/biorxiv-10-64898-2026-03-16-712233-v3-eeg-based-classification-models-reveal-differential-neural-processing-of-words-and-images)  
+   evidence：EEG解码刺激身份而非情绪
+3. [Single-cell, single-shot stimulation reveals heterogeneous network recruitment not explained by standard functional properties.](/202606/19/biorxiv-10-64898-2026-06-14-731818-v1-single-cell-single-shot-stimulation-reveals-heterogeneous-network-recruitment-not-explained-by-standard-functional-properties)  
    标签：评分：8.0/10、query:sr
-   evidence：EEG分类模型解码视觉类别信息
-4. [Functional Templates in fMRI: Building Accurate and Interpretable Group-Level Decoders](/202606/18/biorxiv-10-64898-2026-05-21-726781-v2-functional-templates-in-fmri-building-accurate-and-interpretable-group-level-decoders)  
+   evidence：单细胞刺激揭示异质性网络招募
+4. [Parallel basal ganglia and frontal cortical outputs differentially encode context-dependent evaluation and categorical commitment during choice](/202606/19/biorxiv-10-64898-2026-06-15-732482-v1-parallel-basal-ganglia-and-frontal-cortical-outputs-differentially-encode-context-dependent-evaluation-and-categorical-commitment-during-choice)  
    标签：评分：8.0/10、query:sr
-   evidence：fMRI解码与功能对齐构建组级解码器
-5. [BrainWorld: A Structural-Prior-Conditioned Generative Model for Whole-Brain 4D fMRI Dynamics](/202606/18/2606.17742v1-brainworld-a-structural-prior-conditioned-generative-model-for-whole-brain-4d-fmri-dynamics)  
+   evidence：在决策任务中随时间解码神经活动
+5. [DifFRACT: Diffusion Feature Reconstruction and Attribution for Circuit Tracing](/202606/19/2606.15796v1-diffract-diffusion-feature-reconstruction-and-attribution-for-circuit-tracing)  
    标签：评分：7.0/10、query:sr
-   evidence：全脑4D fMRI时间动态生成模型
-6. [An Optimization Framework for Automated Assessment of Biological Plausibility of Spiking Neurons](/202606/18/2606.17853v1-an-optimization-framework-for-automated-assessment-of-biological-plausibility-of-spiking-neurons)  
+   evidence：通过特征重建与归因实现扩散变压器的机制可解释性
+6. [Neural dynamical systems on ferroelectric compute-in-memory for real-time forecasting](/202606/19/2606.16896v1-neural-dynamical-systems-on-ferroelectric-compute-in-memory-for-real-time-forecasting)  
    标签：评分：7.0/10、query:sr
-   evidence：通过尖峰模式复制评估尖峰神经元模型的生物合理性
-7. [Gaining insight into the non-focality of beta oscillation suppression along the sensorimotor cortex using corticomuscular coherence](/202606/18/biorxiv-10-64898-2026-01-15-699672-v2-gaining-insight-into-the-non-focality-of-beta-oscillation-suppression-along-the-sensorimotor-cortex-using-corticomuscular-coherence)  
+   evidence：用于实时时间预测的神经形态硬件
+7. [OrthoReg: Orthogonal Regularization for Hybrid Symbolic-Neural Dynamical Systems](/202606/19/2606.19145v1-orthoreg-orthogonal-regularization-for-hybrid-symbolic-neural-dynamical-systems)  
    标签：评分：7.0/10、query:sr
-   evidence：利用皮质肌相干性分析感觉运动皮层的beta事件相关去同步化
-8. [Prediction of fMRI activity using vector autoregressive models: a comparison of sparse and low-rank approaches](/202606/18/biorxiv-10-64898-2026-06-11-731556-v1-prediction-of-fmri-activity-using-vector-autoregressive-models-a-comparison-of-sparse-and-low-rank-approaches)  
+   evidence：正交正则化用于可解释混合模型
+8. [Hierarchical substrates of prediction in visual cortical spiking](/202606/19/biorxiv-10-1101-2024-10-02-616378-v5-hierarchical-substrates-of-prediction-in-visual-cortical-spiking)  
    标签：评分：7.0/10、query:sr
-   evidence：使用向量自回归模型预测随时间变化的fMRI脑活动
-9. [Size Doesn't Matter: Cosine-Scored Sparse Autoencoders](/202606/18/2606.15054v1-size-doesnt-matter-cosine-scored-sparse-autoencoders)  
+   evidence：研究视觉皮层尖峰活动中的层级预测编码及时序动态
+9. [Task-Restricted Symmetries in Recurrent Weight Space](/202606/19/2606.18457v1-task-restricted-symmetries-in-recurrent-weight-space)  
    标签：评分：6.0/10、query:sr
-   evidence：改进的SAE评分提高特征可解释性
-10. [Asymptotic dynamics of inhibitory networks for the NNLIF Model in the large-delay limit](/202606/18/2606.17611v1-asymptotic-dynamics-of-inhibitory-networks-for-the-nnlif-model-in-the-large-delay-limit)  
+   evidence：RNN权重空间功能冗余分析用于可解释性
+10. [DIPHINE: Diffusion-based $Φ$-ID Neural Estimator](/202606/19/2606.18997v1-diphine-diffusion-based--id-neural-estimator)  
    标签：评分：6.0/10、query:sr
-   evidence：大延迟抑制神经网络的时间动力学
+   evidence：用于动力系统信息分解的神经估计器
 
