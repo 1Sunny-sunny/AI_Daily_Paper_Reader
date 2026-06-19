@@ -1,63 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-06-19
-- 运行时间：2026-06-19 06:21:10 北京时间
+- 最新运行日期：2026-06-20
+- 运行时间：2026-06-20 04:42:43 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-从单神经元语义“叙事”到轻量脑机接口架构，今日精读聚焦神经编码与交互新范式。  
-值得关注：视觉皮层单个神经元可表达复杂语义，而量化感知轻量网络SwitchBraidNet为混合脑机接口带来高效且可部署的方案。  
-建议读者跟进单细胞电生理自动分析工具及刺激属性对EEG解码的影响，探索更鲁棒的神经数据处理管线。
-- 详情：[/202606/19/README](/202606/19/README)
+今日聚焦脑细胞编码与跨脑区功能架构，精读了分裂细胞的系统特性及猕猴电影观看时的跨个体共享信息。  
+最值得关注的是分裂细胞在抽象空间中的准系统性编码机制，以及超对齐方法揭示的灵长类精细神经共享模式。  
+建议读者从分裂细胞如何构建内部地图入手，结合猕猴fMRI共享特征，追踪脑如何统一记忆与感知。
+- 详情：[/202606/20/README](/202606/20/README)
 
 ### 精读区论文标签
-1. [Can neurons speak? Semantic narration of vision at single-cell resolution](/202606/19/2606.18667v1-can-neurons-speak-semantic-narration-of-vision-at-single-cell-resolution)  
+1. [The quasi systematic nature of splitter cells](/202606/20/biorxiv-10-1101-2024-06-07-597927-v4-the-quasi-systematic-nature-of-splitter-cells)  
    标签：评分：9.0/10、query:sr
-   evidence：将尖峰活动解码为自然语言叙述
-2. [SwitchBraidNet: Quantisation-Aware Lightweight Architecture for Hybrid Brain-Computer Interface](/202606/19/2606.18816v1-switchbraidnet-quantisation-aware-lightweight-architecture-for-hybrid-brain-computer-interface)  
+   evidence：研究海马体分裂细胞和时间序列
+2. [Hyperalignment Reveals Shared Information in Macaques' Idiosyncratic Fine-Grained Movie fMRI Patterns](/202606/20/biorxiv-10-64898-2026-06-14-731832-v1-hyperalignment-reveals-shared-information-in-macaques-idiosyncratic-fine-grained-movie-fmri-patterns)  
    标签：评分：9.0/10、query:sr
-   evidence：轻量级脑机接口架构用于时序解码
-3. [Retrieval-Based Brain Decoding by Alignment, not Complexity](/202606/19/2606.19081v1-retrieval-based-brain-decoding-by-alignment-not-complexity)  
+   evidence：从猕猴功能磁共振解码电影时间点
+3. [Adaptive Neural Reorganization Enables Real-Time Finger-Level Robotic Control in BCI-Naïve Stroke Survivors](/202606/20/biorxiv-10-64898-2026-06-15-732267-v1-adaptive-neural-reorganization-enables-real-time-finger-level-robotic-control-in-bci-naive-stroke-survivors)  
    标签：评分：9.0/10、query:sr
-   evidence：使用基础模型对齐的fMRI检索式脑解码
-4. [Simultaneous detection and estimation in olfactory sensing](/202606/19/biorxiv-10-1101-2025-11-01-686013-v2-simultaneous-detection-and-estimation-in-olfactory-sensing)  
-   标签：评分：9.0/10、query:sr
-   evidence：用于同时检测和估计的嗅觉压缩感知模型
-5. [The frequency dependence of EEG-speech envelope tracking does not reflect the rates of speech units or pitch](/202606/19/biorxiv-10-64898-2026-06-14-732143-v1-the-frequency-dependence-of-eeg-speech-envelope-tracking-does-not-reflect-the-rates-of-speech-units-or-pitch)  
-   标签：评分：9.0/10、query:sr
-   evidence：EEG语音包络追踪解码神经对语音的反应
+   evidence：从中风幸存者运动想象中实时解码以控制机器人手指
+4. [Visual consequences of saccades explain early cortical response dynamics during natural vision](/202606/20/biorxiv-10-64898-2026-06-12-731798-v1-visual-consequences-of-saccades-explain-early-cortical-response-dynamics-during-natural-vision)  
+   标签：评分：8.0/10、query:sr
+   evidence：扫视期间的EEG时间响应动态
+5. [DeltaQ: Value-Guided Hebbian Learning in Spiking Neuronal Networks for Multi-Goal Navigation](/202606/20/biorxiv-10-64898-2026-06-12-731882-v1-deltaq-value-guided-hebbian-learning-in-spiking-neuronal-networks-for-multi-goal-navigation)  
+   标签：评分：8.0/10、query:sr
+   evidence：使用网格细胞的尖峰神经网络导航模型
 
 ### 速读区论文标签
-1. [APpar: automated action potential parameter analysis software for reproducible electrophysiological measurements in neurons](/202606/19/biorxiv-10-64898-2026-06-10-731446-v1-appar-automated-action-potential-parameter-analysis-software-for-reproducible-electrophysiological-measurements-in-neurons)  
+1. [A Tripartite Map of the Ventromedial Prefrontal Cortex](/202606/20/biorxiv-10-64898-2026-06-18-732791-v1-a-tripartite-map-of-the-ventromedial-prefrontal-cortex)  
    标签：评分：8.0/10、query:sr
-   evidence：自动从神经记录中提取动作电位参数
-2. [Stimulus identity rather than emotion drives EEG classification on the FACED dataset](/202606/19/biorxiv-10-64898-2026-06-12-731889-v1-stimulus-identity-rather-than-emotion-drives-eeg-classification-on-the-faced-dataset)  
+   evidence：使用人工神经网络编码模型映射腹内侧前额叶皮层功能组织
+2. [The parafascicular thalamus steers attention to facilitate learning](/202606/20/biorxiv-10-64898-2026-06-18-733204-v1-the-parafascicular-thalamus-steers-attention-to-facilitate-learning)  
    标签：评分：8.0/10、query:sr
-   evidence：EEG解码刺激身份而非情绪
-3. [Single-cell, single-shot stimulation reveals heterogeneous network recruitment not explained by standard functional properties.](/202606/19/biorxiv-10-64898-2026-06-14-731818-v1-single-cell-single-shot-stimulation-reveals-heterogeneous-network-recruitment-not-explained-by-standard-functional-properties)  
-   标签：评分：8.0/10、query:sr
-   evidence：单细胞刺激揭示异质性网络招募
-4. [Parallel basal ganglia and frontal cortical outputs differentially encode context-dependent evaluation and categorical commitment during choice](/202606/19/biorxiv-10-64898-2026-06-15-732482-v1-parallel-basal-ganglia-and-frontal-cortical-outputs-differentially-encode-context-dependent-evaluation-and-categorical-commitment-during-choice)  
-   标签：评分：8.0/10、query:sr
-   evidence：在决策任务中随时间解码神经活动
-5. [DifFRACT: Diffusion Feature Reconstruction and Attribution for Circuit Tracing](/202606/19/2606.15796v1-diffract-diffusion-feature-reconstruction-and-attribution-for-circuit-tracing)  
+   evidence：记录PF钙活动研究学习过程中奖励预测线索的神经编码
+3. [Separating wiring-specific from statistical control of dynamics in a complete connectome](/202606/20/2606.17745v1-separating-wiring-specific-from-statistical-control-of-dynamics-in-a-complete-connectome)  
    标签：评分：7.0/10、query:sr
-   evidence：通过特征重建与归因实现扩散变压器的机制可解释性
-6. [Neural dynamical systems on ferroelectric compute-in-memory for real-time forecasting](/202606/19/2606.16896v1-neural-dynamical-systems-on-ferroelectric-compute-in-memory-for-real-time-forecasting)  
+   evidence：将接线图作为神经活动的动力学算子
+4. [Adaptive Speech-to-Spike Encoding for Spiking Neural Networks](/202606/20/2606.19039v1-adaptive-speech-to-spike-encoding-for-spiking-neural-networks)  
    标签：评分：7.0/10、query:sr
-   evidence：用于实时时间预测的神经形态硬件
-7. [OrthoReg: Orthogonal Regularization for Hybrid Symbolic-Neural Dynamical Systems](/202606/19/2606.19145v1-orthoreg-orthogonal-regularization-for-hybrid-symbolic-neural-dynamical-systems)  
+   evidence：可学习的语音到尖峰编码器用于尖峰神经网络
+5. [Parallel processing of orthogonal manifolds enables zero-shot composition in recurrent networks](/202606/20/biorxiv-10-64898-2026-06-14-732142-v1-parallel-processing-of-orthogonal-manifolds-enables-zero-shot-composition-in-recurrent-networks)  
    标签：评分：7.0/10、query:sr
-   evidence：正交正则化用于可解释混合模型
-8. [Hierarchical substrates of prediction in visual cortical spiking](/202606/19/biorxiv-10-1101-2024-10-02-616378-v5-hierarchical-substrates-of-prediction-in-visual-cortical-spiking)  
+   evidence：循环网络动力学和正交流形用于神经群体编码
+6. [Distributed neuronal ensembles support episodic-like memory retrieval](/202606/20/biorxiv-10-64898-2026-06-15-727203-v1-distributed-neuronal-ensembles-support-episodic-like-memory-retrieval)  
    标签：评分：7.0/10、query:sr
-   evidence：研究视觉皮层尖峰活动中的层级预测编码及时序动态
-9. [Task-Restricted Symmetries in Recurrent Weight Space](/202606/19/2606.18457v1-task-restricted-symmetries-in-recurrent-weight-space)  
+   evidence：神经元集群与记忆提取涉及脉冲模式表示
+7. [Human striatal population state dynamics](/202606/20/biorxiv-10-64898-2026-06-17-733040-v2-human-striatal-population-state-dynamics)  
+   标签：评分：7.0/10、query:sr
+   evidence：从fMRI中识别群体水平的纹状体状态，揭示与行为相关的动态神经群体编码
+8. [Concept Modulation Models: A Unified Framework for Identifiability and Extrapolation](/202606/20/2606.18509v1-concept-modulation-models-a-unified-framework-for-identifiability-and-extrapolation)  
    标签：评分：6.0/10、query:sr
-   evidence：RNN权重空间功能冗余分析用于可解释性
-10. [DIPHINE: Diffusion-based $Φ$-ID Neural Estimator](/202606/19/2606.18997v1-diphine-diffusion-based--id-neural-estimator)  
+   evidence：条件潜变量模型中可识别性和外推的统一数学框架
+9. [ExSpike: A General Full-Event Neuromorphic Architecture for Exploiting Irregular Sparsity with Event Compression](/202606/20/2606.20414v1-exspike-a-general-full-event-neuromorphic-architecture-for-exploiting-irregular-sparsity-with-event-compression)  
    标签：评分：6.0/10、query:sr
-   evidence：用于动力系统信息分解的神经估计器
+   evidence：用于SNN的神经形态架构，实现高效事件驱动计算
+10. [Retinotopic coding organizes the interaction between internally and externally oriented brain networks](/202606/20/biorxiv-10-1101-2024-09-25-615084-v5-retinotopic-coding-organizes-the-interaction-between-internally-and-externally-oriented-brain-networks)  
+   标签：评分：6.0/10、query:sr
+   evidence：利用视网膜映射将感官空间与大脑活动联系起来
 
