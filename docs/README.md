@@ -1,63 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-06-20
-- 运行时间：2026-06-20 04:42:43 北京时间
+- 最新运行日期：2026-06-21
+- 运行时间：2026-06-21 05:28:43 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今日聚焦脑细胞编码与跨脑区功能架构，精读了分裂细胞的系统特性及猕猴电影观看时的跨个体共享信息。  
-最值得关注的是分裂细胞在抽象空间中的准系统性编码机制，以及超对齐方法揭示的灵长类精细神经共享模式。  
-建议读者从分裂细胞如何构建内部地图入手，结合猕猴fMRI共享特征，追踪脑如何统一记忆与感知。
-- 详情：[/202606/20/README](/202606/20/README)
+今日精读2篇顶刊，深入解析了衰老大脑丧失往复兴奋如何扰乱睡眠慢波，以及脑机接口在双重任务下稳健的抗注意力负荷能力。  
+速读亮点包括人类纹状体群体状态动态与单细胞基础模型的可解释特征发现。  
+推荐关注神经环路衰退与稳健脑机接口这两大前沿，后续可跟踪稀疏自编码器在生命科学大模型中的应用进展。
+- 详情：[/202606/21/README](/202606/21/README)
 
 ### 精读区论文标签
-1. [The quasi systematic nature of splitter cells](/202606/20/biorxiv-10-1101-2024-06-07-597927-v4-the-quasi-systematic-nature-of-splitter-cells)  
+1. [Loss of Recurrent Excitation Disrupts Sleep Slow Oscillations in the Aging Brain](/202606/21/biorxiv-10-64898-2026-03-16-712170-v2-loss-of-recurrent-excitation-disrupts-sleep-slow-oscillations-in-the-aging-brain)  
    标签：评分：9.0/10、query:sr
-   evidence：研究海马体分裂细胞和时间序列
-2. [Hyperalignment Reveals Shared Information in Macaques' Idiosyncratic Fine-Grained Movie fMRI Patterns](/202606/20/biorxiv-10-64898-2026-06-14-731832-v1-hyperalignment-reveals-shared-information-in-macaques-idiosyncratic-fine-grained-movie-fmri-patterns)  
+   evidence：多尺度丘脑皮层模型,研究慢振荡的尖峰神经元
+2. [Intracortical BCI Performance is Robust to Changes in Attentional Load During Dual-Tasking](/202606/21/biorxiv-10-64898-2026-06-16-732398-v1-intracortical-bci-performance-is-robust-to-changes-in-attentional-load-during-dual-tasking)  
    标签：评分：9.0/10、query:sr
-   evidence：从猕猴功能磁共振解码电影时间点
-3. [Adaptive Neural Reorganization Enables Real-Time Finger-Level Robotic Control in BCI-Naïve Stroke Survivors](/202606/20/biorxiv-10-64898-2026-06-15-732267-v1-adaptive-neural-reorganization-enables-real-time-finger-level-robotic-control-in-bci-naive-stroke-survivors)  
-   标签：评分：9.0/10、query:sr
-   evidence：从中风幸存者运动想象中实时解码以控制机器人手指
-4. [Visual consequences of saccades explain early cortical response dynamics during natural vision](/202606/20/biorxiv-10-64898-2026-06-12-731798-v1-visual-consequences-of-saccades-explain-early-cortical-response-dynamics-during-natural-vision)  
+   evidence：双任务下脑机接口性能
+3. [From Sparse Features to Trustworthy Proxies: Certifying SAE-Based Interpretability](/202606/21/2606.18383v1-from-sparse-features-to-trustworthy-proxies-certifying-sae-based-interpretability)  
    标签：评分：8.0/10、query:sr
-   evidence：扫视期间的EEG时间响应动态
-5. [DeltaQ: Value-Guided Hebbian Learning in Spiking Neuronal Networks for Multi-Goal Navigation](/202606/20/biorxiv-10-64898-2026-06-12-731882-v1-deltaq-value-guided-hebbian-learning-in-spiking-neuronal-networks-for-multi-goal-navigation)  
+   evidence：通过泛化框架验证基于SAE的可解释性
+4. [Proactive visual and motor prioritization differentially scale with cue reliability](/202606/21/biorxiv-10-64898-2026-01-28-702371-v2-proactive-visual-and-motor-prioritization-differentially-scale-with-cue-reliability)  
    标签：评分：8.0/10、query:sr
-   evidence：使用网格细胞的尖峰神经网络导航模型
+   evidence：研究视觉和运动优先级的神经动态随线索可靠性的变化
+5. [Distributional context reweights duration-related activity across timing-related regions](/202606/21/biorxiv-10-64898-2026-05-12-724553-v2-distributional-context-reweights-duration-related-activity-across-timing-related-regions)  
+   标签：评分：8.0/10、query:sr
+   evidence：fMRI研究解码不同情境下与持续时间相关的神经活动模式
 
 ### 速读区论文标签
-1. [A Tripartite Map of the Ventromedial Prefrontal Cortex](/202606/20/biorxiv-10-64898-2026-06-18-732791-v1-a-tripartite-map-of-the-ventromedial-prefrontal-cortex)  
+1. [Human striatal population state dynamics](/202606/21/biorxiv-10-64898-2026-06-17-733040-v1-human-striatal-population-state-dynamics)  
    标签：评分：8.0/10、query:sr
-   evidence：使用人工神经网络编码模型映射腹内侧前额叶皮层功能组织
-2. [The parafascicular thalamus steers attention to facilitate learning](/202606/20/biorxiv-10-64898-2026-06-18-733204-v1-the-parafascicular-thalamus-steers-attention-to-facilitate-learning)  
-   标签：评分：8.0/10、query:sr
-   evidence：记录PF钙活动研究学习过程中奖励预测线索的神经编码
-3. [Separating wiring-specific from statistical control of dynamics in a complete connectome](/202606/20/2606.17745v1-separating-wiring-specific-from-statistical-control-of-dynamics-in-a-complete-connectome)  
+   evidence：使用fMRI共激活模型识别人纹状体群体状态
+2. [Sparse Autoencoders Reveal Interpretable Features in Single-Cell Foundation Models](/202606/21/biorxiv-10-1101-2025-10-22-681631-v3-sparse-autoencoders-reveal-interpretable-features-in-single-cell-foundation-models)  
    标签：评分：7.0/10、query:sr
-   evidence：将接线图作为神经活动的动力学算子
-4. [Adaptive Speech-to-Spike Encoding for Spiking Neural Networks](/202606/20/2606.19039v1-adaptive-speech-to-spike-encoding-for-spiking-neural-networks)  
+   evidence：使用稀疏自编码器揭示单细胞基础模型中的可解释特征
+3. [Temporal structure of task engagement reorganizes infra-slow BOLD dynamics](/202606/21/biorxiv-10-64898-2026-05-27-727996-v2-temporal-structure-of-task-engagement-reorganizes-infra-slow-bold-dynamics)  
    标签：评分：7.0/10、query:sr
-   evidence：可学习的语音到尖峰编码器用于尖峰神经网络
-5. [Parallel processing of orthogonal manifolds enables zero-shot composition in recurrent networks](/202606/20/biorxiv-10-64898-2026-06-14-732142-v1-parallel-processing-of-orthogonal-manifolds-enables-zero-shot-composition-in-recurrent-networks)  
+   evidence：研究任务时间如何重组超慢BOLD动态
+4. [A Structural Principle for Macroscopic Neural Dynamics Correlations](/202606/21/biorxiv-10-64898-2026-06-14-729168-v1-a-structural-principle-for-macroscopic-neural-dynamics-correlations)  
    标签：评分：7.0/10、query:sr
-   evidence：循环网络动力学和正交流形用于神经群体编码
-6. [Distributed neuronal ensembles support episodic-like memory retrieval](/202606/20/biorxiv-10-64898-2026-06-15-727203-v1-distributed-neuronal-ensembles-support-episodic-like-memory-retrieval)  
+   evidence：输入连接度与神经动力学相关性的数学原理
+5. [Structural Connectivity Selectively Constrains Intrinsic BOLD Timescales through Graph-Smooth Neural Activity](/202606/21/biorxiv-10-64898-2026-06-14-732146-v1-structural-connectivity-selectively-constrains-intrinsic-bold-timescales-through-graph-smooth-neural-activity)  
    标签：评分：7.0/10、query:sr
-   evidence：神经元集群与记忆提取涉及脉冲模式表示
-7. [Human striatal population state dynamics](/202606/20/biorxiv-10-64898-2026-06-17-733040-v2-human-striatal-population-state-dynamics)  
+   evidence：通过图信号处理分析BOLD时间尺度与结构连接的关系
+6. [Structural Connectivity Selectively Constrains Intrinsic BOLD Timescales through Graph-Smooth Neural Activity](/202606/21/biorxiv-10-64898-2026-06-14-732146-v2-structural-connectivity-selectively-constrains-intrinsic-bold-timescales-through-graph-smooth-neural-activity)  
    标签：评分：7.0/10、query:sr
-   evidence：从fMRI中识别群体水平的纹状体状态，揭示与行为相关的动态神经群体编码
-8. [Concept Modulation Models: A Unified Framework for Identifiability and Extrapolation](/202606/20/2606.18509v1-concept-modulation-models-a-unified-framework-for-identifiability-and-extrapolation)  
+   evidence：图信号处理框架将结构连接与BOLD时间尺度联系起来
+7. [Directed Human Structural Connectome Reveals Hierarchical Organization and Shapes Large-Scale Brain Dynamics](/202606/21/biorxiv-10-64898-2026-06-16-732559-v1-directed-human-structural-connectome-reveals-hierarchical-organization-and-shapes-large-scale-brain-dynamics)  
+   标签：评分：7.0/10、query:sr
+   evidence：有向结构连接组数学框架联系结构与动力学
+8. [Critical Percolation as a Synthetic Data Model for Interpretability](/202606/21/2606.20347v1-critical-percolation-as-a-synthetic-data-model-for-interpretability)  
    标签：评分：6.0/10、query:sr
-   evidence：条件潜变量模型中可识别性和外推的统一数学框架
-9. [ExSpike: A General Full-Event Neuromorphic Architecture for Exploiting Irregular Sparsity with Event Compression](/202606/20/2606.20414v1-exspike-a-general-full-event-neuromorphic-architecture-for-exploiting-irregular-sparsity-with-event-compression)  
+   evidence：用于评估神经网络可解释性的合成数据模型
+9. [Population geometry reveals directed coupling and transient bistability in spontaneous pituitary secretion](/202606/21/biorxiv-10-64898-2026-04-05-716480-v3-population-geometry-reveals-directed-coupling-and-transient-bistability-in-spontaneous-pituitary-secretion)  
    标签：评分：6.0/10、query:sr
-   evidence：用于SNN的神经形态架构，实现高效事件驱动计算
-10. [Retinotopic coding organizes the interaction between internally and externally oriented brain networks](/202606/20/biorxiv-10-1101-2024-09-25-615084-v5-retinotopic-coding-organizes-the-interaction-between-internally-and-externally-oriented-brain-networks)  
+   evidence：种群轨迹时间动态的几何分析
+10. [Precision Functional Parcellation of the Human Cortex via Rest-Task fMRI Fusion](/202606/21/biorxiv-10-64898-2026-06-11-731643-v2-precision-functional-parcellation-of-the-human-cortex-via-rest-task-fmri-fusion)  
    标签：评分：6.0/10、query:sr
-   evidence：利用视网膜映射将感官空间与大脑活动联系起来
+   evidence：融合静息态和任务态fMRI的层级贝叶斯框架
 
