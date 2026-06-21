@@ -1,0 +1,903 @@
+Title: Explaining Attention with Program Synthesis
+
+URL Source: https://arxiv.org/pdf/2606.19317v1
+
+Published Time: Thu, 18 Jun 2026 01:18:39 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# Explaining Attention with Program Synthesis 
+
+Amiri Hayes *
+
+NJIT Belinda Z. Li Jacob Andreas MIT EECS 
+
+## 1 Introduction 
+
+Understanding the computations performed by deep networks in algorithmic terms is a long-standing problem in machine learning [ 14 , 36 , 24 ]. Past work approaching this problem has attempted to assign meaning to neurons or other distributed features in a top-down way (by training probes for human-defined concepts of interest [ 18 , 28 ]), or in a bottom-up way (by generating summaries of the inputs that activate a feature, or the outputs that the feature promotes [ 23 , 17 , 2]). While powerful, these methods stop short of providing a full, formal description of neural computation. Current work addresses this by labeling intermediate components of deep networks with natural language descriptions [ 4 , 8], whose interpretations may themselves be ambiguous or hard to formalize. In this paper, we develop an alternative approach to deep network interpretability based on program synthesis. To explain the computation performed by some component of a deep network, we search for a piece of executable code that approximates the computation performed by that component. Executable programs occupy a natural middle ground between the complexity of billion-parameter models and natural language explanations; they offer a medium that is both human-readable and formally verifiable [ 2]. Unlike natural language descriptions, programs can be directly substituted for neural components, enabling causal validation of inferred explanations and opening a path toward model editing grounded in symbolic computation rather than weight manipulation. We focus on generating programmatic explanations of attention heads in transformer language models (LMs) [ 29 ]. For each attention head in a model of interest, we extract a set of example attention maps on training examples, then prompt another LM to generate a set of candidate Python programs that can reproduce those attention maps given only input text (Figure 1). Finally, we re-rank this collection of programs for each head in a model to obtain a best-fit program for each attention head. Across BERT-Base, GPT-2-Small, TinyLlama-1.1B and Llama-3B language models, we find that a substantial fraction of attention heads can be approximated with executable programs to a high degree of accuracy. We test whether the programs we find recover their associated heads’ causal function by replacing heads with programs. We find that as many as 25% of heads can be replaced while incurring only a 16% increase in perplexity, and without a substantial effect on downstream question answering performance on several benchmarks. Our results show that, even in state-of-the-art language models, a substantial fraction of attention patterns can be understood in symbolic terms; so much so that we can actually replace trained neural components with symbolic surrogates via executable code without substantially changing model behavior. More generally, they highlight the utility of modern (LM-driven) program synthesis methods as an alternative framework for approaching the broader question of how deep networks operate.  
+
+> *Preprint. Correspondence to: akh5@njit.edu . Work performed at MIT CSAIL.
+
+1
+
+> arXiv:2606.19317v1 [cs.LG] 17 Jun 2026
+
+Hayes et al. Explaining Attention with Program Synthesis A B
+
+D
+
+Extract attention maps  Generate hypotheses 
+
+Update LMs 
+
+Target Language Model 
+
+CCDataset  high attention (0.15-0.90): 
+
+> 'made'[2] -> 'made'[2] (0.772)
+> 'her'[3] -> 'her'[3] (0.729)
+> 'it'[6] -> 'it'[1] (0.579)
+> '[CLS]'[0] -> '[CLS]'[0] (0.17)
+> '[SEP]'[11] -> '[CLS]'[0] (0.1)
+> (+ 8 more self-attention edges)
+> mid attention (0.027-0.152):
+> '[SEP]'[11] -> 'strong'[9] (0…
+> 'was'[7] -> '[CLS]'[0] (0.043)
+> 'was'[7] -> 'it'[6] (0.042)
+> '[SEP]'[11] -> 'it'[1] (0.039)
+
+“Sentence boundary and clause 
+
+structure attention head.” 
+
+> # Attention to sentence
+> beginnings
+> # Look for tokens that start sentences
+> for j in range(i + 1):
+> is_sent_start = False
+> # First token
+> if j == 0:
+> is_sent_start = True
+> # Token after period/newline
+> elif j > 0 and (tokens[j-1].strip()
+> in ['.', '!', ‘?']
+> or tokens[j-1] == ‘\n'):
+> is_sent_start = True
+> if is_sent_start and
+> tokens[j].strip() and not
+> tokens[j].strip() in ['.', '!', '?',
+> ',', '\n']:
+> attention[i, j] +=
+> 0.15
+
+And so, the daughter 
+
+played on the slide and 
+
+had a great time… 
+
+# Attention to sentence beginnings 
+
+# Look for tokens that start sentences 
+
+for j in range(i + 1): 
+
+is_sent_start = False 
+
+# First token 
+
+if j == 0: 
+
+is_sent_start = True 
+
+# Token after period/newline 
+
+elif j > 0 and (tokens[j-1].strip() 
+
+in ['.', '!', ‘?'] 
+
+or tokens[j-1] == ‘\n’): [...] Explainer LM 
+
+C Evaluate candidates 
+
+Real  Pred 
+
+Figure 1: Synthesizing programmatic representations of attention heads in transformer models. Clockwise from top left: 
+
+A) Given a target model for explanation, we extract its attention pattern on a collection of representative inputs. B) We summarize these attention patterns in a textual prompt, and instruct an explainer language model to synthesize one or more candidate Python programs that can reproduce attention patterns given only input text. C) Candidate programs are compared to original attention patterns, and the highest-scoring ones are selected. D) These programs can be directly inserted into models, replacing learned attention heads with symbolic programs. 
+
+## 2 Approach 
+
+2.1 Method Overview 
+
+We seek to approximate the internal logic of a transformer model M, which contains (among other modules) a set of attention heads Ai in each layer. For a given input sequence of tokens X, each head Ai within 
+
+M projects the last layer’s hidden representations H into queries ( Q) and keys ( K) to produce an attention matrix :
+
+A = softmax QK ⊤
+
+√dk
+
+!
+
+(1) where A ∈ Rn×n represents the directed weights between all token pairs in a sequence of length n. These attention weights then direct how much each token in a previous layer affect the token position of the current layer. Given M, we wish to find for each Ai some symbolic program π that can map directly from X 7 → A.Our framework, illustrated in Figure 1, proceeds in four steps: 
+
+Attention Map Extraction We first record the ground-truth attention activation matrices of M across a corpus of sequences processed by the target model M. This provides a set of empirical attention matrices 
+
+{A1, A2, . . . , An} that serve as the targets for our programmatic approximations. 
+
+Program Synthesis and Refinement We define a space of symbolic programs Π, where each π ∈ Π is an executable Python function that takes X as input and outputs a hypothesized attention matrix ˆA = π(X).2Hayes et al. Explaining Attention with Program Synthesis We utilize an interactive program synthesis agent S (another LM) to generate these programs based on the patterns observed in the extracted maps. During program synthesis and refinement, we rank and select candidate programs using Jensen-Shannon distance (JSD): JSD (A, ˆ A) = 12 KL (A ∥ A + ˆA
+
+2 ) + 12 KL ( ˆA ∥ A + ˆA
+
+2 ). (2) The top candidate undergoes one round of feedback-conditioned refinement. In the remainder of this section, we describe the main subtasks in the program synthesis step in more detail. 
+
+2.2 Generating Functional Proxies via Program Synthesis 
+
+To search in the space of symbolic programs Π, we utilize an auxiliary large language model as a synthesis agent, denoted S. Given a set of target attention matrices A and the corresponding input sequences X, S
+
+is prompted to produce an executable candidate Python function π such that each π(X) ≈ A. Candidate functions π are validated for syntax and executability, then scored against real attention using Jensen-Shannon distance (JSD). Non-well-formed functions π are assigned maximal divergence. We then refine 
+
+our prediction by iterating through a sample of inputs X to identify representative best and worst-scoring examples (with highest and lowest JSD), constructing structured error feedback by contrasting real and predicted attention patterns, and prompting S to produce a revised program π′. The refined program is re-validated and re-scored under the same similarity objective. The optimal proxy π∗ is then selected from 
+
+{π, π′} by maximizing similarity over held-out data sequences (X′, A′) ∈ D val .Concretely, our pipeline first extracts attention patterns, filtering for the top 2.5% of attention weights by magnitude to isolate the most salient token-pair interactions. These filtered patterns are formatted as token-pair weight summaries and embedded into structured prompts (approximately 4,000 tokens in length). The synthesis agent S is provided access to NumPy , spaCy and NLTK for numerical and linguistic processing.The full program library used across all four models and used for all results in this paper was produced from fewer than 4,000 candidates using Claude Sonnet 4 at approximately $150 in total API cost (roughly 35 million input tokens and 3.5 million output tokens). The final set of programs is composed of one program for each head in the four models, or 1,664 programs total. 
+
+2.3 Evaluation Details 
+
+Evaluation Metrics We evaluate our programs with two complementary metrics: a correlative metric that measures how closely synthetic programs reproduce attention patterns (attention alignment), and a causal metric that tests whether replacing real heads with our synthetic programs preserves model behavior (causal head replacement). 
+
+Attention alignment: To evaluate the fit of our programs, we use Intersection over Union (IoU) between our synthetic programs and the real attention patterns: IoU (A, ˆ A) = ∑i,j min (Ai,j, ˆ Ai,j)
+
+∑i,j max (Ai,j, ˆ Ai,j) (3) 
+
+Causal head replacement: 
+
+To validate that our symbolic programs are causally faithful, we also perform interchange interventions [ 16 ]. We replace the neural attention matrix A with the programmatic output π(X) during the model’s forward pass, and effect on downstream task performance. This tells us whether the program captures the attention-level features needed to maintain functional performance. Because interventions are costly, we use the IoU alignment metric above as a filter, attempting replacement only for heads with high-similarity symbolic programs. By measuring the resulting change in perplexity and task accuracy, we validate whether the proxy captures the necessary attention-level features to maintain the model’s functional performance. 3Hayes et al. Explaining Attention with Program Synthesis up 
+
+> with
+> her
+> dad
+> and
+> watched
+> the
+> rain
+> drops
+> fall
+> from
+> the
+> window  .
+> She
+> asked
+> her
+> mom
+> for  a
+> paper
+> and  a
+> pen  .
+> Can
+> we
+> stop
+> up
+> with
+> her
+> dad
+> and
+> watched
+> the
+> rain
+> drops
+> fall
+> from
+> the
+> window
+> .
+> She
+> asked
+> her
+> mom
+> for
+> a
+> paper
+> and
+> a
+> pen
+> .
+> Can
+> we
+> stop
+
+GPT-2: L0H5 Actual 
+
+> up
+> with
+> her
+> dad
+> and
+> watched
+> the
+> rain
+> drops
+> fall
+> from
+> the
+> window  .
+> She
+> asked
+> her
+> mom
+> for  a
+> paper
+> and  a
+> pen  .
+> Can
+> we
+> stop
+
+GPT-2: L0H5 Generated 
+
+base_weight = 0.0 
+
+target_spacy_indices = gpt2_to_spacy[j] \
+
+if j < len(gpt2_to_spacy) else [] 
+
+is_determiner = False 
+
+is_content_word = False 
+
+for spacy_idx in target_spacy_indices: 
+
+if spacy_idx < len(doc): 
+
+spacy_token = doc[spacy_idx] 
+
+if spacy_token.pos_ == "DET": 
+
+is_determiner = True 
+
+if spacy_token.pos_ in ["NOUN", 
+
+"VERB", "ADJ", "PROPN"]: 
+
+is_content_word = True 
+
+if is_determiner: 
+
+base_weight += 0.3 
+
+if is_content_word: 
+
+base_weight += 0.15 
+
+similarity = embedding_similarity( 
+
+tokens[i], tokens[j]) 
+
+if similarity > 0.7: 
+
+base_weight += 0.5 
+
+elif similarity > 0.4: 
+
+base_weight += 0.2 
+
+if j == 0: 
+
+base_weight += 0.1 
+
+Program 
+
+> [CLS]
+> together
+> ,
+> tim
+> and
+> his
+> friends
+> moved
+> the
+> wreck
+> .
+> [SEP]
+> [CLS]
+> together
+> ,
+> tim
+> and
+> his
+> friends
+> moved
+> the
+> wreck
+> .
+> [SEP]
+
+BERT: L10H1 Actual 
+
+> [CLS]
+> together
+> ,
+> tim
+> and
+> his
+> friends
+> moved
+> the
+> wreck
+> .
+> [SEP]
+
+BERT: L10H1 Generated 
+
+if i == j: 
+
+weight += 0.15 
+
+if is_punct: 
+
+if target_token == ",": 
+
+weight += 0.4 
+
+elif target_token in ".!": 
+
+weight += 0.5 
+
+else: 
+
+weight += 0.3 
+
+if tokens[i] == "[SEP]" and \
+
+j == n - 2: 
+
+weight += 0.4 
+
+if j < i: 
+
+distance = i - j
+
+if is_punct and \
+
+target_token == ",": 
+
+weight += 0.2 / (
+
+1 + 0.1 * distance) 
+
+else: 
+
+weight += 0.05 / (
+
+1 + 0.2 * distance) 
+
+Program 
+
+> Can  ' t
+> che  w ' .
+> Tim
+> my
+> replied  , "
+> Oh
+> no  ,
+> Sp ot  .
+> But
+> Tim
+> my
+> ' s
+> mom
+> war
+> ned
+> Can
+> '
+> t
+> che
+> w
+> '
+> .
+> Tim
+> my
+> replied
+> ,
+> "
+> Oh
+> no
+> ,
+> Sp
+> ot
+> .
+> But
+> Tim
+> my
+> '
+> s
+> mom
+> war
+> ned
+
+TinyLlama: L0H30 Actual 
+
+> Can  ' t
+> che  w ' .
+> Tim
+> my
+> replied  , "
+> Oh
+> no  ,
+> Sp ot  .
+> But
+> Tim
+> my
+> ' s
+> mom
+> war
+> ned
+
+TinyLlama: L0H30 Generated 
+
+target_token = tokens[j] 
+
+weight = 0.0 
+
+if target_token in [' 
+
+', '.', 
+
+',', '"', "'", '!', '?', 
+
+';', ':']: 
+
+if target_token == '
+
+': 
+
+weight += 0.15 
+
+elif target_token == '.': 
+
+weight += 0.12 
+
+elif target_token in [',', 
+
+'"', "'"]: 
+
+weight += 0.08 
+
+else: 
+
+weight += 0.05 
+
+if j == 0: 
+
+weight += 0.04 
+
+if i == j: 
+
+weight += 0.02 
+
+if i - j <= 3 and j > 0: 
+
+weight += 0.02 / (1 + (i - j)) 
+
+if target_token.strip() == '' or \
+
+target_token.isspace(): 
+
+weight += 0.06 
+
+Program 
+
+Figure 2: Three attention heads in GPT2, TinyLlama and BERT models, their synthesized replacements, and (excerpts from) the associated programs. L xHy means “layer x, head y”. Programs often reproduce general attention patterns but sometimes hallucinate structural features (e.g. the diagonal attention in BERT). 
+
+Datasets First, we generate programmatic attention patterns on TinyStories [ 12 ], which was selected for its relative simplicity: using simple, structured data simplifies the act of isolating specific head behaviors without the stochastic noise inherent in complex corpora [ 31 ]. No preprocessing or sequence truncation was performed. We also evaluate attention alignment between our generated programs and true attention on held-out subset of TinyStories [ 12 ] (§3.1). Finally, we evaluate causal head replacement using an evaluation suite comprising six benchmark datasets: HellaSwag [ 37 ], PIQA [ 3 ], SciQ [ 34 ], ARC-Easy [ 7], Social IQA [ 27 ], 4Hayes et al. Explaining Attention with Program Synthesis Random 
+
+> Token
+> Random
+> Column
+> Lower
+> Diagonal
+> Intended
+> Program
+> Best
+> Program
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Similarity (%)
+
+Program IoU Similarity: BERT-BASE 
+
+> Random
+> Token
+> Random
+> Column
+> Lower
+> Diagonal
+> Intended
+> Program
+> Best
+> Program
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Similarity (%)
+
+Program IoU Similarity: GPT-2 
+
+> Random
+> Token
+> Random
+> Column
+> Lower
+> Diagonal
+> Intended
+> Program
+> Best
+> Program
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Similarity (%)
+
+Program IoU Similarity: TinyLlama 
+
+> Random
+> Token
+> Random
+> Column
+> Lower
+> Diagonal
+> Intended
+> Program
+> Best
+> Program
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Similarity (%)
+
+Program IoU Similarity: Llama-3.2-3B 
+
+Figure 3: Analysis of program Intersection-over-Union similarity scores across all model attention heads. In general, heads in autoregressive models are easier to fit than in bidirectional models; fit quality increases with model scale. In many cases, the program synthesized for a given head (Intended Program) is outperformed by a program synthesized for a distinct head (Best Program). 
+
+and COPA. 
+
+Models We perform our analysis on four transformer architectures: BERT-base [ 10 ] containing 144 heads, GPT-2-small [ 26 ] containing 144 heads, TinyLlama-1.1B [ 38 ] containing 704 heads, and Llama-3B [ 11 ]containing 672 heads across 28 layers. Note that BERT-base is a bidirectional attention model, while GPT-2-small, TinyLlama-1.1B, and Llama-3B are causal attention models. 
+
+## 3 Experiments 
+
+3.1 Attention Alignment Analysis 
+
+We evaluate the IoU similarity of predicted attention patterns via our synthesized programs to ground-truth attention patterns. We perform a comparative analysis summarized in Figure 3, where we include two random baselines: Random Token , which assigns each query’s full attention to a randomly selected token in each row (target token), and Random Column , which concentrates attention uniformly on a single column 5Hayes et al. Explaining Attention with Program Synthesis 0 1 2 3 4 5 6 7 8 9 10  11       
+
+> GPT-2 Layers
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> IoU Similarity
+> (a) GPT-2 Attention Head Score Heatmap 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 8
+> 9
+> 10
+> 11
+> GPT-2 Layers
+> First Token
+> Coreference
+> Final Token
+> Syntactic
+> Sequential
+> Uniform (b) GPT-2 Attention Head Category Outline
+
+Figure 4: GPT-2 similarities and program types by layer. (a) Attention head accuracies (darker is more accurate). We sort the heads in each layer, and observe that earlier layers are generally harder to approximate than later ones. (b) Attention head types, automatically clustered based on program docstrings. Here we sort each row by type (so note that a given cell of (a) does not necessarily correspond to the same cell of (b)!). A substantial fraction of heads in GPT-2 are well approximated by programs that attend primarily to the first token (individual implementations may behave slightly differently on other tokens, so this coarse categorization may mask significant behavioral differences). Linguistic and discourse functions appearing deeper in the model (q.v. [28]). 
+
+(source token) across all rows (target tokens). We additionally include a Uniform Attention baseline that assigns attention fully to the lower diagonal for the causal models and to all tokens equally in BERT. We compare these against two program-based conditions: the intended program synthesized specifically for each head, and the best program, defined as the highest-scoring selected by maximizing IoU across the library of all programs synthesized for all heads in a model. (The latter procedure is related to quality–diversity optimization algorithms like MAP-Elites [22].) We find that the best program for each head significantly outperforms random and uniform baselines across every model. The (globally) best program also consistently outperforms the “intended program” syn-thesized based on data for each individual heads, reflecting that some synthesized functions are sufficiently general to approximate multiple heads with high fidelity. We further observe a systematic difference between encoder and decoder models, and a positive relationship between model scale and IoU similarity. BERT is comparatively poorly characterized by its synthesized programs relative to its decoder counterparts, which we attribute to the masked language modeling objective producing bidirectional attention distributions that are more complex and less amenable to symbolic approximation. Decoder models, by contrast, are constrained to attend only to preceding tokens, reducing the search space and making individual head behaviors more predictable. Notably, IoU scores also increase with model scale: GPT-2 achieves a mean best-program IoU of 69%, TinyLlama-1.1B of 74%, and Llama-3B of 79%. We hypothesize this reflects functional specialization at scale, where a larger number of attention heads leads each individual head to serve a narrower and more symbolically tractable role. 6Hayes et al. Explaining Attention with Program Synthesis 0 5 10 15 20 25 30 35 40 45 50 55 60 65 70 75 80 85 90 95 100 
+
+> Heads Replaced %
+> 0
+> 50
+> 100
+> 150
+> 200
+> 250
+> 300
+> 350
+> 400
+> Perplexity Increase %
+> Head Replacement vs. Perplexity Increase
+> GPT-2 Replacement
+> GPT-2 Baseline
+> TinyLlama Replacement
+> TinyLlama Baseline
+> Llama-3.2-3B Replacement
+> Llama-3.2-3B Baseline
+
+(a) Normalized Perplexity Increase (%) versus the quantity of at-tention heads replaced by programs. 0.4 0.5 0.6 0.7 0.8 0.9 1.0   
+
+> Mean IoU
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> 10 3
+> 10 4
+> 10 5
+> Perplexity Increase % (Logged)
+> IoU Similarity vs Perplexity Increase
+> GPT-2 (r=-0.915)
+> TinyLlama (r=-0.999)
+> Llama-3.2-3B (r=-0.999)
+
+(b) Correlation of Normalized Perplexity Increase (%) to IoU Simi-larity in Head and Program pairs 
+
+Figure 5: Perplexity remains low when high-IoU heads are replaced first (left), consistent with the strong negative correlation between programmatic alignment and substitution cost across head-program pairs (right). 
+
+3.2 Qualitative Analysis of Best-Fit Heads 
+
+Figure 4a and 4b provide a granular, head-level visualization of GPT-2 programs types and their corre-sponding fits, pairing (a) an IoU score heatmap with (b) a program category heatmap in which each head is colored by the functional category of its best-fit program. For (b), we constructed six categories of head types by prompting the synthesis agent to group the full set of program, providing a coarse but interpretable decomposition of the symbolic logic present in the library. From (a), we observe high alignment across the majority of heads, with later layers appearing to contain a greater number of heads that are easily explained by our set of programs. From (b), we see that program categories are not uniformly distributed across depth: first-token programs dominate early layers, while syntactic programs account for a larger share of middle-layer assignments. 
+
+3.3 Head Replacement Analysis 
+
+To move beyond similarity metrics and explore causal evidence of functional alignment, we perform a series of interchange interventions where original attention patterns are replaced by the outputs of our symbolic proxies. Heads are replaced greedily in descending order of IoU score, representing a replacement trajectory in which the best-fit heads are substituted first. We begin by examining perplexity changes on our dataset processed by models with original heads and our programmatic proxies. Because this dataset was the same one we used to derive our programmatic attention approximations, this evaluation represents an in-distribution evaluation. Our experimental setup tracks the Normalized Perplexity Increase (%) on the y-axis against the percentage of heads replaced on the x-axis. Normalization is employed as perplexity values derived from different datasets and model states exist in distinct distributions; by calculating only the increase from the unedited model, we isolate the impact of the intervention itself. Figure 5a illustrates the normalized perplexity increase across models when original attention activations are replaced by either the positional baseline or our synthesized programs. While the structural baseline triggers sharp exponential degradation in perplexity exceeding 1000% after only 5% replacements in Tiny-Llama, our executable programs maintain a low and steadily increasing perplexity. Furthermore, figure 5b validates that IoU scores are a good proxy metric for selecting programmatic heads that are functionally similar to real heads: across all head-program pairs, the Spearman correlation between mean IoU scores vs. downstream perplexity increase when the head is swapped in is above 0.9 for all models. 7Hayes et al. Explaining Attention with Program Synthesis 0 20 40 60 80 100 
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Accuracy Score
+> Common Sense Inference
+
+HellaSwag      
+
+> Random Guessing
+> GPT-2
+> TinyLlama
+> Llama-3B
+> 020 40 60 80 100
+> Physical Reasoning
+
+PIQA      
+
+> Random Guessing
+> GPT-2
+> TinyLlama
+> Llama-3B
+> 020 40 60 80 100
+> Science Understanding
+
+SciQ      
+
+> Random Guessing
+> GPT-2
+> TinyLlama
+> Llama-3B
+> 020 40 60 80 100
+
+% Attention Heads Replaced 
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Accuracy Score
+> Elementary Science
+
+ARC-Easy      
+
+> Random Guessing
+> GPT-2
+> TinyLlama
+> Llama-3B
+> 020 40 60 80 100
+
+% Attention Heads Replaced 
+
+> Social Interaction
+
+Social IQA      
+
+> Random Guessing
+> GPT-2
+> TinyLlama
+> Llama-3B
+> 020 40 60 80 100
+
+% Attention Heads Replaced 
+
+> Causal Reasoning
+
+COPA 
+
+> Random Guessing
+> GPT-2
+> TinyLlama
+> Llama-3B
+
+Figure 6: Effect of replacing attention heads on downstream model evaluations. 
+
+Next, we evaluate the out-of-distribution generalization of our symbolic heads to a wide range of multiple-choice natural language reasoning tasks. Figure 6 summarizes the performance of models across six tasks spanning science, physical, commonsense, and causal reasoning. Our results demonstrate that programmatic substitution of up to 30–40% of attention heads does not significantly degrade downstream task performance, a finding that holds across all four architectures tested. Even at higher replacement levels, the performance on several benchmarks remains non-trivially better than random. 
+
+## 4 Related Work 
+
+Interpreting Deep Networks There are several levels at which one can attempt to interpret transformer-based neural language models. At the most granular level, individual neurons can be examined to determine what information they encode [ 9 ]. This approach can provide granular insight but can suffer from a lack of generalizability [ 8]. Conversely, model-level analyses [ 28 ] consider how layers collectively contribute to downstream predictions, revealing high-level strategies while obscuring the contributions of specific circuits [ 4]. At the attention head level, one can analyze how heads distribute focus across input sequences [ 30 ]. This approach balances interpretability and simplicity, as attention heads often track a variety of linguistic patterns, many of which can be assigned definitive roles. 
+
+Explaining Attention Attention weights determine how much the contents of each token in a prior layer map onto the contents of each token in the next layer. Prior work has examined these attention weights as a form of attribution map – by looking at where the model is attending to at each layer, we get a rough 8Hayes et al. Explaining Attention with Program Synthesis sense of which tokens are most important to a model’s prediction [ 19 ]. By looking at these attention weights across layers, we also get a sense of where and how information is being directed within the model [ 30 ], which can be used as a signal for what circuits and internal mechanisms that a model might be using [ 13 ]. Understanding attention provides insight into a key component of the computational process underlying model predictions, offering a stepping stone toward their explanation. Closer examination of attention shows that it frequently reflects structured, functionally specialized behavior within models. Certain attention heads in BERT consistently focus on specific syntactic relationships, such as subject-verb agreement and direct objects [ 6 ]. While some heads exhibit specialized, interpretable roles, others remain diffuse or task-agnostic. Specific heads are also critical for integrating information during in-context learning; removing these components impairs model adaptation, indicating that particular heads play distinct, necessary roles in combining and propagating for task-relevant information [35]. A related line of work has investigated the effects of pruning attention heads in language models [e.g. 32 ], finding that many heads can be removed altogether. Here we focus on explaining all heads—even those that may not be necessary for prediction—as past work has found that such heads may still capture learned features in ways that predict generalization [20]. 
+
+Interpretability and Program Synthesis Closely related to the present work, [ 23 ] approximate the behavior of neurons in vision models and small transformer encoders by performing enumerative search for simple logical expressions that reproduce their behavior. A parallel line of work in automated interpretability uses language models to generate natural language descriptions of neurons and features [ 2 ], but such descriptions lack formal verifiability and cannot be directly substituted into model computations. A separate line of work develops transformers that are interpretable by design, either by compiling human-written RASP programs into transformer weights [ 33 ] or by training modified transformers that can be automatically converted into discrete, human-readable programs [ 15 ]; these approaches characterize transformer computation formally but require architectural constraints or training from scratch rather than post-hoc analysis of pretrained models. [ 21 ] develop MIPS, which converts RNNs trained on algorithmic tasks into finite state machines and applies symbolic regression to distill their behavior into Python code; they explicitly identify generalization to transformer architectures and scaling to larger networks as open directions for future work. Our method can be understood as a natural extension of this program: we apply LM-guided program synthesis directly to attention heads in modern autoregressive language models, targeting the richer space of Python programs with linguistic and structural logic rather than compact boolean or integer expressions. Where past work was limited to simpler expressions over small or specialized architectures, we scale program synthesis to GPT-2, TinyLlama-1.1B , and Llama-3B, and crucially validate our approximations causally by inserting synthesized programs into live model forward passes. In doing so we build on a long line of recent work on LM-guided program synthesis [ 1 , 5 , 25 ]. As a result, our method can produce what we believe to be the first programmatic explanations that scale to modern LMs, and the first evidence that these programs can actually be inserted into LMs while preserving their capabilities. 
+
+## 5 Discussion 
+
+The results presented in this work demonstrate that a symbolic approach to mechanistic interpretability is not only feasible but could yield direct proxies for complex neural activations. Model-level analyses in Figure 3 show that executable programs can achieve up to 99% mean IoU similarity against observed attention patterns. Our evaluation in Figure 5 also demonstrates that there is a clear negative correlation between the mean IoU similarity of a program and head and the perplexity increase as a result of replacing the head with its program. Examining the model’s performance trends on downstream question-answering evaluations, we find that we can replace up to 30-40% of all attention heads with their highest-similarity programs π without losing task ability. This indicates that our method can almost completely capture the functional role of up to 30-40% of all LM heads. 9Hayes et al. Explaining Attention with Program Synthesis 
+
+Limitations There is significant room for improvement in expanding the diversity and complexity of these hypotheses. Currently, no model’s attention heads are fully characterized: a substantial fraction of heads achieve IoU scores below 40%, and we attribute the question-answering degradation observed at high replacement levels in Figure 6 primarily to these poorly fit heads. We further observe that many high-scoring programs are not particularly complex, and that the improvement in question-answering seen for some models at low replacement levels may be akin to a pruning effect. Closing this gap likely requires both richer synthesis strategies such as multi-round refinement with stronger feedback signals. The goal of this paper is to establish that a small, curated program library can serve as faithful proxies for real attention heads with few refinements, providing a concrete foundation for future work toward complete symbolic characterization of transformer architectures. 
+
+Next steps One objective for subsequent research is to achieve a complete symbolic characterization of LMs. By bridging the gap between neural activations and symbolic code, we aim to demonstrate that complex model behaviors can be distilled into human-readable logic, allowing us to completely trace the allocation of attention throughout the entire architecture. Ultimately, a complete symbolic characterization of a LM would allow researchers to reason about model behavior the way they reason about algorithms: by reading, modifying, and testing the underlying logic directly. 
+
+## Software and Data 
+
+The code and data for this project are available at: 
+
+https://github.com/AmiriHayes/explaining_attention_heads 
+
+## Acknowledgements 
+
+This work was supported by the MIT Summer Research Program, Coefficient Giving, and the MIT Siegel Family Quest for Intelligence. BZL is additionally supported by a Clare Boothe Luce Fellowship, and JA is supported by a Sloan Fellowship. 
+
+Impact Statement 
+
+We do not anticipate any harms or misuses associated with the methods described in this paper. 
+
+## References 
+
+[1] Jacob Austin, Augustus Odena, Maxwell Nye, Maarten Bosma, Henryk Michalewski, David Dohan, Ellen Jiang, Carrie Cai, Michael Terry, Quoc Le, and Charles Sutton. Program synthesis with large language models. arXiv preprint arXiv:2108.07732 , 2021. [2] Steven Bills, Nick Cammarata, Dan Mossing, Henk Tillman, Leo Gao, Gabriel Goh, Ilya Sutskever, Jan Leike, Jeff Wu, and William Saunders. Language models can explain neurons in language models. 
+
+OpenAI Blog , 2023. [3] Yonatan Bisk, Rowan Zellers, Jianfeng Gao, Yejin Choi, et al. PIQA: Reasoning about physical common-sense in natural language. In Proceedings of the AAAI Conference on Artificial Intelligence , 2020. [4] Trenton Bricken, Adly Templeton, Joshua Batson, Brian Chen, Adam Jermyn, Tom Conerly, Nick Cammarata, Catherine Olsson, Christopher Olah, et al. Towards monosemanticity: Decomposing language models with dictionary learning. Transformer Circuits Thread , 2023. 10 Hayes et al. Explaining Attention with Program Synthesis [5] Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde de Oliveira Pinto, Jared Kaplan, Harrison Edwards, Yuri Burda, Nicholas Joseph, Greg Brockman, et al. Evaluating large language models trained on code. arXiv preprint arXiv:2107.03374 , 2021. [6] Kevin Clark, Urvashi Khandelwal, Omer Levy, and Christopher D. Manning. What does bert look at? an analysis of bert’s attention. arXiv preprint , June 2019. arXiv:1906.04341. [7] Peter Clark, Isaac Cowhey, Oren Etzioni, Tushar Khot, Ashish Sabharwal, Carissa Schoenick, and Oyvind Tafjord. Think you have solved question answering? try ARC, the AI2 reasoning challenge. 
+
+arXiv preprint , 2018. arXiv:1803.05457. [8] Hoagy Cunningham, Aidan Ewart, Logan Riggs, Robert Huben, and Lee Sharkey. Sparse autoencoders find highly interpretable features in language models. arXiv preprint , 2023. arXiv:2309.08600. [9] Fahim Dalvi, Nadir Durrani, Hassan Sajjad, Yonatan Belinkov, Anthony Bau, and James Glass. What is one grain of sand in the desert? analyzing individual neurons in deep nlp models. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 33, pages 6309–6317, 2019. [10] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. BERT: Pre-training of deep bidirectional transformers for language understanding. In Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (NAACL-HLT) , 2019. [11] Abhimanyu Dubey, Akhil Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten, Alex Vaughan, Amy Yang, et al. The llama 3 herd of models. arXiv preprint arXiv:2407.21783 , 2024. [12] Ronen Eldan and Yuanzhi Li. Tinystories: How small can language models be and still speak coherent english? arXiv preprint , 2023. arXiv:2305.07759. [13] Nelson Elhage, Neel Nanda, Catherine Olsson, Tom Henighan, Nicholas Schiefer, Tristan Hume, Josh S. Lefkowitz, Christopher Olah, et al. A mathematical framework for transformer circuits. Transformer Circuits Thread , 2021. [14] Dumitru Erhan, Yoshua Bengio, Aaron Courville, and Pascal Vincent. Visualizing higher-layer features of a deep network. Technical Report 1341, University of Montreal, 2009. [15] Dan Friedman, Alexander Wettig, and Danqi Chen. Learning transformer programs. arXiv preprint arXiv:2306.01128 , 2023. [16] Atticus Geiger, Hanson Lu, Thomas Icard, and Christopher Potts. Causal abstraction for the inter-pretability of deep learning models. In Advances in Neural Information Processing Systems (NeurIPS) ,2021. [17] Evan Hernandez, Sarah Schwettmann, David Bau, Teona Bagashvili, Antonio Torralba, and Jacob Andreas. Natural language descriptions of deep visual features. International Conference on Learning Representations (ICLR) , 2022. arXiv preprint. [18] John Hewitt and Christopher D. Manning. A structural probe for finding syntax in word representations. In Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics (NAACL) , 2019. [19] Sarthak Jain and Byron C. Wallace. Attention is not explanation. arXiv preprint , May 2019. arXiv:1902.10186. [20] Victoria R Li, Jenny Kaufmann, Martin Wattenberg, David Alvarez-Melis, and Naomi Saphra. Can interpretation predict behavior on unseen data? arXiv preprint arXiv:2507.06445 , 2025. 11 Hayes et al. Explaining Attention with Program Synthesis [21] Eric J. Michaud, Isaac Liao, Vedang Lad, Ziming Liu, Anish Mudide, Caden Juang, Nikolay Bultakov, and Max Tegmark. Opening the AI black box: Program synthesis via mechanistic interpretability. arXiv preprint arXiv:2402.05110 , 2024. [22] Jean-Baptiste Mouret and Jeff Clune. Illuminating search spaces by mapping elites. arXiv preprint arXiv:1504.04909 , 2015. [23] Jesse Mu and Jacob Andreas. Compositional explanations of neurons. In Advances in Neural Information Processing Systems (NeurIPS) , 2020. [24] Neel Nanda, Lawrence Chan, Tom Lieberum, Jess Smith, and Jacob Steinhardt. Progress measures for grokking via mechanistic interpretability. arXiv preprint , 2023. arXiv:2304.14997. [25] Theo X. Olausson, Jeevana Priya Inala, Chenglong Wang, Jianfeng Gao, and Armando Solar-Lezama. Is self-repair a silver bullet for code generation? arXiv preprint arXiv:2306.09896 , 2023. [26] Alec Radford, Jeffrey Wu, Rewon Child, David Luan, Dario Amodei, and Ilya Sutskever. Language models are unsupervised multitask learners. OpenAI Blog , 2019. [27] Maarten Sap, Hannah Rashkin, Derek Chen, Ronan LeBras, and Yejin Choi. Social IQa: Commonsense reasoning about social interactions. In Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing (EMNLP) , 2019. [28] Ian Tenney, Dipanjan Das, and Ellie Pavlick. Bert rediscovers the classical nlp pipeline. In Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics (ACL) , 2019. [29] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, and Illia Polosukhin. Attention is all you need. In Advances in Neural Information Processing Systems (NeurIPS) , 2017. [30] Jesse Vig. A multiscale visualization of attention in the transformer model. In Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics: System Demonstrations , 2019. [31] Elena Voita, Rico Sennrich, and Ivan Titov. The bottom-up evolution of representations in the trans-former: A study with machine translation and language modeling objectives. In Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing (EMNLP) , 2019. [32] Elena Voita, David Talbot, Fedor Moiseev, Rico Sennrich, and Ivan Titov. Analyzing multi-head self-attention: Specialized heads do the heavy lifting, the rest can be pruned. In Proceedings of the 57th annual meeting of the association for computational linguistics , pages 5797–5808, 2019. [33] Gail Weiss, Yoav Goldberg, and Eran Yahav. Thinking like transformers. In International Conference on Machine Learning (ICML) , 2021. [34] Johannes Welbl, Nelson F. Liu, and Matt Gardner. Crowdsourcing multiple choice science questions. 
+
+arXiv preprint , 2017. arXiv:1707.06209. [35] Kayo Yin and Jacob Steinhardt. Which attention heads matter for in-context learning? arXiv preprint ,February 2025. arXiv:2502.14010. [36] Matthew D. Zeiler and Rob Fergus. Visualizing and understanding convolutional networks. In European Conference on Computer Vision (ECCV) , pages 818–833. Springer, 2014. [37] Rowan Zellers, Ari Holtzman, Yonatan Bisk, Ali Farhadi, and Yejin Choi. HellaSwag: Can a machine really finish your sentence? In Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics (ACL) , 2019. [38] Peiyuan Zhang, Guangtao Zeng, Tianduo Wang, and Wei Lu. TinyLlama: An open-source small language model. arXiv preprint , 2024. arXiv:2401.02385. 12 Hayes et al. Explaining Attention with Program Synthesis 
+
+## A Appendix 
+
+To evaluate the breadth of our synthesized program library Π, we perform a model-wide alignment analysis across all four architectures. For every attention head in each model, we identify the highest-fidelity programmatic proxy within our library and report its maximum alignment score S = IoU (A, ˆ A).
+
+A.1 BERT-base 0 1 2 3 4 5 6 7 8 9 10  11      
+
+> BERT-Base Layers
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> IoU Similarity
+> (a) BERT-base IoU score heatmap. Each cell represents the max-imum IoU score achieved by a programmatic proxy for that head. 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 8
+> 9
+> 10
+> 11
+> BERT-Base Layers
+> First Token
+> Coreference
+> Final Token
+> Syntactic
+> Sequential
+> Uniform
+> (b) BERT-base program category heatmap. Circle color indicates the category of the best-fit program for each head.
+
+Figure 7: Head-to-program alignment for BERT-base. Dark cells indicate heads whose behaviors are not yet well-captured by the current program library. 
+
+Figure 7 shows that BERT-base is the most poorly characterized model in our analysis, with the majority of heads achieving low single-program IoU scores. High-fidelity matches are sparse and isolated rather than layer-wide, suggesting that the current program library does not yet capture the dominant functional logic of encoder attention. We hypothesize this reflects the inherent difficulty of the masked language modeling objective: compressing bidirectional contextual information into compact attention distributions likely demands more diverse and abstract programs than autoregressive next-token prediction. The scattered high-similarity heads that do exist tend to align with positional and linguistic programs, confirming that these primitives are architecture-agnostic, but the overall coverage gap for BERT represents the clearest direction for future library expansion [6]. 
+
+A.2 TinyLlama-1.1B 
+
+TinyLlama exhibits a pattern broadly similar to GPT-2, with initiation and anchoring programs dominating early layers and more varied program assignments at greater depth. The larger head count per layer (32 heads versus 12 in GPT-2) reveals finer-grained functional specialization, with distinct program categories occupying well-defined layer bands. The near-uniform lower-diagonal structure in many heads reflects the strong positional prior imposed by causal language modeling at this scale. 13 Hayes et al. Explaining Attention with Program Synthesis 0 1 2 3 4 5 6 7 8 9 10  11  12  13  14  15  16  17  18  19  20  21      
+
+> Tiny-Llama-1.1B Layers
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> IoU Similarity
+
+(a) TinyLlama-1.1B IoU score heatmap. 0      
+
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 8
+> 9
+> 10
+> 11
+> 12
+> 13
+> 14
+> 15
+> 16
+> 17
+> 18
+> 19
+> 20
+> 21
+> Tiny-Llama-1.1B Layers
+> First Token Coreference Final Token Syntactic Sequential Uniform
+
+(b) TinyLlama-1.1B program category heatmap. 
+
+Figure 8: Head-to-program alignment for TinyLlama-1.1B across 22 layers and 32 heads per layer. 
+
+## B Llama-3.2-3B 
+
+Llama-3B is dominated by a narrow set of recurring programs across nearly all layers and heads, but with generally moderate IoU scores rather than the high-confidence matches seen in GPT-2. This pattern suggests that the current library identifies the correct functional family for most heads but lacks the resolution to capture the specific variants operating at this scale. Isolated dark cells appear throughout the depth of the model rather than concentrating in any particular region, indicating that the coverage gap is distributed rather than localized to specific functional stages. Across all four architectures, the same foundational positional and anchoring primitives appear in the earliest layers, supporting the view that basic information-routing behaviors are largely invariant to model scale and that complexity accumulates in how those primitives are extended and combined at greater depth. 14 Hayes et al. Explaining Attention with Program Synthesis 0 1 2 3 4 5 6 7 8 9 10  11  12  13  14  15  16  17  18  19  20  21  22  23  24  25  26  27      
+
+> Llama-3B Layers
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> IoU Similarity
+
+(a) Llama-3.2-3B IoU score heatmap. Dark regions indicate heads whose behaviors are not yet well-captured by the current program library. While the plot shows many heads as being drawn from a small number of clusters, there are substantial dif-ferences in behavior within each cluster (e.g. many tokens that primarily attend to the first token, but occasionally implement some other function). 0
+
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 8
+> 9
+> 10
+> 11
+> 12
+> 13
+> 14
+> 15
+> 16
+> 17
+> 18
+> 19
+> 20
+> 21
+> 22
+> 23
+> 24
+> 25
+> 26
+> 27
+> Llama-3B Layers
+> First Token
+> Coreference
+> Final Token
+> Syntactic
+> Sequential
+> Uniform
+
+(b) Llama-3.2-3B program category heatmap. Coverage gaps are distributed throughout model depth rather than localized to specific layers. 
+
+Figure 9: Head-to-program alignment for Llama-3.2-3B across 28 layers and 24 heads per layer. 
+
+15

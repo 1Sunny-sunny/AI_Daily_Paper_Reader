@@ -1,63 +1,60 @@
 ## 最新日报
-- 最新运行日期：2026-06-21
-- 运行时间：2026-06-21 05:28:43 北京时间
+- 最新运行日期：2026-06-22
+- 运行时间：2026-06-22 04:35:06 北京时间
 - 运行状态：成功
-- 本次总论文数：15
-- 精读区：5
+- 本次总论文数：14
+- 精读区：4
 - 速读区：10
 
 ### 今日简报（AI）
-今日精读2篇顶刊，深入解析了衰老大脑丧失往复兴奋如何扰乱睡眠慢波，以及脑机接口在双重任务下稳健的抗注意力负荷能力。  
-速读亮点包括人类纹状体群体状态动态与单细胞基础模型的可解释特征发现。  
-推荐关注神经环路衰退与稳健脑机接口这两大前沿，后续可跟踪稀疏自编码器在生命科学大模型中的应用进展。
-- 详情：[/202606/21/README](/202606/21/README)
+今日从14篇前沿论文中精筛4篇，聚焦大脑振荡耦合与新型网络架构。  
+最亮眼的是：贝叶斯状态空间模型首次实现振荡动力学与点过程耦合的联合推断（9.0分），而ITNet用一个可学习积分变换优雅统一了卷积、注意力与循环网络（8.0分）。  
+建议先看振荡耦合建模的贝叶斯思路，再尝试把可学习积分变换用在你的序列任务里，会有意外收获。
+- 详情：[/202606/22/README](/202606/22/README)
 
 ### 精读区论文标签
-1. [Loss of Recurrent Excitation Disrupts Sleep Slow Oscillations in the Aging Brain](/202606/21/biorxiv-10-64898-2026-03-16-712170-v2-loss-of-recurrent-excitation-disrupts-sleep-slow-oscillations-in-the-aging-brain)  
+1. [BAYESIAN STATE-SPACE MODEL FOR JOINT INFERENCE OF OSCILLATORY DYNAMICS AND POINT-PROCESS COUPLING](/202606/22/biorxiv-10-64898-2026-06-15-732402-v1-bayesian-state-space-model-for-joint-inference-of-oscillatory-dynamics-and-point-process-coupling)  
    标签：评分：9.0/10、query:sr
-   evidence：多尺度丘脑皮层模型,研究慢振荡的尖峰神经元
-2. [Intracortical BCI Performance is Robust to Changes in Attentional Load During Dual-Tasking](/202606/21/biorxiv-10-64898-2026-06-16-732398-v1-intracortical-bci-performance-is-robust-to-changes-in-attentional-load-during-dual-tasking)  
-   标签：评分：9.0/10、query:sr
-   evidence：双任务下脑机接口性能
-3. [From Sparse Features to Trustworthy Proxies: Certifying SAE-Based Interpretability](/202606/21/2606.18383v1-from-sparse-features-to-trustworthy-proxies-certifying-sae-based-interpretability)  
+   evidence：用贝叶斯状态空间模型联合推断峰电位-场电位耦合
+2. [ITNet: A Learnable Integral Transform That Subsumes Convolution, Attention, and Recurrence](/202606/22/2606.19538v1-itnet-a-learnable-integral-transform-that-subsumes-convolution-attention-and-recurrence)  
    标签：评分：8.0/10、query:sr
-   evidence：通过泛化框架验证基于SAE的可解释性
-4. [Proactive visual and motor prioritization differentially scale with cue reliability](/202606/21/biorxiv-10-64898-2026-01-28-702371-v2-proactive-visual-and-motor-prioritization-differentially-scale-with-cue-reliability)  
+   evidence：统一的序列建模可学习积分变换
+3. [Hybrid ANN-SNN Pipeline with Local Plasticity](/202606/22/2606.20151v1-hybrid-ann-snn-pipeline-with-local-plasticity)  
    标签：评分：8.0/10、query:sr
-   evidence：研究视觉和运动优先级的神经动态随线索可靠性的变化
-5. [Distributional context reweights duration-related activity across timing-related regions](/202606/21/biorxiv-10-64898-2026-05-12-724553-v2-distributional-context-reweights-duration-related-activity-across-timing-related-regions)  
+   evidence：脉冲表示与生物可塑性学习
+4. [A single computational objective can produce specialization of streams in visual cortex](/202606/22/biorxiv-10-1101-2023-12-19-572460-v4-a-single-computational-objective-can-produce-specialization-of-streams-in-visual-cortex)  
    标签：评分：8.0/10、query:sr
-   evidence：fMRI研究解码不同情境下与持续时间相关的神经活动模式
+   evidence：自监督深度神经网络解释视觉皮层流分化
 
 ### 速读区论文标签
-1. [Human striatal population state dynamics](/202606/21/biorxiv-10-64898-2026-06-17-733040-v1-human-striatal-population-state-dynamics)  
-   标签：评分：8.0/10、query:sr
-   evidence：使用fMRI共激活模型识别人纹状体群体状态
-2. [Sparse Autoencoders Reveal Interpretable Features in Single-Cell Foundation Models](/202606/21/biorxiv-10-1101-2025-10-22-681631-v3-sparse-autoencoders-reveal-interpretable-features-in-single-cell-foundation-models)  
+1. [Effects of sparsity and superposition on loss in simple autoencoders](/202606/22/2606.18538v1-effects-of-sparsity-and-superposition-on-loss-in-simple-autoencoders)  
    标签：评分：7.0/10、query:sr
-   evidence：使用稀疏自编码器揭示单细胞基础模型中的可解释特征
-3. [Temporal structure of task engagement reorganizes infra-slow BOLD dynamics](/202606/21/biorxiv-10-64898-2026-05-27-727996-v2-temporal-structure-of-task-engagement-reorganizes-infra-slow-bold-dynamics)  
+   evidence：研究自编码器中的叠加现象用于机械可解释性
+2. [Anomaly Detection for Sparse and Irregular Multivariate Time Series with Latent SDEs](/202606/22/2606.18898v1-anomaly-detection-for-sparse-and-irregular-multivariate-time-series-with-latent-sdes)  
    标签：评分：7.0/10、query:sr
-   evidence：研究任务时间如何重组超慢BOLD动态
-4. [A Structural Principle for Macroscopic Neural Dynamics Correlations](/202606/21/biorxiv-10-64898-2026-06-14-729168-v1-a-structural-principle-for-macroscopic-neural-dynamics-correlations)  
+   evidence：用于不规则时间序列的潜变量SDE；方法可迁移至神经解码
+3. [Synchronization modes in bipartite oscillator networks](/202606/22/2606.20345v1-synchronization-modes-in-bipartite-oscillator-networks)  
    标签：评分：7.0/10、query:sr
-   evidence：输入连接度与神经动力学相关性的数学原理
-5. [Structural Connectivity Selectively Constrains Intrinsic BOLD Timescales through Graph-Smooth Neural Activity](/202606/21/biorxiv-10-64898-2026-06-14-732146-v1-structural-connectivity-selectively-constrains-intrinsic-bold-timescales-through-graph-smooth-neural-activity)  
+   evidence：二分振荡器网络中的同步模式用于神经动力学
+4. [Disrupting selectivity persistent activity with electrical stimulation impairs human working memory](/202606/22/biorxiv-10-1101-2025-08-20-671301-v2-disrupting-selectivity-persistent-activity-with-electrical-stimulation-impairs-human-working-memory)  
    标签：评分：7.0/10、query:sr
-   evidence：通过图信号处理分析BOLD时间尺度与结构连接的关系
-6. [Structural Connectivity Selectively Constrains Intrinsic BOLD Timescales through Graph-Smooth Neural Activity](/202606/21/biorxiv-10-64898-2026-06-14-732146-v2-structural-connectivity-selectively-constrains-intrinsic-bold-timescales-through-graph-smooth-neural-activity)  
+   evidence：使用单神经元记录和刺激解码工作记忆中的持续性神经活动
+5. [A multimodal human-computer interaction dataset for neurocognitive user state evaluation](/202606/22/biorxiv-10-1101-2025-09-03-673947-v2-a-multimodal-human-computer-interaction-dataset-for-neurocognitive-user-state-evaluation)  
    标签：评分：7.0/10、query:sr
-   evidence：图信号处理框架将结构连接与BOLD时间尺度联系起来
-7. [Directed Human Structural Connectome Reveals Hierarchical Organization and Shapes Large-Scale Brain Dynamics](/202606/21/biorxiv-10-64898-2026-06-16-732559-v1-directed-human-structural-connectome-reveals-hierarchical-organization-and-shapes-large-scale-brain-dynamics)  
-   标签：评分：7.0/10、query:sr
-   evidence：有向结构连接组数学框架联系结构与动力学
-8. [Critical Percolation as a Synthetic Data Model for Interpretability](/202606/21/2606.20347v1-critical-percolation-as-a-synthetic-data-model-for-interpretability)  
+   evidence：含EEG的多模态人机交互数据集用于神经认知状态评估
+6. [Locally Stable Neural ODEs with Characterized Region of Attraction](/202606/22/2606.19109v1-locally-stable-neural-odes-with-characterized-region-of-attraction)  
    标签：评分：6.0/10、query:sr
-   evidence：用于评估神经网络可解释性的合成数据模型
-9. [Population geometry reveals directed coupling and transient bistability in spontaneous pituitary secretion](/202606/21/biorxiv-10-64898-2026-04-05-716480-v3-population-geometry-reveals-directed-coupling-and-transient-bistability-in-spontaneous-pituitary-secretion)  
+   evidence：稳定神经动态的数学框架
+7. [Explaining Attention with Program Synthesis](/202606/22/2606.19317v1-explaining-attention-with-program-synthesis)  
    标签：评分：6.0/10、query:sr
-   evidence：种群轨迹时间动态的几何分析
-10. [Precision Functional Parcellation of the Human Cortex via Rest-Task fMRI Fusion](/202606/21/biorxiv-10-64898-2026-06-11-731643-v2-precision-functional-parcellation-of-the-human-cortex-via-rest-task-fmri-fusion)  
+   evidence：通过程序合成解释注意力机制
+8. [Leverage Is Not Reach: A Control-Window Law for Single-Neuron Steering in Language Models](/202606/22/2606.19831v1-leverage-is-not-reach-a-control-window-law-for-single-neuron-steering-in-language-models)  
    标签：评分：6.0/10、query:sr
-   evidence：融合静息态和任务态fMRI的层级贝叶斯框架
+   evidence：语言模型单神经元控制框架
+9. [Quantum machine learning for detection of sleep deprivation from EEG signals](/202606/22/biorxiv-10-64898-2026-06-14-732153-v1-quantum-machine-learning-for-detection-of-sleep-deprivation-from-eeg-signals)  
+   标签：评分：6.0/10、query:sr
+   evidence：使用量子机器学习从EEG分类睡眠剥夺
+10. [Sleep to forget: active control of consolidation and forgetting by slow-wave sleep dynamics](/202606/22/biorxiv-10-64898-2026-06-15-732460-v1-sleep-to-forget-active-control-of-consolidation-and-forgetting-by-slow-wave-sleep-dynamics)  
+   标签：评分：6.0/10、query:sr
+   evidence：具有脉冲时序依赖性可塑性的生物物理丘脑皮层网络模型用于研究睡眠相关记忆巩固
 
