@@ -1,39 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-06-23
-- 运行时间：2026-06-23 05:25:41 北京时间
+- 最新运行日期：2026-06-24
+- 运行时间：2026-06-24 06:09:06 北京时间
 - 运行状态：成功
-- 本次总论文数：7
-- 精读区：3
-- 速读区：4
+- 本次总论文数：15
+- 精读区：5
+- 速读区：10
 
 ### 今日简报（AI）
-今日精读聚焦神经信号的实时校正与视觉编码，速读涵盖脑电基础模型、回路韧性与储层计算，共梳理7篇前沿研究。  
-最值得关注的是低延迟肌电实时校正系统的数学建模设计，以及猕猴V1区对比度编码的宽动态范围机制，均获8分高评。  
-建议普通读者从“生物信号如何转化为精准控制”入手，追踪高鲁棒性神经接口与计算模型交叉的落地进展。
-- 详情：[/202606/23/README](/202606/23/README)
+今日精选15篇脑科学前沿，聚焦脑电解码与神经网络动态建模，其中两篇高分论文揭示了稳健功能连接指标和双流解码在理解动作观察与3D视觉中的突破。  
+最值得关注的是，EEG功能连接新方法显著提升动作识别，以及双流框架将2D视频成功映射到3D感知，为脑机接口与类脑智能提供新路径。  
+建议读者优先跟踪基于EEG的知觉解码进展，并关注自适应延迟与脉冲神经网络中的波动现象，这些或将重塑无创脑机交互范式。
+- 详情：[/202606/24/README](/202606/24/README)
 
 ### 精读区论文标签
-1. [Design of a Low-Latency sEMG Real-Time Correction System Based on High CMRR and EMRMS Mathematical Modeling](/202606/23/biorxiv-10-64898-2026-06-11-724714-v2-design-of-a-low-latency-semg-real-time-correction-system-based-on-high-cmrr-and-emrms-mathematical-modeling)  
-   标签：评分：8.0/10、query:sr
-   evidence：用于假肢控制的低延迟表面肌电校正系统
-2. [Wide dynamic range of contrast-encoding in neural responses in macaque V1](/202606/23/biorxiv-10-64898-2026-06-15-732419-v1-wide-dynamic-range-of-contrast-encoding-in-neural-responses-in-macaque-v1)  
-   标签：评分：8.0/10、query:sr
-   evidence：猕猴V1区对比度响应函数表征
-3. [Striatal activity maintains a short-term action-outcome memory to guide future choice](/202606/23/biorxiv-10-64898-2026-06-16-731709-v1-striatal-activity-maintains-a-short-term-action-outcome-memory-to-guide-future-choice)  
-   标签：评分：8.0/10、query:sr
-   evidence：纹状体投射神经元编码动作-结果关联并预测未来选择
+1. [Robust EEG Functional Connectivity Metrics for Decoding Action Observation Conditions and Observed Actions](/202606/24/2606.21055v1-robust-eeg-functional-connectivity-metrics-for-decoding-action-observation-conditions-and-observed-actions)  
+   标签：评分：9.0/10、query:sr
+   evidence：评估EEG功能连接性指标以解码动作观察条件
+2. [Dual-Stream EEG Decoding for 3D Visual Perception](/202606/24/2606.22182v1-dual-stream-eeg-decoding-for-3d-visual-perception)  
+   标签：评分：9.0/10、query:sr
+   evidence：EEG解码实现视觉刺激的3D重建
+3. [Low-Dimensional and Optimised Representations of High-Level Information in the Expert Brain](/202606/24/biorxiv-10-1101-2025-11-12-688012-v3-low-dimensional-and-optimised-representations-of-high-level-information-in-the-expert-brain)  
+   标签：评分：9.0/10、query:sr
+   evidence：专家大脑的多变量模式分析揭示高级信息的低维表示
+4. [Area- and Layer-Specific Organization of Timescales in Macaque Motor Cortex](/202606/24/biorxiv-10-64898-2026-03-21-713374-v3-area--and-layer-specific-organization-of-timescales-in-macaque-motor-cortex)  
+   标签：评分：9.0/10、query:sr
+   evidence：运动皮层中基于尖峰活动和局部场电位的时间尺度分析
+5. [Searchlight Optimization Using Representational Similarity Analysis for Subject-Level Voxel Selection in Emotional State Decoding](/202606/24/biorxiv-10-64898-2026-06-16-729835-v1-searchlight-optimization-using-representational-similarity-analysis-for-subject-level-voxel-selection-in-emotional-state-decoding)  
+   标签：评分：9.0/10、query:sr
+   evidence：搜索光RSA从fMRI时间序列解码情绪状态
 
 ### 速读区论文标签
-1. [Evaluation of EEG Foundation Models for Event-Based Burst-Suppression Detection in ICU](/202606/23/2606.20074v1-evaluation-of-eeg-foundation-models-for-event-based-burst-suppression-detection-in-icu)  
+1. [McKean-Vlasov Equations for Large Networks of Neurons with Adaptive Asymmetric Edges](/202606/24/2606.21394v1-mckean-vlasov-equations-for-large-networks-of-neurons-with-adaptive-asymmetric-edges)  
+   标签：评分：8.0/10、query:sr
+   evidence：使用McKean-Vlasov方程建模带延迟的神经网络动力学
+2. [Soliton-like Waves in a Two-Dimensional Recurrent Spiking Neural Network with Weighted Spike-Timing-Dependent Plasticity](/202606/24/2606.21432v1-soliton-like-waves-in-a-two-dimensional-recurrent-spiking-neural-network-with-weighted-spike-timing-dependent-plasticity)  
+   标签：评分：8.0/10、query:sr
+   evidence：使用STDP的脉冲神经网络模拟神经元通过脉冲模式编码信息
+3. [Adaptive conduction delays and phase locking in spiking Haken Lighthouse networks](/202606/24/2606.21508v1-adaptive-conduction-delays-and-phase-locking-in-spiking-haken-lighthouse-networks)  
+   标签：评分：8.0/10、query:sr
+   evidence：脉冲网络中的相位锁定和尖峰时间扰动
+4. [Embedded Polygon Symbolic Transfer Entropy (EPSTE): A Geometric Token and Deep Learning Approach to Estimating Transfer Entropy in Neuroimaging Time Series](/202606/24/2606.21754v1-embedded-polygon-symbolic-transfer-entropy-epste-a-geometric-token-and-deep-learning-approach-to-estimating-transfer-entropy-in-neuroimaging-time-series)  
+   标签：评分：8.0/10、query:sr
+   evidence：用于EEG/MEG定向交互的传递熵估计新方法
+5. [Delay coordinates synchronization and induces abrupt transition in excitable networks](/202606/24/2606.21703v1-delay-coordinates-synchronization-and-induces-abrupt-transition-in-excitable-networks)  
    标签：评分：7.0/10、query:sr
-   evidence：评估EEG基础模型在ICU爆发抑制检测中的表现
-2. [Inhibitory Gain and Hub Architecture Confer Dynamic Resilience to Microcircuit Degeneration](/202606/23/biorxiv-10-64898-2026-06-15-732346-v1-inhibitory-gain-and-hub-architecture-confer-dynamic-resilience-to-microcircuit-degeneration)  
+   evidence：兴奋性神经网络中的时延同步
+6. [Design and Development of a Neuromorphic Silicon Suite: PVT Sensing, Stochastic LIF Inference, On-Chip STDP Learning, and Crossbar Programming](/202606/24/2606.22635v1-design-and-development-of-a-neuromorphic-silicon-suite-pvt-sensing-stochastic-lif-inference-on-chip-stdp-learning-and-crossbar-programming)  
    标签：评分：7.0/10、query:sr
-   evidence：脉冲网络中的脉冲编码原理
-3. [Kolmogorov-Arnold Reservoir Computing](/202606/23/2606.19984v1-kolmogorov-arnold-reservoir-computing)  
+   evidence：实现随机LIF神经元和STDP学习的神经形态硬件，用于脉冲模式
+7. [Functional MRI signals at and beyond 1 Hz are coupled to brain states and predict spontaneous neural activity](/202606/24/biorxiv-10-1101-2025-10-13-681720-v2-functional-mri-signals-at-and-beyond-1-hz-are-coupled-to-brain-states-and-predict-spontaneous-neural-activity)  
+   标签：评分：7.0/10、query:sr
+   evidence：快速fMRI信号预测自发神经活动和脑状态
+8. [Homeostatic Plasticity Enables Stable, Flexible, and Tunable Assemblies](/202606/24/biorxiv-10-64898-2026-05-31-729097-v3-homeostatic-plasticity-enables-stable-flexible-and-tunable-assemblies)  
+   标签：评分：7.0/10、query:sr
+   evidence：通过Hebbian和稳态可塑性研究神经集群形成，与群体编码相关
+9. [BIT-Nav: Brain-Inspired Trajectory Memory for Embodied Navigation](/202606/24/2606.21398v1-bit-nav-brain-inspired-trajectory-memory-for-embodied-navigation)  
    标签：评分：6.0/10、query:sr
-   evidence：用于时序动态的Kolmogorov-Arnold储备计算方法
-4. [A shared functional architecture for error-based and reinforcement-based motor learning in the human brain](/202606/23/biorxiv-10-64898-2026-06-18-733155-v1-a-shared-functional-architecture-for-error-based-and-reinforcement-based-motor-learning-in-the-human-brain)  
+   evidence：受海马路径整合启发的轨迹记忆方法
+10. [An Open-Source LFSR-Based Stochastic Leaky Integrate-and-Fire Neuron in SkyWater 130 nm: Design, Stochastic Characterisation, and Rate Coding](/202606/24/2606.23532v1-an-open-source-lfsr-based-stochastic-leaky-integrate-and-fire-neuron-in-skywater-130-nm-design-stochastic-characterisation-and-rate-coding)  
    标签：评分：6.0/10、query:sr
-   evidence：fMRI研究识别基于错误和强化学习的共享功能架构
+   evidence：用于速率编码的随机尖峰神经元模型
 
