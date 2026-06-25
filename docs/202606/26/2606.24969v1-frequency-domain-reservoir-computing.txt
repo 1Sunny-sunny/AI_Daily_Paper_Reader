@@ -1,0 +1,1343 @@
+Title: Frequency Domain Reservoir Computing
+
+URL Source: https://arxiv.org/pdf/2606.24969v1
+
+Published Time: Thu, 25 Jun 2026 00:05:19 GMT
+
+Number of Pages: 31
+
+Markdown Content:
+# Frequency Domain Reservoir Computing 
+
+Klaus Schertler 
+
+Airbus Central Research & Technology Taufkirchen, Germany 
+
+klaus.schertler@airbus.com 
+
+Xiomara Runge 
+
+Airbus Central Research & Technology Taufkirchen, Germany 
+
+xiomara.runge@airbus.com 
+
+Andrea Ceni 
+
+Department of Computer Science University of Pisa, Italy 
+
+andrea.ceni@unipi.it 
+
+David Kappel 
+
+Faculty of Technology Bielefeld University, Germany 
+
+david.kappel@uni-bielefeld.de 
+
+Claudio Gallicchio 
+
+Department of Computer Science University of Pisa, Italy 
+
+claudio.gallicchio@unipi.it 
+
+## Abstract 
+
+While the quadratic sequence-length bottleneck of transformers has fueled a resur-gence in recurrent models, effectively capturing complex dynamics requires archi-tectures that balance efficient training with highly expressive latent states. Echo State Networks (ESNs) offer a compelling approach by utilizing fixed recurrent weights to circumvent backpropagation through time, enabling a closed-form training solution. However, achieving the expressivity needed for complex tasks demands large reservoirs, exposing an O(N 2) state-update bottleneck that prevents ESNs from matching the scale of contemporary recurrent models. To address this limitation, we introduce Frequency Domain Reservoir Computing (FRESCO), an ESN architecture operating entirely in the frequency domain while avoiding domain-shift overheads to achieve O(N ) complexity for dense, non-linear recur-rent updates. By employing a novel dimensional zero-padding input embedding, a packed frequency-domain readout, and a natively applied frequency-domain non-linearity, FRESCO drastically reduces computational costs and energy con-sumption of training and inference. Furthermore, FRESCO matches the state-of-the-art predictive performance on memory benchmarks, sequential classification, and multivariate long-horizon forecasting, offering a scalable path forward for dense recurrent architectures. 
+
+## 1 Introduction 
+
+Sequence modeling underpins a rapidly growing set of machine learning applications, from language and audio processing to control. While transformer-based architectures currently dominate the landscape, their quadratic cost in the sequence length has renewed the interest in recurrent neural models capable of processing long sequences with bounded per-step cost. At the heart of this resurgence lies a question that has shaped recurrent computation since its origins: how to make recurrent dynamics expressive , stable , and cheap to evaluate .The recent wave of linear-scaling recurrent architectures, including structured state spaces [ 9 , 8 , 5], their selective variants [ 7, 14 ], and linear recurrent units [ 21 ], has shown that large recurrent states can 
+
+> Preprint.
+> arXiv:2606.24969v1 [cs.LG] 23 Jun 2026
+
+be made practical when the per-step cost scales favorably with the state dimension. This observation reframes the efficiency question for older recurrent paradigms: in order to remain competitive in modern sequence modeling, their per-step cost should scale sub-quadratically with the size of the recurrent state. Reservoir Computing (RC), particularly the Echo State Network (ESN) [ 11 , 17 ], occupies a com-plementary position in this landscape. By keeping recurrent connectivity fixed and training only a linear readout via convex ridge regression, ESNs completely circumvent backpropagation through time to provide a closed-form solution. They provide well-studied stability conditions rooted in the Echo State Property (ESP), and a hardware profile that is well suited for analog and neuromorphic substrates [27]. Despite these strengths, the per-step cost of a dense ESN scales as O(N 2) with the number of reservoir neurons, dominated by a recurrent matrix-vector product. This bottleneck prevents ESNs from scaling to modern sequence modeling regimes, eroding the very efficiency advantage that originally motivated RC. The frequency domain offers a principled route to overcome this bottleneck. Because the 1D Discrete Fourier Transform (DFT) diagonalizes circulant weight matrices, the dense matrix-vector product collapses to an element-wise Hadamard product (circular convolution theorem). However, a naive frequency-domain ESN incurs additional overheads of domain transitions: an 
+
+O(N log N ) Fast Fourier Transform (FFT) to ingest each input, and an inverse FFT before every readout. In the typical N ≫ Nx regime, these transforms dominate the computational cost, preventing the architecture from fully realizing the O(N ) efficiency. In this paper, we introduce frequency domain reservoir computing (FRESCO), an ESN architecture that operates entirely in the frequency domain and is designed for efficiency. FRESCO circumvents the input transformation bottleneck by lifting the 1D circular convolution formulation to 2D, enabling a novel dimensional zero-padding embedding. This allows an input of size Nx to be transformed using a single O(Nx log Nx) FFT rather than a full N -point FFT. By replacing the dense O(N 2)
+
+recurrent product with element-wise Hadamard multiplications between frequency-domain state and weight representations, the per-step cost of the recurrent update drops to O(N ), even for a fully dense, non-linear reservoir. Finally, a packed frequency-domain readout exploits the Hermitian symmetry of the reservoir state to yield a contiguous, real-valued vector. On this representation, ridge regression is provably equivalent to spatial-domain training, entirely removing the inverse FFT from both training and inference. Figure 1 contrasts these three architectural advantages against a standard ESN. Our main contributions are summarized as follows: • Frequency domain reservoir computing: We introduce FRESCO, a dense, non-linear ESN architecture executed with O(N ) complexity natively in the frequency domain. • Dimensional zero-padding: We propose a novel input embedding strategy mapping low-dimensional inputs into the frequency-domain, eliminating standard transform bottlenecks. • Packed frequency-domain readout: We design a redundancy-free, memory-contiguous, and FFT-free state readout, provably equivalent to spatial-domain training and inference. • High-efficiency: We show that FRESCO drastically reduces computational and energy footprints while delivering competitive results against established sequence models. 
+
+## 2 Background and related work 
+
+This section provides the background and related work to frame our proposed FRESCO approach. We first review Echo State Networks, their computational characteristics, and the stability conditions that govern their dynamics. These aspects are important to inform and motivate the design of FRESCO. We then briefly discuss deep State Space Models (SSMs), a related line of work in sequence modeling that shares theoretical foundations with RC, but follows a fundamentally different training paradigm. 
+
+Echo State Networks. Echo State Networks (ESNs) are a RC paradigm characterized by a randomly connected, fixed hidden state layer and a trainable linear readout [ 11 , 13 , 17 ], thereby bypassing the vanishing gradient problems of traditional RNNs and enabling highly efficient, closed-form training (typically ridge regression). 2Input Embedding Recurrent Update Reservoir Readout   
+
+> +
+> +
+> FRESCO
+> time
+> xt
+> Nx
+> ˆWx
+> N1×N2
+
+⊙ ˆx ˆx . . .   
+
+> F{·}
+> dimensional zero-padding
+> ˆWr
+> N1×N2
+
+⊙ ˆRt−1            
+
+> N1×N2
+> ˆΦ( ·)ˆRt
+> N1×N2
+> N1=⌊Nx/2⌋+ 1
+> N2=N/N x
+> Wp
+> Ny×N
+
+· pt
+
+> N
+
+= yt  
+
+> Ny
+> time
+> P{·}
+> packed frequency-domain readout
+> ESN
+> time
+> xt
+> Nx
+> Wx
+> N×Nx
+
+· xt  
+
+> Nx
+> Wr
+> N×N
+
+·   
+
+> rt−1
+> N
+> Φ( ·)rt
+> N
+> Wy
+> Ny×N
+
+· rt
+
+> N
+
+= yt
+
+> Ny
+> time
+
+O(N +Nx log Nx)
+
+O(N · Nx)
+
+O(N )
+
+O(N 2)
+
+O(N · Ny)
+
+O(N · Ny)                                 
+
+> 2416 64 256 1024
+> 10 0
+> 10 2
+> 10 4
+> 10 6
+> Nx(input size)
+> Time ( μs)
+> ESN
+> FRESCO
+> 210 212 214 216 218
+> N(reservoir size)
+> 2416 64 256 1024
+> 10 0
+> 10 2
+> 10 4
+> 10 6
+> Nx(input size)
+> Time ( μs)
+> ESN
+> ESN (sparse)
+> FRESCO
+> 210 212 214 216 218
+> N(reservoir size)
+> out of memory
+> 1%
+> non-zeros
+> 2416 64 256 1024
+> 10 0
+> 10 2
+> 10 4
+> 10 6
+> Nx(input size)
+> Time ( μs)
+> ESN
+> FRESCO
+> 210 212 214 216 218
+> N(reservoir size)
+
+Figure 1: FRESCO (top row) accelerates ESNs by operating natively in the frequency domain while actively bypassing standard FFT bottlenecks. In the frequency domain, dense matrix operations mathematically collapse into fast element-wise products ( ⊙), lowering end-to-end computational costs compared to dense and sparse standard ESNs (bottom row). Left: The introduced dimensional zero-padding minimizes input embedding overhead. Center: The recurrent state updates are directly executed via element-wise products, and non-linearities ˆΦ are applied in the frequency domain. Right: To match standard readout speeds, the novel packed frequency-domain readout computes yt
+
+directly from a memory-contiguous, non-redundant state, entirely avoiding inverse FFTs. Together, these mechanisms yield highly favorable time and memory scaling with increasing input size Nx and reservoir size N (central plots; N = 256 Nx; see Appendix A for details). Notation (see Appendix D.3 for a comprehensive list): complex ( ˆ·), real (unaccented), vectors (bold lowercase), matrices (bold uppercase). Bias/leaking terms are omitted. Here, we refer to the standard leaky-neurons formulation of ESNs introduced in [ 13 ]. For an input 
+
+xt ∈ RNx , a reservoir of N neurons updates its internal state rt ∈ RN via: 
+
+rt = (1 − τ ) rt−1 + τ Φ ( Wxxt + Wrrt−1 + b) (1) where Wr ∈ RN ×N , Wx ∈ RN ×Nx , and b ∈ RN are the fixed recurrent weights, input weights, and biases. The leaking rate is τ ∈ (0 , 1] , and Φ( ·) is an element-wise nonlinearity. The network output 
+
+yt = Wyrt ∈ RNy is generated through the readout matrix Wy ∈ RNy×N , which contains the only optimized parameters. A dense ESN’s per-step complexity is dominated by these matrix-vector multiplications, scaling at 
+
+O(N 2 + N N x). Overcoming this quadratic bottleneck is the primary objective of FRESCO, while preserving the standard computational profile for both training and inference. A comparison of both architectures is shown in Figure 1. A key stability requirement for ESNs is the Echo State Property (Definition 1), imposing a constraint on the recurrence weights (Proposition 1). In practice, reservoirs are initialized by drawing Wr at random and then rescaling its elements to enforce a desired value of its spectral radius ρ(Wr). This requires an O(N 3) eigendecomposition, a bottleneck that scales poorly with reservoir size. 
+
+Definition 1 (Echo State Property [ 11 ]) . A reservoir system driven by a bounded input sequence 
+
+{xt}t≥0 satisfies the Echo State Property (ESP) if, for any two initial states r0 and r′
+
+> 0
+
+, the corre-sponding state trajectories satisfy ∥rt − r′
+
+> t
+
+∥ → 0 as t → ∞ . That is, the system asymptotically forgets its initial condition and provides an “echo” of the driving input signal. 
+
+3Proposition 1 (ESP conditions for the ESN [ 11 , 17 ]) . For the ESN of Eq. (1) with a nonlinearity Φ of Lipschitz constant LΦ ≤ 1 (e.g. tanh ): (Sufficient) a sufficient condition for the ESP is ∥Wr∥2 < 1,where ∥ · ∥ 2 denotes the matrix 2-norm (largest singular value σmax (Wr)); (Necessary) a necessary condition for the ESP is ρ(Wr) ≤ 1.
+
+Having established the computational challenges of standard ESNs, the primary motivation of FRESCO, we now briefly survey State Space Models, a parallel line of work that addresses sequence modeling from a deep learning perspective. 
+
+State Space Models. Deep state space models (SSMs) are an alternative architecture that was introduced to overcome the vanishing gradient problem in traditional recurrent neural networks [ 24 ]. This was achieved by replacing the nonlinear recurrence in RNNs with a linear projection that is optimized for long memory time constants [ 24 , 8, 5]. A number of improvements of SSMs have been published, including the use of the FFT to increase learning speed [ 9 , 1]. Modern SSMs reach state of the art performance on complex tasks including natural language modeling [ 14 , 7 ]. ESNs and SSMs are built on top of related principles and theoretical considerations regarding stability and long memory constant. Recent analyses have further sharpened the theoretical bridge between ESNs and deep SSMs: both families can be cast as kernel machines over impulse responses, with ESNs realizing high-dimensional random kernels and SSMs realizing structured, optimized ones [ 22 ]. SSMs are typically trained end-to-end using backpropagation through time, which enables the recurrent weights to be included in the training process. In contrast, ESNs usually maintain fixed recurrence and only train the readout using convex optimization, which substantially increases training speed at the expense of task performance. Our proposed FRESCO architecture preserves the fixed-recurrence architecture and ultra-fast, closed-form readout optimization of traditional ESNs, and furthermore achieves the highly favorable sub-quadratic scaling characteristic of modern SSMs. 
+
+## 3 FRESCO 
+
+The core innovation of FRESCO is to i) reformulate the standard ESN of Eq. (1) in the frequency domain to exploit the inherent efficiencies of frequency-domain processing techniques, yet ii) system-atically circumvent costly FFTs usually associated with these approaches. The FRESCO concept is outlined and compared to a standard ESN in Figure 1. It comprises a novel method for efficiently embedding arbitrary inputs into the frequency domain, executing the recurrent updates in the fre-quency domain, and performing readouts without requiring subsequent FFTs on the reservoir state. Combined, this reduces the per-step computational complexity to scale strictly linearly with the reservoir size. As a foundational baseline for the reformulation in frequency domain, we first consider the case where weight matrices of Eq. (1) are constrained to be circulant. 
+
+Definition 2 (Circulant matrix) . A matrix W ∈ RM ×M is called a circulant matrix if each row is a cyclic right shift of the row above it. It is fully specified by its first column, denoted as w ∈ RM .Consequently, the elements of W satisfy Wi,j = w(i−j) mod M .
+
+The profound advantage of this constraint is that circulant matrices are natively diagonalized by the DFT, enabling the circular convolution theorem (Lemma 1). 
+
+Lemma 1 (Circular convolution theorem [ 20 ]) . Let W ∈ RM ×M be a circulant matrix with first column w ∈ RM , and let x ∈ RM be an arbitrary vector. The matrix-vector product y = Wx is equivalent to the circular convolution y = w ⋆ x. In the frequency domain, this operation is given by 
+
+F(y) = F{ w} ⊙ F{ x} (2) 
+
+where F{·} denotes the DFT and ⊙ represents the element-wise (Hadamard) product. 
+
+Lemma 1 thus allows us to replace the costly matrix-vector multiplications of Eq. (1) with element-wise complex multiplications. This yields the leaky ESN state update in the frequency domain: 
+
+ˆrt = (1 − τ ) ˆ rt−1 + τ ˆΦ
+
+
+
+ˆwx ⊙ ˆxt + ˆ wr ⊙ ˆrt−1 + ˆb
+
+
+
+, (3) where ˆr, ˆx, and ˆb are the frequency domain vector representations of the reservoir state, input data, and bias, respectively. ˆwx and ˆwr denote the Fourier-transformed first columns of circulant weight matrices Wx and Wr. ˆΦ represents a non-linear activation function applied in frequency domain. 4For reasons elaborated upon below, the FRESCO approach generalizes the 1D circular convolution formulation of Eq. (3) to a 2D convolution formulation given in Eq. (4), as follows: 
+
+ˆRt = (1 − τ ) ˆRt−1 + τ ˆΦ
+
+ ˆWx ⊙ ˆXt + ˆWr ⊙ ˆRt−1 + ˆB
+
+
+
+. (4) Here, ˆR, ˆX, ˆB, ˆWr, and ˆWx are complex-valued matrices in CN1×N2 , representing the 2D frequency-domain reservoir state, input data, bias, and weights. The dimensions N1 and N2 are determined by the input size and the total number of reservoir neurons, as explained in the following. 
+
+Input embedding. While Eq. (3) yields an elegant O(N ) update, transforming a lower-dimensional input xt ∈ RNx into the frequency domain ˆxt ∈ CN introduces computational overhead we seek to minimize. While zero-padding is a standard technique for matching dimensionalities with static convolution kernels in frequency domain, applying it to the dynamic input xt necessitates computing an N -point DFT at every time step, incurring an O(N log N ) cost. To circumvent this, FRESCO generalizes the 1D circular convolutions of Eq. (3) to 2D circular convolutions. By restructuring the reservoir state into 2D matrices (Eq. (4) ), we enable a highly efficient strategy called dimensional zero-padding. Rather than padding the 1D input along its existing axis, we embed xt by appending zeros along a new second dimension to form a padded matrix Xzp .As formally proved in Theorem 1 (Appendix A.1.5), the 2D DFT ˆX = F{ Xzp } can be expressed solely by the Nx-point DFT ˆxt = F{ xt}. The embedding in Eq. (4) therefore becomes: 
+
+ˆWx ⊙ ˆXt = ˆWx ⊙ ˆxt = ˆWx ⊙ F{ xt}, (5) where the column vector ˆxt is broadcasted for element-wise multiplication with the columns of the 2D input weights ˆWx (Figure 1, left). This reduces the embedding complexity to O(Nx log Nx) while perfectly preserving the functional goal of the convolutions. Timing experiments (Appendix A.1) demonstrate its superior empirical efficiency over alternative methods. Intuitively, this strategy folds the standard 1D reservoir into a 2D spatial grid of dimensions Nx × NNx ,where the first axis is determined by the input size Nx. By utilizing a real-to-complex 2D FFT representation (RFFT), FRESCO exploits conjugate symmetry to compactly embed the frequency-domain representations within the space CN1×N2 , where N1 = ⌊Nx/2⌋ + 1 and N2 = N/N x
+
+(assuming N is a multiple of Nx). The packed frequency-domain readout procedure (detailed below) inherently resolves any minor redundancies remaining in this compressed representation. 
+
+Recurrence weights. In standard ESNs, bounding the spectral radius of Wr to satisfy the Echo State Property (ESP) requires an expensive O(N 3) decomposition. FRESCO bypasses this bottleneck by sampling the weight matrix ˆWr directly in the frequency domain. This yields a profound theoretical advantage: the frequency-domain weight elements correspond exactly to the eigenvalues of the convolution operator. Because the recurrence term ˆWr ⊙ ˆR in Eq. (4) relies on element-wise multiplication, its eigenvectors are simply the standard basis matrices E(i,j ). The eigenvalues naturally emerge from ˆWr ⊙ E(i,j ) = ˆWr[i, j ] · E(i,j ) as the individual elements ˆWr[i, j ]. Treating 
+
+CN1×N2 as a Euclidean space under the Frobenius norm, the spectral radius of the Hadamard operator 
+
+L(·) = ˆWr ⊙ (·), and hence of the spatial recurrent matrix Wr whose eigenvalues are precisely the entries of ˆWr, is therefore: 
+
+ρ(L) = max  
+
+> i,j
+
+| ˆWr[i, j ]| = ρ(Wr), (6) directly readable from the entries of ˆWr at zero cost, with no eigendecomposition. Consequently, sampling the recurrence weights directly in the frequency domain enables explicit shaping of the eigenvalue spectrum, such as constraining the complex eigenvalues ˆWr[i, j ] to a specific radial ring. This grants FRESCO fine-grained control over the reservoir’s temporal properties at zero marginal cost. Since these parameters are strictly initialized and maintained in the frequency domain, their spatial representation is never explicitly computed. 
+
+Non-linearity. We apply the complex activation function 
+
+invabs( z) = αz 
+
+1 + |z| (7) 5element-wise to the frequency-domain reservoir state, where the scaling factor α is a tunable hyper-parameter. This introduces the required non-linearity and strictly bounds the magnitude of the state components below α. Because the denominator is strictly real and positive, this operation preserves the phase of z. Moreover, invabs admits a Lipschitz constant equal to α, a property that enables the ESP characterization derived below for FRESCO. However, purely point-wise recurrence inherently isolates the dynamics of each frequency bin, which can restrict overall network expressivity. To address this limitation and systematically investigate the impact of cross-frequency coupling, we introduce two variants of the FRESCO architecture, denoted as FRESCO (plain) and FRESCO (mix). FRESCO (plain) applies the non-linearity ˆΦ( z) = invabs( z), Eq. (7) . FRESCO (mix) introduces a structural mixing mechanism. In addition to the invabs activation, we apply a discrete circular shift to the flattened pre-activation matrix. By establishing a single-cycle ring topology directly within the frequency domain, feeding the state of vector bin i into the adjacent bin i + 1 , we elegantly couple the frequency components without sacrificing the optimal scaling of point-wise frequency-domain operations. This choice is principled, as it provides deterministic cross-frequency coupling without introducing learnable parameters or additional computational overhead. By the Fourier shift theorem, this shift induces a global, complex phase modulation in the spatial-domain state. Upon activation, this modulation drives rich, cross-frequency harmonic mixing. In both variants, the subsequent packed frequency-domain readout (discussed in the following section) implicitly projects the state back to the real domain by extracting only the components corresponding to a real-to-complex representation of the frequency-domain reservoir. 
+
+Readout and training. The reservoir output yt is typically defined as a real-valued vector in the spatial domain. A naive readout strategy would require mapping the complex frequency-domain state ˆRt back to the spatial domain via an inverse FFT at each time step: rt = vec (F−1{ ˆRt}).FRESCO bypasses this costly transformation by introducing a packed frequency-domain readout. This mechanism executes training (via standard ridge regression) and inference (via a real-valued linear readout) natively on the frequency-domain representation, completely eliminating computational overhead while maintaining mathematical equivalence to a training process performed explicitly on the inverse-transformed reservoir states. This equivalence stems from the unitary nature of the normalized DFT: performing ridge regression on the flattened complex state vec ( ˆR) is mathematically identical to training on the spatial states (Propo-sition 4, Appendix A.2.4). However, directly utilizing raw frequency-domain states is suboptimal, as their inherent Hermitian symmetries retain redundant parameters and compel inefficient complex arithmetic for an ultimately real-valued target. This structural inefficiency persists whether operating natively on complex numbers, or simply reinterpreting the state as interleaved real values. To resolve this, we introduce a packing operation P{·} that extracts the non-redundant degrees of freedom from 
+
+ˆRt into a dense, real-valued vector pt = P{ ˆRt} ∈ RN in a highly efficient, memory-contiguous way. The final readout is simply: 
+
+yt = Wp · pt, (8) where Wp is the learned weight matrix, matching the exact trainable parameter count of a stan-dard ESN. Because P{·} acts as a scaled unitary operation (formally proved in Proposition 4, Appendix A.2.5), ridge regression on p remains mathematically equivalent to training on the spatial states, up to a global scaling factor absorbed by the regularization term (Corollary 1, Appendix A.2.4). For a hardware-efficient implementation of P{·} , we represent ˆR using a custom axis-reordered 2D RFFT format. Standard 2D RFFT formats scatter non-redundant frequency components across non-contiguous memory segments, necessitating costly copying or strided memory gathering. Our custom format consolidates these components into a single contiguous block (Appendix A.2), extracting 
+
+p using a hardware-efficient memory view. Consequently, FRESCO’s per-step readout complexity strictly matches the standard ESN approach as demonstrated in Figure 1. 
+
+Echo State Property. Two ingredients enable a complete ESP characterization for both FRESCO variants, in analogy with Proposition 1: the identity ρ(L) = max i,j | ˆWr[i, j ]| (Eq. (6) ), which makes the spectral radius directly readable from ˆWr, and the Lipschitz constant LˆΦ = α. We provide a sufficient and a necessary condition below. 6Proposition 2 (Sufficient condition for FRESCO ESP) . If α · max i,j | ˆWr[i, j ]| < 1, then FRESCO satisfies the Echo State Property. 
+
+The condition holds for both variants; see Appendix A.3.1 for the proof. 
+
+Proposition 3 (Necessary condition for FRESCO ESP) . A necessary condition for FRESCO to satisfy the Echo State Property is 
+
+> N1
+
+Y
+
+> i=1
+> N2
+
+Y
+
+> j=1
+
+| ˆWr[i, j ]|
+
+
+
+> 1/N
+
+≤ 1
+
+α . (9) This condition is derived for FRESCO (mix), where the circular-shift mixing creates a gen-uine gap with the sufficient condition. For FRESCO (plain) the necessary condition reduces to 
+
+max i,j | ˆWr[i, j ]| ≤ 1/α , closing the gap. Proofs and a detailed discussion are provided in Ap-pendix A.3.2. 
+
+## 4 Experiments 
+
+We evaluate FRESCO along three complementary axes using two proposed variants. FRESCO (plain) keeps frequencies isolated, applying only the non-linear invabs activation (Eq. (7) ), whereas FRESCO (mix) introduces additional deterministic single-cycle mixing to drive cross-frequency memory interactions. First, we compare these variants against standard ESNs on classical RC re-gression benchmarks (NARMA10, Mackey-Glass [ 12 ]) to assess baseline predictive capabilities, dimensional scaling, and inference speeds. Second, we evaluate these same RC models on ten datasets from the UCR archive [ 3] to test sequence-level discrimination. Finally, for multivariate long-horizon forecasting (ETT, Solar, Weather [ 25 , 15 ]), we shift our comparison from RC baselines to contemporary deep sequence models to investigate FRESCO’s potential as a highly energy-efficient alternative for complex predictive tasks. For all tasks and models, hyperparameters are tuned on a validation split via an Optuna TPE search with Hyperband pruning. The optimal configuration is then retrained on the combined train and validation data and evaluated on a held-out test set. We report the mean and standard deviation across multiple random initializations. Full details regarding dataset properties, the exact train, validation, and test splits for each dataset, and hyperparameter search ranges are given in Appendix C. 
+
+4.1 Classical RC regression benchmarks 
+
+For NARMA10, the input signal xt is sampled uniformly in (0 , 0.05) , and the target sequence is generated by yt = 0 .3yt−1 + 0 .05 yt−1
+
+P10  
+
+> i=1
+
+yt−i + 1 .5xt−10 xt−1 + 0 .1. This task requires the model to combine nonlinear computation with memory over the previous ten steps, allowing to test nonlinear temporal processing capabilities under controlled conditions. For Mackey-Glass, we use the chaotic time-delay system dx (t) 
+
+> dt
+
+= 0.2x(t−17) 1+ x(t−17) 10 − 0.1x(t) and evaluate 84-step-ahead forecasting, i.e. the model receives xt and predicts xt+84 .Figure 2 illustrates the quality-efficiency trade-off by plotting test NRMSE against end-to-end per-step inference time for varying reservoir sizes. In terms of predictive performance, FRESCO (mix) achieves the lowest overall error on Mackey-Glass and matches standard ESN configurations on NARMA10. It substantially outperforms FRESCO (plain) on both tasks, indicating that cross-frequency mixing is essential for capturing highly non-linear temporal dynamics. Computationally, both FRESCO variants exhibit superior scaling behavior, running up to two orders of magnitude faster than dense ESNs for the largest reservoirs. 
+
+4.2 Time-series classification 
+
+We evaluate sequence-level discrimination on ten datasets from the UEA & UCR repository [ 3](listed in Table 1) using the aeon library [ 18 ]. We use average pooling over the packed reservoir states to extract a single feature vector for the readout classifier (details in Appendix C.1.2). As detailed in Table 1, FRESCO achieves competitive predictive performance alongside substantial inference speedups over standard ESNs, reaching up to a factor of 26. The sole exception is the 7Figure 2: Performance scaling for Mackey-Glass (left) and NARMA10 (right) for reservoir sizes 
+
+∈ { 128 , 256 , 512 , 1024 , 2048 , 4096 }. Plots show mean and standard deviation of NRMSE versus end-to-end execution time from input to output for a single time step across 20 random initializations. Table 1: Mean classification test accuracy with standard deviation across ten random initializa-tions. Best results are highlighted in bold. The speedup factor compares the inference time of the highest-accuracy FRESCO model against ESN.                                             
+
+> Dataset ESN FRESCO (plain) FRESCO (mix) Speedup Adiac 0.648 ±0.005 0.686 ±0.017 0.609 ±0.013 2.7×
+> FordA 0.892 ±0.003 0.900 ±0.009 0.908 ±0.006 2.3×
+> JapaneseVowels 0.975 ±0.001 0.962 ±0.005 0.988 ±0.004 9.3×
+> Libras 0.831 ±0.008 0.764 ±0.011 0.778 ±0.008 0.1×
+> Lightning2 0.674 ±0.009 0.711 ±0.008 0.726 ±0.008 26 .0×
+> Lightning7 0.571 ±0.029 0.664 ±0.021 0.815 ±0.019 25 .7×
+> PEMS-SF 0.750 ±0.024 0.747 ±0.013 0.734 ±0.007 2.8×
+> ShapesAll 0.796 ±0.004 0.809 ±0.006 0.790 ±0.005 2.0×
+> Wafer 0.996 ±0.000 0.993 ±0.001 0.994 ±0.001 5.1×
+> Yoga 0.857 ±0.005 0.809 ±0.012 0.789 ±0.005 7.4×
+
+Figure 3: Critical difference diagrams of model accuracy (top) and inference time (bottom), con-firming statistically indistinguishable predictive performance but significantly faster inference speeds of the FRESCO models. 
+
+Libras dataset, where hyperparameter optimization selected a computationally light ESN ( N = 256 )paired with a comparatively large FRESCO configuration ( N = 2048 ). As expected, the timing critical-difference (CD) diagram (Figure 3, bottom) confirms the general FRESCO speed advantage. Crucially, this efficiency comes at no statistical cost to performance: the accuracy CD diagram (Figure 3, top) groups all models into a single clique based on the standard Wilcoxon procedure [4]. Finally, the per-dataset results indicate that the optimal FRESCO variant is task-dependent. 
+
+4.3 Long-horizon multivariate forecasting 
+
+Finally, we benchmark FRESCO on multivariate long-horizon forecasting (ETT, Solar, Weather) with a fixed 96-step lookback and prediction horizons H ∈ { 96 , 192 , 336 , 720 }. We compare FRESCO and ESNs against three deep sequence baselines: LSTM [ 10 ], Mamba [ 7], and Transformer [ 23 ]. Deep baselines are implemented as encoder-only one-shot forecasters, while reservoir models apply a ridge readout to the mean-pooled final state of the encoder window. Details on pre-processing, optimization, and deep learning baselines are given in Appendices C.2.3-C.2.4. Figure 4 illustrates the resulting accuracy-energy-time trade-off. Data refer to the final selected configuration for each model on each dataset and prediction horizon (full numerical results in Appendix D, Table 7). Figure 4 confirms that FRESCO is consistently competitive with or superior to all general-purpose sequence baselines across all datasets and prediction horizons. FRESCO occupies a highly favorable regime: it matches or exceeds the predictive accuracy of the deep baselines while consuming up to three orders of magnitude less energy (measured in kWh). This dramatic reduction correlates directly with FRESCO’s minimal training and inference times, demonstrating that frequency-domain reservoirs preserve much of the accuracy of substantially more expensive sequence models at a fraction of the environmental cost. While also standard ESNs avoid backpropagation, 8Table 2: Forecasting results with selected models and state-of-the-art deep learning baselines taken from [16]. Best and second best are colored red and blue, respectively. 
+
+Models FRESCO (mix) FRESCO (plain) iTransformer PatchTST TimesNet FEDformer Autoformer Ours Ours [16] [19] [26] [28] [25] Dataset Horizon MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE ETTm1  96 0.349 0.389 0.349 0.390 0.334 0.368 0.329 0.367 0.338 0.375 0.379 0.419 0.505 0.475 192 0.398 0.423 0.394 0.419 0.377 0.391 0.367 0.385 0.374 0.387 0.426 0.441 0.553 0.496 336 0.446 0.457 0.450 0.461 0.426 0.420 0.399 0.410 0.410 0.411 0.445 0.459 0.621 0.537 720 0.603 0.555 0.607 0.558 0.491 0.459 0.454 0.439 0.478 0.450 0.543 0.490 0.671 0.561 ETTm2  96 0.183 0.288 0.184 0.289 0.180 0.264 0.175 0.259 0.187 0.267 0.203 0.287 0.255 0.339 192 0.262 0.353 0.262 0.353 0.250 0.309 0.241 0.302 0.249 0.309 0.269 0.328 0.281 0.340 336 0.391 0.450 0.387 0.448 0.311 0.348 0.305 0.343 0.321 0.351 0.325 0.366 0.339 0.372 720 0.719 0.652 0.743 0.664 0.412 0.407 0.402 0.400 0.408 0.403 0.421 0.415 0.433 0.432 Solar  96 0.215 0.315 0.230 0.333 0.203 0.237 0.234 0.286 0.250 0.292 0.242 0.342 0.884 0.711 192 0.241 0.330 0.248 0.348 0.233 0.261 0.267 0.310 0.296 0.318 0.285 0.380 0.834 0.692 336 0.300 0.379 0.274 0.364 0.248 0.273 0.290 0.315 0.319 0.330 0.282 0.376 0.941 0.723 720 0.283 0.351 0.295 0.381 0.249 0.275 0.289 0.317 0.338 0.337 0.357 0.427 0.882 0.717 Weather  96 0.153 0.232 0.155 0.235 0.174 0.214 0.177 0.218 0.172 0.220 0.217 0.296 0.266 0.336 192 0.197 0.278 0.196 0.277 0.221 0.254 0.225 0.259 0.219 0.261 0.276 0.336 0.307 0.367 336 0.254 0.327 0.250 0.322 0.278 0.296 0.278 0.297 0.280 0.306 0.339 0.380 0.359 0.395 720 0.308 0.367 0.309 0.365 0.358 0.347 0.354 0.348 0.365 0.359 0.403 0.428 0.419 0.428 
+
+their dense recurrent scaling often requires extremely large reservoirs to solve complex tasks, leading to substantial energy footprints. 0 1 2 3 4 5  
+
+> Final test MSE mean
+> 10 2
+> 10 1
+> 10 0
+> Energy (kWh)
+> MSE vs energy; bubble size = total time
+> Model
+> LSTM
+> Mamba
+> Transformer
+> FRESCO (mix)
+> FRESCO (plain)
+> ESN
+> Bubble size:
+> Train. + infer. time (s)
+> 0.77
+> 21.8
+> 1.48e+03
+
+Figure 4: Accuracy, energy, and runtime (train-ing and inference) for long-horizon forecasting, showing FRESCO’s superior efficiency. To further contextualize these results, Table 2 com-pares FRESCO against specialized, highly tuned forecasting architectures evaluated under identical 96-step lookback conditions [ 16 ]. This compari-son is intentionally demanding. Despite relying on a generic five-hour hyperparameter search, fixed recurrent dynamics, and a closed-form readout, FRESCO achieves performance on par with task-specific deep forecasting models. This establishes FRESCO as a highly competitive baseline for long-horizon multivariate forecasting with substantially lower training and inference cost. 
+
+## 5 Conclusion 
+
+FRESCO demonstrates that the computational bot-tlenecks of dense recurrent layers can be elegantly bypassed by shifting computation to the frequency domain. While achieving strictly linear scaling requires constraining recurrent connectivities to circular convolutions, the absence of statistically significant accuracy differences across our classification benchmarks confirms that this structural prior does not systematically compromise expressivity. Empirically, FRESCO achieves highly fa-vorable scaling for both input embedding and recurrent updates, surpassing the inference speeds of standard ESNs. Beyond sheer speed, it matches the predictive accuracy of heavily parameterized deep sequence models on complex, long-horizon multivariate forecasting while consuming up to three orders of magnitude less energy. Ultimately, this proves that the mathematical elegance of the frequency domain offers a powerful, highly sustainable alternative to more resource-intensive sequence modeling approaches. Future work will further exploit the dimensional zero-padding embedding to scale to even higher-dimensional data, such as 2D spatial inputs. Additionally, because the optimal choice between isolated frequency dynamics and cross-frequency mixing proved task-dependent, investigating novel frequency-domain non-linearities remains a promising avenue to further enhance the expressivity of the FRESCO reservoir. 9References 
+
+[1] N. R. Chilkuri and C. Eliasmith. Parallelizing legendre memory unit training. In International conference on machine learning , pages 1898–1907. PMLR, 2021. [2] B. Courty, V. Schmidt, B. Feld, J. Lecourt, M. Léval, L. Blanche, A. Cruveiller, F. Zhao, A. Joshi, A. Bogroff, et al. mlco2/codecarbon: v2. 4.1. Zenodo , 2024. [3] H. A. Dau, A. Bagnall, K. Kamgar, C.-C. M. Yeh, Y. Zhu, S. Gharghabi, C. A. Ratanamahatana, and E. Keogh. The ucr time series archive. IEEE/CAA Journal of Automatica Sinica , 6(6): 1293–1305, 2019. doi: 10.1109/JAS.2019.1911747. [4] J. Demšar. Statistical comparisons of classifiers over multiple data sets. Journal of Machine learning research , 7(Jan):1–30, 2006. [5] D. Y. Fu, T. Dao, K. K. Saab, A. W. Thomas, A. Rudra, and C. Ré. Hungry hungry hippos: Towards language modeling with state space models. arXiv preprint arXiv:2212.14052 , 2022. [6] C. Gallicchio, A. Micheli, and L. Pedrelli. Fast spectral radius initialization for recurrent neural networks. In INNS Big Data and Deep Learning conference , pages 380–390. Springer, 2019. [7] A. Gu and T. Dao. Mamba: Linear-time sequence modeling with selective state spaces. arXiv preprint arXiv:2312.00752 , 2023. [8] A. Gu, T. Dao, S. Ermon, A. Rudra, and C. Ré. Hippo: Recurrent memory with optimal polynomial projections. Advances in neural information processing systems , 33:1474–1487, 2020. [9] A. Gu, K. Goel, and C. Ré. Efficiently modeling long sequences with structured state spaces. 
+
+arXiv preprint arXiv:2111.00396 , 2021. [10] S. Hochreiter and J. Schmidhuber. Long short-term memory. Neural computation , 9(8): 1735–1780, 1997. [11] H. Jaeger. The "echo state" approach to analysing and training recurrent neural networks-with an erratum note. Technical Report 148, German National Research Center for Information Technology GMD Bonn, Germany, 2001. [12] H. Jaeger and H. Haas. Harnessing nonlinearity: Predicting chaotic systems and saving energy in wireless communication. science , 304(5667):78–80, 2004. [13] H. Jaeger, M. Lukoševiˇ cius, D. Popovici, and U. Siewert. Optimization and applications of echo state networks with leaky-integrator neurons. Neural networks , 20(3):335–352, 2007. [14] A. Lahoti, K. Y. Li, B. Chen, C. Wang, A. Bick, J. Z. Kolter, T. Dao, and A. Gu. Mamba-3: Improved sequence modeling using state space principles. arXiv preprint arXiv:2603.15569 ,2026. [15] G. Lai, W.-C. Chang, Y. Yang, and H. Liu. Modeling long-and short-term temporal patterns with deep neural networks. In The 41st international ACM SIGIR conference on research & development in information retrieval , pages 95–104, 2018. [16] Y. Liu, T. Hu, H. Zhang, H. Wu, S. Wang, L. Ma, and M. Long. itransformer: Inverted transformers are effective for time series forecasting. In The Twelfth International Conference on Learning Representations , 2024. URL https://openreview.net/forum?id=JePfAI8fah .[17] M. Lukoševiˇ cius and H. Jaeger. Reservoir computing approaches to recurrent neural network training. Computer Science Review , 3(3):127–149, 2009. ISSN 1574-0137. doi: https:// doi.org/10.1016/j.cosrev.2009.03.005. URL https://www.sciencedirect.com/science/ article/pii/S1574013709000173 .[18] M. Middlehurst, A. Ismail-Fawaz, A. Guillaume, C. Holder, D. Guijo-Rubio, G. Bulatova, L. Tsaprounis, L. Mentel, M. Walter, P. Schäfer, and A. Bagnall. aeon: a python toolkit for learning from time series. Journal of Machine Learning Research , 25(289):1–10, 2024. URL 
+
+http://jmlr.org/papers/v25/23-1444.html .10 [19] Y. Nie, N. H. Nguyen, P. Sinthong, and J. Kalagnanam. A time series is worth 64 words: Long-term forecasting with transformers. In The Eleventh International Conference on Learning Representations , 2023. URL https://openreview.net/forum?id=Jbdc0vTOcol .[20] A. V. Oppenheim, R. W. Schafer, and J. R. Buck. Discrete-Time Signal Processing . Prentice Hall, 2nd edition, 1999. [21] A. Orvieto, S. L. Smith, A. Gu, A. Fernando, C. Gulcehre, R. Pascanu, and S. De. Resurrecting recurrent neural networks for long sequences. In International conference on machine learning ,pages 26670–26698. PMLR, 2023. [22] P. Singh and B. Raman. Echo state networks as state-space models: A systems perspective. 
+
+arXiv preprint arXiv:2509.04422 , 2025. [23] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, Ł. Kaiser, and I. Polosukhin. Attention is all you need. Advances in neural information processing systems ,30, 2017. [24] A. Voelker, I. Kaji´ c, and C. Eliasmith. Legendre memory units: Continuous-time representation in recurrent neural networks. Advances in neural information processing systems , 32, 2019. [25] H. Wu, J. Xu, J. Wang, and M. Long. Autoformer: Decomposition transformers with auto-correlation for long-term series forecasting. Advances in neural information processing systems ,34:22419–22430, 2021. [26] H. Wu, T. Hu, Y. Liu, H. Zhou, J. Wang, and M. Long. Timesnet: Temporal 2d-variation modeling for general time series analysis. In The Eleventh International Conference on Learning Representations , 2023. URL https://openreview.net/forum?id=ju_Uqw384Oq .[27] M. Yan, C. Huang, P. Bienstman, P. Tino, W. Lin, and J. Sun. Emerging opportunities and challenges for the future of reservoir computing. Nature Communications , 15(1):2056, 2024. [28] T. Zhou, Z. Ma, Q. Wen, X. Wang, L. Sun, and R. Jin. FEDformer: Frequency enhanced decomposed transformer for long-term series forecasting. In K. Chaudhuri, S. Jegelka, L. Song, C. Szepesvari, G. Niu, and S. Sabato, editors, Proceedings of the 39th International Conference on Machine Learning , volume 162 of Proceedings of Machine Learning Research , pages 27268– 27286. PMLR, 17–23 Jul 2022. URL https://proceedings.mlr.press/v162/zhou22g. html .11 A Proofs and theoretical analysis 
+
+A.1 Contribution: Input embedding by dimensional zero-padding 
+
+In the FRESCO architecture, the primary computational advantage stems from exploiting the circular convolution theorem, which replaces dense O(N 2) matrix-vector multiplications with highly efficient 
+
+O(N ) element-wise operations in the frequency domain. However, to execute these point-wise recurrent updates, an external real-valued input vector x ∈ RNx must first be transformed into the potentially substantially larger frequency-domain representation of the reservoir of size N (where 
+
+Nx < N ). Because element-wise operations require strictly matching dimensions, the low-dimensional input x
+
+must be mathematically expanded and transformed to match the full dimensionality of the frequency-domain reservoir state. The critical requirement here is to ensure that the involved Fast Fourier Transform (FFT) from the spatial to the frequency domain does not introduce a new computational bottleneck. If mapping the input into the frequency domain scales poorly, this overhead could offset the algorithmic efficiency gained during the recurrent updates. Specifically, an optimal input embedding mechanism must seamlessly combine both the random projection by the input weights and the Fourier transformation, ultimately yielding a compatible, full-resolution complex-valued representation. In the following Sections A.1.1 to A.1.3, we analyze three different approaches to computing a frequency-domain embedding. In the benchmark Section A.1.4, we will prove the effectiveness of the proposed dimensional zero-padding technique compared to the other two options. 
+
+A.1.1 Option 1: Complex dense layer embedding 
+
+In a standard Echo State Network (ESN), the contribution of a real-valued input vector x ∈ RNx
+
+to a higher-dimensional reservoir r ∈ RN (where N > N x) is computed via the real-valued dense projection of Eq. (10), using an input weight matrix Wx ∈ RN ×Nx .
+
+Dense layer embedding (baseline) 
+
+Wx · x (10) To natively embed this input into the frequency domain, we can formulate an analogous complex dense layer embedding . By exploiting the linearity of the Fourier transform, the effective frequency-domain input weights can be analytically derived by left-multiplying the spatial weights by the Discrete Fourier Transform (DFT) matrix F ∈ RN ×N , such that ˆWx = F · Wx ∈ RN ×Nx .Because the spatial projection Wx · x is strictly real-valued, its resulting frequency-domain rep-resentation naturally exhibits Hermitian symmetry. We can eliminate this redundant information and computational overhead by restricting F to the operator of a real-to-complex FFT (RFFT). Assuming an even reservoir dimension N , this reduces the number of rows of ˆWx from N to N 
+
+> 2
+
++ 1 ,leading to ˆWx ∈ C( N  
+
+> 2+1) ×Nx
+
+. The embedding of the input x is then executed as the single complex matrix-vector product of Eq. (11). 
+
+Complex dense layer embedding 
+
+ˆWx · x (11) This is the direct algebraic translation of a real valued dense layer embedding into the frequency domain. 
+
+A.1.2 Option 2: Embedding by zero-padding 
+
+While the complex dense layer embedding explained in the previous Section A.1.1 naturally translates the spatial projection into the frequency domain, it fundamentally relies on a dense matrix-vector multiplication with a time complexity of O(N · Nx). For larger input dimensions Nx, this operation risks becoming a computational bottleneck compared to directly applying a FFT on the input, followed by element-wise operations of the circular convolution theorem. 12 To be able to directly apply a FFT to the input, we need to pad the input vector x with N − Nx zeros, yielding a padded vector xzp ∈ RN . This zero-padded vector is subsequently transformed into the frequency domain using an N -point FFT, as illustrated in Figure 5. 
+
+x
+
+> pad
+
+−−→
+
+x xzp 
+
+0 0 0 0 0 F{·} 
+
+−−−→
+
+ˆxzp =F{ xzp }
+
+Figure 5: Standard 1D zero-padding: The input vector x is padded with zeros to match the reservoir size before computing the frequency domain representation F{ xzp }. This requires an N -point DFT. Since, again, we have a real input vector we can apply the more efficient RFFT to end up with a frequency-domain representation of the input given by ˆxzp ∈ C N  
+
+> 2+1
+
+for even N . The final input embedding is then efficiently computed via the element-wise product of Eq. (12) , where ˆwx ∈ C N 
+
+> 2+1
+
+represents the frequency domain input weight vector. 
+
+Embedding by zero-padding 
+
+ˆwx ⊙ ˆxzp = ˆ wx ⊙ F{ xzp } (12) Although this strategy successfully replaces the O(N · Nx) matrix multiplication with an O(N )
+
+element-wise product, it still requires the O(N log N ) operation of a full N -point RFFT to be executed for every embedded input. 
+
+A.1.3 Option 3: Embedding by dimensional zero-padding 
+
+To circumvent the bottleneck of a full N -point RFFT in the zero-padding approach presented in the previous Section A.1.2, we introduce the concept of dimensional zero-padding. Rather than padding the one-dimensional input x along its existing dimension, we embed the input into a two-dimensional space and apply zero-padding along the newly added dimension. This allows x to act like a two-dimensional convolution kernel applied to the input weights - then also represented two-dimensional. Figure 6 provides an intuition for this process when mapping a 1D vector into a 2D matrix. As formally proved in Section A.1.5, dimensional zero-padding allows us to construct an exact high-dimensional frequency representation of the input without ever computing a N -point DFT. Instead, the computation of the full two-dimensional DFT of Xzp depends only on the Nx-point DFT of the input x.The underlying mechanics of this dimensional zero-padding can be intuitively understood through the separability property of the multidimensional DFT. Consider the 2D case illustrated in Figure 6, where a 1D input vector x is embedded into the first column of a 2D matrix, with all remaining columns padded with zeros. Because the 2D DFT is separable, it can be computed sequentially: first by applying 1D DFTs along the columns, and then along the rows. The column-wise DFT yields ˆx = F{ x} in the first column, while the transforms of all other zero-padded columns naturally remain zero. Subsequently, when the 1D DFTs are applied along the rows, each row acts as a 1D discrete impulse signal—a single non-zero value at the zeroth index followed entirely by zeros. Since the Fourier transform of such an impulse is a constant sequence, the initial non-zero value is uniformly broadcasted across the entire row. Consequently, the final 2D frequency-domain representation consists solely of identically repeated copies of ˆx = F{ x},effectively bypassing the need to compute the large 2D transform. Since ˆXzp is now a regular 2D frequency-domain representation, we can apply the circular convolution theorem in two dimensions by performing the complex element-wise product ˆWx ⊙ ˆXzp which we more shortly write in Eq. (13) as ˆWx ⊙ ˆx with the convention that ˆx gets broadcasted over the columns of ˆWx.
+
+Embedding by dimensional zero-padding 
+
+ˆWx ⊙ ˆXzp = ˆWx ⊙ ˆx = ˆWx ⊙ F{ x} (13) 13 x
+
+Xzp 
+
+0
+
+0
+
+0
+
+0
+
+0
+
+0
+
+0
+
+0
+
+0
+
+0
+
+0
+
+0
+
+0
+
+0
+
+0
+
+0
+
+ˆx = F{ x} . . . . . . . . . ˆx
+
+ˆXzp =F{ Xzp }
+
+F{·} −→ 
+
+Figure 6: Dimensional zero-padding: A 1D input vector x is embedded into a 2D space by padding zeros along the second dimension (columns). The resulting 2D DFT consists simply of repeated columns of the much smaller 1D transform ˆx = F{ x}. In practice, neither Xzp nor F{ Xzp } need to be created explicitly, since the result ˆx can be broadcast into the matrix representation of the reservoir. Compared to the standard zero-padding approach, dimensional zero-padding reduces the FFT com-plexity from O(N log N ) to O(Nx log Nx).Note: While the primary focus of this paper emphasize embedding 1D inputs into 2D frequency-domain reservoirs, the dimensional zero-padding property is generalizable to higher dimensions. The mathematical equivalence holds for tensors of arbitrary dimensions (c.f. proof in Section A.1.5). This generality provides a highly scalable framework for applications where inputs are more naturally represented in multidimensional forms, such as embedding 2D image patches or visual receptive fields into a 3D reservoir. 
+
+A.1.4 Experiment: Timing of input embedding 
+
+This experiment evaluates the computational efficiency of the various frequency-domain input embedding strategies given in Eqs. (11) , (12) , and (13) . As a baseline, we benchmark these methods against the standard real-valued dense layer embedding typically employed in standard (spatial-domain) ESNs, as given in Eq. (10) . The reported minimal runtimes encompass the computation of a single embedding of an input vector x using Eqs. (10) to (13) for different input sizes Nx and reservoir sizes N , with N = 256 Nx.As illustrated in Figure 7, the proposed dimensional zero-padding approach demonstrates significant computational advantages over both the alternative frequency-domain options and the standard ESN baseline. These results confirm that mapping spatial-domain inputs into the frequency domain does not introduce a computational bottleneck for the FRESCO architecture. Furthermore, the dimensional zero-padding method exhibits vastly superior asymptotic scaling behavior for large input-and reservoir sizes compared to standard ESN architectures. 
+
+A.1.5 Proof: Dimensional zero-padding 
+
+We formalize this generalized property for arbitrary dimensions in the following theorem and proof. 
+
+Theorem 1 (Dimensional zero-padding 1). Let x be an nx-dimensional tensor over R or C with dimensions N1 × N2 × · · · × Nnx . Let r be an nr -dimensional tensor over the same field, where 
+
+nr > n x, sharing the exact dimensions of x across its first nx axes. Let the elements of r be defined by embedding x such that all entries outside the 0-th spatial index of the newly added dimensions are zero: 
+
+r[i1, . . . , i nx , i nx+1 , . . . , i nr ] = x[i1, . . . , i nx ] · δ(inx+1 ) · · · δ(inr ) (14)  
+
+> 1Notational Convention: For mathematical convenience and consistency with standard signal processing literature, all spatial and frequency domain tensors, as well as the DFT summations in this section, are assumed to be 0-indexed.
+
+14 2 4 8 16 32 64 128 256 512 1024 
+
+> 10 −1
+> 10 0
+> 10 1
+> 10 2
+> 10 3
+> 10 4
+
+Nx (input size) 
+
+> Time ( μs)
+> Dense layer embedding (standard ESN)
+> Option 1: Complex dense layer embedding
+> Option 2: Standard zero-padding
+> Option 3: Dimensional zero-padding (FRESCO)
+> 512
+> 1024
+> 2048
+> 4096
+> 8192
+> 16384
+> 32768
+> 65536
+> 131072
+> 262144
+
+N (reservoir size) 
+
+Figure 7: Comparison of minimal computational times (lower is better) for different input embedding methods across increasing input sizes Nx and reservoir sizes N . A fixed scaling ratio of 256 reservoir neurons per input feature is maintained ( N = 256 Nx). The proposed embedding via dimensional zero-padding exhibits highly efficient scaling behavior, outperforming standard spatial-domain ESN dense layers by orders of magnitude at larger network scales. 
+
+where id ∈ { 0, 1, . . . , N d − 1} denotes the 0-indexed spatial coordinate along axis d, and δ(·) is the Kronecker delta function ( δ(0) = 1 , and 0 otherwise). Then, the nr -dimensional DFT of r, denoted as F{ r}, perfectly replicates the lower-dimensional DFT of x across all frequency indices of the padded dimensions: 
+
+F{ r}[k1, . . . , k nx , k nx+1 , . . . , k nr ] = F{ x}[k1, . . . , k nx ] (15) 
+
+where kd represents the frequency index along axis d.Proof. By definition, the nr -dimensional DFT of the padded tensor r, evaluated at the frequency indices (k1, . . . , k nr ), is given by the multi-dimensional summation: 
+
+F{ r}[k1, . . . , k nr ] = 
+
+> N1−1
+
+X
+
+> i1=0
+
+· · ·  
+
+> Nnr −1
+
+X 
+
+> inr =0
+
+r[i1, . . . , i nr ] exp −i2π
+
+> nr
+
+X
+
+> d=1
+
+idkd
+
+Nd
+
+!
+
+. (16) Substituting the definition of the elements of r into this equation yields: 
+
+F{ r}[k1, . . . , k nr ] = 
+
+> N1−1
+
+X
+
+> i1=0
+
+· · ·  
+
+> Nnr −1
+
+X 
+
+> inr =0
+
+x[i1, . . . , i nx ]
+
+> nr
+
+Y
+
+> j=nx+1
+
+δ(ij )
+
+!
+
+exp −i2π
+
+> nr
+
+X
+
+> d=1
+
+idkd
+
+Nd
+
+!
+
+.
+
+(17) We now apply the sifting property of the Kronecker delta function. For all padded dimensions 
+
+j ∈ { nx + 1 , . . . , n r }, the terms in the summation are non-zero if and only if ij = 0 . Consequently, the summations over these higher dimensions collapse entirely to the single index 0.15 When ij = 0 for all j > n x, their corresponding components in the complex exponent vanish because  
+
+> 0·kj
+> Nj
+
+= 0 , meaning e0 = 1 . This simplifies the equation to: 
+
+F{ r}[k1, . . . , k nr ] = 
+
+> N1−1
+
+X
+
+> i1=0
+
+· · ·  
+
+> Nnx −1
+
+X 
+
+> inx =0
+
+x[i1, . . . , i nx ] exp −i2π
+
+> nx
+
+X
+
+> d=1
+
+idkd
+
+Nd
+
+!
+
+. (18) We recognize this remaining summation as the exact definition of the nx-dimensional DFT of the original tensor x. The frequency indices belonging to the padded dimensions ( knx+1 , . . . , k nr ) have completely dropped out of the expression. Therefore, we arrive at: 
+
+F{ r}[k1, . . . , k nr ] = F{ x}[k1, . . . , k nx ], (19) which concludes the proof. 
+
+A.2 Contribution: Packed frequency-domain readout 
+
+To fully realize the performance benefits of a frequency-domain architecture, the abstract mathe-matical operations must be grounded in hardware-efficient data structures. The core challenge lies in designing a suitable complex 2D frequency-domain matrix and memory representation for the frequency-domain reservoir state ˆR (and the equally structured weights ˆWr, ˆWx, and biases ˆB) that simultaneously allows to utilize dimensional zero-padding, while also enabling a fast, vectorizable readout of the reservoir’s independent degrees of freedom. To allow for dimensional zero-padding (detailed in Section A.1.3), the only requirement is that the frequency-domain reservoir state is represented as a complex matrix ˆR in which one axis reflects the size of the RFFT ˆx of the embedded input (c.f. Figure 6). In this way, Eq. (13) can be used for input embedding. During the recurrent operation of the reservoir, its state must be continuously read out to compute the matrix-vector product of a dense linear readout layer. Unfortunately, the complex elements of the matrix ˆR are not perfectly suited to represent the reservoir state since it contains redundant information from Hermitian symmetries. These redundancies artificially increase the number of values to be processed during readout and can complicate the regularization dynamics in the training of the readout weights 2. As established in Proposition 5, the redundant complex frequency state ˆR
+
+of the reservoir can indeed be perfectly represented by a packed (non-redundant) real-valued vector 
+
+p = P{ ˆR} ∈ RN , (20) with the unitary packing operator P{·} , so that the linear readout can be performed using 
+
+y = Wp · p (21) where Wp ∈ RNx×N is the trained readout weight matrix. This ensures computational parity with standard spatial-domain reservoirs in terms of reservoir degrees of freedom ( N ) as well as learned parameters of the readout weight ( Nx · N ). To achieve maximum hardware efficiency during inference, the computation of Eqs. (20) and (21) should ideally rely on bulk memory operations, allowing for the use of highly optimized dense linear algebra routines (e.g., BLAS gemv ). Ideally, this requires the complex matrix ˆR to be directly reinterpreted as a contiguous 1D array of non-redundant real floating-point numbers, exploiting the native interlaced storage of complex values ( [ℜ0, ℑ0, ℜ1, ℑ1, . . . ]) without the need to actively allocate and construct p in memory. The primary obstacle to achieving the contiguous memory layout required for a packed readout lies in how standard software libraries implement multidimensional transforms, and how this scatters Hermitian-redundant information in memory. In a row-major memory architecture (such as C or Python), memory is contiguous along the last dimension (the rows) 3. Standard FFT libraries 
+
+> 2In ridge regression, penalty terms may distribute weights across perfectly coupled variables, which can subtly alter the effective regularization applied to the underlying independent degrees of freedom.
+
+16 I0 I+ I+ I0                                      
+
+> I+I+I+I+
+> I+I+I+I+
+> I0I+I+I0
+> I−I+I+I−
+> I−I+I+I−
+> I0I+I+I0I+I+I+I+I+I+I+I+I0I+I+I0I−I+I+I−I−I+I+I−
+
+Segment 1 Segment 2 Segment 3 
+
+flatten 
+
+Figure 8: Memory layout of the standard RFFT of a 6x6 matrix in a row-major memory format. Real values belonging to index group I0 (c.f. Proposition 5) are shaded gray, while complex elements (without conjugated counterpart) of group I+ are shown on white background. All other colors show redundant complex conjugated pairs ( I+, I−) as Hermitian symmetry in the first and the last column. For packed readout, we only need to extract one unique element, say I+ of each color. From the flattened in-memory order one can see that the unique complex elements ( I+) are distributed into 3 different non-consecutive segments which does not allow for an efficient bulk memory readout. using a row-major ordering effectively compute a 2D RFFT by applying a 1D RFFT along the memory-contiguous rows, followed by a full 1D FFT along the non-contiguous columns. While this ordering may be optimized for transform speed (especially for in-place RFFTs) by maximizing cache utilization, it is detrimental to our packing objectives. It weaves the redundant symmetric components intricately throughout the memory layout (c.f. Figure 8). Consequently, isolating the unique degrees of freedom from this standard output forces the programmer to explicitly allocate and construct the packed vector p using strided memory-gathering operations from different segments, thereby preventing efficient bulk memory access. 
+
+A.2.1 Axis-reordered 2D RFFT 
+
+To circumvent the memory fragmentation bottleneck, discussed above, we propose a tailored, non-standard structural reordering of the 2D RFFT, which we call the axis-reordered 2D RFFT . Specifi-cally, we first apply the 1D RFFT along the non-contiguous (column) axis, and subsequently apply the full 1D FFT along the contiguous (row axis). A simple Python implementation is shown in Listing 1. Before discussing the consequences of this transformation on the memory layout, it is worth noting that since in the discussed row-major memory architecture, the 1D RFFT is applied along the column axis, this naturally defines the dimension along which the input vector ˆx created by a 1D RFFT needs to be broadcast across the 2D input weights ˆWx (c.f. Figure 6). The specific sequence of the axis-reordered 2D RFFT fundamentally reorganizes the symmetries, grouping them in a way that aligns better with the contiguous memory layout of unique complex components (c.f. Figure 9). By applying the first 1D RFFT on the non-contiguous column axis first, the intermediate representation yields strictly real-valued sequences in its DC and Nyquist rows (the first and last rows, respectively). All intermediate rows contain uniquely complex data. When the second, full 1D FFT is subsequently applied along the memory-contiguous rows, it operates on these strictly real first and last rows to produce standard 1D Hermitian symmetries entirely within continuous memory blocks. This alignment allows the redundant symmetric halves of these specific contiguous rows to be effortlessly cut away via simple truncation. As a result, almost the entire 
+
+> 3For simplicity, we assume row-major ordering in the following discussion, though the same mechanism applies similarly to column-major architectures, like in Julia.
+
+17 import numpy as np def axis_reordered_rfft2(X): 
+
+""" Computes the axis-reordered 2D RFFT for a real matrix X of shape (K1, K2). Returns a complex array of shape (K1//2 + 1, K2). """ 
+
+return np.fft.rfft2(X, axes=(-1,-2)) 
+
+Listing 1: Example implementation of the axis-reordered 2D RFFT using Python. mass of non-redundant complex data is safely isolated and consolidated into a single, uninterrupted contiguous block as shown in Figure 9.                                            
+
+> I0I+I+I0I−I−
+> I+I+I+I+I+I+
+> I+I+I+I+I+I+
+> I0I+I+I0I−I−
+> I0I+I+I0I−I−I+I+I+I+I+I+I+I+I+I+I+I+I0I+I+I0I−I−
+
+Single contiguous memory block covering all unique complex numbers 
+
+flatten 
+
+Figure 9: Memory layout of the proposed axis-reordered RFFT. See Proposition 5 for a definition of the index groups I0, I+, and I−.
+
+A.2.2 Packed frequency-domain readout 
+
+Thanks to the axis-reordered 2D RFFT, we eliminate the need for extracting isolated memory segments from ˆR to construct p. The vast majority of the packed vector p can simply be mapped directly from a continuous memory block via a zero-overhead pointer reinterpretation. Consequently, almost the full readout matrix multiplication can be executed directly on this raw memory view using optimized linear algebra routines on CPU or GPU. The minor structural anomalies that remain (specifically, the four self-conjugate elements of I0:DC-DC, Nyquist-DC, DC-Nyquist, and Nyquist-Nyquist) are subsequently resolved using four scalar corrections per output. Moreover, instead of scaling the large number of elements of I+ as derived in Proposition 5 by √2, we only scale the remaining 4 elements of I0 by 1/√2. Although this leads to a global factor on the packed vector p, we have seen in Corollary 1 that this can be compensated for by a rescaled regularization parameter λ.Listing 2 provides an explicit implementation of the packing operation P{·} , which is practically used to accumulate sequential reservoir states into a dense feature matrix for training the readout weights via ridge regression. 
+
+A.2.3 Experiment: Timing of readout 
+
+This experiment evaluates the computational efficiency of the proposed packed frequency-domain readout defined in Eq. (21) . As a baseline, we benchmark this method against the standard real-valued dense readout layer typically employed in conventional (spatial-domain) ESNs.The reported runtimes encompass the computation of a single output vector. For FRESCO, this includes the extraction of the packed state vector p via the packing operation P{ ˆR} followed by the dense 18 import numpy as np def pack(R): 
+
+""" Packs the redundant complex representation R as e.g. obtained by R = axis_reordered_rfft2(X) into a dense, real-valued vector p of length N = K1 * K1 where (K1, K2) is the shape of the real matrix X. The original spatial domain dimensions K1 and K2 are assumed to be even. """ 
+
+K1 = 2 * (R.shape[0] - 1) K2 = R.shape[1] R_view = R.view(np.float64).flatten() 
+
+# --- Define source indices (indices of X_view) ---
+
+idx_src_dc_dc = 0 idx_src_dc_ny = K2 idx_src_ny_dc = K1 * K2 idx_src_ny_ny = idx_src_ny_dc + K2 src_start = idx_src_dc_ny + 2 src_end = idx_src_ny_ny block_len = src_end - src_start 
+
+# --- Define destination indices (indices of p) ---
+
+idx_dst_ny_dc = idx_src_ny_dc - src_start + 2 idx_dst_ny_ny = idx_dst_ny_dc + 1 
+
+# --- Copy bulk part ---
+
+p = np.empty(K1*K2, dtype = np.float64) p[2 : 2 + block_len] = R_view[src_start : src_end] 
+
+# --- Copy the scaled 4 remaining elements ---
+
+scale = 1/np.sqrt(2.0) p[0] = R_view[idx_src_dc_dc] * scale p[1] = R_view[idx_src_dc_ny] * scale p[idx_dst_ny_dc] = R_view[idx_src_ny_dc] * scale p[idx_dst_ny_ny] = R_view[idx_src_ny_ny] * scale return p 
+
+Listing 2: Example Python implementation of the packing operation p = P{ ˆR}.matrix-vector multiplication. For the baseline ESN, this consists purely of the standard matrix-vector product. We evaluate these operations across different reservoir sizes N and output sizes Ny by assuming N = 256 Ny. As illustrated in Figure 10, the packed frequency-domain readout matches the computational speed of the standard ESN baseline. These results confirm that the tailored memory reordering and the packing operation P{·} introduce negligible computational overhead. Consequently, extracting the target output directly from the complex frequency-domain reservoir state completely circumvents the need for costly inverse FFTs while fully preserving the high readout efficiency of standard ESN architectures. 19 2 4 8 16 32 64 128 256 512 1024  
+
+> 10 1
+> 10 2
+> 10 3
+> 10 4
+> 10 5
+> Ny(output size)
+> Time ( μs)
+> Dense layer readout (standard ESN)
+> Packed frequency-domain readout (FRESCO)
+> 512
+> 1024
+> 2048
+> 4096
+> 8192
+> 16384
+> 32768
+> 65536
+> 131072
+> 262144
+
+N (reservoir size) 
+
+Figure 10: Comparison of minimal computational times for packed frequency-domain readout compared to a conventional ESN readout as baseline, for increasing reservoir size N and output size 
+
+Ny. The small differences confirm that the packing operation p = P{ ˆR} is negligible compared to the actual matrix-vector products. 
+
+A.2.4 Proof: Invariance of ridge regression under unitary transformation 
+
+In this section, we established that the optimal weights obtained via ridge regression are mathemati-cally invariant under unitary transformations of the feature space. This powerful property guarantees that training a reservoir readout yields equivalent results whether performed in the spatial- or fre-quency domain, or the packed reservoir representation, provided the transformation between them is unitary (such as the normalized DFT, or the packing operation as shown in the subsequent section). 
+
+Proposition 4 (Ridge regression under unitary feature transformations) . Let Y ∈ Ck×n be a target matrix and R ∈ Cp×n be a feature matrix. Let W be the weight matrix minimizing the ridge regression objective for the original features R. Consider a unitary linear transformation matrix 
+
+D ∈ Cp×p (such that D†D = DD † = I, where † denotes the Hermitian transpose). Then, the weight matrix WD minimizing the ridge regression objective for the transformed features DR is equivalent to the original weights transformed by D−1:
+
+WD = W D −1.
+
+Thus, performing ridge regression in the transformed domain is mathematically equivalent to the original domain, and the corresponding weights can be recovered by post-multiplying the transformed weights by D.Proof. The ridge regression objective for the original data is to minimize: 
+
+L(W ) = ∥Y − W R ∥2 
+
+> F
+
++ λ∥W ∥2 
+
+> F
+
+,
+
+where λ is the regularization parameter. Setting the gradient of L(W ) with respect to W to zero yields the standard solution: 
+
+W = Y R †(RR † + λI )−1
+
+20 When applying the transformation D so that R is replaced by DR , we seek the weight matrix WD
+
+that minimizes: 
+
+L(WD ) = ∥Y − WD (DR )∥2 
+
+> F
+
++ λ∥WD ∥2
+
+> F
+
+Setting the gradient of L(WD ) to zero and solving for the transformed data yields: 
+
+WD = Y (DR )†(( DR )( DR )† + λI )−1
+
+Expanding the Hermitian transpose (DR )† = R†D† leads to: 
+
+WD = Y R †D†(DRR †D† + λI )−1
+
+Because D is a unitary matrix, it satisfies DD † = I. We can therefore rewrite the identity matrix I
+
+in the regularization term as DD †. Substituting this yields: 
+
+WD = Y R †D†(DRR †D† + λDD †)−1
+
+WD = Y R †D†[D(RR † + λI )D†]−1
+
+Applying the matrix inverse property (ABC )−1 = C−1B−1A−1:
+
+WD = Y R †D†(D†)−1(RR † + λI )−1D−1
+
+Since D†(D†)−1 = I for unitary matrices, the expression simplifies to: 
+
+WD = Y R †(RR † + λI )−1D−1
+
+Recognizing the original definition of W , we perfectly recover the spatial weights post-multiplied by 
+
+D−1 (or D†): 
+
+WD = W D −1 = W D †
+
+Depending on the normalization of the DFT and the explicit frequency representation used, this equivalence holds up to a pre-factor that can be absorbed in the regularization: 
+
+Corollary 1 (Scaled unitary transformations) . If D applies a uniform scale alongside a unitary transformation such that D†D = cI for some positive real scalar c, mathematical equivalence is maintained by adjusting the regularization parameter to λ′ = λ/c , yielding WD = W (λ′)D−1.Remark 1 (Independence from numerical solvers) . The mathematical equivalence demonstrated in Proposition 4 is a fundamental property of the ridge regression objective. Therefore, the invariance holds strictly true regardless of the numerical method used to compute the matrix inversion (e.g., Cholesky decomposition for positive-definite systems or the Bunch-Kaufman decomposition). 
+
+A.2.5 Proof: Unitarity of the packed frequency-domain representations         
+
+> Spatial Domain
+> Representation
+> r∈RN
+> Frequency Domain
+> Representation
+> ˆr∈CN
+> Packed
+> Representation
+> p∈RN
+> DFT F{·}
+> Unitary
+> Packing P{·}
+> Unitary
+
+Figure 11: Relationship between the reservoir state representations. The spatial domain state r is transformed to the complex frequency domain ˆr via the DFT F{·} , which is then transformed to the dense, real-valued packed state p via the packing operation P{·} . Because both transformations are unitary, performing ridge regression on the packed representation p yields mathematically identical results to training directly in the spatial domain. 21 Context and motivation. The purpose of the following proposition is to rigorously prove that the packed representation introduced in Section A.2 is connected to the full complex frequency domain via a unitary mapping. By establishing this unitary link, we can invoke Proposition 4 from the previous section to definitively claim that performing ridge regression on the highly efficient packed vectors is mathematically identical to training in the original spatial domain. The transformations between the spatial-domain, frequency-domain and the packed reservoir states are illustrated in Figure 11. Crucially, the following mathematical formulation is constructive. Specifically, Step 4 of the proof (“Proving the Basis Spans W over R”) serves as the practical algorithmic recipe for creating these packed vectors. It details exactly how to isolate purely real self-conjugate elements, how to split complex conjugate pairs into real and imaginary components, and precisely how to scale them (e.g., by a factor of √2) to conserve energy and satisfy the unitary condition. Note that while the proof explicitly constructs the unitary matrix U to establish theoretical equivalence, this large N × N
+
+matrix never needs to be instantiated in software; one simply applies the inexpensive, element-wise packing and scaling rules derived herein. 
+
+Setup and definitions. Let x be a real-valued n-dimensional tensor defined on a spatial grid of dimensions N = ( N1, N 2, . . . , N n). The total number of elements is N = Qnd=1 Nd. Let X be the 
+
+n-dimensional DFT of x, residing on the frequency grid G = ZN1 × ZN2 × · · · × ZNn .Because the input x is real, its frequency representation X exhibits Hermitian symmetry. For any multi-dimensional frequency index k ∈ G , this symmetry is defined as: 
+
+X (k) = X ∗(−k (mod N)) (22) where (·)∗ denotes complex conjugation, and −k (mod N) denotes the element-wise negation of the indices modulo their respective dimension sizes. Let F : G → I be a bijective flattening function (e.g., standard row-major ordering) that maps the 
+
+n-dimensional grid coordinates to a 1D linear index set I = {0, 1, . . . , N − 1}. Let X ∈ CN be the flattened 1D vector of X , such that X[F (k)] = X (k). The Hermitian symmetry on the grid 
+
+G induces a bijective mapping S : I → I on the linear indices, defined by S(F (k)) = F (−k
+
+(mod N)) . Intuitively, S captures the Hermitian symmetry within the flattened 1D representation, mapping each linear index in I to the index of its complex conjugate counterpart, or mapping to itself if the corresponding frequency component is purely real. Because double negation on the modular grid yields the original coordinate, S is an involution, meaning S(S(m)) = m for all m ∈ I .We define W = {X ∈ CN | X[m] = X∗[S(m)] ∀m ∈ I} as the subset of CN consisting of all valid frequency vectors that satisfy this Hermitian symmetry. Because these symmetry constraints couple the real and imaginary components of the complex frequencies, they eliminate exactly half of the 2N real degrees of freedom available in CN . Consequently, any valid frequency vector in 
+
+W is entirely determined by exactly N independent real values. This motivates the formulation of an efficient, packed representation in RN , alongside a unitary transformation capable of perfectly reconstructing any possible vector in W from this packed state. 
+
+Proposition 5 (Unitarity of the packed representation) . There exists a unitary matrix U ∈ CN ×N
+
+whose columns form an orthonormal basis such that any complex symmetric vector X ∈ W can be expressed as a linear combination of these columns using real coefficients. Consequently, for any 
+
+X ∈ W , there exists a unique real-valued packed vector p ∈ RN such that X = U p .Proof. 1. Partitioning the index set I. Using the involution S, we partition the linear index set I
+
+into three disjoint subsets: • I0 = {m ∈ I | S(m) = m}. These are the fixed points of the involution (e.g., the generalized DC and Nyquist frequencies). For these indices, X[m] = X∗[m], meaning 
+
+X[m] ∈ R.• For all indices where S(m)̸ = m, the involution groups them into disjoint pairs (m, S (m)) .We split these pairs into two sets, I+ and I−, such that I+ contains exactly one index from each pair, and I− contains its symmetric counterpart. Thus, m ∈ I + ⇐⇒ S(m) ∈ I −.By definition, I0 ∪ I + ∪ I − = I.22 2. Construction of the basis vectors. Let em ∈ RN denote the standard basis column vector (a 1 at index m, and 0 elsewhere). We define N basis vectors um ∈ CN piecewise: For m ∈ I 0 : um = em (23) For m ∈ I + : um = 1
+
+√2 (em + eS(m)) (24) For m ∈ I − : um = i
+
+√2 (eS(m) − em) (25) 
+
+3. Proving unitarity ( U †U = I). Let U = [ u0 . . . uN −1]. To show that U is unitary, we verify that its columns are orthonormal ( u†
+
+> a
+
+ub = δa,b ). For unit norms ( a = b): • If a ∈ I 0: ∥ua∥2 = e⊤ 
+
+> a
+
+ea = 1 .• If a ∈ I +: ∥ua∥2 = 12 (e⊤ 
+
+> a
+
+ea + e⊤
+
+> S(a)
+
+eS(a)) = 1 .• If a ∈ I −: ∥ua∥2 =
+
+ −i√2
+
+  i√2
+
+
+
+(e⊤
+
+> S(a)
+
+eS(a) + e⊤ 
+
+> a
+
+ea) = 1 .For orthogonality ( a̸ = b): If a and b do not belong to the same symmetric pair ( b̸ = S(a)), their underlying standard basis vectors are disjoint, yielding u†
+
+> a
+
+ub = 0 . If they belong to the same pair, assume without loss of generality that a ∈ I + and b = S(a) ∈ I −. Their inner product evaluates to: 
+
+u†
+
+> a
+
+ub =
+
+ 1
+
+√2 (ea + eb)
+
+†  i
+
+√2 (ea − eb)
+
+
+
+= i
+
+2 (e⊤ 
+
+> a
+
++ e⊤ 
+
+> b
+
+)( ea − eb) = i
+
+2 (e⊤ 
+
+> a
+
+ea − e⊤ 
+
+> b
+
+eb) = 0 (26) Since all N columns are orthonormal, U is unitary. 
+
+4. Proving the basis spans W over R. To prove U maps RN → W , we must show any X ∈ W
+
+can be uniquely constructed as X = PN −1 
+
+> m=0
+
+pmum using real coefficients pm ∈ R. We define the coefficients pm as follows: • For m ∈ I 0: pm = X[m].• For m ∈ I +: pm = √2ℜ(X[m]) .• For m ∈ I −: pm = √2ℑ(X[S(m)]) .Evaluating the sum for I0 yields X[m]em. For a specific symmetric pair a ∈ I + and b = S(a) ∈ I −,the sum is: 
+
+paua + pbub = √2ℜ(X[a]) 
+
+ 1
+
+√2 (ea + eb)
+
+
+
++ √2ℑ(X[a]) 
+
+ i
+
+√2 (ea − eb)
+
+
+
+(27) 
+
+= ( ℜ(X[a]) + iℑ(X[a])) ea + ( ℜ(X[a]) − iℑ(X[a])) eb (28) 
+
+= X[a]ea + X∗[a]eb = X[a]ea + X[b]eb (29) This reconstructs the elements of X at both indices a and b. Summing over all partitions yields exactly X = U p . Because p ∈ RN and U is unitary, the columns of U form an orthonormal basis for 
+
+W over R.
+
+A.3 Proofs of the Echo State Property Conditions 
+
+This section provides the proofs of Propositions 2 and 3 from the main text. 
+
+A.3.1 Proof of Proposition 2 (sufficient condition) 
+
+Both FRESCO variants share the same Lipschitz constant LˆΦ = α. For invabs( z) = αz  
+
+> 1+ |z|
+
+, writing 
+
+z = re iθ shows the radial and tangential singular values of its Jacobian are α 
+
+> (1+ r)2
+
+≤ α and α 
+
+> 1+ r
+
+≤ α,so | invabs( z) − invabs( w)| ≤ α|z − w|. In FRESCO (mix) the cyclic shift is an isometry under the Frobenius norm (permuting elements preserves the sum of squared magnitudes), so the Lipschitz constant of the composed activation remains α.23 Proof. Let κ = (1 − τ ) + τ α max i,j | ˆWr[i, j ]| and assume κ < 1. Fix a bounded input sequence and consider two trajectories ˆRt and ˆR′ 
+
+> t
+
+driven by the same input from different initial states. Let 
+
+∆t = ˆRt − ˆR′ 
+
+> t
+
+and Ut = ˆWx ⊙ ˆXt + ˆB. The update Eq. (4) gives 
+
+∥∆t∥F ≤ (1 − τ )∥∆t−1∥F + τ ˆΦ  ˆWr ⊙ ˆRt−1 + Ut
+
+ − ˆΦ  ˆWr ⊙ ˆR′ 
+
+> t−1
+
++ Ut
+
+
+
+> F
+
+≤ (1 − τ )∥∆t−1∥F + τ α ∥ ˆWr ⊙ ∆t−1∥F
+
+≤ (1 − τ )∥∆t−1∥F + τ α max  
+
+> i,j
+
+| ˆWr[i, j ]| · ∥ ∆t−1∥F
+
+= κ ∥∆t−1∥F , (30) where the second inequality uses LˆΦ = α and the third uses ∥ ˆWr ⊙M∥F ≤ max i,j | ˆWr[i, j ]|·∥ M∥F .By induction, ∥∆t∥F ≤ κt∥∆0∥F → 0 exponentially. 
+
+Connection to the standard ESN condition. By Eq. (6) , max i,j | ˆWr[i, j ]| = ρ(Wr), so the condition is equivalent to α · ρ(Wr) < 1, directly mirroring Proposition 1 with α replacing the Lipschitz constant of tanh .
+
+A.3.2 Proof of Proposition 3 (necessary condition) 
+
+Proof. Consider the zero-input, zero-bias system, for which ˆR∗ = 0 is a fixed point. A necessary condition for the ESP is stability of this fixed point. Linearizing around 0 (using | invabs ′(z)| =
+
+α/ (1 + |z|) = α at z = 0 ): 
+
+J0 = (1 − τ )I + τ α P D ˆWr , (31) where P is the permutation matrix of the cyclic shift and D ˆWr = diag(vec( ˆWr)) . Because P is a full N -cycle, 
+
+(P D ˆWr )N =
+
+Y 
+
+> i,j
+
+ˆWr[i, j ]
+
+
+
+I, (32) so all N eigenvalues of P D ˆWr share the same modulus  Q  
+
+> i,j
+
+| ˆWr[i, j ]|1/N . Stability requires 
+
+ρ(J0) ≤ 1, which yields Eq. (9). 
+
+Gap between sufficient and necessary conditions. The sufficient condition controls 
+
+max i,j | ˆWr[i, j ]|; the necessary condition controls the geometric mean. Since the geometric mean never exceeds the maximum, entries with | ˆWr[i, j ]| > 1/α are permissible in FRESCO (mix) provided the geometric mean stays below 1/α . The circular shift enables this gap: it couples all frequency bins so that global stability is governed by the product of all entries rather than by the worst one. 
+
+FRESCO (plain): no gap. Without the circular shift, Jplain  
+
+> 0
+
+= (1 − τ )I + τ α D ˆWr is diagonal. Stability then requires α · max i,j | ˆWr[i, j ]| ≤ 1, coinciding with the sufficient condition up to the strict inequality. 
+
+## B Implementation details 
+
+We provide two implementations of the models used in the experiments. The first implementation is based on NumPy and Numba and is used for the classical Reservoir Computing benchmarks, namely NARMA10, Mackey-Glass, and time-series classification. This backend is CPU-only and was designed to provide a controlled and coherent comparison between FRESCO-family reservoirs and standard Reservoir Computing baselines. In addition to FRESCO models, we also implemented the standard ESN in the same NumPy/Numba stack. This avoids comparing FRESCO against a baseline implemented with different software stacks and ensures that the reported execution times reflect the reservoir update structure rather than backend-specific overheads. The second implementation is based on PyTorch and is used for the long-horizon multivariate forecasting benchmarks. These experiments require extracting features for a large number of sliding windows and for multivariate input dimensions, and therefore benefit from GPU execution. The 24 PyTorch implementation is used for the ESN, FRESCO models, and deep learning baselines, namely LSTM, Mamba, and Transformer. 
+
+Reservoir variants. The ESN baseline uses a dense random recurrent matrix, an input projection, a bias term, leaky integration, and a real-valued tanh nonlinearity. The dense recurrent matrix is rescaled to the desired spectral radius before evaluation. In our experiments, we explore reservoir sizes of up to nearly 18k units (see Appendix C.2.3). Given the finite hyperparameter search budget, we avoid spending excessive time on spectral radius rescaling of large dense matrices by adopting a fast rescaling method from the literature [6]. FRESCO-family reservoirs operate in the frequency domain. Both FRESCO (plain) and FRESCO (mix) use the native complex-valued nonlinearity 
+
+invabs( z) = αz 
+
+1 + |z| , (33) where α is the gain parameter. FRESCO (mix) applies an additional deterministic cyclic mixing of frequency coefficients before the nonlinearity. 
+
+Packed frequency-domain states. For the FRESCO variants, the complex frequency-domain state contains Hermitian redundancies because it represents a real-valued spatial-domain signal. We therefore store and expose a packed real-valued representation of the non-redundant frequency coefficients to the readout. During training, the collected complex states are packed once into a real feature matrix. During timed inference, FRESCO variants use a direct packed readout path that avoids constructing a new packed vector at every time step. 
+
+Readout training. For all reservoir models, recurrent and input weights remain fixed after ini-tialization and only the readout is trained. The readout is a linear ridge regression model. For the NumPy/Numba implementation, the default backend is scikit-learn ridge regression with a Cholesky solver. In the PyTorch implementation used for long-horizon forecasting, the same closed-form ridge objective is solved through a custom PyTorch linear algebra module, so that the large reservoir matrices produced by GPU reservoir extraction do not need to be unnecessarily moved back to a CPU solver. 
+
+## C Experimental setup 
+
+This section provides the details necessary to reproduce the experiments reported in the main paper. All experiments use validation-based model selection. Hyperparameters are optimized with Optuna using a TPE sampler and Hyperband pruning. The validation objective is NRMSE for univariate regression (NARMA10 and Mackey-Glass), accuracy for classification, and MSE for long-horizon multivariate forecasting. After model selection, the best hyperparameter configuration is retrained on the union of the training and validation partitions and evaluated on the held-out test partition over twenty seeds (for NARMA10 and Mackey-Glass), and ten seeds (for all other tasks). 
+
+C.1 Dataset details and pre-processing C.1.1 Classical RC regression benchmarks NARMA10. For NARMA10, the input sequence is sampled as xt ∼ U (0 , 0.5) . The target is generated by 
+
+yt = 0 .3yt−1 + 0 .05 yt−110 X
+
+> i=1
+
+yt−i + 1 .5xt−10 xt−1 + 0 .1. (34) The total sequence length is 1750. The first 200 time steps are discarded as washout. The next 1000 points are used for training, the following 250 points for validation, and the final 300 points for testing. 
+
+Mackey-Glass. For Mackey-Glass, we use the one-dimensional chaotic time series generated from 
+
+dx (t)
+
+dt = 0.2x(t − 17) 1 + x(t − 17) 10 − 0.1x(t). (35) 25 Table 3: Dataset statistics for the time-series classification experiments. # Tr and # Ts denote the number of training and test sequences, respectively. Length is the number of time steps, Input dim. is the number of input channels, and # Classes is the number of target classes.                                                                   
+
+> Name # Tr # Ts Length Input dim. # Classes Type
+> Adiac 390 391 176 137 Image FordA 3601 1320 500 12Sensor JapaneseVowels 270 370 29 12 9Audio Libras 180 180 45 215 HAR Lightning2 60 61 637 12Sensor Lightning7 70 73 319 17Sensor PEMS-SF 267 173 144 963 7Traffic ShapesAll 600 600 512 160 Image Wafer 1000 6164 152 12Sensor Yoga 300 3000 426 12Image
+
+We generated a time-series of 10000 time steps integrating the equation 35. The prediction task is 84-step-ahead forecasting. Given the scalar input xt, the model predicts xt+84 . The first 200 points of the lagged sequence are discarded as washout, followed by 1000 training points and 250 validation points. All remaining 8466 points after lagging, washout, training, and validation are used for testing. 
+
+C.1.2 Time-series classification 
+
+We evaluate time-series classification on ten datasets from the UEA/UCR archive using the original train/test splits (detailed in Table 3). A validation split, using a validation ratio of 0.2, is created from the original training partition. For each sequence, the reservoir is driven by the full time series and a single feature vector is extracted for the readout classifier. The default representation is average pooling over packed reservoir states, 
+
+¯r = 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+rt. (36) The batched NumPy/Numba classification pipeline processes multiple independent sequences together. This batching only affects feature extraction efficiency: the readout still receives one feature vector per sequence. The batch size is 128 for all models and all datasets. 
+
+C.1.3 Long-horizon multivariate forecasting 
+
+We evaluate long-horizon multivariate forecasting on ETTh1, ETTh2, ETTm1, ETTm2, Solar, and Weather. The input lookback length is fixed to Lin = 96 , the stride is one, and the forecasting horizons are 
+
+H ∈ { 96 , 192 , 336 , 720 }.
+
+All probed variants are listed in Table 4. These tasks are multivariate: each model receives a window 
+
+Xt:t+95 ∈ R96 ×D
+
+and predicts all variables over the next horizon, 
+
+ˆXt+96: t+96+ H−1 ∈ RH×D .
+
+Inputs and targets are standardized using statistics fitted on the training partition and then applied to validation and test partitions. The same scaling protocol is used across both reservoir models and deep learning baselines. 
+
+C.2 Hyperparameters C.2.1 Scalar RC regression 
+
+For NARMA10 and Mackey-Glass, we compare FRESCO variants with the standard ESN. For each model and reservoir size, hyperparameter optimization is performed with 1000 Optuna trials. The 26 Table 4: Dataset statistics for long-horizon forecasting with input window length Lin = 96 . “Freq.” denotes the sampling frequency, “Ch.” the number of variables, and L the total length of the dataset. “Train”, “Val”, and “Test” indicate the number of time steps in each split. “Train win.”, “Val win.”, and “Test win.” denote the number of sliding-window samples for each horizon.                                                                                                                                                                                                                                                           
+
+> Dataset Freq. Ch. LTrain Val Test HTrain win. Val win. Test win. ETTh1 1h 714400 8640 2880 2880 96 8449 2785 2785 ETTh1 1h 714400 8640 2880 2880 192 8353 2689 2689 ETTh1 1h 714400 8640 2880 2880 336 8209 2545 2545 ETTh1 1h 714400 8640 2880 2880 720 7825 2161 2161 ETTh2 1h 714400 8640 2880 2880 96 8449 2785 2785 ETTh2 1h 714400 8640 2880 2880 192 8353 2689 2689 ETTh2 1h 714400 8640 2880 2880 336 8209 2545 2545 ETTh2 1h 714400 8640 2880 2880 720 7825 2161 2161 ETTm1 15min 757600 34560 11520 11520 96 34369 11425 11425 ETTm1 15min 757600 34560 11520 11520 192 34273 11329 11329 ETTm1 15min 757600 34560 11520 11520 336 34129 11185 11185 ETTm1 15min 757600 34560 11520 11520 720 33745 10801 10801 ETTm2 15min 757600 34560 11520 11520 96 34369 11425 11425 ETTm2 15min 757600 34560 11520 11520 192 34273 11329 11329 ETTm2 15min 757600 34560 11520 11520 336 34129 11185 11185 ETTm2 15min 757600 34560 11520 11520 720 33745 10801 10801 Solar 10min 137 52560 36792 5256 10512 96 36601 5161 10417 Solar 10min 137 52560 36792 5256 10512 192 36505 5065 10321 Solar 10min 137 52560 36792 5256 10512 336 36361 4921 10177 Solar 10min 137 52560 36792 5256 10512 720 35977 4537 9793 Weather 10min 21 52696 36887 5270 10539 96 36696 5175 10444 Weather 10min 21 52696 36887 5270 10539 192 36600 5079 10348 Weather 10min 21 52696 36887 5270 10539 336 36456 4935 10204 Weather 10min 21 52696 36887 5270 10539 720 36072 4551 9820
+
+Table 5: Hyperparameter search ranges for the scalar RC regression benchmarks. Log-uniform sampling is used where indicated. For FRESCO-family models, the parameter listed as spectral radius corresponds to the outer radius of the frequency-domain eigenvalue ring. 
+
+Hyperparameter Models Search range Spectral radius ESN U(0 .1, 1.0) 
+
+Spectral radius FRESCO variants 1.0
+
+Inner ring radius FRESCO variants U(10 −3, 0.999) 
+
+Leak rate All log-U(10 −5, 1) 
+
+Input scale All log-U(10 −7, 10 2)
+
+Bias scale All log-U(10 −7, 10 2)
+
+Ridge regularization All log-U(10 −12 , 10 2)
+
+Gain α FRESCO variants log-U(0 .1, 10) 
+
+TPE sampler uses multivariate and grouped sampling with 40 startup trials. Hyperband pruning uses three resource levels and reduction factor 2. The scalar RC search uses six seeds during model selection, and twenty seeds for final testing. The multi-fidelity schedule has three stages: 512 training points and two seeds, 768 training points and four seeds, and the full training set with six seeds. The final evaluation retrains the readout on the union of training and validation data and evaluates NRMSE and inference time on the test set. The scalar regression metric is 
+
+NRMSE = 
+
+s 1
+
+> T
+
+PTt=1 (ˆ yt − yt)2
+
+Var( y) . (37) For the plots of Figure 2, the vertical coordinate is the mean test NRMSE across final seeds, and the horizontal coordinate is the mean end-to-end inference time per temporal step in microseconds. Timing includes input ingestion, reservoir update, state packing for FRESCO variants, and readout evaluation. 27 Table 6: Hyperparameter search ranges for reservoir models in long-horizon forecasting.                                                   
+
+> Hyperparameter Datasets/Models Search range Reservoir size ETT {256 ,512 ,1024 ,2048 ,4096 ,8192 ,16384 }
+> Reservoir size Solar {276 ,552 ,1104 ,2208 ,4416 ,8832 ,17664 }
+> Reservoir size Weather {264 ,528 ,1056 ,2112 ,4224 ,8448 ,16896 }
+> Spectral radius ESN U(0 .1,1.0)
+> Spectral radius FRESCO variants 1.0
+> Inner ring radius FRESCO variants U(10 −3,0.999)
+> Leak rate All log-U(10 −5,1)
+> Input scale All log-U(10 −7,10 2)
+> Bias scale All log-U(10 −7,10 2)
+> Ridge regularization All log-U(10 −6,10 6)
+> Gain αFRESCO variants log-U(0 .1,10)
+
+C.2.2 Time-series classification 
+
+For time-series classification, we use the same reservoir models as in the scalar RC benchmarks: the standard ESN versus the two FRESCO variants. The reservoir size is included in model selection and is sampled from 
+
+{128 , 256 , 512 , 1024 , 2048 }.
+
+The remaining reservoir hyperparameter ranges are the same as in Table 5. Hyperparameters are selected by validation accuracy. For each dataset and model, the search is run for up to 1000 trials or until the wall-clock budget of one hour is reached. After model selection, the best configuration is retrained on the full original training split and evaluated on the original test split over ten random seeds. We report accuracy in Table 1. 
+
+C.2.3 Long-horizon reservoir forecasting 
+
+For long-horizon forecasting, the ESN and FRESCO variants are implemented in PyTorch. For each input window, the reservoir state is reset to zero, driven for 96 time steps, and the final state is used as the window-level feature vector. The readout maps this feature vector directly to the flattened multivariate forecasting horizon. The reservoir sizes explored by the search protocol as well as the remaining hyperparameter are detailed in Table 6. For large reservoirs, we apply contiguous block mean-pooling to the reservoir features before the readout computation. If the raw reservoir feature dimension is N and the block size is b, the pooled feature dimension is N/b . The automatic pooling schedule is chosen so that all candidate reservoir sizes for a given dataset family yield the same readout input dimension. In this way, we can exploit the benefits of large reservoir dynamics without increasing the readout trainable parameters. For ETT, the readout input dimension after pooling is 256; for Solar it is 276; and for Weather it is 264. Reservoir model selection minimizes validation MSE. The search uses three seeds during model selection and ten final seeds for test evaluation. The multi-fidelity schedule uses 256 training windows with one seed, 1024 training windows with two seeds, and the full training set with three seeds. The Optuna sampler is TPE with multivariate and grouped sampling, with 20 startup trials. Hyperband pruning uses three resource levels and reduction factor 3. Each search is capped by both a maximum number of 1000 trials and a wall-clock timeout budget of five hours. This limit was chosen to reflect practical, resource-constrained deployment scenarios, while Table 2 provides a comparison with highly optimized models from the literature achieving state-of-the-art results. 
+
+C.2.4 Deep forecasting baselines 
+
+The LSTM, Mamba, and Transformer baselines are encoder-only one-shot forecasters. Each model receives an input window 
+
+X ∈ R96 ×D ,
+
+encodes the window, extracts the last-token representation, and applies a linear prediction head to output H × D values. 28 The LSTM baseline uses a stack of LSTM layers followed by dropout and a linear head. The searched hyperparameters are: hidden size in {64 , 128 , 256 , 384 , 512 , 768 }, number of layers in 
+
+{1, 2, 3, 4, 5, 6}, dropout in {0, 0.1, 0.2, 0.3}, batch size in {32 , 64 , 128 }, learning rate in [10 −4, 5 ·
+
+10 −3], and weight decay in [10 −6, 10 −2].The Mamba baseline uses a linear input embedding, stacked Mamba blocks, a final normaliza-tion layer, and a linear head. The searched hyperparameters are: model hidden dimension in 
+
+{128 , 256 , 384 , 512 , 768 }, number of layers in {2, 4, 6, 8}, state dimension in {16 , 32 , 64 }, con-volution width in {2, 4}, expansion factor in {1, 2}, dropout in {0, 0.1, 0.2, 0.3}, batch size in 
+
+{32 , 64 , 128 }, learning rate in [10 −4, 5 · 10 −3], and weight decay in [10 −6, 10 −2].The Transformer baseline uses a linear input embedding, sinusoidal positional encoding, Transformer encoder layers with GELU activations, and a linear head. The searched hyperparameters are: embedding hidden dimension in {64 , 128 , 256 , 512 , 768 }, number of attention heads in {4, 8, 16 },number of encoder layers in {2, 4, 6, 8}, feed-forward dimension in {64 , 128 , 256 , 512 , 1024 , 2048 },dropout in {0, 0.1, 0.2, 0.3}, batch size in {32 , 64 , 128 }, learning rate in [10 −4, 5 · 10 −3], and weight decay in [10 −6, 10 −2]. Invalid Transformer configurations for which dmodel is not divisible by the number of heads are pruned. For all deep baselines, the search objective is validation MSE. The multi-fidelity schedule uses 512 training windows for 2 epochs, 2048 training windows for 5 epochs, and the full training set for 10 epochs. Training uses AdamW, gradient clipping with norm 1.0, and early stopping with patience 3 during model selection. After model selection, the best configuration is retrained on the union of training and validation data, with the last 10% of this chronological train+validation set used as an internal holdout for early stopping. Final training runs for at most 50 epochs, uses patience 10, and applies a StepLR scheduler with step size 10 and decay factor 0.5. Final evaluation is averaged over ten random seeds. 
+
+C.3 Computational resources 
+
+All NumPy/Numba RC experiments are CPU-only. They were run on a machine with two Intel(R) Xeon(R) CPU E5-2698 v4 processors at 2.20 GHz, for a total of 40 physical CPU cores. The results in Figs. 1, 7, and 10 are obtained on an Apple M3 Pro CPU with 12 cores (6 performance and 6 efficiency) and 18 GB of RAM. OpenBLAS 4 is used to efficiently compute the matrix-vector products for the standard ESN baseline and Eq. (11). Long-horizon forecasting experiments are implemented in PyTorch and run on a workstation with three NVIDIA A100 80GB PCIe GPUs. Reservoir feature extraction in the PyTorch implementation is batched over sliding windows, with default window batch size 512. However, differently from standard deep learning models, the RC results are not affected by the batch size since the readout is a closed-form solution of the reservoir features collected. For final long-horizon train-and-test runs, energy consumption and carbon emissions are tracked with CodeCarbon’s tracker [ 2]. The tracker covers the full final loop over the ten final seeds, including final training on the train+validation split and evaluation on the test set. Energy is reported in kWh. 
+
+## D Additional information 
+
+D.1 Full results on long-horizon multivariate forecasting 
+
+In Table 7, we report the test MSE and MAE results for ESN, LSTM, Mamba, Transformer, and FRESCO variants, obtained with the model selection protocol described in Appendix C. 
+
+D.2 Limitations 
+
+While FRESCO significantly improves the computational and energy efficiency of dense recurrent layers, it inherently carries some limitations related to the reservoir computing paradigm and its specific frequency-domain formulation. Like the standard ESN, FRESCO relies on fixed, randomly initialized recurrent weights, training only the linear readout. While this avoids backpropagation 
+
+> 4https://www.openmathlib.org/OpenBLAS/
+
+29 Table 7: Full forecasting results parsed from anytime Bayesian optimization logs. The best result is red and the second best result is blue. 
+
+Dataset Models ESN LSTM Mamba Transformer FRESCO (plain) FRESCO (mix) Ours Ours Ours Ours Ours Ours Dataset Horizon MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE ETTm1  96 0.358 0.396 0.562 0.534 0.589 0.532 0.443 0.460 0.349 0.390 0.349 0.389 192 0.395 0.419 0.583 0.560 0.596 0.563 0.483 0.490 0.394 0.419 0.398 0.423 336 0.448 0.457 0.736 0.659 0.860 0.712 0.604 0.585 0.450 0.461 0.446 0.457 720 0.602 0.553 1.052 0.796 1.024 0.772 0.988 0.800 0.607 0.558 0.603 0.555 Avg 0.451 0.456 0.733 0.637 0.767 0.645 0.629 0.584 0.450 0.457 0.449 0.456 ETTm2  96 0.182 0.284 0.640 0.629 0.411 0.474 0.359 0.445 0.184 0.289 0.183 0.288 192 0.268 0.354 1.273 0.898 0.797 0.684 0.712 0.641 0.262 0.353 0.262 0.353 336 0.453 0.470 1.533 0.956 1.522 0.935 1.310 0.863 0.387 0.448 0.391 0.450 720 0.563 0.564 4.077 1.629 3.939 1.515 5.681 1.739 0.743 0.664 0.719 0.652 Avg 0.367 0.418 1.881 1.028 1.667 0.902 2.015 0.922 0.394 0.439 0.389 0.436 Weather  96 0.156 0.235 0.180 0.264 0.216 0.297 0.160 0.244 0.155 0.235 0.153 0.232 192 0.202 0.283 0.240 0.314 0.280 0.352 0.217 0.299 0.196 0.277 0.197 0.278 336 0.251 0.326 0.314 0.369 0.331 0.390 0.273 0.345 0.250 0.322 0.254 0.327 720 0.312 0.371 0.414 0.426 0.444 0.451 0.365 0.404 0.309 0.365 0.308 0.367 Avg 0.230 0.304 0.287 0.343 0.318 0.372 0.254 0.323 0.227 0.300 0.228 0.301 Solar  96 0.227 0.336 0.188 0.242 0.216 0.258 0.199 0.244 0.230 0.333 0.215 0.315 192 0.256 0.351 0.204 0.256 0.244 0.292 0.224 0.280 0.248 0.348 0.241 0.330 336 0.301 0.380 0.213 0.270 0.267 0.298 0.225 0.292 0.274 0.364 0.300 0.379 720 0.293 0.373 0.211 0.270 0.228 0.287 0.222 0.292 0.295 0.381 0.283 0.351 Avg 0.269 0.360 0.204 0.259 0.239 0.283 0.217 0.277 0.262 0.356 0.260 0.344 ETTh1  96 0.455 0.464 0.785 0.697 0.917 0.736 0.697 0.641 0.468 0.475 0.452 0.462 192 0.626 0.567 0.962 0.776 1.071 0.803 0.912 0.744 0.667 0.591 0.640 0.578 336 0.852 0.695 1.038 0.802 1.077 0.807 1.121 0.850 0.881 0.704 0.896 0.718 720 1.081 0.825 0.978 0.799 1.105 0.840 1.058 0.842 1.119 0.840 1.184 0.847 Avg 0.753 0.638 0.941 0.768 1.043 0.796 0.947 0.769 0.784 0.652 0.793 0.651 ETTh2  96 0.515 0.513 1.901 1.104 1.962 1.055 1.353 0.900 0.381 0.443 0.381 0.443 192 0.747 0.672 2.432 1.295 3.384 1.593 4.063 1.577 0.797 0.691 0.856 0.715 336 0.718 0.659 3.062 1.511 2.301 1.278 1.963 1.187 0.994 0.779 0.989 0.780 720 1.171 0.866 3.734 1.665 2.853 1.412 3.951 1.691 1.383 0.941 1.557 1.000 Avg 0.788 0.677 2.782 1.394 2.625 1.335 2.832 1.339 0.888 0.714 0.946 0.734 
+
+through time and enables efficient closed-form optimization, it inherently sacrifices some absolute task performance compared to deep sequence models where recurrent dynamics are explicitly trained end-to-end for a specific task. For FRESCO, this limitation is even tighter as it restricts the spatial recurrent connectivity to circulant topologies. Although our experiments demonstrate that this structural foundation does not harm empirical expressivity on the evaluated benchmarks, it theoretically constrains the accessible dynamic state space compared to a fully unstructured dense weight matrix. Furthermore, while dimensional zero-padding scales efficiently with input dimensionality, the stability and expressivity of frequency-domain recurrence over ultra-long context windows remain to be empirically validated. In addition, the dimensional zero-padding embedding assumes that the reservoir size N is a multiple of the input dimension Nx. While this is easily managed during architectural design and hyperparameter tuning, it does impose a discrete step-size constraint on the configuration space. The computational execution times reported in our scaling analysis (e.g., in Figure 1 and Appen-dices A.1.4 and A.2.3) represent minimal execution times across multiple trials. While this isolates the pure algorithmic complexity and hardware-level scaling limits by filtering out transient system fluctuations, it depicts an ideal best-case scenario. Real-world deployment times may experience slight variances due to hardware throttling, concurrent processes, or sub-optimal memory caching. 30 D.3 Nomenclature 
+
+Table 8 summarizes the mathematical symbols used throughout the main text and the supplementary material. Note that some variables currently have multiple notations across different sections, which are grouped together in the “Symbol” column for reference. Table 8: Nomenclature and Notation Summary 
+
+Symbol Name Description Space 
+
+General 
+
+Nx Input size Number of reservoir input features. N
+
+Ny Output size Number of reservoir output features in the readout layer. N
+
+N Reservoir size Number of non-linear nodes (neurons) comprising the reservoir. N
+
+Spatial Domain (SD) - Standard ESN 
+
+xt Input vector Reservoir input vector at discrete time step t. RNx
+
+yt Output vector Readout output vector at time step t. RNy
+
+rt Reservoir state Hidden state vector representing the reservoir. RN
+
+Wx Input weights Input weights mapping the input vector to the reservoir nodes. RN ×Nx
+
+Wr Recurrent weights Recurrent weight matrix governing the reservoir’s dynamics. RN ×N
+
+Wy Readout weights Readout weights mapping the reservoir state to the output. RNy×N
+
+b Bias vector Constant offset applied to the reservoir activation arguments. RN
+
+xzp Padded input vector Zero-padded input vector. RN
+
+Φ Activation function Non-linear activation function. Function 
+
+Frequency Domain (FD) - FRESCO 
+
+ˆxt Input vector FD input vector at discrete time step t. CNx
+
+ˆxzp Padded input vector FD representation of zero-padded input vector. CN
+
+ˆwx Input weight vector FD input weights vector. CN
+
+ˆrt Reservoir vector FD reservoir state vector at discrete time step t. CN
+
+ˆwr Recurrent weight vector FD recurrent weight vector. CN
+
+ˆb Bias vector FD bias vector. CN
+
+Xzp Padded input matrix SD input matrix (dimensionally zero-padded input vector). RNx×N2
+
+ˆXzp , ˆXt Padded input matrix FD representation of input matrix. CN1×N2
+
+ˆWx Input weight matrix FD input weight matrix. CN1×N2
+
+ˆRt Reservoir state FD reservoir state matrix at discrete time step t. CN1×N2
+
+ˆWr Recurrent weight matrix FD recurrent weight matrix. CN1×N2
+
+ˆB Bias matrix FD bias matrix. CN1×N2
+
+ˆΦ Activation function Complex-valued non-linear activation function applied in FD. Function 
+
+pt Packed state vector Real-valued packed reservoir state representation pt = P{ ˆRt}. RN
+
+Wp Packed readout matrix Readout weight matrix for packed state vectors. RNy×N
+
+Operators & Transforms 
+
+P{·} Packing operator Operator mapping ˆRt to a non-redundant real-valued vector. Operator 
+
+F{·} Fourier operator Forward Discrete Fourier Transform (DFT) operator. Operator 
+
+F−1{·} Inverse Fourier Inverse Discrete Fourier Transform (IDFT) operator. Operator 
+
+31

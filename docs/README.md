@@ -1,63 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-06-25
-- 运行时间：2026-06-25 05:05:29 北京时间
+- 最新运行日期：2026-06-26
+- 运行时间：2026-06-26 05:25:36 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今日聚焦脑机接口前沿，从15篇论文中精选了EEG语音重建与鲁棒目标语音提取两项突破。  
-最值得看的是《NeuroSonic》用条件流匹配从EEG重建自然语音，以及《Breaking Shortcut Learning》通过两阶段训练消除跨试验语音提取中的伪关联偏差。  
-建议读者跟踪生成式神经解码的进步，同时警惕模型走“捷径”，多关注真实场景下的泛化设计。
-- 详情：[/202606/25/README](/202606/25/README)
+今从15篇脑科学论文中精读5篇，重点推荐解码慢性疼痛与智能体脑信号理解两项高分突破。  
+分布式颅内记录成功解码慢性疼痛状态，BrainAgent则用大模型多智能体自主分析脑信号，均展现强应用潜力。  
+建议读者留意颅内电生理的疼痛标记发现，并关注大语言模型驱动的新一代神经解码工具。
+- 详情：[/202606/26/README](/202606/26/README)
 
 ### 精读区论文标签
-1. [NeuroSonic: Conditional Flow Matching for EEG-to-Speech Reconstruction](/202606/25/2606.24087v1-neurosonic-conditional-flow-matching-for-eeg-to-speech-reconstruction)  
+1. [Decoding Chronic Pain States from Distributed Intracranial Recordings](/202606/26/biorxiv-10-64898-2026-06-16-732555-v1-decoding-chronic-pain-states-from-distributed-intracranial-recordings)  
+   标签：评分：10.0/10、query:sr
+   evidence：从颅内记录解码慢性疼痛状态
+2. [BrainAgent: A Large Language Model-Driven Multi-Agent Framework for Autonomous Brain Signal Understanding](/202606/26/2606.25400v1-brainagent-a-large-language-model-driven-multi-agent-framework-for-autonomous-brain-signal-understanding)  
    标签：评分：9.0/10、query:sr
-   evidence：使用流匹配从EEG重建连续语音
-2. [Breaking Shortcut Learning for Cross-Trial EEG-Guided Target Speech Extraction via Two-Stage Training](/202606/25/2606.24164v1-breaking-shortcut-learning-for-cross-trial-eeg-guided-target-speech-extraction-via-two-stage-training)  
+   evidence：LLM驱动的多代理框架用于脑机接口
+3. [Towards Robust EEG Decoding Based on Riemannian Self-Attention](/202606/26/2606.25456v1-towards-robust-eeg-decoding-based-on-riemannian-self-attention)  
    标签：评分：9.0/10、query:sr
-   evidence：EEG引导的目标语音提取用于神经控制助听器
-3. [Average Rankings Mask Per-Subject Optimality: A Friedman-Nemenyi Benchmark of EEG Motor-Imagery BCI Decoders](/202606/25/2606.24394v1-average-rankings-mask-per-subject-optimality-a-friedman-nemenyi-benchmark-of-eeg-motor-imagery-bci-decoders)  
+   evidence：基于黎曼自注意力的EEG解码用于脑机接口
+4. [What Does the Brain See? Multiview Neural Representations to Demystify the Brain-Visual Alignment](/202606/26/2606.25718v1-what-does-the-brain-see-multiview-neural-representations-to-demystify-the-brain-visual-alignment)  
    标签：评分：9.0/10、query:sr
-   evidence：EEG运动想象BCI解码器基准测试，包含时空配置
-4. [Dynamic and task-dependent decoding of the human attentional spotlight from MEG](/202606/25/biorxiv-10-1101-2025-10-23-684150-v2-dynamic-and-task-dependent-decoding-of-the-human-attentional-spotlight-from-meg)  
+   evidence：从EEG多视角表征进行零样本视觉解码
+5. [Topology-Dependent Emergence of Polychronous Neuronal Groups: A Recurrence-Plot Characterization](/202606/26/2606.25874v1-topology-dependent-emergence-of-polychronous-neuronal-groups-a-recurrence-plot-characterization)  
    标签：评分：9.0/10、query:sr
-   evidence：利用机器学习从脑磁图解码空间注意
-5. [Dynamic Compression Flows for Neuroscience Data](/202606/25/biorxiv-10-64898-2026-02-12-705535-v2-dynamic-compression-flows-for-neuroscience-data)  
-   标签：评分：9.0/10、query:sr
-   evidence：基于流匹配的神经时间序列低维动态表示方法
+   evidence：多脉冲神经元群体作为时空放电模式
 
 ### 速读区论文标签
-1. [From Handcrafted Features to Functional Edge Learning: Evolution of EEG Seizure Detection Frameworks](/202606/25/2606.22258v1-from-handcrafted-features-to-functional-edge-learning-evolution-of-eeg-seizure-detection-frameworks)  
+1. [Interpretable Concept-Guided Polynomial Tabular Kolmogorov-Arnold Network for EEG-Based Mild Cognitive Impairment Detection](/202606/26/2606.25434v1-interpretable-concept-guided-polynomial-tabular-kolmogorov-arnold-network-for-eeg-based-mild-cognitive-impairment-detection)  
    标签：评分：8.0/10、query:sr
-   evidence：EEG可解释性综述及KAN用于临床
-2. [SPIDER -- Stitched Power-spectra for Inferring Directed information flow from incomplete and asynchronous Experimental Recordings](/202606/25/2606.22695v1-spider----stitched-power-spectra-for-inferring-directed-information-flow-from-incomplete-and-asynchronous-experimental-recordings)  
+   evidence：可解释概念引导多项式KAN用于基于EEG的轻度认知障碍检测
+2. [aNy-way ICA and its application to estimate cortico-thalamo-cerebellar functional links in schizophrenia](/202606/26/biorxiv-10-1101-2025-06-02-657541-v2-any-way-ica-and-its-application-to-estimate-cortico-thalamo-cerebellar-functional-links-in-schizophrenia)  
    标签：评分：8.0/10、query:sr
-   evidence：从神经记录推断定向信息流
-3. [Estimating common synaptic inputs to spinal motor neurons from motor unit spike trains using openhdemg](/202606/25/2606.23066v1-estimating-common-synaptic-inputs-to-spinal-motor-neurons-from-motor-unit-spike-trains-using-openhdemg)  
+   evidence：通过任意方式ICA进行脑连接的数据融合
+3. [Next-Generation Neural Mass Models Reproduce Features of Speech Processing](/202606/26/biorxiv-10-1101-2025-10-20-683434-v2-next-generation-neural-mass-models-reproduce-features-of-speech-processing)  
    标签：评分：8.0/10、query:sr
-   evidence：从运动单位脉冲序列估计共同突触输入
-4. [Evaluating the Interpretability of Sparse Autoencoders with Concept Annotations](/202606/25/2606.24716v1-evaluating-the-interpretability-of-sparse-autoencoders-with-concept-annotations)  
+   evidence：神经群体模型复制语音处理特征，将外部刺激与神经活动联系起来
+4. [Bayesian Nonparametric Identification of Frequency-Selective Neural Oscillatory States](/202606/26/biorxiv-10-64898-2025-12-20-695571-v3-bayesian-nonparametric-identification-of-frequency-selective-neural-oscillatory-states)  
    标签：评分：8.0/10、query:sr
-   evidence：稀疏自编码器可解释性的人类评估框架
-5. [Mostly-monocular responses and other visual functions in a multiscale network model of Macaque V1](/202606/25/2606.21785v2-mostly-monocular-responses-and-other-visual-functions-in-a-multiscale-network-model-of-macaque-v1)  
+   evidence：贝叶斯非参数方法从神经数据中识别频率选择性振荡状态
+5. [Neural Operator Processes for Probabilistic Operator Learning under Partial Observations](/202606/26/2606.22946v1-neural-operator-processes-for-probabilistic-operator-learning-under-partial-observations)  
    标签：评分：7.0/10、query:sr
-   evidence：V1神经编码的计算模型
-6. [Explainable AI in Speaker Recognition -- Attention Map Visualisation and Evaluation](/202606/25/2606.22901v1-explainable-ai-in-speaker-recognition----attention-map-visualisation-and-evaluation)  
+   evidence：神经算子过程支持从稀疏观测进行概率预测，可应用于神经解码
+6. [Generative Modeling for Physiological Signals](/202606/26/2606.23864v1-generative-modeling-for-physiological-signals)  
    标签：评分：7.0/10、query:sr
-   evidence：注意力图可视化解释神经网络决策
-7. [Re-emergence of orientation coding in primate IT cortex and deep networks reveals functional hubs for visual processing](/202606/25/biorxiv-10-1101-2025-10-23-684240-v2-re-emergence-of-orientation-coding-in-primate-it-cortex-and-deep-networks-reveals-functional-hubs-for-visual-processing)  
+   evidence：神经生理信号的生成建模
+7. [Olfactory cortical outputs recruit and shape distinct brain-wide spatiotemporal networks](/202606/26/biorxiv-10-1101-2024-07-19-604242-v3-olfactory-cortical-outputs-recruit-and-shape-distinct-brain-wide-spatiotemporal-networks)  
    标签：评分：7.0/10、query:sr
-   evidence：从视觉流fMRI模式解码方向
-8. [A unified model of short- and long-term plasticity: Effects on network connectivity and information capacity](/202606/25/biorxiv-10-1101-2025-11-07-687160-v2-a-unified-model-of-short--and-long-term-plasticity-effects-on-network-connectivity-and-information-capacity)  
+   evidence：研究嗅觉系统中的时空神经网络
+8. [The human brain mechanisms of afterimages: From networks to cortical layers](/202606/26/biorxiv-10-1101-2025-08-30-673266-v2-the-human-brain-mechanisms-of-afterimages-from-networks-to-cortical-layers)  
    标签：评分：7.0/10、query:sr
-   evidence：建模尖峰时序依赖可塑性，连接短时和长时动力学
-9. [Frequency-Domain Neural ODEs for Modeling Non-Linear Dynamical Systems](/202606/25/2606.22075v1-frequency-domain-neural-odes-for-modeling-non-linear-dynamical-systems)  
+   evidence：跨皮层的后像神经机制fMRI研究
+9. [Frequency Domain Reservoir Computing](/202606/26/2606.24969v1-frequency-domain-reservoir-computing)  
    标签：评分：6.0/10、query:sr
-   evidence：频域神经ODE用于非线性动力学建模
-10. [EEG Benchmarking Needs a Task Specification Layer: NeuroDoc for Rulebook-Guided, Executable Benchmark Construction](/202606/25/2606.22925v1-eeg-benchmarking-needs-a-task-specification-layer-neurodoc-for-rulebook-guided-executable-benchmark-construction)  
+   evidence：频域储备池计算用于时序动态
+10. [Sensory expectations and prediction error during feedback control in the human brain](/202606/26/biorxiv-10-64898-2026-01-19-700321-v2-sensory-expectations-and-prediction-error-during-feedback-control-in-the-human-brain)  
    标签：评分：6.0/10、query:sr
-   evidence：用于时序解码基准的脑电任务规范
+   evidence：线性编码预期感觉输入
 
