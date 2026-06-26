@@ -1,63 +1,61 @@
 ## 最新日报
-- 最新运行日期：2026-06-26
-- 运行时间：2026-06-26 05:25:36 北京时间
+- 最新运行日期：2026-06-27
+- 运行时间：2026-06-27 05:40:29 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今从15篇脑科学论文中精读5篇，重点推荐解码慢性疼痛与智能体脑信号理解两项高分突破。  
-分布式颅内记录成功解码慢性疼痛状态，BrainAgent则用大模型多智能体自主分析脑信号，均展现强应用潜力。  
-建议读者留意颅内电生理的疼痛标记发现，并关注大语言模型驱动的新一代神经解码工具。
-- 详情：[/202606/26/README](/202606/26/README)
+今日解读15篇神经编码与网络架构新作，深度剖析感觉编码的行为对齐原则及猕猴运动皮层跨层级时间尺度。最值得关注：行为目标如何重塑感觉编码底层逻辑，以及皮层区域中多模态信息的时间尺度特异性分工。建议读者从“行为对齐”视角重新审视自己的模型设计，关注生物脑的层次化时间结构对AI架构的启发。
+- 详情：[/202606/27/README](/202606/27/README)
 
 ### 精读区论文标签
-1. [Decoding Chronic Pain States from Distributed Intracranial Recordings](/202606/26/biorxiv-10-64898-2026-06-16-732555-v1-decoding-chronic-pain-states-from-distributed-intracranial-recordings)  
-   标签：评分：10.0/10、query:sr
-   evidence：从颅内记录解码慢性疼痛状态
-2. [BrainAgent: A Large Language Model-Driven Multi-Agent Framework for Autonomous Brain Signal Understanding](/202606/26/2606.25400v1-brainagent-a-large-language-model-driven-multi-agent-framework-for-autonomous-brain-signal-understanding)  
+1. [Behavioral alignment as an organizing principle in sensory coding](/202606/27/biorxiv-10-64898-2026-02-04-703828-v2-behavioral-alignment-as-an-organizing-principle-in-sensory-coding)  
    标签：评分：9.0/10、query:sr
-   evidence：LLM驱动的多代理框架用于脑机接口
-3. [Towards Robust EEG Decoding Based on Riemannian Self-Attention](/202606/26/2606.25456v1-towards-robust-eeg-decoding-based-on-riemannian-self-attention)  
+   evidence：行为对齐解释斑马鱼脑感觉编码
+2. [Area- and Layer-Specific Organization of Multimodal Timescales in Macaque Motor Cortex](/202606/27/biorxiv-10-64898-2026-03-21-713374-v2-area--and-layer-specific-organization-of-multimodal-timescales-in-macaque-motor-cortex)  
    标签：评分：9.0/10、query:sr
-   evidence：基于黎曼自注意力的EEG解码用于脑机接口
-4. [What Does the Brain See? Multiview Neural Representations to Demystify the Brain-Visual Alignment](/202606/26/2606.25718v1-what-does-the-brain-see-multiview-neural-representations-to-demystify-the-brain-visual-alignment)  
+   evidence：运动皮层区域和层特异的时间尺度
+3. [A population readout of extrastriate activity reveals biased and smoothed temporal representations across saccades](/202606/27/biorxiv-10-64898-2026-06-16-732385-v1-a-population-readout-of-extrastriate-activity-reveals-biased-and-smoothed-temporal-representations-across-saccades)  
    标签：评分：9.0/10、query:sr
-   evidence：从EEG多视角表征进行零样本视觉解码
-5. [Topology-Dependent Emergence of Polychronous Neuronal Groups: A Recurrence-Plot Characterization](/202606/26/2606.25874v1-topology-dependent-emergence-of-polychronous-neuronal-groups-a-recurrence-plot-characterization)  
+   evidence：纹外皮层时间表征的群体读出
+4. [Data aggregation strategies for a P300 speller: decoding models, epoch averaging, cross-subject ensembles, and multi-channel models](/202606/27/biorxiv-10-64898-2026-06-17-732982-v1-data-aggregation-strategies-for-a-p300-speller-decoding-models-epoch-averaging-cross-subject-ensembles-and-multi-channel-models)  
    标签：评分：9.0/10、query:sr
-   evidence：多脉冲神经元群体作为时空放电模式
+   evidence：P300拼写器脑机接口解码的数据聚合
+5. [Electrolytic-Microbubble Dynamics Delineate Safety Thresholds During Intracortical Microstimulation with Flexible Neural Interfaces](/202606/27/biorxiv-10-64898-2026-06-17-733032-v1-electrolytic-microbubble-dynamics-delineate-safety-thresholds-during-intracortical-microstimulation-with-flexible-neural-interfaces)  
+   标签：评分：9.0/10、query:sr
+   evidence：柔性神经界面的皮层内微刺激安全性研究
 
 ### 速读区论文标签
-1. [Interpretable Concept-Guided Polynomial Tabular Kolmogorov-Arnold Network for EEG-Based Mild Cognitive Impairment Detection](/202606/26/2606.25434v1-interpretable-concept-guided-polynomial-tabular-kolmogorov-arnold-network-for-eeg-based-mild-cognitive-impairment-detection)  
+1. [Identifying structural design principles shaping the computational abilities of recurrent neural networks](/202606/27/2606.23874v1-identifying-structural-design-principles-shaping-the-computational-abilities-of-recurrent-neural-networks)  
    标签：评分：8.0/10、query:sr
-   evidence：可解释概念引导多项式KAN用于基于EEG的轻度认知障碍检测
-2. [aNy-way ICA and its application to estimate cortico-thalamo-cerebellar functional links in schizophrenia](/202606/26/biorxiv-10-1101-2025-06-02-657541-v2-any-way-ica-and-its-application-to-estimate-cortico-thalamo-cerebellar-functional-links-in-schizophrenia)  
+   evidence：RNN结构-功能映射用于模型可解释性
+2. [Structuring Sparsity: Block-Sparse Featurizers Capture Visual Concept Manifolds](/202606/27/2606.25234v1-structuring-sparsity-block-sparse-featurizers-capture-visual-concept-manifolds)  
    标签：评分：8.0/10、query:sr
-   evidence：通过任意方式ICA进行脑连接的数据融合
-3. [Next-Generation Neural Mass Models Reproduce Features of Speech Processing](/202606/26/biorxiv-10-1101-2025-10-20-683434-v2-next-generation-neural-mass-models-reproduce-features-of-speech-processing)  
+   evidence：块稀疏特征器用于可解释的神经表征
+3. [TinyCNNDeep: Lightweight Attention-Based CNN for EEG Classification of Eye States and Sleep Deprivation](/202606/27/2606.26506v1-tinycnndeep-lightweight-attention-based-cnn-for-eeg-classification-of-eye-states-and-sleep-deprivation)  
    标签：评分：8.0/10、query:sr
-   evidence：神经群体模型复制语音处理特征，将外部刺激与神经活动联系起来
-4. [Bayesian Nonparametric Identification of Frequency-Selective Neural Oscillatory States](/202606/26/biorxiv-10-64898-2025-12-20-695571-v3-bayesian-nonparametric-identification-of-frequency-selective-neural-oscillatory-states)  
+   evidence：使用CNN对脑电图眼状态和睡眠剥夺进行分类
+4. [Heterogeneous Neural Predictivity from Language Models During Naturalistic Comprehension](/202606/27/2606.26880v1-heterogeneous-neural-predictivity-from-language-models-during-naturalistic-comprehension)  
    标签：评分：8.0/10、query:sr
-   evidence：贝叶斯非参数方法从神经数据中识别频率选择性振荡状态
-5. [Neural Operator Processes for Probabilistic Operator Learning under Partial Observations](/202606/26/2606.22946v1-neural-operator-processes-for-probabilistic-operator-learning-under-partial-observations)  
+   evidence：语言模型特征预测理解过程中的神经活动
+5. [Error Highways: Scaling Predictive Coding to Very Deep Networks](/202606/27/2606.22744v1-error-highways-scaling-predictive-coding-to-very-deep-networks)  
    标签：评分：7.0/10、query:sr
-   evidence：神经算子过程支持从稀疏观测进行概率预测，可应用于神经解码
-6. [Generative Modeling for Physiological Signals](/202606/26/2606.23864v1-generative-modeling-for-physiological-signals)  
+   evidence：预测编码网络作为神经编码可解释性方法
+6. [Modulation index-based phase-amplitude coupling does not encode temporal polarity](/202606/27/biorxiv-10-64898-2026-06-05-730524-v2-modulation-index-based-phase-amplitude-coupling-does-not-encode-temporal-polarity)  
    标签：评分：7.0/10、query:sr
-   evidence：神经生理信号的生成建模
-7. [Olfactory cortical outputs recruit and shape distinct brain-wide spatiotemporal networks](/202606/26/biorxiv-10-1101-2024-07-19-604242-v3-olfactory-cortical-outputs-recruit-and-shape-distinct-brain-wide-spatiotemporal-networks)  
+   evidence：相位-振幅耦合指标的可解释性限制分析
+7. [Representational geometry as a fidelity metric for connectome-constrained networks: evidence from the Drosophila visual system](/202606/27/biorxiv-10-64898-2026-06-10-731214-v4-representational-geometry-as-a-fidelity-metric-for-connectome-constrained-networks-evidence-from-the-drosophila-visual-system)  
    标签：评分：7.0/10、query:sr
-   evidence：研究嗅觉系统中的时空神经网络
-8. [The human brain mechanisms of afterimages: From networks to cortical layers](/202606/26/biorxiv-10-1101-2025-08-30-673266-v2-the-human-brain-mechanisms-of-afterimages-from-networks-to-cortical-layers)  
+   evidence：表征几何作为模型保真度度量
+8. [Environmental color statistics shape the anisotropic geometry of human color discrimination](/202606/27/biorxiv-10-64898-2026-06-16-732654-v1-environmental-color-statistics-shape-the-anisotropic-geometry-of-human-color-discrimination)  
    标签：评分：7.0/10、query:sr
-   evidence：跨皮层的后像神经机制fMRI研究
-9. [Frequency Domain Reservoir Computing](/202606/26/2606.24969v1-frequency-domain-reservoir-computing)  
+   evidence：从脑磁图信号解码颜色色调差异
+9. [Beyond Single-Source Cognitive Taskonomy:Multi-Source Task Relations through fMRI Transfer Learning](/202606/27/2606.26279v1-beyond-single-source-cognitive-taskonomymulti-source-task-relations-through-fmri-transfer-learning)  
    标签：评分：6.0/10、query:sr
-   evidence：频域储备池计算用于时序动态
-10. [Sensory expectations and prediction error during feedback control in the human brain](/202606/26/biorxiv-10-64898-2026-01-19-700321-v2-sensory-expectations-and-prediction-error-during-feedback-control-in-the-human-brain)  
+   evidence：fMRI重建用于解码任务状态
+10. [Discovering Millions of Interpretable Features with Sparse Autoencoders](/202606/27/2606.26620v1-discovering-millions-of-interpretable-features-with-sparse-autoencoders)  
    标签：评分：6.0/10、query:sr
-   evidence：线性编码预期感觉输入
+   evidence：用于语言模型可解释特征的稀疏自编码器，方法可迁移至神经编码
 
