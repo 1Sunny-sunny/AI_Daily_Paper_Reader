@@ -1,63 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-06-29
-- 运行时间：2026-06-29 04:10:29 北京时间
+- 最新运行日期：2026-06-30
+- 运行时间：2026-06-30 05:42:38 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今日精读2篇高分论文，探讨了神经流形如何编码刺激与环路信息，以及连贯场景如何加速物体表征重塑，同时速读10篇连接组约束网络与仿生触觉等前沿研究。  
-亮点方向：神经流形的几何结构揭示了刺激与环路共同塑造信息编码的方式；场景上下文能显著重塑物体表征的速度与形态。  
-明日可深挖场景与环路协同对类脑智能的启示，尤其关注连接组约束如何提升模型忠实度。
-- 详情：[/202606/29/README](/202606/29/README)
+今日聚焦神经表征的几何稳定性与吸引子网络，精读两篇高分论文揭示大脑如何维持稳定感知，并解读异质突触、无源域适应等前沿方法。  
+最值得关注的是《Preserved geometry during representational drift》以满分10.0证明表征漂移中几何结构不变是稳定记忆的关键，与《CANNs》工具包形成从理论到实现的研究闭环。  
+下一步建议普通读者从连续吸引子网络工具箱入手，结合异质突触模型，尝试将时间漂移下的结构保持思想应用到自己的动态系统分析中。
+- 详情：[/202606/30/README](/202606/30/README)
 
 ### 精读区论文标签
-1. [Stimulus and circuit contributions to the information geometry of neural manifolds](/202606/29/biorxiv-10-64898-2026-06-21-733384-v1-stimulus-and-circuit-contributions-to-the-information-geometry-of-neural-manifolds)  
+1. [Preserved geometry during representational drift enables stable perception and memory](/202606/30/biorxiv-10-64898-2026-06-25-734656-v1-preserved-geometry-during-representational-drift-enables-stable-perception-and-memory)  
+   标签：评分：10.0/10、query:sr
+   evidence：在漂移的神经群体表征中实现稳定解码的数学框架
+2. [CANNs: A Toolkit for Research on Continuous Attractor Neural Networks](/202606/30/2606.27783v1-canns-a-toolkit-for-research-on-continuous-attractor-neural-networks)  
    标签：评分：9.0/10、query:sr
-   evidence：将输入调谐与流形几何和Fisher信息联系的微分几何框架
-2. [Coherent scene context accelerates and reshapes neural object representations](/202606/29/biorxiv-10-64898-2026-06-22-733573-v1-coherent-scene-context-accelerates-and-reshapes-neural-object-representations)  
+   evidence：连续吸引子神经网络开源工具包，模拟连续变量的神经编码
+3. [Time space signatures of hybrid search resolution using EEG and eye movements concurrent recordings](/202606/30/biorxiv-10-64898-2026-06-22-733836-v1-time-space-signatures-of-hybrid-search-resolution-using-eeg-and-eye-movements-concurrent-recordings)  
    标签：评分：9.0/10、query:sr
-   evidence：使用脑电图多变量模式分析随时间解码物体类别
-3. [Robust neural face identity codes in the Super-Recogniser brain](/202606/29/biorxiv-10-64898-2026-06-22-733666-v1-robust-neural-face-identity-codes-in-the-super-recogniser-brain)  
+   evidence：基于反卷积的EEG分析以分离视觉搜索中的神经激活模式
+4. [Healthy-to-Stroke Translation of EEG-Based BMIs: EEG Characterization and Reinforcement Learning-Based Decoder Evaluation](/202606/30/biorxiv-10-64898-2026-06-23-733831-v1-healthy-to-stroke-translation-of-eeg-based-bmis-eeg-characterization-and-reinforcement-learning-based-decoder-evaluation)  
    标签：评分：9.0/10、query:sr
-   evidence：基于时间分辨RSA的EEG人脸身份解码
-4. [Rhythmic replay of short-term memory neural patterns revealed by time-resolved error prediction](/202606/29/biorxiv-10-64898-2026-06-22-733876-v1-rhythmic-replay-of-short-term-memory-neural-patterns-revealed-by-time-resolved-error-prediction)  
+   evidence：基于EEG的脑机接口解码器使用Q学习用于中风康复
+5. [Brain Control of a Computer Cursor for Online Target Selection - A Non-Invasive BCI for Continuous Movement Decoding](/202606/30/biorxiv-10-64898-2026-06-23-733968-v1-brain-control-of-a-computer-cursor-for-online-target-selection---a-non-invasive-bci-for-continuous-movement-decoding)  
    标签：评分：9.0/10、query:sr
-   evidence：时间分辨EEG解码记忆回忆错误
-5. [A Thin Film Transistor Backplane for Scalable Chronic Neural Interfaces](/202606/29/biorxiv-10-64898-2026-06-23-733868-v1-a-thin-film-transistor-backplane-for-scalable-chronic-neural-interfaces)  
-   标签：评分：9.0/10、query:sr
-   evidence：直接脑机通信硬件
+   evidence：用于连续光标控制和目标选择的非侵入式脑机接口
 
 ### 速读区论文标签
-1. [Representational geometry as a fidelity metric for connectome-constrained networks: evidence from the Drosophila visual system](/202606/29/biorxiv-10-64898-2026-06-10-731214-v5-representational-geometry-as-a-fidelity-metric-for-connectome-constrained-networks-evidence-from-the-drosophila-visual-system)  
+1. [Applicability of memorization indicators for early spotting of overfitting while recalibrating sEMG-decoders on low sample sizes](/202606/30/2606.27855v1-applicability-of-memorization-indicators-for-early-spotting-of-overfitting-while-recalibrating-semg-decoders-on-low-sample-sizes)  
    标签：评分：8.0/10、query:sr
-   evidence：表征几何作为生物网络保真度度量
-2. [Representational geometry as a fidelity metric for connectome-constrained networks: evidence from the Drosophila visual system](/202606/29/biorxiv-10-64898-2026-06-10-731214-v6-representational-geometry-as-a-fidelity-metric-for-connectome-constrained-networks-evidence-from-the-drosophila-visual-system)  
+   evidence：sEMG解码器重校准中的过拟合检测，用于脑机接口
+2. [Heterogeneous synaptic motifs bridge microscale structure and macroscale nonlinear dynamics](/202606/30/2606.27946v1-heterogeneous-synaptic-motifs-bridge-microscale-structure-and-macroscale-nonlinear-dynamics)  
    标签：评分：8.0/10、query:sr
-   evidence：表征几何作为生物网络保真度度量
-3. [Insect-inspired, efficient event-based classification of tactile features](/202606/29/biorxiv-10-64898-2026-06-18-733073-v2-insect-inspired-efficient-event-based-classification-of-tactile-features)  
+   evidence：微观突触结构与宏观神经动力学
+3. [An Enhanced Source-Free Unsupervised Domain Adaptation Framework for Cross-Dataset EEG Emotion Recognition via Predictive Coding and Test-Time Training](/202606/30/2606.28202v1-an-enhanced-source-free-unsupervised-domain-adaptation-framework-for-cross-dataset-eeg-emotion-recognition-via-predictive-coding-and-test-time-training)  
    标签：评分：8.0/10、query:sr
-   evidence：神经力学模型将触角机械运动与脉冲序列编码联系起来
-4. [Decomposition of task-specific responses in the multiple demand network](/202606/29/biorxiv-10-64898-2026-06-21-732474-v1-decomposition-of-task-specific-responses-in-the-multiple-demand-network)  
+   evidence：跨数据集EEG情感识别的域适应
+4. [Neural responses during natural vision are action-timed rather than locked to the onset of stable foveal input](/202606/30/biorxiv-10-1101-2024-10-25-620167-v3-neural-responses-during-natural-vision-are-action-timed-rather-than-locked-to-the-onset-of-stable-foveal-input)  
    标签：评分：8.0/10、query:sr
-   evidence：分解多需求网络中任务特异fMRI反应以解码神经活动
-5. [Utilizing Cognitive Signals Generated during Human Reading to Enhance Keyphrase Extraction from Microblogs](/202606/29/2606.26485v1-utilizing-cognitive-signals-generated-during-human-reading-to-enhance-keyphrase-extraction-from-microblogs)  
+   evidence：自然视觉中神经响应与扫掠时间同步
+5. [Modelling chronic stress as an excitatory-inhibitory perturbation in recurrent working-memory networks](/202606/30/2606.27529v1-modelling-chronic-stress-as-an-excitatory-inhibitory-perturbation-in-recurrent-working-memory-networks)  
    标签：评分：7.0/10、query:sr
-   evidence：解码EEG信号增强关键词提取
-6. [Boundary-Aware Context Grounding for A Low-Channel EEG Agent](/202606/29/2606.26519v1-boundary-aware-context-grounding-for-a-low-channel-eeg-agent)  
+   evidence：将慢性压力建模为循环网络中突触强度的调制
+6. [Pitch motor areas contribute to the perception of prosodic categories in speech](/202606/30/biorxiv-10-64898-2026-06-22-733802-v1-pitch-motor-areas-contribute-to-the-perception-of-prosodic-categories-in-speech)  
    标签：评分：7.0/10、query:sr
-   evidence：低通道脑电分析代理支持时域解码
-7. [Drowsiness alters the neural dynamics but not the core computations of multisensory integration](/202606/29/biorxiv-10-64898-2026-01-12-699055-v2-drowsiness-alters-the-neural-dynamics-but-not-the-core-computations-of-multisensory-integration)  
+   evidence：通过脑磁图研究韵律类别的神经表征
+7. [Hierarchical Predictive Processing during Natural Reading](/202606/30/biorxiv-10-64898-2026-06-24-734402-v1-hierarchical-predictive-processing-during-natural-reading)  
    标签：评分：7.0/10、query:sr
-   evidence：嗜睡状态下多感觉整合的脑电神经动力学
-8. [Tetradic Dynamics of Dyadic Sensorimotor Coordination: A Multiscale EEG Hyperscanning Study](/202606/29/biorxiv-10-64898-2026-06-21-732435-v1-tetradic-dynamics-of-dyadic-sensorimotor-coordination-a-multiscale-eeg-hyperscanning-study)  
+   evidence：自然阅读过程中EEG解码预测误差信号
+8. [Sleep spindles enhance latent working memory representations](/202606/30/biorxiv-10-64898-2026-06-26-734777-v1-sleep-spindles-enhance-latent-working-memory-representations)  
    标签：评分：7.0/10、query:sr
-   evidence：脑电图超扫描解码感觉运动协调中的脑间动态
-9. [Task-optimized models of sensory uncertainty reproduce human confidence judgments](/202606/29/biorxiv-10-1101-2025-10-31-685933-v3-task-optimized-models-of-sensory-uncertainty-reproduce-human-confidence-judgments)  
+   evidence：研究睡眠梭形波如何通过神经活动塑造潜在工作记忆表征
+9. [OperatorSHAP: Fast and Accurate Shapley Value Estimation for Neural Operators](/202606/30/2606.28065v1-operatorshap-fast-and-accurate-shapley-value-estimation-for-neural-operators)  
    标签：评分：6.0/10、query:sr
-   evidence：任务优化模型关联感官输入与不确定性估计
-10. [Exploring the functionality of market-available tools for neural recording](/202606/29/biorxiv-10-64898-2026-06-20-720337-v1-exploring-the-functionality-of-market-available-tools-for-neural-recording)  
+   evidence：提供一种网格无关的属性归因方法用于解释模型预测
+10. [Systematic comparison of color representations between humans and deep neural networks: towards predicting human color perception in a vast color space](/202606/30/biorxiv-10-64898-2025-12-10-693611-v4-systematic-comparison-of-color-representations-between-humans-and-deep-neural-networks-towards-predicting-human-color-perception-in-a-vast-color-space)  
    标签：评分：6.0/10、query:sr
-   evidence：模块化神经记录平台
+   evidence：比较深度神经网络与人类颜色表征以理解编码
 
