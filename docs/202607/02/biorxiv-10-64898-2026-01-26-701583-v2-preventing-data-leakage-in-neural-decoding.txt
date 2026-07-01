@@ -1,0 +1,4967 @@
+Title: Preventing Data Leakage in Neural Decoding
+
+URL Source: https://www.biorxiv.org/content/10.64898/2026.01.26.701583v2.full.pdf
+
+Published Time: Wed, 01 Jul 2026 21:52:03 GMT
+
+Number of Pages: 58
+
+Markdown Content:
+# Preventing Data Leakage in Neural Decoding 1
+
+Robert Wong 1,2 , Michael H. McCullough 3,4 , Tianfeng Lu 1,2 , Shuyu I. Zhu 2, and Geoffrey J. 2
+
+Goodhill 2
+
+> 3
+> 1
+
+Department of Electrical and Systems Engineering, Washington University in St. Louis 4
+
+> 2
+
+Departments of Developmental Biology and Neuroscience, Washington University in St. Louis 5
+
+> 3
+
+Eccles Institute of Neuroscience, John Curtin School of Medical Research, College of 6
+
+Science and Medicine, The Australian National University 7
+
+> 4
+
+School of Computing, College of Systems and Society, The Australian National University 8
+
+## Abstract 9
+
+Neural decoding is a widely-used machine learning technique for investigating how behavior, perception 10 
+
+and cognition are represented in neural activity. However without careful application data leakage can 11 
+
+occur, where information from the test set contaminates the training set, leading to biased estimates of 12 
+
+decoding performance and potentially invalidating biological conclusions. Here we show that leakage 13 
+
+can be introduced in neural decoding studies by common supervised and unsupervised preprocessing 14 
+
+steps, including dimensionality reduction. We reveal that in some cases leakage can paradoxically 15 
+
+decrease decoding performance relative to unbiased estimates, and we provide theoretical analyses 16 
+
+explaining how this occurs. We also show that, for autocorrelated neural time series, randomized k-fold 17 
+
+cross-validation can dramatically overstate decoding performance. Based on these findings, we provide 18 
+
+detailed recommendations for avoiding data leakage in neural decoding. 19 
+
+## 1 Introduction 20 
+
+Neural decoding is an important tool for understanding how neural activity relates to behavior, cognition, 21 
+
+and perception (Horikawa et al., 2013; Anumanchipalli et al., 2019; Glaser et al., 2020; Stringer 22 
+
+et al., 2021). It is also widely used for neural engineering applications, including visual decoding and 23 
+
+reconstruction from brain activity (Horikawa & Kamitani, 2017; Wen et al., 2017; Chen et al., 2023a,b) 24 
+
+and brain-computer interfaces for communication, movement control, and sensory feedback (Wolpaw & 25 
+
+McFarland, 2004; Birbaumer & Cohen, 2007; He et al., 2020; Flesher et al., 2021). Recent advances in 26 
+
+recording techniques in animals now allow many thousands of neurons to be recorded simultaneously 27 
+
+(Ahrens et al., 2013; Jun et al., 2017; Saxena & Cunningham, 2019; Steinmetz et al., 2021; Lin et al., 28 
+
+2022; Urai et al., 2022), resulting in complex and high-dimensional data. Decoding analyses of such 29 
+
+data often require sophisticated machine learning methods to translate these measurements into 30 
+
+meaningful insights about neural representations and function. 31 
+
+However such analyses risk data leakage, which occurs when information used to train the model also 32 
+
+appears in the data used to evaluate performance, even in indirect or inadvertent ways. This can often 33 
+
+inflate, and sometimes counterintuitively deflate, the decoding performance of the model and potentially 34 
+
+alter the biological interpretation of the results. Data leakage is increasingly recognized as a critical 35 
+
+and widespread problem in many areas of science where machine learning techniques are applied, 36 
+
+contributing considerably to reproducibility problems (Ambroise & McLachlan, 2002; Simon et al., 2003; 37 
+
+1
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+Moscovich & Rosset, 2022; Kapoor & Narayanan, 2023). This includes the classic “double-dipping” 38 
+
+problem: reusing the same data for feature or region selection and for evaluation, which inflates effect 39 
+
+sizes and invalidates inference; selection and evaluation must rely on statistically independent data 40 
+
+(Kriegeskorte et al., 2009; Button, 2019). Although train-test separation is now routine in many fields, 41 
+
+this split does not prevent leakage if data-dependent preprocessing is applied before the split. For 42 
+
+example, Moscovich & Rosset (2022) found that a substantial fraction of papers in a cross-validation 43 
+
+(CV) literature survey appeared to apply unsupervised preprocessing before separating training and test 44 
+
+data. Recent work has documented leakage in practical fMRI prediction analysis pipelines (Poldrack 45 
+
+et al., 2020; Rosenblatt et al., 2024). Yet, despite the growing use of preprocessing procedures for large 46 
+
+neural and behavioral datasets where data leakage can easily occur, the broader impact of leakage on 47 
+
+neural decoding remains under-recognized. 48 
+
+One route to leakage is data-dependent preprocessing, in which information from held-out samples 49 
+
+can shape transformations applied before model fitting. Such preprocessing pipelines can be broadly 50 
+
+categorized into two types: supervised and unsupervised. Supervised preprocessing uses label or task 51 
+
+information to choose features or fit transformations before decoding, for example selecting neurons 52 
+
+based on responsiveness to the decoded variable, selecting features by their correlation with the 53 
+
+behavioral outcome, or applying Principal Component Analysis (PCA) to label-defined trial averages. 54 
+
+Statistical learning textbooks emphasize that any supervised transformation should be fit exclusively on 55 
+
+training data within each CV fold to avoid contaminating test estimates (Hastie et al., 2009; Abu-Mostafa 56 
+
+et al., 2012). This is a recurrent pitfall that almost universally leads to optimistic performance estimates 57 
+
+if not handled correctly within CV folds. However, a more subtle issue is unsupervised preprocessing, 58 
+
+which uses only the neural activity for transformations such as dimensionality reduction or feature 59 
+
+scaling. While often considered safe (Hastie et al., 2009), recent theoretical work shows that applying 60 
+
+these methods to the entire dataset before partitioning introduces a systematic bias (Moscovich & 61 
+
+Rosset, 2022). Crucially, and counter-intuitively, this bias is not universally optimistic; the estimated error 62 
+
+can also be pessimistic, i.e. leading to an underestimation of a model’s true decoding performance, 63 
+
+depending on a complex interplay between the data, the preprocessing method, and the learning 64 
+
+algorithm. A second route to leakage is temporal dependence, where test samples are not statistically 65 
+
+independent of training samples (Kapoor & Narayanan, 2023). This issue is especially relevant for neural 66 
+
+recordings, where slow internal-state signals and autocorrelated activity can make nearby training and 67 
+
+test samples statistically dependent (Harris & Thiele, 2011; Cowley et al., 2020). Such slow structure 68 
+
+can also produce spurious associations when analyzed with methods that assume independent samples 69 
+
+(Harris, 2021). 70 
+
+Here, we present a systematic analysis of neural decoding pipelines that span supervised and 71 
+
+unsupervised preprocessing, modern dimensionality-reduction methods, and static and temporally 72 
+
+structured data, benchmarking cross-validated estimates against true generalization. Beyond prior 73 
+
+work on feature selection and general-purpose machine-learning pipelines, we focus on preprocessing 74 
+
+operations that are central to systems neuroscience, demonstrating that dimensionality reduction can 75 
+
+bias decoding performance estimates in either direction. We also derive new analytical results showing 76 
+
+how trial-averaged PCA can create separability under random labels, how leaked test samples alter 77 
+
+squared-bias and variance, and how train–test covariance biases test error on temporally correlated 78 
+
+data. 79 
+
+Together, these results demonstrate that data leakage can occur surprisingly easily in neural decoding. 80 
+
+We provide recommendations and open-source code to aid researchers in avoiding data leakage, and 81 
+
+also suggest a simple method for detecting the presence of data leakage. 82 
+
+2
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+## 2 Results 83 
+
+2.1 The role of neural decoding and the challenge of data leakage 84 
+
+Neural decoding treats the relationship between population activity and stimuli or behavior as a 85 
+
+supervised prediction task (Fig. 1a): a model is trained on neural activity to predict labels (Fig. 1b) 86 
+
+and evaluated on held-out data (Fig. 1c), with performance interpreted as evidence that the population 87 
+
+carries information about the target variable (Borst & Theunissen, 1999; Dayan & Abbott, 2005). 88 
+
+Performance is typically estimated with CV, which partitions data into train/test (and sometimes 89 
+
+validation) sets (Fig. 1d,e) under an assumption of independence between what is used for training and 90 
+
+what is used for evaluation. Data leakage violates this assumption when information from the test set 91 
+
+influences any stage of model training. A frequent source of leakage is preprocessing performed on the 92 
+
+entire dataset before splitting (Fig. 1f). The correct procedure is to split first, then fit all data-dependent 93 
+
+preprocessing and model parameters using only the training data in each fold, and finally apply the 94 
+
+learned transformations to the test data (Fig. 1g). While the potential for data leakage in supervised 95 
+
+preprocessing methods (which use labels) is relatively clear, surprisingly, leakage can also occur from 96 
+
+unsupervised methods. We now discuss both in more detail. Throughout, we use “sample” to mean 97 
+
+one observation supplied to the preprocessor or decoder, and “trial” to mean one experimentally defined 98 
+
+episode, such as a stimulus presentation, choice, or behavioral run. In stimulus-evoked analyses a trial 99 
+
+often contributes a single sample, whereas in continuous behavior or navigation tasks a single trial may 100 
+
+contain many time-resolved samples. 101 
+
+2.2 Data leakage via supervised preprocessing 102 
+
+2.2.1 Supervised feature selection 103 
+
+Feature selection aims to retain neurons informative about the variable of interest while discarding noisy 104 
+
+or uninformative neurons. Common supervised approaches include fitting tuning curves, computing 105 
+
+neuron-label correlations, regression coefficients or ANOVA F-statistics; additional methods include L1 106 
+
+(lasso) regularization, tree-based models, and sequential selection (Ferri et al., 1994; Tibshirani, 1996; 107 
+
+Lotte et al., 2018). Although valuable in the settings of high-dimensional neural data, applying any 108 
+
+label-dependent selection step to the full dataset before CV can induce data leakage (Poldrack et al., 109 
+
+2020; Shim et al., 2021; Rosenblatt et al., 2024), and in at least one case, contributed to a retraction 110 
+
+(Verstynen & Kording, 2023). 111 
+
+Here, “feature selection” refers to the post hoc rule used to decide which recorded neurons enter the 112 
+
+decoder (not e.g. to whether a neuron was physically present on the electrode or in the imaging plane). 113 
+
+Leakage occurs when the statistic used for this decision is estimated from the same samples that will 114 
+
+later be treated as held out. We first illustrate this with a simulation. Neural responses to two stimuli 115 
+
+were generated from multivariate Gaussian distributions with matched covariance and slightly different 116 
+
+means (two-neuron example illustrated in Fig. 2a), each neuron had a Gaussian tuning curve with the 117 
+
+same tuning width but a different tuned stimulus. The theoretical optimal classification accuracy in this 118 
+
+case is 69% (Methods). We increased the number of recorded neurons while keeping the total number 119 
+
+of stimulus presentations fixed, mimicking trial-limited experiments. To remove potentially noisy neurons 120 
+
+and reduce computation time, feature selection was employed to select high-quality neurons (Fig. 2b). 121 
+
+ANOVA F-statistics were computed separately for each neuron, then used to rank the population and 122 
+
+select the top 100 neurons before 5-fold CV. When this ranking was performed on the entire dataset, 123 
+
+the selected set could change when held-out trials were included. Decoding accuracy then increased 124 
+
+with dimensionality but also exceeded the theoretical optimum (Fig. 2c). The same qualitative inflation 125 
+
+occurred without the Gaussian tuning curve assumption (Fig. S1a). This inflation arose because neurons 126 
+
+were chosen using information from all samples, including those later assigned to test folds. Thus, 127 
+
+3
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+selection was partially driven by noise fluctuations specific to the test data, producing an overly optimistic 128 
+
+estimate. Consistent with this, the fold-level decoding accuracy covaried with the amount by which the 129 
+
+held-out trials inflated the F-statistic of the selected neurons, and inflation vanished when the ranking 130 
+
+was restricted to the training trials (Fig. S2). An additional validation set with nested CV can provide a 131 
+
+more accurate estimate of model accuracy when a model requires hyperparameter tuning (Stone, 1974; 132 
+
+Cawley & Talbot, 2010). However, this would not rectify the above issue because the contamination 133 
+
+occurs before any data partitioning. Performing feature selection strictly within each training fold, and 134 
+
+then applying the chosen neurons to the held-out fold, kept decoding accuracy below the theoretical 135 
+
+ceiling (Fig. 2d, Fig. S1b). 136 
+
+We next examined a real-world example from the visual system. Two-photon calcium imaging of 137 
+
+zebrafish larvae was used to record tectal activity at single-cell resolution in response to spot stimuli 138 
+
+presented at discrete locations to the right side of the visual field (Fig. 2e; see Methods). We asked 139 
+
+how well spot position could be decoded from neural activity in both contralateral (left) and ipsilateral 140 
+
+(right) tecta. In zebrafish the retinotectal projection is completely crossed, and so the ipsilateral tectum 141 
+
+receives no direct retinal input. Again ANOVA F-statistics were computed on the entire dataset to 142 
+
+select the top 100 neurons, a linear decoder was then trained on their neural activity, and the accuracy 143 
+
+from CV reported. Unsurprisingly decoding performance in the contralateral tectum was very good 144 
+
+(Fig. 2f). However decoding performance in the ipsilateral tectum was also good (Fig. 2f). Recent 145 
+
+work has identified a population of intertectal neurons in zebrafish that transmit information between 146 
+
+hemispheres (Gebhardt et al., 2019), providing a possible substrate for the transfer of spatial information 147 
+
+to the ipsilateral tectum. However alas the decoding result is wrong, for the same reasons as in our 148 
+
+simulated example: the test set’s information influenced the selection of features, leading to a biased 149 
+
+training process where the model ‘learned’ from the data it was supposed to predict. When the decoding 150 
+
+analysis was repeated without data leakage – by deriving the features to be selected only on the 151 
+
+training set – decoding accuracy in the ipsilateral tectum fell to chance level (Fig. 2f), indicating that 152 
+
+no spatial information was transferred. Analogous issues for label-free criteria, such as variance- or 153 
+
+firing-rate-based selection, are treated separately below as examples of unsupervised feature selection. 154 155 
+
+2.2.2 Supervised dimensionality reduction 156 
+
+Dimensionality reduction is often used before decoding because neural recordings are commonly 157 
+
+high-dimensional relative to the number of trials. Restricting the decoder to a lower-dimensional 158 
+
+representation can denoise shared population activity, reduce estimator variance, and act as a form of 159 
+
+regularization (Cunningham & Yu, 2014; Mignacco et al., 2020; Green & Romanov, 2025). Empirically, 160 
+
+several neural population studies have used supervised dimensionality reduction before decoding and 161 
+
+reported improved predictive performance compared to using the raw population activity in its original 162 
+
+dimensionality (e.g. Rumyantsev et al., 2020; Ebrahimi et al., 2022). Supervised dimensionality 163 
+
+reduction learns label-informed projections of population activity (Perich et al., 2025). When the 164 
+
+projection is fit on the entire dataset before CV, test-set structure shapes the latent space, making 165 
+
+conditions appear more separable and distorting reported decoding error estimates. 166 
+
+To show that globally-fit supervised dimensionality reduction inflates empirical performance and 167 
+
+that fold-wise fitting removes this underestimation of error, we first simulated neural activity with 168 
+
+independently generated neuronal responses and randomly assigned stimulus labels. Trial-averaged 169 
+
+PCA (a supervised step because averaging uses labels) was used to obtain low-dimensional 170 
+
+embeddings. Here, trial averaging first converts the trial-by-neuron activity into a condition-by-neuron 171 
+
+matrix of class means, where each row is the mean response across all trials of one stimulus condition; 172 
+
+PCA is then computed on this matrix of condition means, yielding axes of maximal variance across 173 
+
+the estimated class means. Individual trials are subsequently projected onto these PC axes for 174 
+
+4
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+visualization and decoding, so each point in the PC embedding corresponds to one trial (Fig. 3a,d). 175 
+
+In this respect, trial-averaged PCA resembles supervised dimensionality-reduction methods that seek 176 
+
+low-dimensional axes separating label-defined groups; under isotropic within-condition covariance and 177 
+
+balanced conditions, it is closely related to linear discriminant analysis. 178 
+
+Despite no true signal, when the number of neurons greatly exceeded the number of samples, global 179 
+
+trial-averaged PCA manufactured spurious clusters and apparent structure (Fig. 3a). The degree of 180 
+
+spurious clustering, quantified by the multiclass Fisher discriminant ratio, was governed by the ratio 181 
+
+between the number of neurons and number of trials per condition (Fig. S4), and could be predicted 182 
+
+analytically (Section S2). Applying this to the tectum data used in Fig. 2, standard PCA showed no 183 
+
+stimulus information in ipsilateral tectum (Fig. 3b) but clear separation in contralateral tectum (Fig. 3c). 184 
+
+Computing trial-averaged PCs globally and then training a linear decoder on these embeddings produced 185 
+
+visible clustering (Fig. 3d, Fig. S3) and unexpectedly high accuracy (Fig. 3e) for the ipsilateral side—an 186 
+
+instance of leakage because all trials contributed to the PCs. Refitting trial-averaged PCA within each 187 
+
+training fold and projecting held-out trials restored ipsilateral decoding to chance (Fig. 3e). 188 
+
+We then analyzed CA1 data related to position (Grosmark & Buzsáki, 2016), embedding neural activity 189 
+
+with supervised CEBRA (Schneider et al., 2023) and decoding with k-nearest neighbors. Fitting CEBRA 190 
+
+globally before CV yielded low test root mean squared error (RMSE), whereas fold-wise fitting increased 191 
+
+RMSE to a more realistic level (Fig. 3f). 192 
+
+Two possible reasons could explain the optimistic RMSE estimates observed when supervised 193 
+
+projections are fit globally. First, leaked held-out points could improve the fitted model by helping it 194 
+
+estimate a more accurate projection. Second, the model itself might not improve, but the reported 195 
+
+CV error could become optimistic because the evaluation points had already influenced the projection 196 
+
+used to predict them. To distinguish between these possibilities, we used a simulated linear regression 197 
+
+problem with known ground-truth coefficients β and one-component Partial Least Squares (PLS) as the 198 
+
+supervised dimensionality-reduction step. For centered data, this PLS step learned a one-dimensional 199 
+
+projection from the covariance between features and labels; a linear regressor was then fit on the 200 
+
+projected training data. For simplicity, in the analysis below we considered the case in which one point 201 
+
+was held out at a time in each CV loop. Across training sample sizes, we compared the following three 202 
+
+diagnostic quantities: (i) leaky CV, where the PLS projection was fit using the training data plus the 203 
+
+held-out test point, but the linear regressor was fit only on the projected training data; (ii) non-leaky 204 
+
+CV, where both PLS and the regressor were fit using training data only and then evaluated on held-out 205 
+
+points; and (iii) the true generalization error of the model from (i), evaluated on independent new samples 206 
+
+that were not used to fit either the PLS projection or the regressor. Because the true β was known 207 
+
+in this simulation, we also measured parameter RMSE: the error between the estimated regression 208 
+
+coefficients, mapped back to the original feature space, and β. This ground-truth comparison directly 209 
+
+measured coefficient recovery, whereas CV RMSE measured prediction error on samples designated 210 
+
+as held out by the CV split. 211 
+
+These results support the second explanation above, rather than genuine improvement in the estimator. 212 
+
+The leaky and non-leaky pipelines produced nearly identical parameter RMSE (Fig. 3g), indicating that 213 
+
+the leaked point did not materially improve recovery of the known generative coefficients. However, 214 
+
+the leaky CV RMSE underestimated the true generalization error of that same leaky model, whereas 215 
+
+non-leaky CV aligned with the generalization-error curve (Fig. 3h). Thus, the apparent improvement 216 
+
+in leaky CV error arose from violated independence between preprocessing and evaluation, not from 217 
+
+a better estimator. All three curves converged to a common asymptote as the sample size grows: 218 
+
+the population prediction error of the 1-component PLS–regression model. At finite sample sizes they 219 
+
+approached this limit from opposite sides. The true generalization RMSE and non-leaky CV RMSE 220 
+
+sit above the asymptote because finite-sample estimation variance in the fitted regression coefficient 221 
+
+inflates prediction error. The leaky CV RMSE sits below the asymptote because the held-out point’s 222 
+
+5
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+contribution to the fitted PLS direction biases the prediction toward its own label. Both effects shrink with 223 
+
+increasing sample size, but at the sample sizes typical of decoding experiments the resulting gap is large 224 
+
+enough to materially distort error estimates (Fig. 3h). Thus, supervised dimensionality reduction must 225 
+
+be fit fold-wise; global fitting corrupts validation metrics and misguides hyperparameter tuning, and can 226 
+
+therefore increase error on future held-out data. 227 
+
+2.3 Data leakage via unsupervised preprocessing 228 
+
+A critical, yet often overlooked, form of data leakage can arise during unsupervised preprocessing 229 
+
+from the features (neural activity) themselves. Standard methods in data analysis pipelines, such 230 
+
+as dimensionality reduction (e.g., PCA), feature scaling, or variance-based feature selection, can 231 
+
+introduce error-estimation bias if they are applied to the entire dataset before partitioning for CV 232 
+
+(here and elsewhere unless otherwise noted, error-estimation bias refers to the mismatch between 233 
+
+a cross-validated error estimate and the true generalization error of the same model, distinct from 234 
+
+the squared-bias term in the bias–variance decomposition below.) The application of unsupervised 235 
+
+methods across the full dataset is a more insidious pitfall, partly because of contradictory suggestions 236 
+
+in leading statistics textbooks (Hastie et al., 2009, p. 246 vs. Abu-Mostafa et al., 2012, p. 174). 237 
+
+Recent theoretical work provides a rigorous foundation for understanding this problem. In particular, 238 
+
+Moscovich & Rosset (2022) demonstrated analytically that applying data-dependent unsupervised 239 
+
+transformations globally can make the cross-validated error estimate differ systematically from the 240 
+
+model’s true generalization error. Crucially, they showed that this mismatch is not universally optimistic. 241 
+
+Its sign and magnitude depend on an intricate interplay between the data distribution, the specific 242 
+
+preprocessing method, the subsequent modeling algorithm, and the CV parameters. We next examined 243 
+
+this bidirectional (optimistic or pessimistic) deviation from true generalization error across common 244 
+
+unsupervised steps in neural decoding: feature selection, z-scoring, PCA, and modern unsupervised 245 
+
+dimensionality reduction algorithms. A bias–variance decomposition of Principal Component Regression 246 
+
+(PCR) serves as a case study to explain when and why the sign of the leakage-induced mismatch 247 
+
+reverses. 248 
+
+2.3.1 Unsupervised feature selection 249 
+
+To investigate the practical impact of this phenomenon in a common neural decoding context, we 250 
+
+simulated neural responses to a circular stimulus variable (e.g., orientation or direction of motion) 251 
+
+using the Gamma-Poisson generative model of Pillow & Scott (2012) (Fig. 4a). In the main simulation, 252 
+
+each neuron had a Gaussian tuning curve over stimulus angle, so stimulus-dependent modulation was 253 
+
+defined as part of the response-generation model. We first confirmed that without any feature selection, 254 
+
+a simple linear decoder could be trained to effectively predict the stimulus angle from the population 255 
+
+activity, establishing that the decoding problem is well-posed (Fig. 4b). We then implemented a natural 256 
+
+preprocessing workflow for high-dimensional neural recordings: we performed unsupervised feature 257 
+
+selection by selecting the subset of neurons with the highest spike count variance across the entire 258 
+
+dataset before CV. This criterion is intuitive, as neurons with higher variance are generally those whose 259 
+
+firing rates are more strongly modulated by the different stimuli, making them more informative for 260 
+
+decoding. However, when this ranking is computed once on the full dataset, held-out trials have already 261 
+
+influenced which neurons enter the decoder. The procedure is therefore leaky even though it does not 262 
+
+use stimulus labels. 263 
+
+The leaky model’s estimated error from the CV procedure consistently deviated from its true 264 
+
+generalization error (Fig. 4c). Intuitively, this mismatch reflected a bias–variance trade-off: scoring 265 
+
+neurons on the full dataset partially fit the held-out trials’ fluctuations, which lowered apparent 266 
+
+squared-bias but inflated prediction variance, with the net sign set by whichever effect dominated. The 267 
+
+6
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+same phenomenon is considered analytically in Section S4. In contrast, the non-leaky procedure 268 
+
+recomputed the variance ranking and fit the decoder using only the training samples in each CV fold. 269 
+
+Applying each fold’s selected neurons to its held-out samples produced CV errors that closely tracked 270 
+
+true generalization error. This effect was not dependent on the particular unsupervised score or on the 271 
+
+parametric form of the tuning curves: mean firing-rate selection and a semi-parametric Gamma-Poisson 272 
+
+model without explicit Gaussian tuning assumptions produced the same qualitative separation between 273 
+
+leaky CV and true generalization error (Fig. S6a–c). Notably, across these scenarios, data leakage 274 
+
+could result in pessimistic or optimistic deviations from true generalization error, where the estimated 275 
+
+decoding error from leaky CV could be either higher (worse) or lower (better) than the model’s true 276 
+
+performance on new data. 277 
+
+We next asked when this unsupervised-selection leakage becomes large enough to matter in practice. 278 
+
+We compared two variance-based ranking rules by performing a Gamma-Poisson neuron-count sweep 279 
+
+with 100 samples, 5-fold CV, Gaussian tuning curves, and selection of the top 10% of neurons. “Evoked” 280 
+
+selection ranked neurons using the stimulus-evoked samples that entered the decoding analysis, 281 
+
+whereas “spontaneous” selection ranked neurons using stimulus-independent activity outside the 282 
+
+evoked decoding samples. With evoked selection, the leaky-CV/generalization error ratio remained 283 
+
+close to one for small populations but increased as the total recorded population approached hundreds 284 
+
+of neurons (Fig. 4d). In contrast, spontaneous selection kept the error ratio close to one (Fig. 4d). The 285 
+
+same qualitative contrast between evoked and spontaneous selection was observed when neurons were 286 
+
+ranked by mean firing rate rather than variance (Fig. S6d). The sampling noise in each neuron’s mean or 287 
+
+variance estimate is mainly determined by the number of trials, not by the number of recorded neurons. 288 
+
+The population-size dependence arises at the ranking step: with more candidate neurons, random 289 
+
+fluctuations from the held-out folds have more chances to change which neurons are selected. Thus, 290 
+
+the leaky and training-only selected feature sets are expected to be similar in low-dimensional, trial-rich 291 
+
+settings, but can diverge in trial-limited, high-dimensional recordings. A simplified Gaussian-feature 292 
+
+calculation with an ordinary least squares decoder gives the same qualitative prediction: the ratio is 293 
+
+bounded, but increases as the number of selected neurons approaches the number of training samples 294 
+
+per fold. For the 100 samples, selecting the top 10% neurons from 750 neurons gives an expected 295 
+
+error ratio of approximately 1.12 in this Gaussian benchmark (Section S3). Thus, criteria specified 296 
+
+independently of the evoked decoding samples need not be nested within CV, whereas scores computed 297 
+
+from those samples should be recomputed within each training fold. 298 
+
+2.3.2 Unsupervised dimensionality reduction 299 
+
+Another common and powerful unsupervised preprocessing step in neural decoding is dimensionality 300 
+
+reduction. Unsupervised dimensionality reduction algorithms identify patterns and structures in data 301 
+
+without the need for labeled outcomes or predictions (Kriegeskorte & Wei, 2021; Langdon et al., 2023). 302 
+
+They can uncover hidden structures and correlations within complex, high-dimensional datasets and are 303 
+
+particularly important when dealing with spontaneous neural activity or unlabelled naturalistic behavior, 304 
+
+facilitating the discovery of intrinsic neural representations and functional connectivity without prior 305 
+
+knowledge. 306 
+
+PCA is a cornerstone of many neural data analysis pipelines, providing a linear mapping from 307 
+
+high-dimensional activity to lower-dimensional components (Fig. 5a). We first investigated how data 308 
+
+leakage affects PCR, in which PCA precedes linear regression. In a leaky CV pipeline, PCA was fit 309 
+
+using the training samples plus the held-out sample in each CV loop, whereas the regression model 310 
+
+was fit only on the projected training samples. In the non-leaky CV pipeline, both PCA and regression 311 
+
+were fit using only the training samples. The resulting regression parameters had comparable quality 312 
+
+between the two pipelines (Fig. 5b), and the sample mean squared error (MSE) from the non-leaky 313 
+
+CV closely matched the true generalization error of the leaky pipeline (Fig. 5c). In contrast, the 314 
+
+7
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+sample MSE obtained from the leaky CV procedure was, surprisingly, a pessimistic estimate of its 315 
+
+own generalization error (Fig. 5c,d). To understand this counterintuitive behavior, we decomposed the 316 
+
+explainable MSE (excluding the irreducible label noise) into squared-bias and variance terms (Fig. 5e; 317 
+
+see Methods and Sections S4.3 and S4.4). When PCA was fit with leakage, the squared-bias term 318 
+
+in the MSE decomposition was systematically underestimated (optimistic) while the variance term 319 
+
+was overestimated (pessimistic). Because the leaky PCA subspace was more aligned with test data, 320 
+
+it reduced apparent squared-bias but inflated variance. Thus, the overall explainable MSE, which 321 
+
+combines opposing squared-bias and noise-scaled variance contributions, can be either optimistic or 322 
+
+pessimistic depending on the regime (Fig. 5f–h). This dependence also varied with sample count: in 323 
+
+low-trial regimes the CV MSE could overestimate true generalization error, an effect that diminished with 324 
+
+more trials (Fig. 5e). 325 
+
+Given that the variance term drives the pessimistic behavior of PCR under leakage (see Sections S4.4 326 
+
+to S4.8 for detailed derivations and comparisons of the variance term in different cases), we next 327 
+
+examined its scaling with dimensionality (see Section S4.9 for the simulation setup across different 328 
+
+dimensions). We observed that the leaky pipeline’s variance term was bounded below by the 329 
+
+in-sample variance (derivations in Section S4.8), which remained constant across dimensions (Fig. 5i). 330 
+
+The variance entering the true generalization error was closely approximated by an out-of-sample 331 
+
+estimate (Fig. 5i). Both the leaky and in-sample variance terms could be multiple-fold larger than the 332 
+
+generalization variance term (Fig. 5j). Random matrix theory results show that out-of-sample variance 333 
+
+can exceed or fall below in-sample variance (Green & Romanov, 2025), providing theoretical support for 334 
+
+overestimation of the variance term in the leaky case. Taken together, PCR is reliable only when PCA is 335 
+
+refit within each fold; globally fitting PCA miscalibrates CV errors and should be avoided. 336 
+
+We then used simulations to illustrate how unsupervised dimensionality reduction (here Gaussian 337 
+
+Process Factor Analysis (GPFA)) as a preprocessing step can alter decoding accuracy when the test 338 
+
+trials are included during dimensionality reduction. Neural spikes were simulated from a two-dimensional 339 
+
+latent angular variable, and GPFA recovered 2D latent trajectories (Fig. 5k) from the binned firing rate 340 
+
+across many simulated trials. Such trajectories were then used with a k-nearest-neighbor regressor 341 
+
+(k=5) to decode angle (Fig. 5l). Fitting GPFA globally before CV leaked test information, producing 342 
+
+over-optimistic decoding error relative to an approximate generalization error (Fig. 5m). In contrast, 343 
+
+fold-wise refitting removed leakage and yielded CV errors that matched generalization error (Fig. 5m). 344 
+
+To demonstrate these effects on real neural data, we re-analyzed two population recordings from visual 345 
+
+cortex of awake mice (Stringer et al., 2021). In the first dataset, the original pipeline z-scored and 346 
+
+applied PCA on the full dataset. Refitting both steps within each CV fold produced a small but consistent 347 
+
+increase in decoding error, revealing that a leaky pipeline where z-scoring and PCA were applied 348 
+
+globally optimistically underestimated error (Fig. 5n), with sign consistent with our PCR bias–variance 349 
+
+analysis in the high SNR regime (Fig. 5e,f). In the second dataset, for which the original pipeline 350 
+
+(Fig. 2H of Stringer et al. (2021)) used z-scoring as the only preprocessing step, correcting this single 351 
+
+source of leakage consistently reduced median decoding error across animals (Fig. 5o). Because 352 
+
+the original recordings contained thousands of stimuli, these corrections changed the error estimates 353 
+
+only modestly and did not alter the qualitative conclusions of the original study. However, when we 354 
+
+downsampled the same recordings to tens or hundreds of stimuli, a regime closer to many other neural 355 
+
+decoding experiments, the difference between leaky and fold-wise preprocessing became substantially 356 
+
+larger (Fig. S7). Similar to previous analysis on decoding the animal location (Fig. 3f), we then used 357 
+
+unsupervised CEBRA (Schneider et al., 2023) for dimensionality reduction, and again we observed 358 
+
+that the leaky pipeline optimistically underestimated error (Fig. 5p). This confirmed that data leakage 359 
+
+via unsupervised preprocessing can unpredictably skew model evaluation in real-world neuroscience 360 
+
+applications, reinforcing the need for correctly implemented, within-fold preprocessing to ensure valid 361 
+
+and reproducible results. 362 
+
+8
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+2.4 Data leakage from temporal correlations in neural time-series 363 
+
+Beyond preprocessing, data leakage can also arise from how samples are split for CV. CV assumes 364 
+
+that held-out samples are independent of the samples used for training, however neural time series often 365 
+
+violate this condition. Autocorrelation can arise, for instance, from the slow biophysical kinetics of calcium 366 
+
+indicators, population-level synchronous dynamics reflected in LFP and EEG signals, refractory periods, 367 
+
+or slowly varying internal states (Harris & Thiele, 2011; Cowley et al., 2020). Such temporal structure 368 
+
+can affect decoding analyses in two distinct ways. First, shared slow temporal structure between task 369 
+
+variables and neural activity can produce apparent decoding in the absence of genuine task encoding. 370 
+
+The pseudosession framework of Harris (2021) addresses this problem by constructing empirical null 371 
+
+distributions that test whether neural activity contains task information not explained by design-related 372 
+
+temporal structure. Second, when neural activity carries task information, randomized splitting can 373 
+
+underestimate decoding error by placing temporally adjacent samples in both training and test sets. 374 
+
+To address this second failure mode, we simulated calcium-imaging data with within-trial temporal 375 
+
+correlations but no across-trial correlations. Spiking activity was generated from neuronal tuning curves 376 
+
+encoding an angular variable, then convolved with a calcium-indicator kernel, producing autocorrelated 377 
+
+fluorescence traces (Fig. 6a). Randomized k-fold CV (randomized CV) split individual time points 378 
+
+across training and test sets, reflecting the statistical coupling that arises whenever random splitting 379 
+
+places temporally dependent samples from the same trial into different folds (Fig. 6b). By contrast, 380 
+
+leave-one-group-out CV (LOGO CV) held out entire independent trials, ensuring that temporally adjacent 381 
+
+samples from a single trial were not split across folds (Fig. 6c). In both schemes, preprocessing and 382 
+
+hyperparameter selection were restricted to the training data. Therefore, any mismatch between 383 
+
+cross-validated and generalization error reflected temporal dependence induced by the split rather 384 
+
+than data leakage from model selection or preprocessing. LOGO CV estimates more closely matched 385 
+
+generalization error than randomized CV, indicating that randomized CV produced optimistic error 386 
+
+estimates (Fig. 6d). 387 
+
+The covariance structure makes the source of the bias explicit. Under randomized CV, within-trial 388 
+
+autocorrelation produced non-zero train ×test entries in the covariance matrix, showing that held-out 389 
+
+samples were statistically coupled to training samples (Fig. 6e). Under LOGO CV, held-out samples 390 
+
+came from an independent trial. Because cross-trial correlations were zero in the simulation, the 391 
+
+train ×test block vanished (Fig. 6f). Thus, leakage through temporal correlation can persist even when 392 
+
+all fitting operations are confined to training data, because the split itself determines whether the test set 393 
+
+is independent. 394 
+
+In a simplified binary-discrimination task, we then tested whether train–test covariance was sufficient to 395 
+
+explain the error-estimation difference. The class labels of the stimuli contained no slow structure and 396 
+
+were independent of time, so the difference only arose because autocorrelated, task-irrelevant noise 397 
+
+made held-out samples statistically predictable from nearby training samples. An analytical calculation 398 
+
+for a linear decoder showed that the relevant quantity is the average covariance between each held-out 399 
+
+sample and the training samples used to estimate the decision boundary (see Methods). Specifically, 400 
+
+while the generalization error remained determined by the true class separation, strong train–test 401 
+
+covariance could make apparent leaky test error lower than the true generalization error. Consistent 402 
+
+with this, when class separation was adjusted to hold the apparent leaky test error fixed, increasing 403 
+
+train–test temporal correlation produced different true generalization errors (Fig. 6g). 404 
+
+We then asked whether this covariance structure could be used as a practical diagnostic. We varied the 405 
+
+size of contiguous train/test blocks, which changes the train–test covariance while leaving the marginal 406 
+
+noise model and decoder fixed. Smaller blocks placed more training and test samples close together 407 
+
+in time, whereas larger blocks separated them more strongly. For each split, we estimated temporal 408 
+
+covariance from residual activity and used the train–test covariance block to correct the leaky test 409 
+
+9
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+error toward true generalization error. Across block sizes, the corrected estimates were closer to true 410 
+
+generalization error than the uncorrected leaky estimate (Fig. 6h). Together, these analyses identify 411 
+
+train–test temporal covariance as a measurable and correctable source of optimistic error estimation in 412 
+
+autocorrelated neural time series. 413 
+
+## 3 Discussion 414 
+
+Here we systematically examined how data leakage can arise in common neural decoding pipelines 415 
+
+and how it biases empirical performance estimates. The empirical analyses are complemented by 416 
+
+derivations that explain why these biases arise. Using a range of supervised and unsupervised 417 
+
+preprocessing methods, we showed that fitting preprocessing steps on the entire dataset before CV 418 
+
+can lead to optimistic or pessimistic errors that do not reflect true generalization performance. Across 419 
+
+simulations and real datasets, we demonstrated that properly implemented train-test splits, in which all 420 
+
+parameters of the preprocessing and decoding pipeline are learned only on the training data within each 421 
+
+fold, restore calibration between cross-validated error and generalization error. In the Recommendations 422 
+
+section (Section S1) we outline simple templates for leak-free neural decoding pipelines, and we 423 
+
+propose a practical diagnostic to help detect potential leakage in existing analyses. 424 
+
+For temporally correlated recordings, preventing leakage also requires attention to the unit over which 425 
+
+independence is approximated. Preprocessing only within each fold is necessary, but it does not ensure 426 
+
+that held-out samples are independent if nearby time points are split across training and test sets. 427 
+
+Whenever possible, validation should hold out experimental units more likely to be independent, such as 428 
+
+complete trials or sufficiently separated blocks. These units should be chosen to match the scientific 429 
+
+quantity to be estimated. For within-experiment decoding, the goal is usually to evaluate held-out 430 
+
+samples from the same experimental context while minimizing train-test dependence. When no natural 431 
+
+independent unit is available, block-size sensitivity analyses and covariance-based diagnostics can help 432 
+
+assess whether the reported decoding error depends on residual train-test covariance. However, these 433 
+
+analyses should be treated as diagnostics rather than substitutes for a well-designed validation split. 434 
+
+Our focus has been on preventing data leakage when training and evaluation data are intended to 435 
+
+represent the same target distribution. This is distinct from out-of-distribution generalization, which asks 436 
+
+whether a decoder transfers across recording days, subjects, tasks, or other experimental contexts. A 437 
+
+decoder may be well calibrated for appropriately held-out trials within one experiment yet fail in a new 438 
+
+context, and such failure reflects limited generalization rather than data leakage. Researchers should be 439 
+
+explicit about whether their conclusions concern information content within a fixed experimental context, 440 
+
+or claims about robustness across contexts. 441 
+
+Current intracortical BCI research actively targets this generalization challenge. To maintain a fixed 442 
+
+decoder despite recording instabilities, methods align latent dynamics or full-dimensional neural 443 
+
+distributions across recording days (Degenhart et al., 2020; Karpowicz et al., 2025; Ma et al., 2023). 444 
+
+However these alignment techniques are themselves data-dependent, even when unsupervised. Thus 445 
+
+hyperparameter selection, alignment method choice, and any representation update must be validated 446 
+
+without access to the held-out evaluation day. 447 
+
+The emergence of large-scale neural foundation models trained on extensive datasets from multiple 448 
+
+subjects and experimental conditions (e.g. Ye et al. (2023); Azabou et al. (2023, 2025); Wang et al. 449 
+
+(2025)) presents both opportunities and challenges for preventing data leakage. These models provide 450 
+
+pre-trained representations that capture generalizable neural patterns across diverse experimental 451 
+
+contexts and subjects. To apply these models to new data, researchers typically need to adapt the 452 
+
+pre-trained representations through self-supervised (or supervised) learning. These adaptation steps 453 
+
+can include hyperparameter selection, normalization, alignment, and test-time adaptation. Each is 454 
+
+10 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+effectively another form of preprocessing, where the model learns to map new neural data into the 455 
+
+pre-trained representation space. Pretraining on external data does not itself introduce leakage, 456 
+
+provided the held-out test set is excluded from the representation update. However, if the foundation 457 
+
+model is adapted using the entire dataset before splitting into training and test sets, information from the 458 
+
+test set will contaminate the representation learning process. For claims about held-out samples within 459 
+
+one recording, adaptation steps must be fit without those held-out samples. For transfer claims across 460 
+
+recording days, animals, subjects, or tasks, the evaluation unit being tested should remain outside the 461 
+
+adaptation process. The only exception is when test-time adaptation is itself the deployment setting; in 462 
+
+that case, the adaptation rule should be specified in advance and assessed on a further, completely 463 
+
+unseen dataset. 464 
+
+The same principles extend beyond neural decoding. Recent work on alignment between large language 465 
+
+models and the brain showed that shuffled train-test splits and overlooked confounds can create apparent 466 
+
+brain-model correspondence that is not robust under stricter evaluation (Hadidi et al., 2026). As these 467 
+
+pipelines grow in complexity, so do the opportunities for data leakage, making it essential to verify that 468 
+
+every data-dependent step is isolated from the held-out data for evaluation. 469 
+
+11 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+## 4 Methods 470 
+
+4.1 Zebrafish 471 
+
+All procedures were performed with approval by the Animal Studies Committee at Washington University 472 
+
+and adhere to NIH guidelines. Nacre zebrafish ( Danio rerio ) embryos expressing elavl3:H2B-GCaMP6s 473 
+
+were raised from birth to 8/9 days post-fertilization under 14/10 light/dark cycles at 28.5°C. 3 h prior 474 
+
+to imaging, zebrafish larvae were embedded in 2.5% low-melting point agarose in the center of 35 475 
+
+mm diameter Petri dishes immersed in E3 embryo medium. 2-photon images were acquired using 476 
+
+a Bruker Ultima 2pPlus microscope with a 16X/0.8NA water-dipping lens (Nikon). Samples were 477 
+
+excited via a Coherent Discovery TPC-one tunable laser at 940nm. Volumetric images consisting of 10 478 
+
+planes were taken starting from 30 μm to 120 μm from the dorsal surface in 10 μm steps at a rate of 479 
+
+2.1Hz/volume. Visual stimuli were projected onto white diffusion paper placed in front of the chamber 480 
+
+using a pico-projector (PK320 Optoma, USA). Larvae were placed in the center of the chamber with one 481 
+
+eye facing the projected side of the dish with body axis at 90° to the projector direction. Visual stimuli 482 
+
+were generated using custom software based on MATLAB (MathWorks). Dark spots of 6° diameter at 483 
+
+11 different azimuth locations from 15° to 165° in 15° intervals were presented to the right visual field, 484 
+
+with 0° being the body axis of the fish. Stimuli were presented in 10 blocks of the 11 stimuli, where 485 
+
+stimuli within each block were of different order. Each stimulus lasted 1 second and a stimulus was 486 
+
+presented every 10 seconds. Neural recordings were motion-corrected and converted to ∆F/F 0 traces 487 
+
+using CaImAn (Giovannucci et al., 2019). The activity evoked by a single stimulus was defined as the 488 
+
+averaged calcium activity of the third and fourth frames after stimulus onset. 489 
+
+4.2 Gaussian activity (Fig. 2) 490 
+
+We simulated two multivariate Gaussian distributions with distinct means and identical covariance 491 
+
+matrices: N (μ1, Ip×p) and N (μ2, Ip×p). Here, μ1 ∈ Rp×1, μ2 ∈ Rp×1, where p represented the number 492 
+
+of neurons in the simulation. μ1 and μ2 were randomly generated according to the tuning profile of the 493 
+
+neurons, while keeping ∥μ1 − μ2∥2 the same. 494 
+
+The optimal discriminant function had an overall error rate equal to Φ( − ∆2 ) where Φ( ·) denotes the 495 
+
+cumulative probability distribution for the standard Gaussian, and ∆ is the Mahalanobis distance ∆ = 496 p(μ1 − μ2)⊤(μ1 − μ2) (Mahalanobis, 1936; McLachlan, 1999). In our simulations, ∆ was assigned to 497 
+
+unity, resulting in an error rate of approximately 0.31 and an optimal accuracy of 0.69. 498 
+
+We drew 300 random samples from each distribution to represent neural activity in response to stimuli, 499 
+
+simulating the number of trials in a typical neuroscience experiment. 500 
+
+4.3 Projecting neural activity to PC space defined by PCA on trial-averaged data (Fig. 3) 501 
+
+We generated random neural activity where each neuron had a random response simulated 502 
+
+independently to stimuli. Random labels for each population vector were also generated from the 503 
+
+11 stimulus locations (15° to 165° in 15° steps), each with 20 repetitions. 2000 neurons were simulated, 504 
+
+resulting in a 20×11×2000 matrix. PCA was then performed on the trial-averaged matrix, and the singular 505 
+
+vectors corresponding to the k largest singular values were used for projecting the high-dimensional 506 
+
+neural activity to a low-dimensional subspace. We used k=2 for visualization and k=3 in the relevant 507 
+
+decoding pipeline. Different data (all trials or trial-averaged) were projected into this space (Fig. 3a,d). 508 
+
+12 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+4.4 Simulation of Neural Activity (Fig. 4) 509 
+
+We simulated neural population responses to a stimulus variable, θ, representing an angle from 0 to π.510 
+
+On each trial t, the stimulus was drawn from a uniform distribution, θt ∼ U (0 , π ), and represented as a 511 
+
+2D vector xt = [cos( θt), sin( θt)] ⊤.512 
+
+The activity of a population of Nneurons was simulated using two variations of a Gamma-Poisson 513 
+
+generative model, which captured the Poisson-like statistics and overdispersion commonly observed in 514 
+
+neural data. 515 
+
+1. Parametric Gamma-Poisson (Gaussian Tuning): Each neuron i was assigned a fixed preferred 516 
+
+stimulus angle, μi ∼ U (0 , π ). A deterministic mean firing rate, fi(θt), was defined as 517 
+
+fi(θt) = rbase + rmax · exp 
+
+
+
+− (θt − μi)2
+
+2σ2
+
+> tc
+
+
+
+,
+
+where rbase is a baseline firing rate, rmax is the maximum rate above baseline, and σtc is the tuning 518 
+
+width. λi,t was then drawn from a Gamma distribution, 519 
+
+λi,t ∼ Gamma (shape = fi(θt), scale = 1) .
+
+2. Semi-Parametric Gamma-Poisson (Linear Projection): To use a more flexible, non-parametric 520 
+
+tuning assumption, a linear projection ψi,t = x⊤ 
+
+> t
+
+βi was constructed, where βi was drawn 521 
+
+from a standard normal distribution. The corresponding rate parameter was defined as 522 
+
+λi,t ∼ Gamma (shape = eψi,t , scale = 1) . A subset of neurons was designated as “high-rate” by 523 
+
+multiplying their generated λi,t values by a constant factor. 524 
+
+For both models, the final spike count was drawn from a Poisson distribution, yi,t ∼ Poisson (λi,t ).525 
+
+For each simulation run, a single “master” dataset of neural responses was generated for the maximum 526 
+
+number of samples, along with a large, independent held-out test set (10,000 samples) for estimating 527 
+
+generalization error. We then iterated through a range of smaller sample sizes, n, by taking the first 528 
+
+n trials from the master dataset. Unsupervised feature selection was performed by selecting the top 529 
+
+k neurons with the highest variance. The exact model from the leaky procedure was evaluated on 530 
+
+the 10,000-sample held-out test set to compare the estimated decoding error from CV and the true 531 
+
+generalization error. 532 
+
+This entire process was repeated for 10,000 independent simulation runs to generate stable estimates 533 
+
+and error bars for each metric as a function of the number of samples. For the neuron-count sweep used 534 
+
+to contextualize this effect, we used the parametric Gamma-Poisson model with Gaussian tuning curves, 535 
+
+fixed the total number of samples to 100, used 5-fold cross-validation, selected the top 10% of neurons 536 
+
+by evoked spike-count variance, and varied the total number of recorded neurons up to 750 so that the 537 
+
+selected feature count remained below the number of training samples per fold. 538 
+
+4.5 PCR Simulation (Fig. 5) 539 
+
+We considered a standard linear model where the response y was generated from d-dimensional 540 
+
+features x with a ground truth coefficient vector β and additive noise ϵ ∼ N (0 , σ 2 
+
+> ϵ
+
+):541 
+
+y = x⊤β + ϵ. 
+
+The features x were drawn from a multivariate normal distribution N (0, Σ). In our simulations, the 542 
+
+signal vector β was constructed to lie within the subspace spanned by the top k eigenvectors of the true 543 
+
+13 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+population covariance Σ. Data generated from this model were also used in PLS regression in Fig. 3. 544 
+
+4.5.1 The Leaky Procedure and Error Metrics 545 
+
+Our simulation framework evaluated the leaky PCR procedure in which held-out data contributed to 546 
+
+preprocessing (PCA) before regression, and compared its apparent test error with its true generalization 547 
+
+error. The notation below uses a representative held-out point x0, matching the implementation in 548 
+
+Fig. 5. Detailed derivations for the pointwise formulation below and for the corresponding multiple-point 549 
+
+extension are given in Section S4. 550 
+
+For a fixed training set of n samples, (Xtrain , ytrain ), and a random point x0 drawn from the same feature 551 
+
+distribution, a “leaky” PCA basis V (0)  
+
+> k
+
+was computed from the augmented dataset that included x0. A 552 
+
+linear regression model was then trained using only the original training data projected onto this leaky 553 
+
+basis. This procedure produced a different model, ˆβPCR (x0), for each realization of x0.554 
+
+We then compared two error estimates for this leaky model: 555 
+
+1. The Leaky Estimate: the error when the model was evaluated on the specific point x0 that was 556 
+
+used to create the leaky basis. This mimicked the biased estimate one might obtain when test 557 
+
+points influenced the preprocessing step. 558 
+
+2. The True Generalization Error: the error of the exact same model when evaluated on a new, 559 
+
+unseen data point xnew , drawn from the true underlying distribution. This corresponded to the ideal 560 
+
+generalization performance of the leaky model. 561 
+
+4.5.2 Bias-Variance Decomposition and Comparison 562 
+
+To understand how leakage affects performance, we decomposed the Mean Squared Error (MSE) for both estimates into bias and variance components. The expected prediction error for a model predicting on a point x is: EPE (x) = ( E[ˆ y] − x⊤β)2
+
+| {z }
+
+> Squared Bias
+
++ Var (ˆ y)
+
+| {z } 
+
+> Model Variance
+
++σ2
+
+> ϵ
+
+The expectations for our two error estimates are taken over the distribution of x0, as it defines the model. 563 
+
+For the Leaky Estimate , evaluated at x0:564 
+
+B2 
+
+> leaky
+
+= Ex0
+
+h
+
+(x⊤ 
+
+> 0
+
+(P (0)  
+
+> k
+
+− I)β)2i
+
+Vleaky = Ex0
+
+h
+
+σ2 
+
+> ϵ
+
+(x⊤ 
+
+> 0
+
+V (0)  
+
+> k
+
+)( V (0) ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+Xtrain V (0)  
+
+> k
+
+)−1(V (0) ⊤ 
+
+> k
+
+x0)
+
+i
+
+For the True Generalization Error of the same leaky model, evaluated at a new point xnew :565 
+
+B2 
+
+> gen_err
+
+= Ex0
+
+h
+
+Exnew 
+
+h
+
+(x⊤
+
+> new
+
+(P (0)  
+
+> k
+
+− I)β)2ii 
+
+= Ex0
+
+h
+
+β⊤(I − P (0)  
+
+> k
+
+)⊤Σ(I − P (0)  
+
+> k
+
+)β
+
+i
+
+Vgen_err = Ex0 [Exnew [Var (ˆ ynew )]] = Ex0
+
+h
+
+σ2 
+
+> ϵ
+
+tr 
+
+
+
+(V (0) ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+Xtrain V (0)  
+
+> k
+
+)−1V (0) ⊤ 
+
+> k
+
+ΣV (0) 
+
+> k
+
+i 
+
+where P (0)  
+
+> k
+
+= V (0)  
+
+> k
+
+(V (0) ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+Xtrain V (0)  
+
+> k
+
+)−1V (0) ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+Xtrain .566 
+
+4.5.3 Monte Carlo Estimation 567 
+
+A direct analytical comparison of the leaky terms versus their true generalization error counterparts 568 
+
+was intractable, as the expectations over x0 involved complex dependencies on the eigenvectors of 569 
+
+14 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+a randomly perturbed matrix. Therefore, we estimated these expected values using Monte Carlo 570 
+
+simulations. For each independent simulation run, we generated a fixed training set Xtrain where each 571 
+
+xi ∼ N (0, Σ) and then, for that fixed set, averaged the bias and variance terms over many draws of x0.572 
+
+This provided a stable and accurate numerical estimate of the expected terms for comparison. 573 
+
+We wrote Σ = QΛQ⊤ with two different forms of eigenspectrum (diagonal elements of Λ) used in Fig. 5: 574 
+
+(i) a spiked covariance matrix (Fig. S5) and (ii) a smoothly decaying spectrum (Fig. 5). The eigenspectra 575 
+
+were normalized to d such that tr( Λ) = d. Orthogonal matrices Q were drawn randomly from the Haar 576 
+
+distribution. 577 
+
+4.6 Neural activity encoding heading angle (Fig. 5) 578 
+
+Following Denker et al. (2018), we simulated an animal continuously rotating its heading angle θ(t) at a 579 
+
+constant angular speed, with each full rotation (trial) lasting 2 seconds. The two-dimensional activity 580 
+
+representing the heading angle was simulated as sin ( θ (t)) , cos ( θ (t)) ⊤, which we considered the 581 
+
+ground truth latent activity. The 2D latent activity was projected into a 50-dimensional space using 582 
+
+a random matrix P ∈ R50 ×2. This activity was normalized and exponentially transformed to ensure 583 
+
+non-negativity of the firing rates, with baseline firing rates added as noise. Spikes were then generated 584 
+
+using an inhomogeneous Poisson process. We simulated 20 trials in total. GPFA (Yu et al., 2009) was 585 
+
+then used to solve the inverse problem of recovering the matrix P and the 2D latent activity from the 586 
+
+observed spikes. 587 
+
+4.7 Calcium activity simulation (Fig. 6) 588 
+
+To study the effect of autocorrelation on CV, we generated synthetic calcium fluorescence data 589 
+
+following the commonly-used generative model of an autoregressive process (Vogelstein et al., 2010; 590 
+
+Pnevmatikakis et al., 2016; Friedrich et al., 2017). For each neuron, spikes st were drawn from a Poisson 591 
+
+process, and calcium evolved as ct = γc t−1 + st, with γ = exp( −∆t/τ ). The observed fluorescence 592 
+
+was yt = ct + b + ϵt, with non-negative baseline b and measurement noise ϵt ∼ N (0 , σ 2). We used an 593 
+
+AR(1) model at 40 Hz and τ =1.24 s. We simulated N=50 neurons, organized into trials by resetting 594 
+
+c0 at the start of each trial. Each trial lasted 300 frames. 20 trials were simulated and used for CV, 595 
+
+and an additional 10 trials were simulated for evaluating generalization error. We compared two CV 596 
+
+schemes: (i) randomized k-fold CV that split individual time points at random; (ii) leave-one-trial-out CV, 597 
+
+holding out entire trials. For both schemes, any preprocessing was fit on the training data only and then 598 
+
+applied unchanged to the held-out data. Neural activity and stimulus labels were simulated similar to 599 
+
+Section 4.6. Nested CV was used for PCR to select the number of PCs, and the selected model was 600 
+
+evaluated on the held-out test set. 601 
+
+4.8 Temporal-covariance leakage simulations and correction (Fig. 6) 602 
+
+For the simplified binary-discrimination simulations in Fig. 6g,h, we considered balanced positive and 603 
+
+negative classes with scalar responses drawn from a multivariate Gaussian whose temporal covariance 604 
+
+followed an exponential kernel, Σij = ρλ|i−j| (equivalently Σij = α|i−j| with α = ρλ and unit marginal 605 
+
+variance; Section S5 writes the same kernel as σ2α|i−j|). A one-dimensional LDA classifier was trained 606 
+
+on the training partition, and its test error was compared to the true generalization error on independent 607 
+
+data. We analytically derived the relationship between the train–test covariance block and the resulting 608 
+
+bias in the test error estimate (full derivations in Section S5). 609 
+
+For Fig. 6g, we used 96 time points with an alternating one-sample train/test split, fixed λ = 0 .55 , and 610 
+
+varied ρ ∈ { 0.25 , 0.45 , 0.62 , 0.76 , 0.86 , 0.93 } while tuning the signal mean μ so that the analytical leaky test 611 
+
+error remained fixed at 0.18. For Fig. 6h, we fixed ρ = 0 .94 and λ = 0 .5, varied alternating contiguous 612 
+
+15 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+block sizes {1, 2, 4, 8, 16 , 48 }, and compared the uncorrected leaky error with two covariance-corrected 613 
+
+estimates. The scalar correction (“estimated ceff ”) collapsed the per-sample train–test covariance 614 
+
+reductions to their class-averaged mean and applied a closed-form variance adjustment. The full 615 
+
+correction (“estimated full”) retained the per-sample leakage vector and numerically inverted the 616 
+
+test-error equation to recover the generalization variance, accounting for heterogeneous leakage 617 
+
+across held-out samples. Both corrections used a temporal covariance estimated from residual activity 618 
+
+via a semivariogram-based fit rather than the ground-truth covariance, and were averaged over 600 619 
+
+covariance-estimation replicates, each using 16 calibration residual traces. Full mathematical details of 620 
+
+both correction procedures and the covariance estimation are given in Section S5. 621 
+
+## 5 Data & code availability 622 
+
+The source data and code will be made publicly available upon publication. 623 
+
+16  
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint Decoder Trained decoder MNneurons Nneurons neural activity trials stimulus identity
+> decoding
+
+a encoding b cWhole dataset Train Test Calculate preprocessing parameters from train set Train Test Apply the same preprocessing to test set Train Test Train Test Processed dataset Whole dataset Fold 1 Fold 2 Fold 3 Fold 1 Fold 2 Fold 3 Whole dataset Whole dataset Train Test Train Test Val d fge624 
+
+Figure 1: The neural decoding framework and the importance of a non-leaky cross-validation (CV) pipeline . (a) Schematic of neural encoding and decoding. Encoding is the process by which a stimulus generates a neural response. Decoding is the inverse problem of inferring the stimulus from the observed neural response. (b) The training phase of neural decoding. A decoder (machine learning model) learns a mapping from a training dataset, consisting of neural activity patterns (N neurons over M trials), to their corresponding stimulus or behavioral labels. (c) The evaluation phase. The trained decoder is applied to a new, held-out test sample of neural activity to predict its corresponding label. The accuracy of this prediction is used to quantify decoder performance. (d) Standard CV data partitioning. A dataset is split into training (green) and test (blue) sets over multiple folds. (e) An optional validation set (mauve) can be used for hyperparameter tuning. (f) An incorrect, “leaky” data pipeline. Preprocessing is applied to the whole dataset (grey hatching across the full bar) and the resulting processed data are then split into training and test sets (green and blue segments with the same hatching), so the test data influence the learned preprocessing and contaminate the training set, leading to biased performance estimates. (g) A corrected non-leaky data pipeline. The dataset is first partitioned into training and test folds. Preprocessing parameters are then learned only from the training data (green segment with hatching) and the same transformation is applied to the held-out test data (blue segment with matching hatching), ensuring that test data do not affect how preprocessing is learned. 
+
+> 625 626 627 628 629 630 631 632 633 634 635 636 637 638 639 640 641 642
+
+17   
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint contra ipsi Tectum 0.00 0.25 0.50 0.75 1.00 Decoding accuracy  leakage no leakage
+> contra ipsi Tectum 0.00 0.25 0.50 0.75 1.00 Decoding accuracy  leakage no leakage
+
+kM M-1 feature selection Compute per-neuron statistic report average decoding accuracy k k
+
+Cross validation Train Test MN ,((neurons neural activity trials stimulus label   
+
+> 7.5 10.0 12.5 Neuron 1 firing rate 810 12 14 Neuron 2 firing rate  Stimulus 01
+
+fedcba  
+
+> 200 400 Number of neurons 0.6 0.8 1.0 Accuracy
+> decoding accuracy chance level upper bound
+> 200 400 Number of neurons 0.6 0.8 1.0 Accuracy 643
+
+Figure 2: Data leakage through feature selection . (a) : Neural activity simulated from a multivariate Gaussian distribution with different class means; example activities in a two-neuron case. Each dot represents one simulated trial, colored by stimulus class. (b) : Illustration of the feature-selection method applied to the neural activity matrix and the stimulus identity vector. Neurons were ranked based on the statistical relationship between each neuron’s response to the stimuli and corresponding stimulus identities, and the top k most-informative neurons were kept (the first 5 neurons were kept in the schematic). This reduced dataset was then used for further analysis. A Leave-One-Out CV scheme is illustrated here, where the dataset was divided into a training set (M-1 trials) for training the decoder and a test set (1 trial) for evaluation. The average decoding accuracy in the evaluation phase across all CV folds is reported as the overall accuracy. (c) : In a pipeline with data leakage, feature selection leads to inflated performance when used as a preprocessing step on the whole dataset. The horizontal axis shows the number of recorded candidate neurons before feature selection; at each value, the top 100 neurons were selected for decoding. The 95% confidence interval of the mean from 100 independent simulations are too small to be visible. Green line is the theoretical upper bound of decoding accuracy for a linear decoder. (d) : In a pipeline without data leakage, feature selection was calculated from training data only, and the same selection was then applied to the test set. Accuracy is lower than in (c) and remains within theoretically-achievable bounds. (e) : Schematic of a larval zebrafish embedded in agarose for an imaging experiment. The fish was shown stationary visual stimuli at angles from 15° to 165° in increments of 15°. (f) : In a pipeline with data leakage, both sides of the tectum showed good decoding. However after ensuring no data leakage, decoding accuracy in the ipsilateral tectum fell to chance level, indicating that no relevant stimulus information is being encoded in this region. Each dot is the averaged accuracy from 10 CV loops. Shaded region: 95% confidence region from shuffle control. 
+
+> 644 645 646 647 648 649 650 651 652 653 654 655 656 657 658 659 660 661 662 663 664 665 666
+
+18 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint no leakage leakage 020 40 RMSE (cm)  
+
+> p=1.7e-15
+
+## hgfedcba          
+
+> 20 40 60 Number of samples 0.010 0.012 0.014 Parameter RMSE
+> CV Leaky CV
+> 20 40 60 Number of samples 0.85 0.90 0.95 1.00 RMSE  CV Gen err Leaky CV
+> −20 0PC1
+> −10 010 PC2
+> −25 025 PC1
+> −40
+> −20 020 PC2
+> 025 PC1
+> −20 020 PC2
+> −505PC1
+> −505PC2
+> Stimulus angle 15 30 45 60 75 90 105 120 135 150 165 667
+
+Figure 3: Data leakage through supervised dimensionality reduction . (a) : Simulated random neural activity, PC space calculated from trial-averaged data and all trials were projected to this space (see Methods). Each dot corresponds to one trial. Structure is apparent even though there is actually no structure in the data. (b-c) : 2D PC embedding of zebrafish tectal activity. (b): ipsilateral tectum, (c): contralateral tectum. The zebrafish (Petrucco, 2020) and rodent icons indicate the animals from which these data were obtained. (d) : PC embedding using trial-averaged PCA of the same ipsilateral activity as in (b), showing apparent clusters of neural activity responding to the same stimulus. (e) :Decoding in a pipeline with data leakage suggests high signal fidelity encoded in both ipsilateral and contralateral tectum. However decoding accuracy falls back to chance level for the ipsilateral tectum in a pipeline without data leakage. Each dot is the averaged accuracy from one CV loop. Shaded region: 95% confidence region from shuffle control in a pipeline without data leakage. (f) : Supervised CEBRA (Schneider et al., 2023) was used to reduce the dimensionality from the recorded neural activity and to decode a rat’s location in a linear track. Decoding accuracy is inflated in a pipeline with data leakage compared to a pipeline without leakage. p-value calculated from two-sided Wilcoxon signed-rank test, n=84. (g,h) : With simulated data and ground truth parameters, partial least squares (PLS) with one component was used for supervised dimensionality reduction. (g) : Although the leaky CV includes one more leaked sample point in the dimensionality reduction step, the parameter RMSE is similar between the leaky and non-leaky cases. SEMs across 10,000 simulation runs are too small to be visible. (h) : The CV RMSE from the leaky pipeline underestimates the true generalization error of the resulting regression model. Non-leaky CV matches the true generalization error, despite fitting dimensionality reduction with one fewer sample per fold. 
+
+> 668 669 670 671 672 673 674 675 676 677 678 679 680 681 682 683 684 685 686 687 688 689
+
+19 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+## a bc     
+
+> 0100 True angle 050 100 150 Predicted angle
+> 20 30 40 50 60 Number of samples 25 30 35 40 Root mean squared error (degrees)  CV (leaky) CV Generalization error
+
+d       
+
+> 102
+> Number of neurons 1.00 1.05 1.10 1.15 generalization RMSE CV (leaky) RMSE /  Spontaneous selection Evoked selection
+> ψλβweights ξshape linear drive rate exp( ⋅)response stimulus 690
+
+Figure 4: Unsupervised feature selection shows biased results compared to true generalization error . (a) : Schematic of the generative model for simulating Poisson-like spike responses of stimuli, adapted from Pillow & Scott (2012). (b) : A simple linear decoder achieved good decoding results on held-out data. (c) : However when unsupervised feature selection was applied to select a subset of neurons (ranked by variance) for decoding, the CV estimate of decoding error became biased with respect to the true generalization error. In this case the result from data leakage harmed decoding performance (lower root mean squared error means better decoding), thus yielding a more pessimistic estimation. (d) In a trial-limited neuron-count sweep using 100 samples and 5-fold CV, the top 10% of neurons were selected by spike-count variance. Selection based on evoked activity, which included data from the held-out folds, increased the leaky-CV/generalization RMSE ratio as the recorded population grew. Selection based on stimulus-independent spontaneous activity served as a non-leaky control and remained close to one. Lines show means across 10,000 simulation runs; uncertainty bands or error bars denote ±3 SEM when visible. 
+
+> 691 692 693 694 695 696 697 698 699 700 701 702 703 704
+
+20  
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint Dimensionality reduction Neurons Latent variables
+> Decoding
+
+e f gdcba   
+
+> −101Dim 1
+> −1.0
+> −0.5 0.0 0.5 Dim 2
+> Single trial trajectory Trial averaged trajectory
+> Leaky CV Gen error CV 23.5 24.0 24.5 25.0 25.5 RMSE (degrees)  p=5e-09 p=5e-54 p=0.9
+
+−100 0 100 Predicted angle 
+
+−100 0100 True angle      
+
+> 10 110 210 3
+> Number of PCs 2468Decoding error (deg)
+
+h i j         
+
+> 24Noise to signal ratio 0.05 0.10 0.15 0.20 Variance
+> 24Noise to signal ratio 0.07 0.08 0.09 Bias²
+> 24Noise to signal ratio 0.15 0.20 0.25 Reducible error in MSE
+> CV Gen err Leaky CV
+> 20 40 60 0.05 0.10 0.15 0.20 Bias²
+> 20 40 60 0.1 0.2 0.3 Variance
+> Leaky CV Gen err
+> 20 40 60 0.2 0.3 0.4 0.5 Bias² + Variance
+
+Number of samples no leakage leakage 20 40 RMSE (cm) 
+
+p=6.6e-15      
+
+> 25 50 Number of samples 0.0002 0.0003 0.0004 Parameter MSE
+> 20 40 60 Number of samples 0.2 0.3 0.4 0.5 Reducible error in MSE
+> 20 40 60 Number of samples 3.2 3.3 3.4 3.5 MSE
+> CV Gen err Leaky CV
+
+kplmno      
+
+> 102103
+> Number of neurons 0.5 1.0 1.5 2.0 Variance
+> Leaky CV Gen err Analytical out-of-sample Empirical in-sample Analytical in-sample
+> 102103
+> Number of neurons 2345Variance ratio compare to gen err
+> leakage no leakage 0.9 1.0 1.1 1.2 Median error
+
+*705 
+
+Figure 5: Data leakage through unsupervised dimensionality reduction . (a) Schematic of a common analysis pipeline where high-dimensional neural activity is first reduced to a low-dimensional latent space before being used for decoding. (b-i) With simulated data and ground truth parameters, PCR was used for unsupervised dimensionality reduction. (b) The MSE between the estimated parameters when compared to the ground truth parameters between the CV (non-leaky) and leaky CV case were similar. 
+
+(c) The sample MSE showed a large difference. CV: non-leaky pipeline evaluated on the held-out point 
+
+x0. Leaky CV: leaky pipeline evaluated on the leaked point x0. Gen err: leaky pipeline evaluated on many new points xnew . (d) Same as (c) but with the irreducible error removed in the MSE. Reducible error in MSE = Bias 2 + Variance. (e) Bias-variance decomposition of a PCR decoder’s error as a function of sample size. The estimated bias term is consistently underestimated (optimistic), while the variance term is overestimated (pessimistic). This demonstrates that the total error from leakage when compared to true generalization error can be biased in either direction, depending on the noise level which scales the variance term. Here the eigenspectrum of the signal was assumed to be power-law. (f) Varying the ratio between signal and noise strength, the MSE in the leaky pipeline can become higher or lower than its generalization error or non-leaky CV pipeline. (g) Bias 2 term in (f). (h) Variance term in (f). 
+
+(i) Focusing on the variance term and varying the number of neurons in the simulation, the analytical out-of-sample term closely approximates the generalization error. Empirically, the leaky CV estimate can be bounded from below by the in-sample error (both empirical and analytical). (j) The variance term can be increasingly overestimated as the number of neurons (features) increases. (continued) 
+
+> 706 707 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725
+
+21 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint (k,l) Simulation using GPFA for dimensionality reduction prior to decoding. (k) A 2D latent variable representing ground truth stimulus angle. Single-trial (gray) and trial-averaged (black) latent trajectories recovered from simulated neural activity using GPFA. (l) A k-nearest neighbors decoder accurately predicts the true angle from the recovered latent variables on held-out test data. Each dot represents one held-out time-bin sample at a different angle. (m) Comparison of decoding errors from three pipelines. The cross-validated error from a leaky pipeline ( Leaky CV ) is significantly different from both a correctly implemented, non-leaky CV and the true generalization error of the leaky model ( Gen error ). Wilcoxon signed-rank test, n=1000 runs. (n,o) Application to real neural data from Stringer et al. (2021). (n) The decoding error from a model with leaky preprocessing (red) shows a slight optimistic bias compared to the non-leaky model that uses within-fold preprocessing (black). Error bars denote SEM across animals. The rodent icons indicate that panels {n,o,p} use data from rodent experiments (mouse: panels {n,o}; rat: panel p). (o) Correcting data leakage in just the z-scoring step of a decoding pipeline consistently reduces the median decoding error. Each connected pair of dots represents one animal. Wilcoxon signed-rank test. (p) Unsupervised CEBRA (Schneider et al., 2023) was used on data same as Fig. 3f. Decoding accuracy is inflated in a pipeline with data leakage compared to a pipeline without leakage. Wilcoxon signed-rank test. 
+
+> 726 727 728 729 730 731 732 733 734 735 736 737 738 739 740 741 742
+
+22 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+dcba                          
+
+> Rand CV LOGO CV Gen err Method 0510 15 RMSE (deg)  p=1e-17 p=1e-17 p=0.3
+> Time →
+> Fold 1 Fold 2 Fold 3 Fold 4 Fold 5
+> Trial 1 Trial 2 Trial 3 Trial 4 Trial 5
+> Time →
+> Trial 1 Trial 2 Trial 3 Trial 4 Trial 5
+> Trial 1 Trial 2 Trial 3 Trial 4 Trial 5
+> 0.25 0.50 0.75 Averaged temporal autocorrelation 0.15 0.20 0.25 0.30 Error
+> leaky test error gen error 1416 96 Train/test block size 0.6 0.8 1.0 Error / gen error
+> leaky test error
+> estimatedceff
+> estimated full
+
+e f g h        
+
+> train test train test
+> Independent train and test
+> train test train test
+> Non-zero temporal correlation
+> 0.0 0.5 1.0 Correlation 05Time (seconds) 12345Calcium signal (a.u.)
+> Time →
+> Fold 1 Fold 2 Fold 3 Fold 4 Fold 5
+> Trial 1 Trial 2 Trial 3 Trial 4 Trial 5
+
+Randomized CV Leave One Group Out CV 743 
+
+Figure 6: Data leakage from inappropriate CV of autocorrelated neural time series . (a) : Example of a continuous, autocorrelated neural signal, such as that found in EEG, LFP, or calcium imaging data (simulated calcium trace shown here). The signal’s value at any given time point is highly correlated with its value at adjacent time points. (b) : Two flawed validation schemes using standard randomized k-fold CV (randomized CV). Data points were assigned to training (blue) and test (orange) sets randomly, which violated their temporal structure and trial-based independence. (c) : Given the trial-based independence in the simulation, a more methodologically sound approach using leave-one-group(trial)-out CV (LOGO CV). Entire independent trials were held out as the test set. This correctly preserved the temporal structure within each trial while ensuring no temporal dependence existed between the training and test data. For both methods, hyperparameter optimization was performed using a nested CV loop (omitted from illustration for clarity). (d) : Randomized CV led to artificially inflated performance metrics. The decoder evaluated with the randomized CV (“leaky”) method showed a significantly lower RMSE than one evaluated with LOGO CV (“non-leaky”) However, the true generalization error, assessed on a separate, held-out test set, revealed that the leaky method’s superior performance was an artifact. LOGO CV, in contrast, provided an accurate estimate of how the model would perform on new, unseen data. (e) :Covariance matrix of the simulated signal from Fold 1 under randomized CV setting in (b), reordered so that training samples precede test samples on both axes. Within-trial autocorrelation produced non-zero entries in the off-diagonal train ×test block, reflecting statistical dependence between the training and test sets that inflated the apparent decoding performance. The second scheme in (b) has higher averaged temporal correlation than the first scheme. (f) : The same covariance reordered from any single fold under LOGO CV in (c). Because the held-out trial shared no samples with any training trial and cross-trial correlations were zero, the train ×test block vanished, indicating statistically independent training and test sets. (g) : In a simplified binary-decoding setting, the same apparent leaky test error corresponded to different true generalization errors as the train–test temporal correlation varied. Lower values along the horizontal axis indicate weaker train–test correlation, whereas higher values indicate stronger correlation. 
+
+> 744 745 746 747 748 749 750 751 752 753 754 755 756 757 758 759 760 761 762 763 764 765 766 767 768 769
+
+(h) : Covariance-based corrections brought the leaky estimate closer to performance on independent data across train/test block sizes; the estimated corrections were closer to the true generalization error than the naive leaky test estimate. The scalar correction ceff collapsed the per-sample train–test covariance reductions to their class-averaged mean and applied a closed-form variance adjustment; the full correction instead retained the per-sample leakage vector and numerically inverted the test-error equation to recover the generalization variance (see Methods and Section S5). The block size determined the length of contiguous segments alternately assigned to the training and test sets: smaller blocks placed more training and test samples adjacent in time, producing stronger train–test correlation, whereas larger blocks separated them further and reduced this correlation. 
+
+> 770 771 772 773 774 775 776 777 778 779
+
+23 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint References 780 
+
+Abu-Mostafa, Y. S., Magdon-Ismail, M., & Lin, H.-T. (2012). Learning from data, vol. 4. (AMLBook New 781 
+
+York). 782 
+
+Ahrens, M. B., Orger, M. B., Robson, D. N., Li, J. M., & Keller, P. J. (2013). Whole-brain functional imaging 783 
+
+at cellular resolution using light-sheet microscopy. Nature Methods, 10, 413–420. 784 
+
+Ambroise, C. & McLachlan, G. J. (2002). Selection bias in gene extraction on the basis of microarray 785 
+
+gene-expression data. Proceedings of the National Academy of Sciences, 99, 6562–6566. 786 
+
+Anumanchipalli, G. K., Chartier, J., & Chang, E. F. (2019). Speech synthesis from neural decoding of 787 
+
+spoken sentences. Nature, 568, 493–498. 788 
+
+Azabou, M., Arora, V., Ganesh, V., Mao, X., Nachimuthu, S. B., Mendelson, M. J., Richards, B. A., Perich, 789 
+
+M. G., Lajoie, G., & Dyer, E. L. (2023). A unified, scalable framework for neural population decoding. 790 
+
+In Thirty-seventh Conference on Neural Information Processing Systems. 791 
+
+Azabou, M., Pan, K. X., Arora, V., Knight, I. J., Dyer, E. L., & Richards, B. A. (2025). Multi-session, 792 
+
+multi-task neural decoding from distinct cell-types and brain regions. In The Thirteenth International 793 
+
+Conference on Learning Representations. 794 
+
+Birbaumer, N. & Cohen, L. G. (2007). Brain-computer interfaces: communication and restoration of 795 
+
+movement in paralysis. The Journal of Physiology, 579, 621–636. 796 
+
+Borst, A. & Theunissen, F. E. (1999). Information theory and neural coding. Nature Neuroscience, 2, 797 
+
+947–957. 798 
+
+Button, K. S. (2019). Double-dipping revisited. Nature Neuroscience, 22, 688–690. 799 
+
+Cawley, G. C. & Talbot, N. L. (2010). On over-fitting in model selection and subsequent selection bias in 800 
+
+performance evaluation. J. Mach. Learn. Res., 11, 2079–2107. 801 
+
+Chen, Z., Qing, J., Xiang, T., Yue, W. L., & Zhou, J. H. (2023a). Seeing Beyond the Brain: Conditional 802 
+
+Diffusion Model with Sparse Masked Modeling for Vision Decoding . In 2023 IEEE/CVF Conference on 803 
+
+Computer Vision and Pattern Recognition (CVPR), pp. 22710–22720. (Los Alamitos, CA, USA: IEEE 804 
+
+Computer Society). 805 
+
+Chen, Z., Qing, J., & Zhou, J. H. (2023b). Cinematic mindscapes: high-quality video reconstruction from 806 
+
+brain activity. In Proceedings of the 37th International Conference on Neural Information Processing 807 
+
+Systems, NIPS ’23. (Red Hook, NY, USA: Curran Associates Inc.). 808 
+
+Cowley, B. R., Snyder, A. C., Acar, K., Williamson, R. C., Yu, B. M., & Smith, M. A. (2020). Slow drift 809 
+
+of neural activity as a signature of impulsivity in macaque visual and prefrontal cortex. Neuron, 108, 810 
+
+551–567.e8. 811 
+
+Cunningham, J. P. & Yu, B. M. (2014). Dimensionality reduction for large-scale neural recordings. Nature 812 
+
+Neuroscience, 17, 1500–1509. 813 
+
+Dayan, P. & Abbott, L. (2005). Theoretical Neuroscience. (MIT Press). 814 
+
+Degenhart, A. D., Bishop, W. E., Oby, E. R., Tyler-Kabara, E. C., Chase, S. M., Batista, A. P., & Yu, 815 
+
+B. M. (2020). Stabilization of a brain–computer interface via the alignment of low-dimensional spaces 816 
+
+of neural activity. Nature Biomedical Engineering, 4, 672–685. 817 
+
+24 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+Denker, M., Yegenoglu, A., & Grün, S. (2018). Collaborative HPC-enabled workflows on the HBP 818 
+
+Collaboratory using the Elephant framework. Neuroinformatics 2018, Montreal (Canada), 9 Aug 2018 819 
+
+- 10 Aug 2018. 820 
+
+Ebrahimi, S., Lecoq, J., Rumyantsev, O., Tasci, T., Zhang, Y., Irimia, C., Li, J., Ganguli, S., & Schnitzer, 821 
+
+M. J. (2022). Emergent reliability in sensory cortical coding and inter-area communication. Nature, 822 
+
+605, 713–721. 823 
+
+Ferri, F., Pudil, P., Hatef, M., & Kittler, J. (1994). Comparative study of techniques for large-scale feature 824 
+
+selection. In Machine Intelligence and Pattern Recognition. (Elsevier), pp. 403–413. 825 
+
+Flesher, S. N., Downey, J. E., Weiss, J. M., Hughes, C. L., Herrera, A. J., Tyler-Kabara, E. C., Boninger, 826 
+
+M. L., Collinger, J. L., & Gaunt, R. A. (2021). A brain-computer interface that evokes tactile sensations 827 
+
+improves robotic arm control. Science, 372, 831–836. 828 
+
+Friedrich, J., Zhou, P., & Paninski, L. (2017). Fast online deconvolution of calcium imaging data. PLOS 829 
+
+Computational Biology, 13, e1005423. 830 
+
+Gebhardt, C., Auer, T. O., Henriques, P. M., Rajan, G., Duroure, K., Bianco, I. H., & Del Bene, F. 831 
+
+(2019). An interhemispheric neural circuit allowing binocular integration in the optic tectum. Nature 832 
+
+Communications, 10, 5471. 833 
+
+Giovannucci, A., Friedrich, J., Gunn, P., Kalfon, J., Brown, B. L., Koay, S. A., Taxidis, J., Najafi, F., 834 
+
+Gauthier, J. L., Zhou, P., Khakh, B. S., Tank, D. W., Chklovskii, D. B., & Pnevmatikakis, E. A. (2019). 835 
+
+CaImAn an open source tool for scalable calcium imaging data analysis. eLife, 8, e38173. 836 
+
+Glaser, J. I., Benjamin, A. S., Chowdhury, R. H., Perich, M. G., Miller, L. E., & Kording, K. P. (2020). 837 
+
+Machine learning for neural decoding. eneuro, 7, ENEURO.0506–19.2020. 838 
+
+Green, A. & Romanov, E. (2025). The high-dimensional asymptotics of principal component regression. 839 
+
+The Annals of Statistics, 53, 1697–1727. 840 
+
+Grosmark, A. D. & Buzsáki, G. (2016). Diversity in neural firing dynamics supports both rigid and learned 841 
+
+hippocampal sequences. Science, 351, 1440–1443. 842 
+
+Hadidi, N., Feghhi, E., Song, B. H., Blank, I. A., & Kao, J. C. (2026). Spurious alignment between large 843 
+
+language models and brains can emerge from non-robust methods and overlooked confounds. Nature 844 
+
+Communications, DOI: 10.1038/s41467-026-72253-7. 845 
+
+Harris, K. D. (2021). Nonsense correlations in neuroscience. bioRxiv, DOI: 10.1101/2020.11.29.402719. 846 
+
+Harris, K. D. & Thiele, A. (2011). Cortical state and attention. Nature Reviews Neuroscience, 12, 847 
+
+509–523. 848 
+
+Hastie, T., Tibshirani, R., & Friedman, J. (2009). The Elements of Statistical Learning. (Springer New 849 
+
+York). 850 
+
+He, B., Yuan, H., Meng, J., & Gao, S. (2020). Brain–computer interfaces. In Neural Engineering, B. He, 851 
+
+ed. (Springer International Publishing), pp. 131–183. 852 
+
+Horikawa, T. & Kamitani, Y. (2017). Generic decoding of seen and imagined objects using hierarchical 853 
+
+visual features. Nature Communications, 8, 15037. 854 
+
+Horikawa, T., Tamaki, M., Miyawaki, Y., & Kamitani, Y. (2013). Neural decoding of visual imagery during 855 
+
+sleep. Science, 340, 639–642. 856 
+
+25 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+Jun, J. J., Steinmetz, N. A., Siegle, J. H., Denman, D. J., Bauza, M., Barbarits, B., Lee, A. K., Anastassiou, 857 
+
+C. A., Andrei, A., Aydın, C., Barbic, M., Blanche, T. J., Bonin, V., Couto, J., Dutta, B., Gratiy, S. L., 858 
+
+Gutnisky, D. A., Häusser, M., Karsh, B., Ledochowitsch, P., Lopez, C. M., Mitelut, C., Musa, S., Okun, 859 
+
+M., Pachitariu, M., Putzeys, J., Rich, P. D., Rossant, C., Sun, W.-l., Svoboda, K., Carandini, M., Harris, 860 
+
+K. D., Koch, C., O’Keefe, J., & Harris, T. D. (2017). Fully integrated silicon probes for high-density 861 
+
+recording of neural activity. Nature, 551, 232–236. 862 
+
+Kapoor, S. & Narayanan, A. (2023). Leakage and the reproducibility crisis in machine-learning-based 863 
+
+science. Patterns, 4, 100804. 864 
+
+Karpowicz, B. M., Ali, Y. H., Wimalasena, L. N., Sedler, A. R., Keshtkaran, M. R., Bodkin, K., Ma, X., 865 
+
+Rubin, D. B., Williams, Z. M., Cash, S. S., Hochberg, L. R., Miller, L. E., & Pandarinath, C. (2025). 866 
+
+Stabilizing brain-computer interfaces through alignment of latent dynamics. Nature Communications, 867 
+
+16. 868 
+
+Kriegeskorte, N., Simmons, W. K., Bellgowan, P. S. F., & Baker, C. I. (2009). Circular analysis in systems 869 
+
+neuroscience: the dangers of double dipping. Nature Neuroscience, 12, 535–540. 870 
+
+Kriegeskorte, N. & Wei, X.-X. (2021). Neural tuning and representational geometry. Nature Reviews 871 
+
+Neuroscience, 22, 703–718. 872 
+
+Langdon, C., Genkin, M., & Engel, T. A. (2023). A unifying perspective on neural manifolds and circuits 873 
+
+for cognition. Nature Reviews Neuroscience, 24, 363–377. 874 
+
+Lin, A., Witvliet, D., Hernandez-Nunez, L., Linderman, S. W., Samuel, A. D. T., & Venkatachalam, V. 875 
+
+(2022). Imaging whole-brain activity to understand behaviour. Nature Reviews Physics, 4, 292–305. 876 
+
+Lotte, F., Bougrain, L., Cichocki, A., Clerc, M., Congedo, M., Rakotomamonjy, A., & Yger, F. (2018). A 877 
+
+review of classification algorithms for eeg-based brain-computer interfaces: a 10 year update. Journal 878 
+
+of Neural Engineering, 15, 031005. 879 
+
+Ma, X., Rizzoglio, F., Bodkin, K. L., Perreault, E., Miller, L. E., & Kennedy, A. (2023). Using adversarial 880 
+
+networks to extend brain computer interface decoding accuracy over time. eLife, 12. 881 
+
+Mahalanobis, P. C. (1936). On the generalized distance in statistics. Proceedings of the National Institute 882 
+
+of Sciences (Calcutta), 2, 49–55. 883 
+
+McLachlan, G. J. (1999). Mahalanobis distance. Resonance, 4, 20–26. 884 
+
+Mignacco, F., Krzakala, F., Lu, Y., Urbani, P., & Zdeborova, L. (2020). The role of regularization in 885 
+
+classification of high-dimensional noisy Gaussian mixture. In Proceedings of the 37th International 886 
+
+Conference on Machine Learning, H. D. III & A. Singh, eds., vol. 119 of Proceedings of Machine 887 
+
+Learning Research , pp. 6874–6883. (PMLR). 888 
+
+Moscovich, A. & Rosset, S. (2022). On the cross-validation bias due to unsupervised preprocessing. 889 
+
+Journal of the Royal Statistical Society Series B: Statistical Methodology, 84, 1474–1502. 890 
+
+Perich, M. G., Narain, D., & Gallego, J. A. (2025). A neural manifold view of the brain. Nature 891 
+
+Neuroscience, 28, 1582–1597. 892 
+
+Petrucco, L. (2020). Zebrafish larvae lateral view. Zenodo. DOI: 10.5281/ZENODO.3926123. 893 
+
+Pillow, J. & Scott, J. (2012). Fully bayesian inference for neural models with negative-binomial spiking. In 894 
+
+Advances in Neural Information Processing Systems, F. Pereira, C. Burges, L. Bottou, & K. Weinberger, 895 
+
+eds., vol. 25. (Curran Associates, Inc.). 896 
+
+26 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+Pnevmatikakis, E. A., Soudry, D., Gao, Y., Machado, T. A., Merel, J., Pfau, D., Reardon, T., Mu, Y., 897 
+
+Lacefield, C., Yang, W., Ahrens, M., Bruno, R., Jessell, T. M., Peterka, D. S., Yuste, R., & Paninski, L. 898 
+
+(2016). Simultaneous denoising, deconvolution, and demixing of calcium imaging data. Neuron, 89, 899 
+
+285–299. 900 
+
+Poldrack, R. A., Huckins, G., & Varoquaux, G. (2020). Establishment of best practices for evidence for 901 
+
+prediction: A review. JAMA Psychiatry, 77, 534. 902 
+
+Rosenblatt, M., Tejavibulya, L., Jiang, R., Noble, S., & Scheinost, D. (2024). Data leakage inflates 903 
+
+prediction performance in connectome-based machine learning models. Nature Communications, 15, 904 
+
+1829. 905 
+
+Rumyantsev, O. I., Lecoq, J. A., Hernandez, O., Zhang, Y., Savall, J., Chrapkiewicz, R., Li, J., Zeng, H., 906 
+
+Ganguli, S., & Schnitzer, M. J. (2020). Fundamental bounds on the fidelity of sensory cortical coding. 907 
+
+Nature, 580, 100–105. 908 
+
+Saxena, S. & Cunningham, J. P. (2019). Towards the neural population doctrine. Current Opinion in 909 
+
+Neurobiology, 55, 103–111. 910 
+
+Schneider, S., Lee, J. H., & Mathis, M. W. (2023). Learnable latent embeddings for joint behavioural and 911 
+
+neural analysis. Nature, 617, 360–368. 912 
+
+Shim, M., Lee, S.-H., & Hwang, H.-J. (2021). Inflated prediction accuracy of neuropsychiatric biomarkers 913 
+
+caused by data leakage in feature selection. Scientific Reports, 11, 7980. 914 
+
+Simon, R., Radmacher, M. D., Dobbin, K., & McShane, L. M. (2003). Pitfalls in the use of dna microarray 915 
+
+data for diagnostic and prognostic classification. JNCI Journal of the National Cancer Institute, 95, 916 
+
+14–18. 917 
+
+Steinmetz, N. A., Aydin, C., Lebedeva, A., Okun, M., Pachitariu, M., Bauza, M., Beau, M., Bhagat, J., 918 
+
+Böhm, C., Broux, M., Chen, S., Colonell, J., Gardner, R. J., Karsh, B., Kloosterman, F., Kostadinov, 919 
+
+D., Mora-Lopez, C., O’Callaghan, J., Park, J., Putzeys, J., Sauerbrei, B., van Daal, R. J. J., Vollan, 920 
+
+A. Z., Wang, S., Welkenhuysen, M., Ye, Z., Dudman, J. T., Dutta, B., Hantman, A. W., Harris, K. D., 921 
+
+Lee, A. K., Moser, E. I., O’Keefe, J., Renart, A., Svoboda, K., Häusser, M., Haesler, S., Carandini, M., 922 
+
+& Harris, T. D. (2021). Neuropixels 2.0: A miniaturized high-density probe for stable, long-term brain 923 
+
+recordings. Science, 372, eabf4588. 924 
+
+Stone, M. (1974). Cross-validatory choice and assessment of statistical predictions. Journal of the Royal 925 
+
+Statistical Society. Series B (Methodological), 36, 111–147. 926 
+
+Stringer, C., Michaelos, M., Tsyboulski, D., Lindo, S. E., & Pachitariu, M. (2021). High-precision coding 927 
+
+in visual cortex. Cell, 184, 2767–2778.e15. 928 
+
+Tibshirani, R. (1996). Regression shrinkage and selection via the lasso. Journal of the Royal Statistical 929 
+
+Society. Series B (Methodological), 58, 267–288. 930 
+
+Urai, A. E., Doiron, B., Leifer, A. M., & Churchland, A. K. (2022). Large-scale neural recordings call for 931 
+
+new insights to link brain and behavior. Nature Neuroscience, 25, 11–19. 932 
+
+Verstynen, T. & Kording, K. P. (2023). Overfitting to ‘predict’ suicidal ideation. Nature Human Behaviour, 933 
+
+7, 680–681. 934 
+
+Vogelstein, J. T., Packer, A. M., Machado, T. A., Sippy, T., Babadi, B., Yuste, R., & Paninski, L. (2010). 935 
+
+Fast nonnegative deconvolution for spike train inference from population calcium imaging. Journal of 936 
+
+Neurophysiology, 104, 3691–3704. 937 
+
+27 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+Wang, E. Y., Fahey, P. G., Ding, Z., Papadopoulos, S., Ponder, K., Weis, M. A., Chang, A., Muhammad, 938 
+
+T., Patel, S., Ding, Z., Tran, D., Fu, J., Schneider-Mizell, C. M., da Costa, N. M., Reid, R. C., Collman, 939 
+
+F., da Costa, N. M., Franke, K., Ecker, A. S., Reimer, J., Pitkow, X., Sinz, F. H., & Tolias, A. S. (2025). 940 
+
+Foundation model of neural activity predicts response to new stimulus types. Nature, 640, 470–477. 941 
+
+Wen, H., Shi, J., Zhang, Y., Lu, K.-H., Cao, J., & Liu, Z. (2017). Neural encoding and decoding with deep 942 
+
+learning for dynamic natural vision. Cerebral Cortex, 28, 4136–4160. 943 
+
+Wolpaw, J. R. & McFarland, D. J. (2004). Control of a two-dimensional movement signal by a 944 
+
+noninvasive brain-computer interface in humans. Proceedings of the National Academy of Sciences, 945 
+
+101, 17849–17854. 946 
+
+Ye, J., Collinger, J. L., Wehbe, L., & Gaunt, R. (2023). Neural data transformer 2: Multi-context pretraining 947 
+
+for neural spiking activity. DOI: 10.1101/2023.09.18.558113. 948 
+
+Yu, B. M., Cunningham, J. P., Santhanam, G., Ryu, S. I., Shenoy, K. V., & Sahani, M. (2009). 949 
+
+Gaussian-process factor analysis for low-dimensional single-trial analysis of neural population activity. 950 
+
+Journal of Neurophysiology, 102, 614–635. 951 
+
+28 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+# Supplementary Information for 952 
+
+# Preventing Data Leakage in Neural Decoding 953 
+
+29 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint S1 Recommendations 954 
+
+S1.1 General pipeline guidelines 955 
+
+A recommended pipeline with cross-validation to assess decoding accuracy avoiding data leakage 956 
+
+is described below. A Python code template for this pipeline will be made publicly available upon 957 
+
+publication. 958 
+
+Step 1. Record neural activity and stimulus/behavior labels. 959 
+
+Step 2. Split to training and test sets. 960 
+
+Step 3. Apply preprocessing, feature selection and/or dimensionality reduction to the training set 961 
+
+(optionally with labels) as necessary. 962 
+
+Step 4. Train the decoder on the processed training set. 963 
+
+Step 5. Apply the same preprocessing steps and transformations as learned in Step 3 to the test set. 964 
+
+Step 6. Evaluate the decoder and report performance on the processed test set. 965 
+
+Step 7. If cross-validation is used, repeat Step 3–6 with the new split. 966 
+
+The pseudocode provided in Algorithm 1 illustrates this pipeline in more detail. Additionally, Figure 1f,g 967 
+
+offer a visual comparison of both pipelines, highlighting the critical steps where the recommended 968 
+
+approach diverges to maintain the integrity of the validation process. 969 
+
+Algorithm 1 A recommended pipeline with cross-validation to assess decoding accuracy avoiding data leakage 
+
+Require: neural activity X
+
+Require: stimulus/behavior labels y
+
+1: k ← number_of_folds ▷ Define the number of folds for cross-validation 
+
+2: cv_splits ← CrossValidationSplit( X, y, k )
+
+3: total_accuracy ← 0 ▷ Initialize total accuracy to zero 
+
+4: for each (train_indices, test_indices) in cv_splits do 
+
+5: Xtrain ← X[train_indices] 
+
+6: Xtest ← X[test_indices] 
+
+7: ytrain ← y[train_indices] 
+
+8: ytest ← y[test_indices] 
+
+9: Xtrain_processed ← preprocess( Xtrain , ytrain ) ▷ Apply preprocessing to training data only, here the use of y is omitted in the case of unsupervised methods 
+
+10: model ← TrainClassifier  Xtrain_processed , ytrain 
+
+
+
+11: Xtest_processed ← preprocess (Xtest ) ▷ Apply the same preprocessing to test data 
+
+12: test_set_accuracy ← Evaluate  model , Xtest_processed , ytest 
+
+
+
+13: total_accuracy ← total_accuracy + test_set_accuracy 
+
+14: end for return total_accuracy / k To assess decoding accuracy for temporally correlated data, see Section 2.4 and the Discussion section. 970 971 
+
+30 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+S1.2 Detection methods 972 
+
+We suggest a simple practical check to test for data leakage. An effective approach for determining the 973 
+
+chance level in neural decoding analysis is through permutation tests, also known as shuffle controls 974 
+
+(Ojala & Garriga, 2010; Combrisson & Jerbi, 2015). This method involves permuting stimulus identities 975 
+
+or neural activity across classes to establish an empirical null distribution of decoding accuracy, providing 976 
+
+a more accurate estimate than the naive 1/(number of unique stimuli) calculation. For a balanced 977 
+
+classification problem, if a shuffle control is performed on an entire decoding pipeline which involves data 978 
+
+leakage, the observed null distribution will be different than the 1/(number of unique stimuli) estimate. 979 
+
+However in typical neuroscience analyses, a shuffle control is performed just before decoding. The null 980 
+
+distribution constructed this way does not incorporate preprocessing steps, making it less informative 981 
+
+than a null distribution constructed by performing the shuffle control at the start of the pipeline. We 982 
+
+therefore recommend conducting permutation tests prior to data preprocessing rather than afterwards. 983 
+
+Since preprocessing parameters are derived from the data itself, this step should be thought of as part 984 
+
+of the machine learning classifier. This approach is analogous to introducing randomness at the start 985 
+
+of simulations as a null model (for example, in network science, random graphs are constructed as a 986 
+
+null model (Barabási & Albert, 1999; Fornito et al., 2016; Váša & Miši´ c, 2022)). This practice also aligns 987 
+
+with best practices in popular machine learning projects, as exemplified by the API design for scikit-learn 988 
+
+(Buitinck et al., 2013). However note that while this check is very useful in practice, it should be viewed 989 
+
+as a screening tool rather than a definitive guarantee: passing it reduces concern about leakage, but 990 
+
+failing it is a clear warning sign that the pipeline needs to be audited. 991 
+
+S1.3 Hyperparameter tuning 992 
+
+When hyperparameter tuning is required, nested cross-validation provides a more robust approach than 993 
+
+standard cross-validation (Stone, 1974; Cawley & Talbot, 2010). In nested cross-validation, an outer loop 994 
+
+performs the train-test split for final evaluation, while an inner loop performs additional train-validation 995 
+
+splits for hyperparameter optimization. This ensures that the hyperparameter selection process does not 996 
+
+inadvertently use information from the test set, which could occur if hyperparameters are tuned on the 997 
+
+entire dataset before cross-validation. The computational cost of nested cross-validation is higher, but it 998 
+
+provides more reliable estimates of model performance, particularly when preprocessing steps involve 999 
+
+hyperparameters (such as the number of components in PCA or regularization strength in many machine 1000 
+
+learning models). 1001 
+
+31 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+## S2 PCA on trial-averaged data 1002 
+
+Notation 1003 
+
+Symbol Meaning 
+
+d Number of neurons 
+
+C Number of conditions 
+
+T Number of trials per condition 
+
+k Number of retained PCs ( k ≤ C − 1)
+
+ρ Neuron-to-trial ratio d/T SB , S W Between-class and within-class scatter matrices 
+
+J Fisher discriminant ratio tr( S−1 
+
+> W
+
+SB )
+
+> 1004
+
+We derive an analytical prediction for the expected Fisher discriminant ratio J = tr( S−1 
+
+> W
+
+SB ) in the 1005 
+
+k-dimensional PC projection of a null-signal simulation, and show that J is governed by the ratio d/T 1006 
+
+of the number of neurons to the number of trials per condition. 1007 
+
+S2.1 Setup 1008 
+
+Let ηc,t iid 
+
+∼ N (0 , σ 2Id) for conditions c = 1 , . . . , C and trials t = 1 , . . . , T . This is the null model: no true 1009 
+
+signal, random labels. Decompose each observation as 1010 
+
+ηc,t = ¯ ηc + ˜ ηc,t ,
+
+where ¯ηc = 1
+
+> T
+
+P 
+
+> t
+
+ηc,t is the class mean and ˜ηc,t = ηc,t − ¯ηc is the within-class residual. By Basu’s 1011 
+
+Theorem, ¯η ⊥ ˜η, and ˜η carries C(T − 1) degrees of freedom. 1012 
+
+Trial-averaged PCA fits a truncated singular value decomposition on the C × d matrix ¯η whose rows are 1013 
+
+the condition means. The top-k right singular vectors W ∈ Rd×k are therefore a function of ¯η only, and 1014 
+
+are independent of ˜η.1015 
+
+S2.2 Expected Fisher ratio under the null 1016 
+
+Between-class scatter. Let H = IC − C−111 ⊤ be the class-centering matrix. Under the null, the 1017 
+
+centered class-mean noise can be written as 1018 
+
+¯η = σ
+
+√T G, G = HZ, 
+
+where Z ∈ RC×d has iid N (0 , 1) entries. Thus G has rank at most C − 1. Let W contain the top-k right 1019 
+
+singular vectors of ¯η, with k ≤ C − 1. Then 1020 
+
+SB = T W ⊤ ¯η⊤ ¯ηW = σ2 diag {σ21 (G), . . . , σ 2
+
+> k
+
+(G)}.
+
+Moreover, 1021 
+
+d−1GG ⊤ = d−1HZZ ⊤H → H
+
+as d → ∞ with C fixed. Hence the nonzero eigenvalues of GG ⊤, equivalently of G⊤G, satisfy 1022 
+
+σ2 
+
+> j
+
+(G) = d{1 + op(1) }, j ≤ C − 1.
+
+32 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+Therefore 1023 
+
+E[tr( SB )] = σ2E
+
+
+
+> k
+
+X
+
+> j=1
+
+σ2 
+
+> j
+
+(G)
+
+ ≈ σ2kd. 
+
+Within-class scatter. Since the class means and within-class residuals are independent under the 1024 
+
+Gaussian null, and since W is a function of the class means, conditional on W we have 1025 
+
+SW | W ∼ Wishart k
+
+ C(T − 1) , σ 2Ik
+
+ .
+
+Assuming C(T − 1) > k + 1 ,1026 
+
+E[S−1 
+
+> W
+
+| W ] = 1
+
+σ2[C(T − 1) − k − 1] Ik.
+
+Combining. Using the tower rule and conditioning on ¯η, which fixes both W and SB ,1027 
+
+E[J] = Etr( S−1 
+
+> W
+
+SB )
+
+= Etr  E[S−1 
+
+> W
+
+| ¯η]SB
+
+ 
+
+= E[tr( SB )] 
+
+σ2[C(T − 1) − k − 1] =
+
+E
+
+hPkj=1 σ2 
+
+> j
+
+(G)
+
+i
+
+C(T − 1) − k − 1
+
+≈ kd C(T − 1) − k − 1 .
+
+S2.3 d/T scaling 1028 
+
+Substituting d = ρT for a fixed ratio ρ = d/T ,1029 
+
+E[J] ≈ kρT CT − C − k − 1 −−−−→ 
+
+> T→∞
+
+kρ C .
+
+That is, J converges to a constant determined solely by ρ = d/T , C, and k. Two consequences follow: 1030 
+
+1. At fixed d, increasing T reduces J approximately as kd/ [C(T − 1) − k − 1] ∼ d/T , consistent with 1031 
+
+the intuition that more repeats reduce spurious clustering (Fig. S4a). 1032 
+
+2. At fixed d/T , J plateaus as T → ∞ (Fig. S4b). Because modern large-scale recording technology 1033 
+
+tends to scale d and T together, the pitfall does not automatically diminish with experimental scale. 1034 
+
+Finite-size corrections. At small T , the prediction kd/ [C(T − 1) − k − 1] exceeds the asymptote kρ/C 1035 
+
+by a factor CT CT −C−k−1 , which equals ≈ 1.34 for C = 11 , k = 2 , and T = 5 , and decays as O(1 /T ). A 1036 
+
+second finite-size correction comes from selecting the top-k singular directions of the centered Gaussian 1037 
+
+matrix G. Since G has rank r = C − 1, the relevant aspect ratio is γ = rd = C−1 
+
+> d
+
+. For finite d, the largest 1038 
+
+nonzero eigenvalues of GG ⊤ exceed their limit d; heuristically, the upper edge is of order d(1 + √γ)2.1039 
+
+Thus 1040 
+
+E
+
+
+
+> k
+
+X
+
+> j=1
+
+σ2 
+
+> j
+
+(G)
+
+ = kd {1 + δC,d,k }, δC,d,k ≥ 0,
+
+33 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+with δC,d,k → 0 as d/ (C−1) → ∞ . This produces an additional upward correction to the leading prediction 1041 
+
+kd/ [C(T − 1) − k − 1] , especially when d is only moderately larger than C.1042 
+
+## S3 Fixed-fraction variance selection 1043 
+
+Notation 1044 
+
+Symbol Meaning 
+
+N Number of samples used for feature selection 
+
+ntrain Number of training samples per CV fold 
+
+p Number of recorded neurons 
+
+α Fraction of features selected 
+
+K = αp Number of selected neurons 
+
+R Ratio of leaky CV RMSE to generalization RMSE 
+
+> 1045
+
+The variance-selection result in Moscovich & Rosset (2022) analyzes the extreme case in which a single 1046 
+
+feature is selected. Here we analyze the setting used in our neuron-count sweep, where a fixed fraction 1047 
+
+of features is selected and ordinary least squares remains determined. Below is not intended as an exact 1048 
+
+proof for the Gamma-Poisson spike-count simulation in the main text. Rather, it provides a benchmark 1049 
+
+on ordinary least squares (OLS) for why leakage is small in low-dimensional settings and grows as the 1050 
+
+selected feature count approaches the number of training samples. 1051 
+
+Let N be the number of samples used for leaky feature selection, ntrain the number of samples in each 1052 
+
+training fold, p the number of recorded neurons, and K = αp the number of selected neurons. Assume 1053 
+
+K < n train − 1. For a Gaussian null feature, 1054 
+
+(N − 1)ˆ σ2 
+
+> j
+
+∼ χ2 
+
+> N−1
+
+.
+
+Selecting the top fixed fraction α does not select an increasingly extreme maximum as p grows. Instead, 1055 
+
+the selected features approach the upper tail of a fixed distribution. If Q ∼ χ2 
+
+> ν
+
+with ν = N − 1, and q1−α1056 
+
+is the (1 − α)-quantile of Q, the average variance inflation among selected features is 1057 
+
+cα,N = E[Q | Q > q 1−α]
+
+ν .
+
+This factor is finite for fixed α.1058 
+
+For OLS with K selected features, the standard finite-sample variance amplification has the scale 1059 
+
+aK = Kntrain − K − 1 .
+
+If the validation samples used in feature selection inflate the relevant selected-feature variance by cα,N 1060 
+
+relative to fresh generalization samples, then a useful approximation for the ratio of leaky CV RMSE to 1061 
+
+leaky generalization RMSE is 1062 
+
+R2 ≈ 1 + cα,N aK
+
+1 + aK
+
+.
+
+Consequently, the ratio increases with K/ (ntrain − K − 1) but is bounded by 1063 
+
+R ≲ √cα,N .
+
+For the parameter regime used in Figure 4 N = 100 , 5-fold CV gives ntrain = 80 . With α = 0 .1 and 1064 
+
+34 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+p = 750 , the selected feature count is K = 75 < n train and 1065 
+
+aK = 75 80 − 75 − 1 = 18 .75 .
+
+For N = 100 and α = 0 .1, cα,N ≈ 1.264 , yielding 1066 
+
+R ≈
+
+r 1 + 1 .264 · 18 .75 1 + 18 .75 ≈ 1.12 .
+
+Thus, even in a stylized Gaussian setting, fixed-fraction variance selection produces little mismatch 1067 
+
+when K ≪ ntrain , but the ratio can become appreciable as K approaches ntrain while remaining in 1068 
+
+the determined-OLS regime. 1069 
+
+## S4 Derivations for PCR 1070 
+
+In this section we introduce principal component regression (PCR), and derive the bias–variance 1071 
+
+decomposition of both in-sample and out-of-sample prediction risk, and we make explicit how the 1072 
+
+dependence on the PCA basis enters through an effective projection matrix Pk(Xtrain ). The structure 1073 
+
+parallels the analysis in Green & Romanov (2025), but is adapted to our finite-sample simulation 1074 
+
+framework and to the comparison between leaky and non-leaky PCA bases. 1075 
+
+35 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+Notation 1076 
+
+Symbol Meaning 
+
+n Number of training samples 
+
+p Number of features 
+
+k Number of retained PCs 
+
+σ2 Noise variance 
+
+Σ Population covariance 
+
+λj Population eigenvalues 
+
+ˆλj Sample eigenvalues 
+
+Vk Top-k sample eigenvectors (PCA basis) 
+
+Pk(Xtrain ) Effective projection matrix from PCR 
+
+V PredIn  
+
+> k
+
+In-sample variance: σ2k/n V PredOut  
+
+> k
+
+Out-of-sample variance 
+
+Xaug Augmented design (includes test point) 
+
+h Leverage of test point in leaky PC subspace 
+
+V leak  
+
+> k
+
+Leaky variance: σ2h/ (1 − h)
+
+m Number of leaked points (multi-point extension) 
+
+H m × m leverage matrix of leaked points 
+
+> 1077
+
+S4.1 Data generating process for PCR 1078 
+
+Fixed number of features Data are generated from a Gaussian linear model 1079 
+
+y = x⊤β + ε, ε ∼ N (0 , σ 2),
+
+with feature vectors x ∼ N (0, Σ) ∈ Rp, where Σ is a fixed population covariance matrix. 1080 
+
+Population covariance. The covariance Σ is specified via its eigen-decomposition Σ = QΛQ⊤,1081 
+
+where Q ∈ Rp×p is orthogonal and Λ = diag( λ1, . . . , λ p) contains the population eigenvalues. In different 1082 
+
+experiments we consider either spiked spectra or power-law spectra, for example λj ∝ j−α, with a global 1083 
+
+scaling chosen so that the average marginal variance has a prescribed value. 1084 
+
+Signal vector, signal variance and noise variance The ground-truth regression coefficient β ∈ Rp is 1085 
+
+constructed to lie in the span of the top k eigenvectors of Σ. Let Qk ∈ Rp×k denote the first k columns 1086 
+
+of Q and let θ ∈ Rk encode the signal in this principal subspace. We set β0 = Qkθ, and then 1087 
+
+rescale to obtain the final coefficient vector β = β0√β⊤  
+
+> 0Σβ0
+
+. By construction this enforces β⊤Σ β = 1,1088 
+
+so the signal variance is normalized to one across all simulations in this setting. This normalization 1089 
+
+makes comparisons across different covariance structures and noise levels more interpretable, because 1090 
+
+changes in prediction error can be directly attributed to geometric and estimation effects rather than to a 1091 
+
+trivial rescaling of the signal strength. For different signal-to-noise ratio, we then set σ2 to different values 1092 
+
+accordingly. 1093 
+
+Sampling training and test data. Given (Σ, β), the training design matrix Xtrain ∈ Rn×p has 1094 
+
+independent rows x⊤ 
+
+> i
+
+drawn from N (0 , Σ), and the corresponding responses are 1095 
+
+yi = x⊤ 
+
+> i
+
+β + εi, εi ∼ N (0 , σ 2), i = 1 , . . . , n. 
+
+New test points x0 and xnew are always sampled independently from the same feature distribution 1096 
+
+N (0 , Σ) and labeled via the same linear model. 1097 
+
+36 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+S4.2 PCR estimator and effective projection matrix 1098 
+
+Let Xtrain ∈ Rn×p be the training design matrix with rows x⊤ 
+
+> i
+
+and assume the data are centered so that 1099 
+
+no intercept is needed. Define the empirical covariance 1100 
+
+Strain = 1
+
+n X⊤
+
+> train
+
+Xtrain ∈ Rp×p.
+
+Let Vk(Xtrain ) ∈ Rp×k denote the matrix whose columns are the top k eigenvectors of Strain , ordered by 1101 
+
+decreasing eigenvalue; when the dependence on Xtrain is clear we write Vk for brevity. 1102 
+
+The n × k matrix of principal component scores is 1103 
+
+Ztrain = Xtrain Vk.
+
+PCR performs ordinary least squares (OLS) of ytrain on Ztrain . Let 1104 
+
+ˆθk = ( Z⊤
+
+> train
+
+Ztrain )−1Z⊤
+
+> train
+
+ytrain ∈ Rk
+
+be the OLS coefficients in PC space, and define the corresponding coefficient vector in the original 1105 
+
+p-dimensional space by 1106 
+
+ˆβk = Vk ˆθk = Vk(Z⊤
+
+> train
+
+Ztrain )−1Z⊤
+
+> train
+
+ytrain .
+
+Using Ztrain = Xtrain Vk and Z⊤
+
+> train
+
+Ztrain = V ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+Xtrain Vk, we can write ˆβk as a linear transformation 1107 
+
+of ytrain in the original feature space: 1108 
+
+ˆβk = Vk
+
+ V ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+Xtrain Vk
+
+−1V ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+ytrain 
+
+=: Pk(Xtrain ) ˆβOLS ,
+
+where ˆβOLS is the (hypothetical) OLS estimator on the full p-dimensional design, and the matrix 1109 
+
+Pk(Xtrain ) = Vk
+
+ V ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+Xtrain Vk
+
+−1V ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+Xtrain ∈ Rp×p
+
+acts as an effective projection of β induced by PCR. This is the projection matrix that appears in the bias 1110 
+
+term and is more accurate than simply using the orthogonal projector VkV ⊤ 
+
+> k
+
+.1111 
+
+Given a new feature vector x0 ∈ Rp, the PCR prediction is 1112 
+
+ˆy0 = x⊤ 
+
+> 0
+
+ˆβk = x⊤ 
+
+> 0
+
+Vk ˆθk.
+
+We analyze the mean squared prediction error Eε,x 0
+
+(ˆ y0 − y0)2 | Xtrain 
+
+ and decompose it into squared 1113 
+
+bias and variance terms, following the conditional-on-Xtrain approach of Green & Romanov (2025). 1114 
+
+S4.3 Bias of PCR at a fixed test point 1115 
+
+Recall that the responses follow yi = x⊤ 
+
+> i
+
+βp + εi with independent εi ∼ N (0 , σ 2). Here βp and Σp (below) 1116 
+
+denote the population coefficient vector and covariance for this p-dimensional feature space. Conditional 1117 
+
+on Xtrain and a fixed test point x0, we have 1118 
+
+Eε
+
+ ˆβk | Xtrain 
+
+ = Vk
+
+ V ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+Xtrain Vk
+
+−1V ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+Xtrain βp = Pk(Xtrain )βp.
+
+Therefore 1119 
+
+Eε
+
+ˆy0 | Xtrain , x 0
+
+ = x⊤ 
+
+> 0
+
+Pk(Xtrain )βp.
+
+37 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+The conditional bias at x0 is 1120 
+
+Bias( x0 | Xtrain ) := Eε[ˆ y0 | Xtrain , x 0] − Eε[y0 | x0] = x⊤
+
+> 0
+
+ Pk(Xtrain ) − Ip
+
+βp.
+
+The squared bias at x0 is then 1121 
+
+Bias 2(x0 | Xtrain ) =  x⊤ 
+
+> 0
+
+(Pk(Xtrain ) − Ip)βp
+
+2.
+
+Averaging over a random test point x0 ∼ N (0 , Σp), independent of Xtrain , yields the integrated squared 1122 
+
+bias 1123 
+
+B2 
+
+> k
+
+(Xtrain ) := Ex0,ε 
+
+Bias 2(x0 | Xtrain ) Xtrain 
+
+
+
+= Ex0
+
+h x⊤ 
+
+> 0
+
+(Pk(Xtrain ) − Ip)βp
+
+2 Xtrain 
+
+i
+
+= β⊤ 
+
+> p
+
+(Pk(Xtrain ) − Ip)⊤Σp(Pk(Xtrain ) − Ip)βp.
+
+This is the quantity we estimate empirically in our simulations by averaging over many draws of xnew for 1124 
+
+each fixed training set Xtrain .1125 
+
+S4.4 Variance of PCR at a fixed test point 1126 
+
+We now compute the prediction variance due to the label noise ε. Write the PCR estimator as 1127 
+
+ˆβk = Pk(Xtrain )βp + Vk
+
+ V ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+Xtrain Vk
+
+−1V ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+ε, 
+
+so that conditional on Xtrain we have 1128 
+
+ˆβk − Eε[ ˆβk | Xtrain ] = Vk
+
+ V ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+Xtrain Vk
+
+−1V ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+ε. 
+
+Since ε ∼ N (0 , σ 2In) independent of Xtrain , the conditional covariance of ˆβk is 1129 
+
+Cov ε
+
+  ˆβk | Xtrain 
+
+ = σ2Vk
+
+ V ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+Xtrain Vk
+
+−1V ⊤ 
+
+> k
+
+.
+
+For a fixed test point x0 we obtain the conditional prediction variance 1130 
+
+Var ε
+
+ ˆy0 | Xtrain , x 0
+
+ = Var ε
+
+ x⊤ 
+
+> 0
+
+ˆβk | Xtrain , x 0
+
+
+
+= x⊤ 
+
+> 0
+
+Cov ε
+
+  ˆβk | Xtrain 
+
+x0
+
+= σ2x⊤ 
+
+> 0
+
+Vk
+
+ V ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+Xtrain Vk
+
+−1V ⊤ 
+
+> k
+
+x0.
+
+Averaging over a random test point x0 with covariance Σp gives the integrated variance term 1131 
+
+V PredOut  
+
+> k
+
+(Xtrain ) := Ex0
+
+Var ε
+
+ ˆy0 | Xtrain , x 0
+
+ Xtrain 
+
+
+
+= σ2 tr 
+
+
+
+Vk
+
+ V ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+Xtrain Vk
+
+−1V ⊤ 
+
+> k
+
+Σp
+
+
+
+.
+
+This is exactly the form used to interpret the out-of-sample variance in the main text, with Vk differing 1132 
+
+between the non-leaky and leaky settings. 1133 
+
+38 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+S4.5 In-sample prediction variance 1134 
+
+For completeness, we briefly record the in-sample prediction variance, which is simpler and depends 1135 
+
+only on the number of retained components k. Let Hk be the n × n PCR hat matrix, 1136 
+
+Hk = Ztrain (Z⊤
+
+> train
+
+Ztrain )−1Z⊤
+
+> train
+
+,
+
+so that ˆytrain = Hkytrain . Conditional on Xtrain , the in-sample prediction variance averaged over the n1137 
+
+training points is 1138 
+
+1
+
+n
+
+> n
+
+X
+
+> i=1
+
+Var ε
+
+ ˆyi | Xtrain 
+
+ = σ2
+
+n tr( Hk) = σ2kn ,
+
+since Hk is an idempotent matrix of rank k. This recovers the well-known result that the in-sample 1139 
+
+variance term for PCR depends only on the number of PCs used, not on p or on Σp.1140 
+
+S4.6 Out-of-sample variance 1141 
+
+We now rewrite the variance expression from the previous subsection in a notation that matches the 1142 
+
+out-of-sample prediction risk decomposition of Green & Romanov (2025). 1143 
+
+Recall that for a new test point x0 ∼ N (0 , Σp), independent of (Xtrain , y train ), the PCR prediction is 1144 
+
+ˆy0 = x⊤ 
+
+> 0
+
+ˆβk. Conditional on Xtrain and x0 we showed that 1145 
+
+Var ε
+
+ ˆy0 | Xtrain , x0
+
+ = σ2x⊤ 
+
+> 0
+
+Vk
+
+ V ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+Xtrain Vk
+
+−1V ⊤ 
+
+> k
+
+x0.
+
+Averaging over the test covariate x0 ∼ N (0 , Σp) yields the out-of-sample variance term 1146 
+
+V PredOut  
+
+> k
+
+(Xtrain ) := Ex0
+
+Var ε(ˆ y0 | Xtrain , x0) Xtrain 
+
+
+
+= σ2 tr 
+
+
+
+Vk
+
+ V ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+Xtrain Vk
+
+−1V ⊤ 
+
+> k
+
+Σp
+
+
+
+,
+
+which is exactly the variance component of the conditional out-of-sample prediction risk considered 1147 
+
+in Green & Romanov (2025), specialized to our finite sample setting. 1148 
+
+To make contact with the notation in Green & Romanov (2025), it is convenient to introduce the rescaled 1149 
+
+sample covariance Strain = 1 
+
+> n
+
+X⊤
+
+> train
+
+Xtrain and write Strain = ˆV ˆΛ ˆV ⊤ with eigenvalues ˆλ1 ≥ · · · ≥ ˆλp and 1150 
+
+eigenvectors ˆv1, . . . , ˆvp. Then Vk = ˆVk := (ˆ v1, . . . , ˆvk) and X⊤
+
+> train
+
+Xtrain = nS train , so that 1151 
+
+V PredOut  
+
+> k
+
+(Xtrain ) = σ2
+
+n tr 
+
+ ˆVk
+
+  ˆV ⊤ 
+
+> k
+
+Strain ˆVk
+
+−1 ˆV ⊤ 
+
+> k
+
+Σp
+
+
+
+= σ2
+
+n
+
+> k
+
+X
+
+> j=1
+
+ˆv⊤ 
+
+> j
+
+Σp ˆvj
+
+ˆλj
+
+,
+
+which matches the empirical out-of-sample variance term V PredOut  
+
+> n,p,k
+
+(X) in Green & Romanov (2025). 1152 
+
+In the isotropic case Σp = Ip, this simplifies to 1153 
+
+V PredOut  
+
+> k
+
+(Xtrain ) = σ2
+
+n
+
+> k
+
+X
+
+> j=1
+
+1ˆλj
+
+,
+
+so the out-of-sample variance is fully determined by the inverse empirical eigenvalues associated with 1154 
+
+the retained principal components. 1155 
+
+39 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+S4.7 Comparison of in-sample and out-of-sample variance 1156 
+
+We now summarize the relationship between the in-sample and out-of-sample variance terms derived 1157 
+
+above. 1158 
+
+Finite-sample expressions. The average in-sample prediction variance of PCR, conditional on Xtrain ,1159 
+
+is 1160 
+
+V PredIn  
+
+> k
+
+(Xtrain ) = σ2
+
+n tr( Hk) = σ2kn ,
+
+since the PCR hat matrix Hk has rank k. In contrast, the out-of-sample variance term is 1161 
+
+V PredOut  
+
+> k
+
+(Xtrain ) = σ2
+
+n
+
+> k
+
+X
+
+> j=1
+
+ˆv⊤ 
+
+> j
+
+Σp ˆvj
+
+ˆλj
+
+,
+
+which depends on the interaction between the empirical PC directions ˆvj , their empirical eigenvalues 1162 
+
+ˆλj , and the population covariance Σp. Thus V PredIn  
+
+> k
+
+(Xtrain ) depends only on k and n, whereas 1163 
+
+V PredOut  
+
+> k
+
+(Xtrain ) encodes detailed spectral information about both the sample and population covariance. 1164 
+
+Special case: isotropic features. When Σp = Ip, we have 1165 
+
+V PredOut  
+
+> k
+
+(Xtrain ) = σ2
+
+n
+
+> k
+
+X
+
+> j=1
+
+1ˆλj
+
+,
+
+so V PredOut  
+
+> k
+
+can be compared directly to V PredIn  
+
+> k
+
+= σ2k/n via the empirical spectrum {ˆλj }. If the top k1166 
+
+sample eigenvalues are overestimated relative to their population counterparts (as is typical for leading 1167 
+
+components in high-dimensions), then Pkj=1 1/ˆλj tends to be smaller than k, and V PredOut  
+
+> k
+
+is often below 1168 
+
+V PredIn  
+
+> k
+
+, although no strict ordering holds uniformly across all covariance structures. 1169 
+
+High-dimensional asymptotics. In the proportional asymptotic regime of Green & Romanov (2025), 1170 
+
+where p/n → γ and k/p → α, the in-sample variance remains σ2k/n while the out-of-sample variance 1171 
+
+converges almost surely to a spectral functional V PredOut  
+
+> ∞
+
+(α) that depends on the limiting eigenvalue 1172 
+
+distribution of Σp and on the eigenvector overlaps between the signal and the population PCs. In 1173 
+
+particular, V PredOut  
+
+> ∞
+
+(α) can be strictly above or below V PredIn  
+
+> ∞
+
+(α) depending on the covariance model, 1174 
+
+illustrating that in-sample variance is not a universal upper bound for out-of-sample variance in high 1175 
+
+dimensions. 1176 
+
+S4.8 Leaky vs. non-leaky PCR variance term 1177 
+
+The derivations above hold for any PCA basis Vk and therefore apply to (i) the non-leaky basis Vk(Xtrain )1178 
+
+computed from the training data only and (ii) the leaky basis Vk(Xaug ) computed from the augmented 1179 
+
+design Xaug =
+
+Xtrain 
+
+x⊤
+
+> 0
+
+
+
+that includes the test point x0. For a fixed training set, we compare three variance 1180 
+
+terms: 1181 
+
+• In-sample variance V PredIn  
+
+> k
+
+(Xtrain ) = σ2k/n , which depends only on k and n.1182 
+
+• Out-of-sample (non-leaky) variance V PredOut  
+
+> k
+
+(Xtrain ) = σ2
+
+> n
+
+Pkj=1 ˆv⊤  
+
+> jΣpˆvj
+> ˆλj
+
+, with Vk computed on Xtrain .1183 
+
+40 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+• Leaky CV variance, obtained when the PCA basis is computed on Xaug and the prediction is evaluated 1184 
+
+at the same test point x0 used in the basis: 1185 
+
+V leaky  
+
+> k
+
+(Xtrain ) := Ex0
+
+h
+
+σ2x⊤ 
+
+> 0
+
+V (0) 
+
+> k
+
+ V (0) ⊤ 
+
+> k
+
+X⊤
+
+> train
+
+Xtrain V (0) 
+
+> k
+
+−1V (0) ⊤ 
+
+> k
+
+x0 Xtrain 
+
+i
+
+,
+
+where V (0)  
+
+> k
+
+= Vk(Xaug ).1186 
+
+In the leaky setting, the PCA basis V leak  
+
+> k
+
+is computed from an augmented design matrix Xaug , which 1187 
+
+includes the test point x0. The regression is still fit only on the n training responses, but the PCA basis 1188 
+
+has implicitly “seen” the test covariate. We compare the resulting out-of-sample variance term at x0 to 1189 
+
+the in-sample prediction variance. 1190 
+
+The key observation is that the Gram matrix of the augmented design can be written as 1191 
+
+Saug = X⊤
+
+> aug
+
+Xaug = X⊤
+
+> train
+
+Xtrain + x0x⊤ 
+
+> 0
+
+.
+
+Let V leak  
+
+> k
+
+denote the top k eigenvectors of Saug , with eigenvalues λ1 ≥ · · · ≥ λk, and define the leverage 1192 
+
+of x0 in this PC subspace as 1193 
+
+h := ( x0)⊤V leak 
+
+> k
+
+ Λ−1
+
+> k
+
+(V leak  
+
+> k
+
+)⊤x0 =
+
+> k
+
+X
+
+> j=1
+
+(x⊤ 
+
+> 0
+
+vj )2
+
+λj
+
+,
+
+where Λk = diag( λ1, . . . , λ k) and vj are the corresponding eigenvectors. This quantity measures how 1194 
+
+much x0’s position in predictor space influences its own fitted value—the standard definition of statistical 1195 
+
+leverage in regression. 1196 
+
+Using the Sherman–Morrison formula to invert the rank-1 perturbation Λk −z0z⊤ 
+
+> 0
+
+(where z0 = ( V leak  
+
+> k
+
+)⊤x01197 
+
+is the score of x0 in the leaky PC basis), we obtain an exact expression for the leaky out-of-sample 1198 
+
+variance: 1199 
+
+V leak  
+
+> k
+
+(x0) = σ2h
+
+1 − h .
+
+Comparing this to the in-sample variance V PredIn  
+
+> k
+
+= σ2k/n , we see that the leaky variance is larger 1200 
+
+whenever 1201 
+
+h
+
+1 − h > kn ⇐⇒ h > kn + k .
+
+Since the average leverage across the n + 1 augmented points is ¯h = k/ (n + 1) , and since k/ (n + 1) >1202 
+
+k/ (n + k) for any k > 1, the test point x0 drawn from the same distribution as the training data will 1203 
+
+typically have leverage above the threshold, and thus exhibit a leaky variance strictly larger than the 1204 
+
+in-sample term. This inflated variance is a direct consequence of the data leakage: by including x01205 
+
+in the unsupervised PCA step, the PCA basis becomes slightly “aligned” to x0, increasing its effective 1206 
+
+dimensionality in the retained PC subspace. 1207 
+
+Power-law spectrum. Under power-law eigenspectra for Σp, our simulations showed a strict ordering: 1208 
+
+V leaky  
+
+> k
+
+(Xtrain ) > V PredIn  
+
+> k
+
+(Xtrain ) > V PredOut  
+
+> k
+
+(Xtrain ).
+
+Intuitively, power-law spectra concentrate variance in leading components; the leaky basis over-aligns 1209 
+
+these components with x0, further inflating its leverage and hence the variance term. 1210 
+
+Generalization variance and the non-leaky term. The variance component of the true generalization 1211 
+
+error for the leaky model (same leaky basis, but evaluated at an independent xnew ) closely matched the 1212 
+
+41 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+non-leaky out-of-sample variance V PredOut  
+
+> k
+
+(Xtrain ) in our experiments. This is expected because adding 1213 
+
+a single point to form Xaug perturbs the basis by O(1 /n ), whereas both generalization terms integrate 1214 
+
+over independent test covariates. 1215 
+
+No universal ordering. Although in the power-law case we found V PredIn  
+
+> k
+
+> V PredOut  
+
+> k
+
+, in-sample 1216 
+
+variance is not a universal upper bound for out-of-sample variance. Depending on the covariance 1217 
+
+structure (e.g., spiked or isotropic models) and finite-sample geometry, V PredOut  
+
+> k
+
+can be above or below 1218 
+
+V PredIn  
+
+> k
+
+.1219 
+
+S4.9 Varying number of features via a master model 1220 
+
+So far in this section, the primary simulation setting assumes a fixed feature dimension p and focuses on 1221 
+
+how PCR behaves as the number of training samples n and the PCA dimensionality k are varied. We 1222 
+
+next extend this setup to the case where p increases while n is held fixed, and examine how PCR’s bias 1223 
+
+and variance terms change with dimensionality. To do this in a way that preserves a coherent underlying 1224 
+
+signal, we adopt a “master model” construction and obtain lower-dimensional problems by subsampling 1225 
+
+coordinates, rather than regenerating a new β for each value of p.1226 
+
+Master covariance and signal. We fix a large dimension Pmax and construct a master covariance 1227 
+
+Σmaster ∈ RPmax ×Pmax with a power-law eigenspectrum, together with a master coefficient vector βmaster ∈1228 
+
+RPmax that lies in the span of the top k master eigenvectors. Exactly as above, βmaster is scaled so that 1229 
+
+β⊤
+
+> master
+
+Σmaster βmaster = 1 , ensuring that the signal variance of the underlying master model is one. 1230 
+
+Subsampling to obtain different feature dimensions. For any target feature dimension p ≤ Pmax we 1231 
+
+form the p × p principal submatrix Σp =  Σmaster 
+
+ 
+
+> 1: p, 1: p
+
+, and define the corresponding regression vector 1232 
+
+by truncation, βp =  βmaster 
+
+
+
+> 1: p
+
+. and then scaled such that β⊤ 
+
+> p
+
+Σpβp = 1 . Training and test samples in 1233 
+
+dimension p are then drawn as xi ∼ N (0 , Σp) with yi = x⊤ 
+
+> i
+
+βp + εi as before. 1234 
+
+Subsampling vs regenerating βp for each subspace. A common approach in high-dimensional 1235 
+
+simulation studies is to re-draw a new βp independently for each ambient dimension p, often again 1236 
+
+supported on the top eigenvectors of Σp. While convenient, this changes the true signal subspace each 1237 
+
+time p changes, so differences in performance conflate genuine dimensional effects with changes in 1238 
+
+the underlying regression function. Our subsampling construction keeps a single master signal βmaster 1239 
+
+fixed and views smaller-p problems as coordinate restrictions of the same latent model. This has two 1240 
+
+advantages: (i) it aligns more closely with the scientific interpretation that increasing p reveals additional 1241 
+
+measured features of the same underlying system, and (ii) it allows us to attribute changes in PCR bias 1242 
+
+and variance directly to spectral and estimation effects induced by increasing dimension, rather than to 1243 
+
+changes in the ground-truth β.1244 
+
+S4.10 Multiple leaked points 1245 
+
+So far we have considered the behavior of PCR MSE when there was one leaked point. Here we extend 1246 
+
+this setup by allowing multiple leaked points, and derived a bound between the leaky estimated variance 1247 
+
+term on the leaked points, and in-sample variance. 1248 
+
+42 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+Setup: augmented design and PC basis. When multiple points are included in the augmented design 1249 
+
+matrix, let Xleak ∈ Rm×p denote the m leaked points. The augmented design is 1250 
+
+Xaug =
+
+Xtrain 
+
+Xleak 
+
+
+
+∈ R(n+m)×p,
+
+and the corresponding Gram matrix is Saug = X⊤
+
+> aug
+
+Xaug = X⊤
+
+> train
+
+Xtrain + X⊤
+
+> leak
+
+Xleak .1251 
+
+Let V leak  
+
+> k
+
+∈ Rp×k denote the matrix of top k eigenvectors of Saug , with corresponding eigenvalues λ1 ≥1252 
+
+· · · ≥ λk > 0 collected in Λk = diag( λ1, . . . , λ k). The eigendecomposition gives Saug = V leak  
+
+> k
+
+Λk(V leak  
+
+> k
+
+)⊤ +1253 
+
+(lower rank terms) .1254 
+
+Score matrices and the leaky Gram matrix. Define the n × k and m × k matrices of PC scores: 1255 
+
+Ztrain := Xtrain V leak  
+
+> k
+
+∈ Rn×k, Zleak := Xleak V leak  
+
+> k
+
+∈ Rm×k.
+
+In the leaky PC basis, the Gram matrices of the training and leaked data satisfy Z⊤
+
+> train
+
+Ztrain + Z⊤
+
+> leak
+
+Zleak =1256 
+
+Λk. Therefore, the Gram matrix of the training data alone in this basis is G := Z⊤
+
+> train
+
+Ztrain = Λ k −1257 
+
+Z⊤
+
+> leak
+
+Zleak . This is a rank-m perturbation of the diagonal matrix Λk.1258 
+
+PCR prediction at leaked points. The PCR estimator fits OLS on Ztrain against training labels ytrain ,1259 
+
+obtaining coefficients βk = G−1Z⊤
+
+> train
+
+ytrain . The predicted labels at the m leaked points are 1260 
+
+ˆyleak = Zleak βk = Zleak G−1Z⊤
+
+> train
+
+ytrain .
+
+Since ytrain has covariance σ2In (independent noise), the covariance of the predictions is 1261 
+
+Cov(ˆ yleak ) = σ2 Zleak G−1Z⊤
+
+> leak
+
+.
+
+Block matrix inversion. To compute G−1, we write G as 1262 
+
+G = Λ k − Z⊤
+
+> leak
+
+Zleak = Λ k(Ik − Λ−1 
+
+> k
+
+Z⊤
+
+> leak
+
+Zleak ).
+
+then apply the Woodbury matrix identity. Thus, 1263 
+
+G−1 = ( Ik − Λ−1 
+
+> k
+
+Z⊤
+
+> leak
+
+Zleak )−1Λ−1 
+
+> k
+
+.
+
+Define the m × m matrix 1264 
+
+H := Zleak Λ−1 
+
+> k
+
+Z⊤ 
+
+> leak
+
+∈ Rm×m.
+
+This is the block leverage matrix of the leaked points in the leaky PC basis. Note that H is symmetric 1265 
+
+and positive semi-definite. By the Woodbury identity applied to (Ik − H′)−1 where H′ = Λ −1 
+
+> k
+
+Z⊤
+
+> leak
+
+Zleak ,1266 
+
+(Ik − H′)−1 = Ik + Λ −1 
+
+> k
+
+Z⊤
+
+> leak
+
+(Im − H)−1Zleak .
+
+Therefore 1267 
+
+G−1 = Λ −1 
+
+> k
+
++ Λ −1 
+
+> k
+
+Z⊤
+
+> leak
+
+(Im − H)−1Zleak Λ−1 
+
+> k
+
+.
+
+43 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+Now compute Zleak G−1Z⊤
+
+> leak
+
+:1268 
+
+Zleak G−1Z⊤ 
+
+> leak
+
+= Zleak Λ−1 
+
+> k
+
+Z⊤ 
+
+> leak
+
++ Zleak Λ−1 
+
+> k
+
+Z⊤
+
+> leak
+
+(Im − H)−1Zleak Λ−1 
+
+> k
+
+Z⊤ 
+
+> leak
+
+(1) 
+
+= H + H(Im − H)−1H. (2) Since H is symmetric, we use the identity H + H(Im − H)−1H = H(Im − H)−1. Therefore 1269 
+
+Cov(ˆ yleak ) = σ2 H(Im − H)−1.
+
+Variance at individual leaked points. The diagonal entries of Cov(ˆ yleak ) give the variance at each 1270 
+
+leaked point: 1271 
+
+Var(ˆ yleak ,j ) = σ2H(Im − H)−1 
+
+> jj
+
+.
+
+The sum of all variances is 1272 mX
+
+> j=1
+
+Var(ˆ yleak ,j ) = σ2 tr  H(Im − H)−1.
+
+Let η1, . . . , η m denote the eigenvalues of H. These lie in (0 , 1) because (i) H is a leverage matrix 1273 
+
+(non-negative), and (ii) the invertibility of G ensures that ηmax < 1. Then 1274 
+
+tr  H(Im − H)−1 =
+
+> m
+
+X
+
+> ℓ=1
+
+ηℓ
+
+1 − ηℓ
+
+.
+
+The average variance per leaked point is 1275 
+
+V leak ,avg  
+
+> k
+
+:= 1
+
+m
+
+> m
+
+X
+
+> j=1
+
+Var(ˆ yleak ,j ) = σ2
+
+m
+
+> m
+
+X
+
+> ℓ=1
+
+ηℓ
+
+1 − ηℓ
+
+.
+
+Comparison to in-sample variance. Recall from Section S4.5 that the average in-sample PCR 1276 
+
+variance per training point is 1277 
+
+V PredIn  
+
+> k
+
+= σ2kn .
+
+To compare V leak ,avg  
+
+> k
+
+to V PredIn  
+
+> k
+
+, we use Jensen’s inequality. The function f (η) = η/ (1 − η) is strictly 1278 
+
+convex on (0,1), therefore 1279 
+
+1
+
+m
+
+> m
+
+X
+
+> ℓ=1
+
+f (ηℓ) ≥ f 1
+
+m
+
+> m
+
+X
+
+> ℓ=1
+
+ηℓ
+
+!
+
+= f (¯ η), ¯η := tr( H)
+
+m .
+
+This gives 1280 
+
+V leak ,avg  
+
+> k
+
+≥ σ2 ¯η
+
+1 − ¯η .
+
+Expected leverage budget. The total leverage in any regression onto k dimensions is exactly k.1281 
+
+Specifically, summing over all n + m rows (training and leaked), 1282 
+
+tr( Htrain ) + tr( H) = k, 
+
+44 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+where Htrain = Ztrain Λ−1 
+
+> k
+
+Z⊤ 
+
+> train
+
+is the leverage matrix of training points. 1283 
+
+For a random sample of m i.i.d. points from the same distribution as the training data, each point has 1284 
+
+expected leverage k/ (n + m), so on average 1285 
+
+E[tr( H)] = m · kn + m , E[¯ η] = kn + m .
+
+Therefore 1286 
+
+E[V leak ,avg  
+
+> k
+
+] ≳ σ2
+
+> kn+m
+
+1 − kn+m
+
+= σ2 kn + m − k .
+
+The threshold condition: m < k. Comparing the expected average leaky variance to the in-sample 1287 
+
+variance: 1288 
+
+kn + m − k > kn if and only if m < k. 
+
+Conclusion: The average leaky variance per leaked point exceeds the in-sample variance per training 1289 
+
+point whenever m<k. 1290 
+
+This result generalizes the single-point case: for m=1, the condition becomes k>1, which recovers the 1291 
+
+finding in Section S4.8 that a single leaked point typically exhibits inflated variance (provided k>1). For 1292 
+
+multiple leaked points, the threshold naturally scales with m: more leaked points “dilute” their collective 1293 
+
+leverage, reducing the average variance inflation unless their number is small relative to the number of 1294 
+
+PC components. 1295 
+
+45 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+## S5 Temporal-covariance leakage correction: scalar and full procedures 1296 
+
+Notation 1297 
+
+Symbol Meaning 
+
+k Class index ( k ∈ { 1, 2})
+
+K Number of test samples 
+
+n Number of training time points per class 
+
+μ Class mean ( μ1 = μ, μ 2 = −μ)
+
+A Within-training covariance block 
+
+C Train–test cross-covariance block 
+
+ceff Class-averaged covariance reduction 
+
+Φ( ·) Cumulative probability distribution for the standard Gaussian 
+
+Pgen , P train , P test Generalization / training / leaky test error 
+
+> 1298
+
+This section provides additional details on the two correction variants applied in Fig. 6h. Both aim 1299 
+
+to recover the generalization error of a classifier trained on a temporally correlated signal from the 1300 
+
+(downward-biased) leaky test error produced by a train–test split that does not respect trial boundaries. 1301 
+
+S5.1 Problem setup and parameter estimation 1302 
+
+To formally demonstrate how temporal dependencies alter performance metrics, we consider a simple 1303 
+
+binary discrimination task using a univariate linear discriminant analysis ( p = 1 , 2 classes: k ∈ { 1, 2}). 1304 
+
+In this setting, the neuron response fluctuates around two scalar class means μ1 and μ2, with a 1305 
+
+temporal covariance structure. Specifically, for a class with nfull time points, the response vector 1306 
+
+x = ( x1, . . . , x nfull )⊤ follows a multivariate Gaussian distribution x ∼ N (μk1, A full ). According to a 1307 
+
+specified train-test split, we can partition the covariance matrix Afull into four blocks: 1308 
+
+Afull =
+
+ A CC⊤ ∗
+
+
+
+where A is the covariance within the training set, and C is the cross-covariance between the training and 1309 
+
+test sets. 1310 
+
+The train set is X1 = μk1 + ϵ1, where ϵ1 ∼ N (0 , A ). The test set is X2 = μk1 + ϵ2, where the 1311 
+
+cross-covariance between train and test sets is Cov( ϵ1, ϵ2) = C. For simplicity, we assume: 1312 
+
+• The two classes are balanced, and the covariance structure is identical across classes, so we drop 1313 
+
+the class index k.1314 
+
+• The noise distribution is stationary across the train and the test sets, so the noise in the test set 1315 
+
+has marginal variance σ20 = tr( A)/n .1316 
+
+• The class means are symmetric around zero, i.e., μ1 = μ, μ 2 = −μ.1317 
+
+The LDA classifier is determined by the naive Bayes decision rule: 1318 
+
+ˆy(x) = sign(( x − ˆb)∆ˆ μ)
+
+where ∆ˆ μ is the mean difference between the two classes and ˆb is the decision boundary. 1319 
+
+ˆb = ¯Xpos + ¯Xneg 
+
+2 , ∆ˆ μ = ¯Xpos − ¯Xneg 
+
+46 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+Note that samples are correlated within the train set. Defining the variance of the estimated decision 1320 
+
+boundary as Vb = 12n2 1⊤A1, we have 1321 
+
+ˆb ∼ N (0 , V b) , ∆ˆ μ ∼ N (2 μ, 4Vb)
+
+S5.2 Generalization error and training error 1322 
+
+Applying the model to an independent test sample x = μ + ϵ where ϵ ∼ N (0 , σ 20 ), the generalization error 1323 
+
+is given by the Gaussian cumulative distribution function Φ. Since x and ˆb are independent, 1324 
+
+x − ˆb ∼ N  μ, σ 20 + Vb
+
+
+
+Conditioning on the estimated discriminant direction being correct ( ∆ˆ μ > 0), the true generalization error 1325 
+
+is given by: 1326 
+
+Pgen = Φ − μ
+
+pσ20 + Vb
+
+!
+
+For the in-sample prediction error, ˆb and the training samples are dependent. For the positive training 1327 
+
+samples xi = μ + ϵi, i = 1 , . . . , n , the error is given by P (xi − ˆb < 0) . The variance of xi − ˆb is: 1328 
+
+Var( xi − ˆb) = Var( ϵi) + Var( ˆb) − 2 Cov( ϵi, ˆb) = Aii + Vb − 1
+
+n
+
+> n
+
+X
+
+> j=1
+
+Aij 
+
+So the training error rate is given by: 1329 
+
+Ptrain = 1
+
+n
+
+> n
+
+X
+
+> i=1
+
+Φ
+
+− μ
+
+q
+
+Aii + Vb − 1
+
+> n
+
+Pnj=1 Aij 
+
+
+
+Note that if A is positive definite then Vb > 0, so the average training prediction variance σ20 − Vb is 1330 
+
+strictly below the generalization variance σ20 + Vb, and the training error is correspondingly smaller than 1331 
+
+the generalization error. 1332 
+
+S5.3 Test error and leakage bounds 1333 
+
+A simple expansion reveals the impact of data leakage on the generalization error estimation from the 1334 
+
+test set. Considering a non-zero cross-covariance C, the finite K-sample test error is: 1335 
+
+Ptest = 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+Φ − μ
+
+pσ20 + Vb − Lk
+
+!
+
+where Lk = 1
+
+> n
+
+Pnj=1 Cjk is the covariance reduction for the k-th test sample. 1336 
+
+If the sum of all entries in C normalized by the test size K equals some constant c, we can bound the 1337 
+
+expected test error using Jensen’s inequality. Because the function x 7 → Φ( −μ/ √v − x) is convex when 1338 
+
+v − x ≤ μ2/3, applying this convexity condition (which corresponds to a sufficiently strong signal-to-noise 1339 
+
+47 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+ratio, SNR) yields: 1340 
+
+E(Ptest ) = E
+
+"
+
+Φ − μ
+
+pσ20 + Vb − Lk
+
+!# 
+
+≥ Φ − μ
+
+pσ20 + Vb − E(Lk)
+
+!
+
+(Jensen’s inequality) 
+
+= Φ 
+
+− μ
+
+q
+
+σ20 + Vb − cn
+
+
+
+The introduction of Jensen’s inequality removes the variation in the averaging Lk, which fluctuates around 1341 
+
+c/n . If Lk concentrates around c/n with high probability, under the Lipschitz condition, we can get a high 1342 
+
+probability bound of E(Ptest ). Assuming that for some ϵ, δ > 0,1343 
+
+P
+
+
+
+Lk − cn ≤ ϵ
+
+
+
+≥ 1 − δ. 
+
+Moreover, suppose that the denominator is bounded away from zero, i.e., for all x = Lk, σ20 + Vb −1344 
+
+x ≥ σ2min > 0. Then the map x 7 → Φ( −μ/ pσ20 + Vb − x) is Lipschitz with constant L = μ 
+
+> 2√2π(σ2min )3/2
+
+.1345 
+
+Therefore, with probability at least 1 − δ,1346 
+
+Φ − μ
+
+pσ20 + Vb − Lk
+
+!
+
+− Φ
+
+− μ
+
+q
+
+σ20 + Vb − cn
+
+ ≤ Lϵ. 
+
+Hence, if the per-sample leakage Lk concentrates around c/n , the test error also concentrates around 1347 
+
+its deterministic approximation. 1348 
+
+S5.4 Extension to interleaved class labels 1349 
+
+When positive and negative trials are interleaved on a single time axis, the two class-conditional noise 1350 
+
+vectors share a common temporal process, and the single cross-covariance block C no longer suffices. 1351 
+
+Let Ptr , Ntr , Pte , Nte denote the time indices of positive training, negative training, positive test, and 1352 
+
+negative test samples, each of size n, n, K, K respectively. Define the class-resolved train–test 1353 
+
+cross-covariance blocks 1354 
+
+C++ = Σ[ Ptr , Pte ], C−+ = Σ[ Ntr , Pte ],C+− = Σ[ Ptr , Nte ], C−− = Σ[ Ntr , Nte ].
+
+Because the decision boundary ˆb is estimated from both classes, each test sample’s effective leakage 1355 
+
+involves covariance with all training samples. The per-sample covariance reductions are 1356 
+
+L+ 
+
+> k
+
+= 1
+
+n
+
+> n
+
+X
+
+> j=1
+
+(C++ )jk + ( C−+)jk 
+
+,L− 
+
+> k
+
+= 1
+
+n
+
+> n
+
+X
+
+> j=1
+
+(C+−)jk + ( C−− )jk 
+
+,
+
+48 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+and the class-averaged scalar leakage is 1357 
+
+ceff = 12K
+
+> K
+
+X
+
+> k=1
+
+ L+ 
+
+> k
+
++ L−
+
+> k
+
+ = 12nK 1⊤(C++ + C−+ + C+− + C−− )1.
+
+Positive ceff reduces the apparent test variance and biases the test error downward. 1358 
+
+S5.5 Scalar correction 1359 
+
+The scalar correction treats all held-out samples as having the same leakage, equal to ceff . Given an 1360 
+
+observed leaky test error bPtest , we first convert it to an apparent prediction variance, 1361 
+
+bVapp = μ
+
+Φ−1( bPtest )
+
+!2
+
+,
+
+and then add the scalar leakage back: 1362 
+
+bP (ceff )corr = Φ 
+
+− μ
+
+q bVapp + bceff 
+
+ .
+
+This closed-form correction shifts the apparent variance upward by the amount that the train–test 1363 
+
+covariance artificially reduced it. The advantage of the scalar correction is its simplicity: only a single 1364 
+
+number, bceff , needs to be estimated from the temporal covariance. 1365 
+
+S5.6 Full per-sample correction 1366 
+
+When the per-sample leakage values L+ 
+
+> k
+
+and L− 
+
+> k
+
+are heterogeneous (as occurs with interleaved or 1367 
+
+irregularly ordered class labels), the scalar approximation can be imprecise because the error function 1368 
+
+Φ is nonlinear. The full correction retains the complete leakage vector and solves for the corrected 1369 
+
+generalization variance V ∗ that satisfies 1370 
+
+12K
+
+> K
+
+X
+
+> k=1
+
+Φ
+
+− μ
+
+q
+
+V ∗ − bL+
+
+> k
+
+ + Φ 
+
+− μ
+
+q
+
+V ∗ − bL−
+
+> k
+
+ = bPtest .
+
+Because the left-hand side is monotonically increasing in V ∗ (for V ∗ > max k{bL+ 
+
+> k
+
+, bL− 
+
+> k
+
+}), we solve this 1371 
+
+equation numerically via Brent’s root-finding method. The corrected generalization error is then 1372 
+
+bP (full) corr = Φ 
+
+
+
+− μ
+
+√V ∗
+
+
+
+.
+
+By accounting for per-sample variation in the train–test covariance, the full correction can be more 1373 
+
+accurate than the scalar correction when the leakage landscape is uneven across held-out samples. 1374 
+
+S5.7 Covariance estimation 1375 
+
+Both the above corrections require an estimate of the temporal covariance matrix Σ. We assume a 1376 
+
+stationary exponential model, Σij = σ2α|i−j| with 0 < α < 1, and estimate the parameters σ2 and α1377 
+
+from residual activity (after subtracting class means) using a semivariogram-based fit. The empirical 1378 
+
+49 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+half-squared-increment curve, 1379 
+
+bγ(ℓ) = 12R(T − ℓ)
+
+> R
+
+X 
+
+> r=1
+> T−ℓ
+
+X
+
+> t=1
+
+
+
+e(r) 
+
+> t+ℓ
+
+− e(r)
+
+> t
+
+2
+
+≈ σ2(1 − αℓ),
+
+is fitted by weighted least squares over lags ℓ = 1 , . . . , L , with weights wℓ = T − ℓ. This estimator is more 1380 
+
+robust than the raw autocovariance for short, highly autocorrelated traces because the half-squared 1381 
+
+increment does not require explicit mean removal (which can bias long-lag autocovariances downward). 1382 
+
+The variance estimate is mildly regularized by blending the semivariogram-derived variance with the 1383 
+
+empirical residual variance (see Methods). Once bσ2 and bα are obtained, the estimated covariance matrix 1384 
+
+is indexed by the original train and test sample positions to compute bL+ 
+
+> k
+
+, bL− 
+
+> k
+
+, and bceff .1385 
+
+S5.8 Summary 1386 
+
+Temporal autocorrelations intrinsically violate the independence assumptions of standard cross-validation, 1387 
+
+producing a predictable, downward-biased estimate of generalization error. As we have shown, this 1388 
+
+bias is driven by the cross-covariance between the training and test sets. By modeling this temporal 1389 
+
+covariance structure, and applying either the simple scalar correction or the more precise full per-sample 1390 
+
+correction, we can analytically reverse the artificial variance reduction. These correction procedures 1391 
+
+thus offer a practical tool for reporting unbiased decoding performance in continuous neural recordings 1392 
+
+without needing to discard large segments of data to enforce strict independence. 1393 
+
+50 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+# a b
+
+200 400 Number of neurons 0.6 0.8 1.0 Accuracy 
+
+> decoding accuracy chance level upper bound
+
+200 400 Number of neurons 0.6 0.8 1.0 Accuracy 1394 
+
+Figure S1: Neurons without the Gaussian parametric tuning curves assumption. (a) : Similar to Fig. 2c. (b) : Similar to Fig. 2d. 
+
+> 1395 1396 1397
+
+51 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint 0 1
+
+Mean F increment 
+
+F = Fall Ftrain 
+
+over selected neurons 
+
+0.4 
+
+0.6 
+
+0.8 
+
+> Test-fold
+> decoder accuracy
+
+leakage 
+
+no leakage 
+
+chance 
+
+upper bound 1398 
+
+Figure S2: Inflated decoding accuracy tracks the leaked F-statistic increment of the selected neurons. Neural activity was simulated as in Fig. 2d using a Gaussian tuning-curve generative model (N=420 neurons, M=300 trials per class, 5-fold stratified cross-validation, k=100 selected neurons, 50 independent simulations). For each cross-validation fold, neurons were ranked two ways: (i) leaky selection (pink), top-k neurons by the F-statistic F all computed on all trials, and (ii) clean selection (green), top-k neurons by the F-statistic F train computed on the training trials only. For each selection, we computed the per-neuron leaked F increment ∆Fi = F all  
+
+> i
+
+− F train  
+
+> i
+
+and averaged it over the k selected neurons ( x-axis). This quantity measures how much including the held-out trials in the ranking pushed a selected neuron’s score above its train-only value. The y-axis shows the LDA test-fold decoding accuracy for that fold. Each dot is a single (simulation, fold) pair. Red line: chance accuracy (0.5); green line: theoretical upper bound for a linear decoder. Under leaky selection, ∆F is positive and covaries with inflated accuracy, confirming that the leaked component of the ranking drives the accuracy inflation. Under non-leaky selection, ∆F ≲ 0 (independent test trials dilute the train-optimized score), and accuracy is between the upper bound and chance level. 
+
+> 1399 1400 1401 1402 1403 1404 1405 1406 1407 1408 1409 1410 1411 1412 1413
+
+52 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+−25 0 25 PC1 
+
+−40 
+
+−20 020 PC2 
+
+Stimulus angle 15 30 45 60 75 90 105 120 135 150 165 1414 
+
+Figure S3: Similar to Fig. 3d, PC embedding using trial-averaged PCA of the contralateral activity .Each dot is one trial. 
+
+> 1415 1416 1417
+
+53 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint 10 1 10 2
+
+Trials per condition, T 
+
+10 0
+
+10 1
+
+10 2
+
+> Fisher ratio J
+
+leaky theory 
+
+leaky sim. 1.0 1.5 2.0 2.5 
+
+log 10 (#trials per condition) 2.0 2.5 3.0 3.5 
+
+> log  10  (#neurons)
+
+d T / = 1 
+
+d T / = 5 
+
+−1012
+
+> log  10  (Fisher ratio) 1418
+
+Figure S4: Apparent cluster separability under global trial-averaged PCA scales with d/T . Random neural activity (i.i.d. N (0 , 1) , no true signal) was generated with C = 11 conditions. Trial-averaged PCA was fit on the full dataset and all C × T trials were projected onto the top k = 2 PCs. Cluster separability was quantified by the multiclass Fisher discriminant ratio ( J), higher J indicates better apparent separability. Results are shown as mean ± s.d. over 100 random seeds. (a) : J as a function of trials per condition T at fixed d = 2000 . The dashed line shows the analytical prediction derived in Section S2. (b) : Heatmap of log 10 J over a grid of (d, T ) values (mean over 100 seeds). Dashed white lines mark constant d/T ratios; the iso-J contours align with these diagonals, showing that the apparent clustering is governed by d/T rather than by d or T alone. 
+
+> 1419 1420 1421 1422 1423 1424 1425 1426 1427 1428
+
+54 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+20 40 60 0.4 0.5 0.6 0.7 0.8 Bias² 
+
+20 40 60 0.1 0.2 0.3 Variance 
+
+Leaky CV Gen err 
+
+20 40 60 0.6 0.8 1.0 Bias² + Variance 
+
+Number of samples 1429 
+
+Figure S5: Similar to Fig. 5e but with spiked covariance for the signal variance. 1430 1431 
+
+55 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint a bc    
+
+> 20 30 40 50 60 Number of samples 25 30 35 Root mean squared error (degrees)  CV (leaky) CV Generalization error
+
+## d          
+
+> 20 30 40 50 60 Number of samples 40 50 60 70 Root mean squared error (degrees)  CV (leaky) CV Generalization error
+> 20 30 40 50 60 Number of samples 25 30 Root mean squared error (degrees)  CV (leaky) CV Generalization error
+> 102
+> Number of neurons 1.00 1.05 1.10 CV (leaky) RMSE / generalization RMSE  Spontaneous selection Evoked selection 1432
+
+Figure S6: Unsupervised feature selection shows biased results compared to true generalization error. (a) : Similar to Fig. 4c. Gaussian tuning-curve responses with neurons ranked by mean evoked firing rate before leave-one-out cross-validation. (b) : Similar to Fig. 4c with semi-parametric Gamma-Poisson response model with neurons ranked by mean evoked firing rate. Cross-validated error from the leaky model was higher than its generalization error. The non-leaky model closely tracked the generalization error, despite having one less sample used in the feature selection step. (c) : Similar to (b), ranked by evoked spike-count variance. In (a–c), globally selecting neurons before cross-validation makes the leaky CV RMSE diverge from the true generalization RMSE of the same leaky model, whereas non-leaky CV closely tracks generalization error. (d) : Similar to Fig. 4d with selection of the top 10% of neurons by mean firing rate. 
+
+> 1433 1434 1435 1436 1437 1438 1439 1440 1441 1442 1443
+
+56 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint 10 −2 10 −1 10 0Downsample ratio 1234Error ratio (leakage / no leakage) 1444 
+
+Figure S7: Downsampling real neural recordings increases the error mismatch from global z-scoring. We repeated the z-scoring-only decoding analysis from Stringer et al. (2021) after downsampling each session to different fractions of its original stimulus presentations. The plotted quantity is the ratio between the median decoding error from global, leaky z-scoring and the median decoding error from z-scoring refit within each cross-validation fold. Values above one indicate higher error under global z-scoring. The mismatch increased as fewer samples were retained, showing that leakage effects become more pronounced in smaller-sample regimes. 
+
+> 1445 1446 1447 1448 1449 1450 1451 1452
+
+57 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 29, 2026. ;https://doi.org/10.64898/2026.01.26.701583 doi: bioRxiv preprint
+
+## References 1453 
+
+Barabási, A.-L. & Albert, R. (1999). Emergence of scaling in random networks. Science, 286, 509–512. 1454 
+
+Buitinck, L., Louppe, G., Blondel, M., Pedregosa, F., Mueller, A., Grisel, O., Niculae, V., Prettenhofer, 1455 
+
+P., Gramfort, A., Grobler, J., Layton, R., VanderPlas, J., Joly, A., Holt, B., & Varoquaux, G. (2013). 1456 
+
+API design for machine learning software: experiences from the scikit-learn project. In ECML PKDD 1457 
+
+Workshop: Languages for Data Mining and Machine Learning, pp. 108–122. 1458 
+
+Cawley, G. C. & Talbot, N. L. (2010). On over-fitting in model selection and subsequent selection bias in 1459 
+
+performance evaluation. J. Mach. Learn. Res., 11, 2079–2107. 1460 
+
+Combrisson, E. & Jerbi, K. (2015). Exceeding chance level by chance: The caveat of theoretical 1461 
+
+chance levels in brain signal classification and statistical assessment of decoding accuracy. Journal of 1462 
+
+Neuroscience Methods, 250, 126–136. 1463 
+
+Fornito, A., Zalesky, A., & Bullmore, E. (2016). Chapter 10 - null models. In Fundamentals of Brain 1464 
+
+Network Analysis. (Academic press), pp. 355–381. 1465 
+
+Green, A. & Romanov, E. (2025). The high-dimensional asymptotics of principal component regression. 1466 
+
+The Annals of Statistics, 53, 1697–1727. 1467 
+
+Moscovich, A. & Rosset, S. (2022). On the cross-validation bias due to unsupervised preprocessing. 1468 
+
+Journal of the Royal Statistical Society Series B: Statistical Methodology, 84, 1474–1502. 1469 
+
+Ojala, M. & Garriga, G. C. (2010). Permutation tests for studying classifier performance. Journal of 1470 
+
+Machine Learning Research, 11, 1833–1863. 1471 
+
+Stone, M. (1974). Cross-validatory choice and assessment of statistical predictions. Journal of the Royal 1472 
+
+Statistical Society. Series B (Methodological), 36, 111–147. 1473 
+
+Stringer, C., Michaelos, M., Tsyboulski, D., Lindo, S. E., & Pachitariu, M. (2021). High-precision coding 1474 
+
+in visual cortex. Cell, 184, 2767–2778.e15. 1475 
+
+Váša, F. & Miši´ c, B. (2022). Null models in network neuroscience. Nature Reviews Neuroscience, 23, 1476 
+
+493–504. 1477 
+
+58
