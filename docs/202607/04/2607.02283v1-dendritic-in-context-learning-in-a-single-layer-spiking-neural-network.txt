@@ -1,0 +1,832 @@
+Title: Dendritic In-Context Learning in a Single-Layer Spiking Neural Network
+
+URL Source: https://arxiv.org/pdf/2607.02283v1
+
+Published Time: Fri, 03 Jul 2026 01:14:43 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# Dendritic In-Context Learning in a Single-Layer Spiking Neural Network 
+
+Juwei Shen 
+
+Department of Computing, FCMS The Hong Kong Polytechnic University Hong Kong, China 
+
+sheldon.shen@connect.polyu.hk 
+
+Yujie Wu 
+
+Department of Computing, FCMS The Hong Kong Polytechnic University Hong Kong, China 
+
+yu-jie.wu@polyu.edu.hk 
+
+Changwen Chen ∗
+
+Department of Computing, FCMS The Hong Kong Polytechnic University Hong Kong, China 
+
+changwen.chen@polyu.edu.hk 
+
+## Abstract 
+
+In-context learning (ICL) operates via implicit gradient descent embedded in the forward pass of modern AI architectures — Transformers [Akyürek et al., 2023, von Oswald et al., 2023], Mamba [Park et al., 2024], state-space models [Sushma et al., 2024], and MLPs [Tong and Pehlevan, 2025]. Capturing this capability in biologically plausible Spiking Neural Networks (SNNs) has remained an open chal-lenge: existing SNNs fail the Garg-2022 benchmark at non-trivial task dimensions. We trace this failure to a structural assumption : prior SNN designs route adaptation through inference-time synaptic plasticity, viewing the dendritic compartment as a passive conduit for error or teacher signals. We challenge this assumption. The subthreshold dynamics of a single dendritic compartment already implement a com-plete online learning algorithm. By treating the compartment as the computational substrate rather than a passive conduit, we propose DendriCL — a single-layer compartmental spiking architecture whose apical recurrence is structurally identical to leaky online Widrow–Hoff LMS [Widrow and Hoff, 1960]. This dynamics-only update collapses the architectural depth required for general-purpose ICL to a single layer. DendriCL is uniquely seed-stable at super-dimensional Garg-2022 ICL — where dense Transformers exhibit grokking-style instability and fail past moderate task dimension — and a linear probe recovers the reference online-LMS trajectory directly from the apical membrane at R2 = 0 .93 , showing the algorithm is structurally embedded in the dynamics rather than implicitly discovered during training. Taken together, ICL requires neither attention, depth, nor inference-time plasticity: a single compartment with online-LMS dynamics is sufficient. 
+
+## 1 Introduction 
+
+In-context learning (ICL) — the ability of a trained sequence model to solve a new task from a handful of labeled examples in its prompt, without any parameter update [Brown et al., 2020] — has been mechanistically traced, across architecture families, to an implicit gradient-descent algorithm 
+
+embedded in the trained forward pass. On the synthetic function-class protocol of Garg et al. [2022], 
+
+> ∗Corresponding Author Preprint.
+> arXiv:2607.02283v1 [cs.NE] 2 Jul 2026
+
+Figure 1: DendriCL overview. (A) Biological layer-5 cortical pyramidal neuron: apical tuft receives top-down feedback, basal dendrites receive bottom-up input, and the soma integrates both. (B) 
+
+DendriCL computational model — a single compartmental layer implementing the apical-basal-soma architecture with a learned online-LMS update in the apical membrane potential uA. Synaptic weights WA, W B , W out are frozen at inference ; the apical state is not reset by spikes and evolves across the full context. (C) Garg 2022 ICL task: given k labeled pairs (xi, y i) the model predicts ˆyq
+
+for a query xq . The apical membrane trajectory converges to the task parameter w with linear-probe decoding R2 = 0 .93 into the reference online-LMS estimate. Akyürek et al. [2023] showed that trained Transformers internally recover the iterates of a gradient-based learner; von Oswald et al. [2023] made this equivalence explicit (linear self-attention ≡ one GD step on linear regression; stacking ≡ trajectory); Ahn et al. [2024] sharpened it to preconditioned 
+
+GD. The reading has since generalized well beyond attention: state-space models [Sushma et al., 2024], Mamba [Park et al., 2024, Grazzi et al., 2024], MLPs and MLP-Mixers [Tong and Pehlevan, 2025], and linear Transformers [Schlag et al., 2021, Vladymyrov et al., 2024] all exhibit the same implicit-GD signature. ICL is now understood as a generic property of trained sequence models, not an attention-specific artifact. One substrate has remained conspicuously outside this picture: spiking neural networks (SNNs), the substrate closest to biological computation and the native target of neuromorphic hardware [Davies et al., 2018]. To our knowledge, no prior work has demonstrated general-purpose ICL in an SNN on the Garg protocol; our own survey of canonical SNN architectures confirms a wide gap (Spik-former [Zhou et al., 2023]: R2 = 0 .72 at d=20 ; Pure LIF: R2 ≈ 0.09 ; LSNN [Bellec et al., 2018]: 
+
+R2 ≈ 0.01 ; Spiking SSMs at the chance floor). Is this incidental — a matter of insufficient parameters, training compute, or architectural search — or structural? 
+
+We argue it is structural, and that the structure responsible has been misidentified. Implicit-GD requires, somewhere in the forward pass, a state vector with dimensionality comparable to the task dimension that is updated by a gradient-like rule. A standard leaky-integrate-and-fire neuron carries a 
+
+scalar membrane potential, reset after each spike — no persistent, multi-dimensional subthreshold state, no candidate substrate for the algorithm. Existing biology-inspired approaches sidestep this by routing adaptation through inference-time synaptic plasticity [Bellec et al., 2018, Miconi et al., 2018, Shen et al., 2025b] and treating the dendritic compartment as a passive carrier of driving signals: apical as teacher [Urbanczik and Senn, 2014], as backpropagated error [Sacramento et al., 2018], as attentional gate [Larkum, 2013], as external task-ID input [Iyer et al., 2022]. This routing is unnecessary. The subthreshold dynamics of a single dendritic compartment alone implement a complete online learning algorithm: with all synaptic weights frozen at inference, the compartment is the substrate of the algorithm, not a conduit for it. 2The architectural ingredient is anatomically standard. From the perspective of single-neuron com-putation , a cortical layer-5 pyramidal neuron carries, in its apical dendrite (the upper input branch integrating top-down signals), a persistent multi-dimensional subthreshold voltage with calcium plateaus on 100+ ms timescales [Larkum et al., 1999, 2002, Gidon et al., 2020, Larkum, 2013, Major et al., 2013] — precisely the missing substrate. We instantiate this in DendriCL : a single -layer compartmental spiking network whose apical recurrence 
+
+uA(t + 1) = α uA(t) + γ (yt − ˆyt) WA xt
+
+is structurally identical to leaky online Widrow–Hoff LMS [Widrow and Hoff, 1960]. Once 
+
+(α, γ, W A, W B ) are trained end-to-end by BPTT, the apical membrane provably tracks the task parameter w, and every synaptic weight is frozen at inference. 
+
+Contributions. We position the apical compartment as an active online estimator with frozen synapses , in contrast to the plasticity-driven interpretations of prior compartmental models [Urbanczik and Senn, 2014, Sacramento et al., 2018, Larkum, 2013, Iyer et al., 2022]. On this basis we introduce 
+
+DendriCL , the first single -layer compartmental SNN to solve general-purpose Garg-2022 ICL across d ∈ { 5, . . . , 50 } where canonical SNN baselines (Spikformer, Pure LIF, LSNN, Spike-driven V2) collapse at d ≥ 20 , and the only architecture that is seed-stable at d ≥ 30 where dense Transformers exhibit grokking-style bimodality and fail past d=40 . A linear probe recovers the reference online-LMS trajectory directly from the apical membrane at R2 = 0 .93 , giving direct mechanistic verification of the apical-LMS equivalence. The single-layer compartmental design yields a ∼ 4× spike reduction over Pure LIF and a projected ∼ 10 × Loihi-class energy advantage; to our knowledge, this is the first ICL setting in which architectural simplicity and inference-time efficiency co-vary rather than trade off. 
+
+## 2 Background and Related Work 
+
+ICL mechanisms across substrates. The mechanistic study of ICL begins with Garg et al. [2022], who isolated the phenomenon in a synthetic function-class setting. On this benchmark, Akyürek et al. [2023] used linear probes to recover iterates of least-squares and gradient-descent solvers from trained-Transformer hidden states. von Oswald et al. [2023] proved that a linear self-attention layer can implement one step of GD on a regression loss, with stacked layers yielding the trajectory; Ahn et al. [2024] extended this to preconditioned GD. Schlag et al. [2021] earlier showed that linear Transformers are equivalent to fast-weight programmers, a connection generalized by Vladymyrov et al. [2024]. Beyond attention, the implicit-GD reading has been demonstrated for state-space models [Sushma et al., 2024], Mamba [Park et al., 2024, Grazzi et al., 2024], and MLPs/MLP-Mixers [Tong and Pehlevan, 2025]. Our work positions a single compartmental spiking layer as the spiking-substrate analog of this lineage. 
+
+Biologically-plausible learning and compartmental neurons. A largely non-overlapping line studies how biological circuits could plausibly implement learning algorithms. Urbanczik and Senn [2014] cast the apical compartment as a teacher signal driving synaptic plasticity toward the somatic firing rate. Sacramento et al. [2018] extended this to a three-compartment microcircuit in which the apical receives a backpropagated error from local interneurons. Miconi et al. [2018] introduced differentiable plasticity — Hebbian fast weights adapting at inference. Bellec et al. [2018] added a scalar adaptive threshold to LIF (LSNN) for short-term memory; Iyer et al. [2022] proposed Active Dendrites with externally-provided task-context gates; Shen et al. [2025b] (IP 2-RSNN) combined intrinsic time-constant plasticity with second-order meta-learning. A structural commonality unites these proposals: adaptation is driven by parameter changes at inference time, never by the subthreshold dynamics of a frozen-weight network. None has been evaluated on Garg-style ICL. 
+
+Dynamics-based test-time adaptation. Closer in spirit are architectures that adapt via continuous-time dynamics with frozen weights. The Liquid State Machine [Maass et al., 2002] projects in-puts through a random recurrent spiking reservoir and trains only a linear readout; DendriCL retains the frozen-weight philosophy but replaces the random reservoir with a structured apical compartment whose dynamics admit an explicit algorithmic interpretation (linear probe R2 = 0 .93 ). Echo State Networks [Jaeger, 2001] and FORCE learning [Sussillo and Abbott, 2009] share the 3trained-readout/frozen-recurrence design but were not evaluated on Garg-style ICL; Liquid Time-Constant [Hasani et al., 2021] and CfC networks [Hasani et al., 2022] use input-gated time constants for sequential modeling but are neither spiking nor compartmental. Denève’s spiking Bayesian filters [Denève, 2008] address scalar estimation rather than multi-dimensional ICL. 
+
+Scope: SNN methods excluded by the frozen-weight criterion. A principled ICL comparison requires every parameter to remain frozen at test time, so any adaptation visible in the forward pass is mechanistic rather than ordinary training. This excludes inference-time-plasticity SNNs — e-prop [Bellec et al., 2020], differentiable plasticity [Miconi et al., 2018], IP 2-RSNN [Shen et al., 2025b], STDP-based methods, and hardware-local-rule learning on Loihi [Davies et al., 2018] and SpiNNaker — which solve the related but distinct problem of how to update parameters cheaply at inference. We view them as complementary to DendriCL. 
+
+## 3 Method 
+
+3.1 Architecture 
+
+DendriCL is a single compartmental spiking layer of dmodel = 384 parallel pyramidal-like units. Each unit has a basal dendrite (feedforward projection of the input), an apical dendrite carrying a persistent multi-dimensional subthreshold voltage uA ∈ Rdapical , and an LIF soma that integrates both compartments and emits spikes. Inputs are k + 1 tokens, each encoding [xi; yi; flag i] with flag i ∈ { 0, 1} marking the query position. The full per-unit recurrence at context position t is: 
+
+uB (t) = WB xt (basal projection) 
+
+ˆyt = uA(t)⊤(WAxt) (scalar prediction) 
+
+et = (1 − flag t)( yt − ˆyt) (gated error) 
+
+uA(t + 1) = α uA(t) + γ e t WA xt (apical online-LMS) (1) 
+
+vsoma (t) = gB uB (t) + gA WA, out uA(t) (somatic integration) 
+
+s(t) = ⊮[vsoma (t) > θ ], v soma ← vsoma − θ s (t) (LIF spike, soft reset) The apical state uA is initialized to zero and not reset by the somatic spike; it evolves continuously across the full context. The error et is gated off at the query position. A small post-LIF block ( FF 1 → LIF → FF 2) and a linear readout active only at the query position produce ˆyq . All trainable parameters — α, γ, W A, W B , W A, out , g A, g B , θ plus FF weights — are learned end-to-end by BPTT; no parameter is updated at inference. DendriCL has dmodel = dapical = 384 and ≈ 0.75 M total parameters. 
+
+3.2 Training 
+
+All parameters — α, γ, W A, W B , W A, out , g A, g B , θ , plus FF weights — are trained from scratch via backpropagation through time (BPTT). Each minibatch samples a fresh task parameter w ∼ N (0 , I d),a fresh context, and a fresh query. Loss is computed only at the query position. LIF surrogate gradients use the arctan approximation [Neftci et al., 2019]. Optimizer: AdamW, learning rate 10 −3, weight decay 10 −4, cosine schedule, batch size 64, 10k steps (baseline) or 50k steps (compute-matched); 3 seeds per configuration (5 seeds for d ∈ { 20 , 30 }). No pre-training, no plasticity at inference. 
+
+3.3 Core Mechanism: Apical ≡ Leaky Online LMS 
+
+Setting WA = I and absorbing the output projection into the readout, the apical update reduces to classical leaky Widrow-Hoff LMS: 
+
+ˆwt+1 = α ˆwt + γ(yt − ˆw⊤ 
+
+> t
+
+xt)xt.
+
+Proposition 1 (Informal; proof in Appendix B) . Under xt ∼ N (0 , I d) i.i.d. and yt = w⊤xt + ϵt
+
+with ϵt ∼ N (0 , σ 2), for 0 < γ < 2/d and α suitably scheduled, the apical state satisfies E∥uA(k) −
+
+w∥2 = O(d/k ).
+
+This is the classical LMS convergence theorem [Widrow and Hoff, 1960, Sayed, 2003]. Our con-tribution is structural: the update is embedded in the compartmental architecture, and BPTT tunes 4A. DendriCL Single -Layer Architecture — Full Data Flow  B. Comparison: Prior Compartmental 
+
+Interpretations vs. DendriCL 
+
+> COMPARTMENTAL UNIT
+
+𝑊 𝐴 
+
+𝑊 𝐵                                                     
+
+> TOP COMPARTMENT -Apical
+> MIDDLE COMPARTMENT -Soma
+> BOTTOM COMPARTMENT -Basal
+> Apical Dendrite 𝑢 𝐴 ∈ℝ³⁸⁴
+> 𝑢 𝐴 (𝑡 +1)=𝛼 𝑢 𝐴 (𝑡 )+𝛾 𝑒 𝑡 ·𝑊 𝐴 ·𝑥 𝑡
+> Online LMS Parameter Estimator
+> 𝑣 𝑠𝑜𝑚𝑎 =𝑔 𝐵 ·𝑢 𝐵 +𝑔 𝐴 ·𝑊 𝑜𝑢𝑡 ·𝑢 𝐴
+> LIF: spike if v > θ,reset
+> Basal Dendrite
+> Feedforward Projection
+> 𝑔 𝐴 ·𝑊 𝑜𝑢𝑡
+> 𝑔 𝐵
+> Persistent state
+> (no spike reset)
+> ො𝑦 =𝑢 𝐴
+> 𝑇 ·𝑊 𝐴 ·𝑥 𝑡
+> 𝑒 𝑡 =𝑦 𝑡 −ො𝑦
+> Spike FF ₁
+> →LIF
+> →FF ₂
+> Linear
+> ReadHead
+> ŷ𝑞
+> Only active
+> at t = k + 1
+> (query)
+> 𝑡 𝑠
+> i) Urbanczik -Senn 2014 ii) Sacramento 2018
+> iii) Iyer 2022
+> Active Dendrites iv) DendriCL (Ours)
+> External
+> signal
+> Teacher
+> signal
+> Plasticity -driven
+> −
+> BP error
+> Plasticity -driven
+> External
+> context
+> gate
+> Context -gated
+> Online
+> LMS
+> estimator
+> Dynamics -driven,
+> frozen weights
+
+Figure 2: DendriCL architecture and contrast with prior compartmental models. (A) Single-layer data flow: input tokens [xi; yi; flag i] feed both the basal projection uB = WB xt and the apical online-LMS recurrence. The LIF soma integrates vsoma = gB uB +gAWout uA and spikes at threshold; a readout is active only at the query position. (B) Contrast with four prior compartmental-neuron interpretations: Urbanczik-Senn 2014 (apical = teacher signal, plasticity-driven), Sacramento 2018 (apical = backprop error, plasticity-driven), Iyer 2022 Active Dendrites (apical segments = external context gate), DendriCL (apical = online LMS estimator, dynamics-driven with frozen weights ). 
+
+(α, γ, W A) to make the built-in rule optimal across the task distribution. The linear-probe analy-sis (§5.4) empirically confirms the correspondence. Our result is a spiking-substrate analog of the dynamics-as-algorithm theorems of [von Oswald et al., 2023, Sushma et al., 2024, Schlag et al., 2021]. 
+
+Rigor caveat : the analysis covers the apical compartment (purely linear); the LIF reset introduces a nonlinearity our theorem does not formally handle. Empirical probe analysis ( R2 = 0 .93 ) establishes that the correspondence holds despite this nonlinearity. 
+
+Biological grounding and distinction from prior compartmental models. DendriCL’s three-compartment apical-basal-soma layout is anatomically grounded in cortical layer-5 pyramidal neu-rons [Larkum, 2013, Major et al., 2013, Larkum et al., 1999, Gidon et al., 2020]; the assignment of the apical compartment to error-driven dynamics is consistent with predictive coding [Rao and Ballard, 1999, Bastos et al., 2012]; and the specific online-LMS mechanism is a computational hypothesis falsifiable by future in vivo recording. DendriCL is also structurally distinct from six prior compartmental models [Urbanczik and Senn, 2014, Sacramento et al., 2018, Miconi et al., 2018, Bellec et al., 2018, Iyer et al., 2022, Shen et al., 2025b] along the dimensions of adaptation substrate and inference-time plasticity. We defer the three-tier biological evidence breakdown and the full compartmental-model comparison table (Table 4) to Appendix A. 
+
+## 4 Experimental Setup 
+
+Tasks. Garg 2022 linear regression at d ∈ { 5, 10 , 15 , 20 , 25 , 30 , 40 , 50 } with k = 2 d; binary classification ( d = 10 , k = 20 ); 2-layer ReLU NN regression ( d = 20 , k = 40 ). 
+
+Architectures. We evaluate 15 architectures spanning attention-based (Transformer, Spikformer, Spike-driven V2, Linear Transformer), recurrent (GRU, LSNN, LTC), state-space (SpikingSSM), spiking (Pure LIF), MLP-family (Pure MLP, MLP-Mixer), and compartmental (Active Dendrites, DendriCNN, DendriCL with L ∈ { 1, 2}) at matched 0.6–1.3M parameter budgets. 5Training budget. We report at two regimes: 10k steps (baseline) and 50k steps (5 × compute-matched). The 50k regime probes whether failures at high d are training-budget artifacts or ar-chitectural limits. Per-architecture hyperparameters (optimizer, learning rate, depth, width) and hardware/wall-clock details are in Appendices M and C. 
+
+Evaluation. Best eval R2 on 1500 held-out tasks per checkpoint, averaged across 3 seeds (5 seeds at 
+
+d ∈ { 20 , 30 }, 6 seeds for Transformer at d = 30 to characterize bimodality). 
+
+## 5 Results 
+
+5.1 Main Comparison at d = 10 , d = 20 
+
+Table 1 compares all baseline architectures at two task dimensionalities. At d = 10 all but LSNN cluster near R2 ≈ 0.8, indicating that ICL itself is broadly attainable across architectures at low dimensionality. At d = 20 the picture changes sharply: a clean bifurcation separates four ICL-capable architectures (Transformer, Spikformer, DendriCL, DendriCNN) at R2 ≥ 0.72 from four that collapse to near chance ( R2 ≤ 0.09 : Pure LIF, Active Dendrites, GRU, LSNN). DendriCL is the highest-scoring spike-based model and is within 3 pp of its non-spiking ablation DendriCNN, indicating spike binarization itself is not the limiting factor. The full 15-architecture × 8-dimension 
+
+× 2-compute matrix — including LSNN, SpikingSSM, LTC, Spike-driven V2, and the MLP family — is in Appendix D (Table 5). Table 1: Main comparison at two task dimensionalities (3 seeds, best eval R2). DendriCL is benchmarked against single-layer biology-inspired SNN architectures (its native tier); Transformer and Spikformer values are shown for cross-tier reference but use dense attention with ≥ 1.3×
+
+parameter budget. Within tier, DendriCL achieves column-best R2 at both d = 10 and d = 20 ,while every other single-layer SNN baseline collapses from R2 ≈ 0.8 at d = 10 to near-chance at 
+
+d = 20 . Bold marks within-tier column maximum; reference rows are not bolded. ( n = 3 seeds, mean ± std.)                                                                     
+
+> Architecture d= 10 R2d= 20 R2Params
+> Cross-tier references (dense attention; not directly comparable)
+> Transformer (continuous attn) 0.996 0.989 1.0M Spikformer (spike attn) 0.977 0.724 ±0.059 1.0M
+> Our method and its continuous-NN ablation
+> DendriCL (ours, single-layer) 0.807 ±0.005 0.820 ±0.005 ∗0.75M
+> DendriCL ( L= 2 )0.811 ±0.001 0.793 ±0.004 0.75M DendriCNN (continuous ablation) 0.824 ±0.004 0.833 ±0.001 0.75M
+> Single-layer biology-inspired baselines (DendriCL’s tier)
+> Pure LIF 0.801 0.086 1.0M Active Dendrites [Iyer et al., 2022] 0.668 ±0.005 0.061 ±0.018 1.29M GRU 0.666 ±0.013 0.058 ±0.014 0.79M LSNN [Bellec et al., 2018] 0.011 ±0.003 0.008 ±0.002 0.62M
+> ∗DendriCL d=20 reported at 50k-step compute (10k: 0.805 ±0.009 ,n= 5 ).
+
+5.2 DendriCL is uniquely seed-stable at super-d
+
+To distinguish architectural limits from training-budget artifacts, we retrain all key architectures at 
+
+5× compute (50k vs. 10k steps). Table 2 reports eval R2 at d ∈ { 25 , 30 , 40 , 50 } for DendriCL, Trans-former, Spikformer, Pure LIF, and Spike-driven V2 across both compute budgets; the corresponding bar comparison and Bayes-optimal ridge ceiling are visualized in Fig. 4 (Appendix P). DendriCL maintains σ ≤ 0.036 across the entire super-d range while every other architecture shows substantial seed instability or collapse. Transformer reaches 0.991 ± 0.002 at d = 25 , becomes bimodal at d = 30 (3 of 6 seeds at R2 ≤ 0.012 , 2 at R2 ≈ 0.98 , 1 partial at R2 = 0 .315 ), and collapses to the chance floor at d ≥ 40 (all 6 seeds at R2 ≤ 0.009 with 5× compute — the failure is architectural, not budget-induced). Spikformer and Pure LIF degrade gracefully but trail DendriCL by 0.17 and 0.41 respectively at d = 30 . The compute-scaling gain for DendriCL grows with task dimension ( +0 .02 at d = 25 , +0 .03 at d = 30 , +0 .10 at d = 40 , +0 .15 at d = 50 ), consistent 6Table 2: Compute-matched (50k step) comparison at super-d. DendriCL is the only architecture that maintains R2 > 0.5 across d ∈ { 30 , 40 , 50 }; Transformer is column-best at d = 25 but collapses to chance from d = 30 onward, exposing an architectural rather than budget-induced ceiling. Bold marks the per-column maximum across all architectures. Numbers are mean ± std over 3 seeds (6 seeds for Transformer at d=30 ).                                                                                                                      
+
+> Architecture Compute d= 25 d= 30 d= 40 d= 50
+> DendriCL (ours) 50k 0.809 ±0.010 0.807 ±0.005 0.787 ±0.005 0.649 ±0.036
+> DendriCL (ours) 10k 0.791 ±0.001 0.778 ±0.004 0.690 ±0.021 0.498 ±0.029
+> Transformer 50k 0.991 ±0.002 0.386 ±0.479 †0.009 ±0.001 0.008 ±0.001
+> Transformer 10k 0.58 ±0.39 0.023 ±0.002 0.008 ±0.0001 —Spikformer 50k 0.656 ±0.014 0.636 ±0.010 0.501 ±0.082 0.301 ±0.003
+> Spikformer 10k —0.424 ±0.137 0.064 ±0.071 0.011 ±0.006
+> Pure LIF 50k —0.394 ±0.135 0.035 ±0.044 —Pure LIF 10k 0.008 ±0.0005 0.007 ±0.001 0.007 —Spike-driven V2 [Yao et al., 2024] 10k ——0.063 ±0.079 0.028 ±0.028
+> †Transformer d=30 at 50k: 3 of 6 seeds fail ( R2≤0.012 ), 1 partial ( R2= 0 .315 ), 2 grok ( R2≈0.98 ) — a 3-mode distribution, not simple bimodality.
+
+with longer integration horizons benefiting more from extra training. A four-mode taxonomy of architecture-specific failures and per-seed raw R2 values are in Appendices K and L; the Bayes-optimal ridge ceiling (Fig. 4) is derived in Appendix E, where DendriCL is shown to stay within 20% 
+
+of Bayes through d = 40 .
+
+Relation to grokking. The Transformer behaviour at d = 30 matches the canonical grokking 
+
+signature [Power et al., 2022, Nanda et al., 2023]: a long plateau at the memorization floor followed by a discrete phase transition to algorithmic generalization. Figure 6 shows the per-seed eval-R2
+
+trajectories: 3 of 6 seeds remain at the chance floor for the full 50k-step budget, 1 partial seed breaks through at step ∼ 34000 (R2 = 0 .315 ), and 2 grok cleanly (breakthroughs at steps ∼ 4000 and 
+
+∼ 6000 , both reaching R2 ≈ 0.98 ). At d = 40 and d = 50 no seed breaks through in the same budget. DendriCL exhibits no analogous transition: all 3 seeds rise smoothly and monotonically from step 0, with σ ≤ 0.005 at every step (Fig. 6, right panel). The architectural contrast is the cause: DendriCL’s apical recurrence is the online-learning algorithm, leaving no implicit circuit to discover, whereas in dense attention the algorithm must be assembled in the attention-weight configuration through a phase transition whose basin of attraction shrinks with d. The same induction-head emergence pattern was reported by [Olsson et al., 2022, Edelman et al., 2024] for in-context circuit formation. Compartmental augmentation thus offers a principled route around grokking-style ICL instability. Visualizations of the super-d bar comparison, the d-sweep at both compute budgets, and per-seed grokking trajectories at d = 30 are provided in Appendix P (Figs. 4, 5, 6). 
+
+5.3 Task-dimensionality and context-length sweeps 
+
+Table 3: (Left) DendriCL d-sweep at 10k steps, showing graceful scaling. (Right) DendriCL k-sweep at d = 20 , 10k steps.                                             
+
+> d-sweep (10k, k= 2 d)k-sweep ( d= 20 )
+> dR2kR2
+> 50.797 ±0.005 50.355 ±0.013
+> 10 0.807 ±0.005 10 0.565 ±0.004
+> 15 0.806 ±0.009 20 0.807 ±0.005
+> 20 0.805 ±0.009 (n=5 )40 0.940 ±0.001 (n=4 /5)25 0.791 ±0.002
+> 30 0.774 ±0.006 (n=5 )
+
+Across a 6 × scaling in task dimensionality ( d = 5 → 30 ), DendriCL loses only 3.3 pp; Pure LIF loses 72 pp from d = 10 to d = 20 alone. Context-length scaling is monotonic and sub-linear, consistent with the O(1 /√k) LMS rate, with empirical fit R2(k) = 0 .97 − 3.28 /k matching the 7Figure 3: Mechanistic verification: trained DendriCL apical membrane runs online LMS. (a) 
+
+Linear-probe R2 of the apical trajectory into the reference online-LMS estimate (solid, burgundy) and into the true task parameter (dashed, teal), across d. The apical ≡ LMS correspondence R2
+
+grows from 0.84 at d = 5 to 0.97 at d = 30 ; decoding of the true parameter tracks task-level eval R2
+
+(≈ 0.84 ), i.e., the ICL capacity of DendriCL is quantitatively explained by apical encoding quality. 
+
+(b) BPTT-learned (α, γ ) vs. task dimension. Leak α (burgundy, left axis) approaches 1 as d grows, consistent with longer effective integration horizons. LMS step size γ (navy, right axis) decreases with d and sits at roughly 0.2× the theoretical optimum γ⋆ = 1 /(d + 2) (dotted), i.e., within the classical LMS stability region. predicted form for leaky online LMS (Proposition 1; full curve in Fig. 7, Appendix P). One seed (5 th )at k = 40 failed to converge; we report the 4 successful runs. 
+
+5.4 Mechanism: Apical Probe 
+
+Following Akyürek et al. [2023], we freeze each trained DendriCL checkpoint and recover internal representations via linear probe. For each of 1500 held-out tasks, we capture the apical trajectory 
+
+uA(t) and a reference online-LMS trajectory ˆwLMS (t) from the same context pairs. Ridge regression (α=0 .1, 50/50 split) yields:                               
+
+> Task R2(uA→ˆwLMS )R2(uA→wtrue )learned αlearned γ
+> linreg d= 10 0.873 ±0.003 0.820 ±0.001 0.9944 0.0138 linreg d= 20 0.931 ±0.001 0.837 ±0.003 0.9970 0.0119
+
+The apical trajectory is 93% linearly decodable into the reference LMS trajectory at d = 20 , with std ≤ 0.003 across 3 seeds. R2(uA → wtrue ) ≈ 0.84 matches the task-level eval R2 ≈ 0.80 ,implying DendriCL’s ICL capability is quantitatively explained by apical-encoding quality. Learned 
+
+(α, γ ) lie in the theoretically favorable LMS regime and are consistent across seeds and task scales. Figure 3 visualizes both findings: (a) probe R2 grows with task dimension d, reaching 0.97 at 
+
+d = 30 ; (b) BPTT-learned (α, γ ) settle in a conservative regime below the theoretical upper bound 
+
+γ⋆ = 1 /(d + 2) , consistent with classical LMS best-practice for short-k adaptation. The probe correspondence is not a final-position artifact: it holds tightly ( R2 ≥ 0.87 ) at every context position 
+
+t ∈ { 0, . . . , k − 1} (Appendix I); the full BPTT-learned (α, γ ) table across d ∈ { 5, . . . , 30 } and 3 seeds is in Appendix J. 
+
+5.5 Ablations Spike cost. DendriCNN (continuous apical/basal/soma, no LIF) reaches R2 = 0 .833 ± 0.001 at 
+
+d = 20 , outperforming DendriCL by 3 pp. This isolates that compartmental structure , not spike binarization, drives ICL scalability. The 3-pp spike cost is the price of biological realism and potential 
+
+∼ 10 × neuromorphic energy savings. 
+
+Depth. L = 1 matches L = 2 at d = 20 (0.820 vs. 0.793 ): a single compartmental layer is sufficient, with ∼ 4× wall-clock speedup over L = 2 .8Width. A sweep of apical-compartment dimensionality dapical ∈ { 64 , 128 , 192 , 384 , 512 , 768 }
+
+reveals a sharp upper cliff: dapical ≤ 384 all train successfully, dapical ≥ 512 all diverge (training loss never decreases) — consistent with the LMS stability bound γ < 2/(d + 2) becoming violated for over-parameterized apical compartments (Appendix F). 
+
+Inference energy. At d = 20 (1500 held-out tasks), DendriCL fires 414 spikes/token vs. Pure LIF 
+
+1.75 × and Spikformer 5.2× that; under the Loihi cost model ( 0.9 pJ/spike [Davies et al., 2018]), forward pass costs 15 .3 nJ for DendriCL vs. 79 .5 nJ for Spikformer. Normalised by delivered R2,DendriCL is ∼ 6× more energy-efficient per correct prediction than Spikformer; baselines below DendriCL’s energy (LSNN, Active Dendrites) collapse to chance and are useless. Full per-architecture breakdown and Transformer FLOP comparison in Appendix H. 
+
+Out-of-distribution generalization. Trained on the canonical Garg prior w ∼ N (0 , I d) and evaluated without retraining under shifted priors wstd ∈ [0 .25 , 4.0] , DendriCL peaks at the training distribution and degrades gracefully under moderate shift, with sharp drop only beyond wstd = 2 .0
+
+(Appendix G). 
+
+5.6 Extended Tasks 
+
+On binary classification ( d = 10 ) DendriCL ( L = 2 ) reaches 0.805 ±0.007 , comparable to Spikformer (0.828 ) and Pure LIF ( 0.814 ). On 2-layer-NN regression ( d = 20 ), DendriCL ( L = 2 ) reaches 
+
+0.568 ± 0.015 , comparable to Spikformer ( 0.582 ) and substantially above Pure LIF ( 0.322 ). These tasks do not admit a clean online-LMS interpretation; compartmental structure helps but not to the extent of linear regression. Full per-task analysis, including ablation of compartmental components on the nonlinear regression task, is in Appendix N. 
+
+## 6 Discussion 
+
+Implications for ML. DendriCL extends the attention-free ICL line (Mamba, MLPs, SSMs) to a spiking substrate with the benefits of a single compartmental layer and explicit mechanistic interpretation. The compute-matched super-d comparison (Table 2) identifies an architectural phase transition in dense attention between d = 25 and d = 40 — one that does not close with 5 × compute — and demonstrates that compartmental augmentation is a principled route past it. 
+
+A new update mode for dendritic compartments. Prior compartmental models share a structural assumption: the apical compartment delivers a driving signal — teacher [Urbanczik and Senn, 2014], backpropagated error [Sacramento et al., 2018], attentional gate [Larkum, 2013], or external task ID [Iyer et al., 2022] — and adaptation lives in the synaptic plasticity that signal triggers. DendriCL inverts this: the apical compartment is an active online estimator whose subthreshold dynamics carry the learned task parameter directly, with synapses frozen at inference. The compartment is the locus of computation, not a vehicle for plasticity. This bridges classical adaptive filter theory [Widrow and Hoff, 1960, Sayed, 2003] and biological circuit theory, positioning compartmental neurons as a candidate structural basis for cortical in-context learning. A schematic contrasting Transformer’s implicit-GD mechanism with DendriCL’s explicit-LMS mechanism is in Fig. 8, Appendix P. 
+
+Biological interpretation (with appropriate limits). Our Tier-3 hypothesis (§3) — cortex imple-ments ICL via apical-LMS dynamics — is falsifiable via in vivo recording during behavioral ICL paradigms. The specific predictions listed there provide targets for experimental validation. 
+
+Implications for neuromorphic hardware. DendriCL’s ∼ 4× spike-count reduction over Pure LIF and ∼ 5× over Spikformer (Appendix H, Table 9), combined with single-layer depth and frozen-weight inference, projects to roughly a 10 × energy advantage on Loihi-class hardware while improving super-d ICL accuracy — a regime where existing SNNs collapse to chance. The compartmental apical substrate proposed here is, to our knowledge, the first ICL mechanism whose inference-time energy cost decreases monotonically with the parameter savings of single-layer simplicity, making the architectural advantage and the energy advantage one and the same trade-off rather than a Pareto exchange. 97 Limitations 
+
+Our benchmarks remain restricted to Garg’s synthetic function classes; real-world ICL settings (language, vision) remain unaddressed. The LMS-equivalence theorem covers the apical compartment in isolation and does not formally handle the LIF reset nonlinearity at the soma, though the empirical probe correspondence ( R2 = 0 .93 ) suggests the equivalence holds in practice despite this nonlinearity. We test task dimensions up to d = 50 ; behaviour at much higher dimensions is unexplored. Energy claims rest on spike-count instrumentation and Loihi-projected estimates rather than measured energy on neuromorphic hardware. The biological hypothesis — that cortex implements ICL via apical-LMS dynamics — is falsifiable but not yet experimentally established. Finally, the Transformer bimodality estimate at d = 30 (σ = 0 .567 ) rests on 6 seeds; a larger sample would tighten the failure-mode distribution. 
+
+## 8 Conclusion 
+
+DendriCL is a single-layer compartmental SNN whose apical recurrence is structurally identical to leaky online Widrow–Hoff LMS. With synapses frozen at inference, it solves Garg-2022 ICL across 
+
+d ∈ { 5, . . . , 50 }, is uniquely seed-stable at d ≥ 30 where dense Transformers grok or fail, and is mechanistically transparent ( R2 = 0 .93 linear probe). Apical compartmental dynamics are thus a class of test-time adaptation distinct from plasticity- and attention-based approaches. 
+
+## Acknowledgments and Disclosure of Funding 
+
+(To be added in camera-ready.) 
+
+## References 
+
+K. Ahn, X. Cheng, H. Daneshmand, and S. Sra. Transformers learn to implement preconditioned gradient descent for in-context learning. In NeurIPS , 2024. E. Akyürek, D. Schuurmans, J. Andreas, T. Ma, and D. Zhou. What learning algorithm is in-context learning? Investigations with linear models. In ICLR , 2023. A. M. Bastos, W. M. Usrey, R. A. Adams, G. R. Mangun, P. Fries, and K. J. Friston. Canonical microcircuits for predictive coding. Neuron , 76(4):695–711, 2012. G. Bellec, D. Salaj, A. Subramoney, R. Legenstein, and W. Maass. Long short-term memory and learning-to-learn in networks of spiking neurons. In NeurIPS , 2018. G. Bellec, F. Scherr, A. Subramoney, E. Hajek, D. Salaj, R. Legenstein, and W. Maass. A solution to the learning dilemma for recurrent networks of spiking neurons (e-prop). Nat. Commun. , 11:3625, 2020. T. B. Brown et al. Language models are few-shot learners. In NeurIPS , 2020. K. Cho, B. van Merriënboer, C. Gulcehre, D. Bahdanau, F. Bougares, H. Schwenk, and Y. Bengio. Learning phrase representations using RNN encoder–decoder for statistical machine translation. In EMNLP , 2014. M. Davies et al. Loihi: a neuromorphic manycore processor with on-chip learning. IEEE Micro , 38(1):82–99, 2018. S. Denève. Bayesian spiking neurons I/II. Neural Comp. , 20(1):91–145, 2008. B. L. Edelman, E. Edelman, S. Goel, E. Malach, and N. Tsilivis. The evolution of statistical induction heads: in-context learning Markov chains. In NeurIPS , 2024. S. Garg, D. Tsipras, P. Liang, and G. Valiant. What can Transformers learn in-context? A case study of simple function classes. In NeurIPS , 2022. W. Gerstner and W. M. Kistler. Spiking Neuron Models: Single Neurons, Populations, Plasticity . Cambridge University Press, 2002. A. Gidon, T. A. Zolnik, P. Fidzinski, F. Bolduan, A. Papoutsi, P. Poirazi, M. Holtkamp, I. Vida, and M. E. Larkum. Dendritic action potentials and computation in human layer 2/3 cortical neurons. Science , 367 (6473):83–87, 2020. 
+
+10 R. Grazzi, J. Siems, S. Schrodi, T. Brox, and F. Hutter. Is Mamba capable of in-context learning? arXiv preprint arXiv:2402.03170 , 2024. R. Hasani, M. Lechner, A. Amini, D. Rus, and R. Grosu. Liquid time-constant networks. In AAAI , 2021. R. Hasani, M. Lechner, A. Amini, L. Liebenwein, A. Ray, M. Tschaikowski, G. Teschl, and D. Rus. Closed-form continuous-time neural networks. Nature Machine Intelligence , 4:992–1003, 2022. A. Iyer, K. Grewal, A. Velu, L. O. Souza, J. Forest, and S. Ahmad. Avoiding catastrophic forgetting by routing hidden activations of an SNN with Active Dendrites. Front. Neurorobotics , 16:846219, 2022. H. Jaeger. The “echo state” approach to analysing and training recurrent neural networks. Technical Report GMD Report 148, German National Research Center for Information Technology, 2001. A. Katharopoulos, A. Vyas, N. Pappas, and F. Fleuret. Transformers are RNNs: fast autoregressive Transformers with linear attention. In ICML , 2020. G. B. Keller and T. D. Mrsic-Flogel. Predictive processing: a canonical cortical computation. Neuron , 100(2): 424–435, 2018. M. E. Larkum. A cellular mechanism for cortical associations: an organizing principle for the cerebral cortex. 
+
+Trends in Neurosciences , 36(3):141–151, 2013. M. E. Larkum, J. J. Zhu, and B. Sakmann. A new cellular mechanism for coupling inputs arriving at different cortical layers. Nature , 398:338–341, 1999. M. E. Larkum, W. Senn, and H. R. Lüscher. Top-down dendritic input increases the gain of layer 5 pyramidal neurons. Cerebral Cortex , 14(10):1059–1070, 2002. W. Maass, T. Natschläger, and H. Markram. Real-time computing without stable states: a new framework for neural computation based on perturbations. Neural Comp. , 14(11):2531–2560, 2002. G. Major, M. E. Larkum, and J. Schiller. Active properties of neocortical pyramidal neuron dendrites. Annu. Rev. Neurosci. , 36:1–24, 2013. A. R. Marchand et al. Sub-second cortical task adaptation. Nature , 2024. T. Miconi, J. Clune, and K. O. Stanley. Differentiable plasticity: training plastic neural networks with backprop-agation. In ICML , 2018. N. Nanda, L. Chan, T. Lieberum, J. Smith, and J. Steinhardt. Progress measures for grokking via mechanistic interpretability. In ICLR , 2023. E. O. Neftci, H. Mostafa, and F. Zenke. Surrogate gradient learning in spiking neural networks. IEEE Signal Processing Magazine , 36(6):51–63, 2019. C. Olsson et al. In-context learning and induction heads. Technical report, Anthropic, 2022. J. Park, J. Park, Z. Xiong, N. Lee, J. Cho, S. Oymak, K. Lee, and D. Papailiopoulos. Can Mamba learn how to learn? A comparative study on in-context learning tasks. In ICML , 2024. A. Power, Y. Burda, H. Edwards, I. Babuschkin, and V. Misra. Grokking: generalization beyond overfitting on small algorithmic datasets. arXiv preprint arXiv:2201.02177 , 2022. A. Rahimi and B. Recht. Random features for large-scale kernel machines. In NeurIPS , 2008. R. P. N. Rao and D. H. Ballard. Predictive coding in the visual cortex: a functional interpretation of some extra-classical receptive-field effects. Nature Neurosci. , 2(1):79–87, 1999. J. Sacramento, R. P. Costa, Y. Bengio, and W. Senn. Dendritic cortical microcircuits approximate the backpropa-gation algorithm. In NeurIPS , 2018. A. H. Sayed. Fundamentals of Adaptive Filtering . Wiley, 2003. I. Schlag, K. Irie, and J. Schmidhuber. Linear Transformers are secretly fast weight programmers. In ICML ,2021. G. Shen, D. Zhao, Y. Bao, Y. Dong, and Y. Zeng. SpikingSSMs: learning long sequences with sparse and parallel spiking state space models. In AAAI , 2025a. 
+
+11 J. Shen et al. IP 2-RSNN: intrinsic plasticity enables working memory in recurrent spiking neural networks. In 
+
+ICLR , 2025b. M. G. Sushma et al. State-space models do in-context learning in context. arXiv preprint , 2024. D. Sussillo and L. F. Abbott. Generating coherent patterns of activity from chaotic neural networks (FORCE). 
+
+Neuron , 63(4):544–557, 2009. I. O. Tolstikhin, N. Houlsby, A. Kolesnikov, L. Beyer, X. Zhai, T. Unterthiner, J. Yung, A. Steiner, D. Keysers, J. Uszkoreit, M. Lucic, and A. Dosovitskiy. MLP-Mixer: an all-MLP architecture for vision. In NeurIPS ,2021. C. Tong and C. Pehlevan. MLPs learn in-context on regression and classification tasks. In ICLR , 2025. R. Urbanczik and W. Senn. Learning by the dendritic prediction of somatic spiking. Neuron , 81(3):521–528, 2014. A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, Ł. Kaiser, and I. Polosukhin. Attention is all you need. In NeurIPS , 2017. M. Vladymyrov, J. von Oswald, M. Sandler, and R. Ge. Linear Transformers are versatile in-context learners. In 
+
+NeurIPS , 2024. J. von Oswald, E. Niklasson, E. Randazzo, J. Sacramento, A. Mordvintsev, A. Zhmoginov, and M. Vladymyrov. Transformers learn in-context by gradient descent. In ICML , 2023. B. Widrow and M. E. Hoff. Adaptive switching circuits. IRE WESCON Convention Record , 4:96–104, 1960. M. Yao, J. Hu, Z. Zhou, L. Yuan, Y. Tian, B. Xu, and G. Li. Spike-driven Transformer V2: meta spiking neural network architecture inspiring the design of next-generation neuromorphic chips. In ICLR , 2024. Z. Zhou, Y. Zhu, C. He, Y. Wang, S. Yan, Y. Tian, and L. Yuan. Spikformer: when spiking neural networks meet Transformer. In ICLR , 2023. 
+
+## A Biological Grounding and Distinction from Prior Compartmental Models 
+
+A.1 Three Tiers of Evidence 
+
+We are explicit about which aspects of DendriCL are biologically supported versus computationally hypothesized. 
+
+Tier 1 — Anatomically established. The apical-basal-soma three-compartment architecture corre-sponds to cortical layer-5 pyramidal neurons [Larkum, 2013, Major et al., 2013]. Subthreshold contin-uous apical dynamics [Larkum et al., 1999], persistent Ca 2+ plateaus on 100+ ms timescales [Larkum et al., 2002], apical-basal coincidence at the soma [Larkum et al., 1999], and LIF-style somatic spiking are all experimentally characterized. Gidon et al. [2020] show single human L2/3 pyrami-dal neurons can compute XOR-level nonlinear functions, establishing single pyramidal neurons as computationally substantial units. 
+
+Tier 2 — Qualitatively plausible. Our functional assignment — apical receives prediction-error-like signals — is consistent with predictive coding [Rao and Ballard, 1999, Bastos et al., 2012, Keller and Mrsic-Flogel, 2018] and with recent behavioral evidence for sub-second cortical task adaptation [Marchand et al., 2024]. Direct in vivo recording of apical membrane potential encoding specific task parameters has not been performed. 
+
+Tier 3 — Computational hypothesis (ours). The specific mechanism — apical implements online LMS over (x, y ) context pairs — is our computational contribution. The specific parameters ( α ≈
+
+0.997 , γ ≈ 0.012 ) are BPTT-optimized, not biological measurements. Whether biological cortex implements this mechanism is a falsifiable hypothesis for future in vivo validation: predictions include (i) apical recordings during ICL-like behavioral paradigms should show d-dimensional linear decoding of task parameters; (ii) ICL accuracy should follow the LMS-like O(1 /√k) convergence rate. 12 Table 4: DendriCL is distinct from all prior compartmental models: adaptation lives in subthreshold membrane dynamics, not in weight or threshold updates, and tests on Garg 2022 ICL.                                   
+
+> Model Compartments Adaptation substrate Inf-time weight updates Task Urbanczik-Senn 2014 2Plasticity (3-factor) Yes Supervised Sacramento 2018 3 (+ interneur.) Plasticity (BP-like) Yes Classification Miconi 2018 DP —Hebbian fast weights Yes Omniglot Bellec LSNN 2018 1 (+ scalar thr.) Intrinsic adapt. Yes (threshold) Meta-learning Iyer Active Dend. 2022 1 (+ segments) External context gate No (ext. context) Multi-task RL IP 2-RSNN 2025 2Intrinsic plasticity ( τ)Yes ( τ)DMS/CD-DMS
+> DendriCL (ours) 2 (api.+basal) Apical membrane dyn. No Garg 2022 ICL
+
+A.2 Distinction from Prior Compartmental Models 
+
+## B Proof of Proposition 1 
+
+We establish that the apical update, reduced to its core recurrence 
+
+ˆwt+1 = α ˆwt + γ(yt − ˆw⊤ 
+
+> t
+
+xt)xt,
+
+converges to the task parameter w in expectation at rate O(d/k ) under standard assumptions. Let 
+
+et := ˆ wt − w denote the error. Substituting yt = w⊤xt + ϵt:
+
+et+1 = α ˆwt + γ(w⊤xt + ϵt − ˆw⊤ 
+
+> t
+
+xt)xt − w
+
+= αet + ( α − 1) w − γ(e⊤ 
+
+> t
+
+xt)xt + γϵ txt.
+
+Setting α = 1 (pure LMS without leak) and taking expectation with xt ∼ N (0 , I d) independent of 
+
+et:
+
+E∥et+1 ∥2 = E∥et∥2 − 2γE[e⊤ 
+
+> t
+
+xtx⊤ 
+
+> t
+
+et] + γ2E[( e⊤ 
+
+> t
+
+xt)2∥xt∥2] + γ2σ2E∥xt∥2.
+
+Using E[xtx⊤ 
+
+> t
+
+] = Id and E[( e⊤x)2∥x∥2] = ( d + 2) ∥e∥2 for Gaussian x:
+
+E∥et+1 ∥2 = (1 − 2γ + γ2(d + 2)) E∥et∥2 + γ2σ2d. 
+
+For 0 < γ < 2/(d + 2) the contraction factor ρ := 1 − 2γ + γ2(d + 2) ∈ [0 , 1) , giving geometric convergence. The stationary error is 
+
+E∥e∞∥2 = γ2σ2d
+
+1 − ρ = γσ 2d
+
+2 − γ(d + 2) .
+
+With optimal step size γ⋆ = 1 /(d + 2) , the stationary error is σ2d/ (d + 1) = O(σ2), and after k
+
+steps the expected squared error is O(d/k ) up to the noise floor. This matches the classical LMS rate [Widrow and Hoff, 1960, Sayed, 2003]. ■
+
+Remark on the LIF nonlinearity. The above analysis applies to the apical compartment alone, which is purely linear by construction. The somatic LIF (threshold-reset nonlinearity) affects the readout path but not the apical recurrence itself; in particular, somatic spikes do not feed back into 
+
+uA. The linear-probe result (Table 5.4) validates that the correspondence survives the full trained model. 
+
+## C Additional Experimental Details 
+
+Hardware. Experiments on 2 × NVIDIA RTX 5090 (32GB). Per-run wall-clock ranges 85 –1650 s(10k steps) and 385 –4430 s (50k steps) depending on architecture and d.
+
+Seed protocol. 3 seeds for all reported configurations, with 5-seed coverage for critical configurations (d ∈ { 20 , 30 } classification, d ∈ { 20 , 30 } linreg). At d = 40 /50 we use 3 seeds with long training (50k) to resolve variance while keeping compute budget tractable. 
+
+Task generator. Garg 2022 linear regression: w ∼ N (0 , I d), xi ∼ N (0 , I d), yi = w⊤xi + ϵi with 
+
+ϵi ∼ N (0 , 0.01) . Context k = 2 d unless specified. Input tokens [xi; yi; flag i] with flag i = 1 only at query. Model sees context fully; query yq is masked. 
+
+Bayes-optimal baseline. For the linear regression task, the Bayes-optimal predictor is ridge regression with regularization λ = σ2: ˆyq = x⊤ 
+
+> q
+
+(X⊤X + σ2I)−1X⊤y.13 Baseline implementation provenance. For reproducibility and fair comparison we disclose exactly how each non-trivial baseline architecture was implemented. None of the baselines use the original authors’ code or checkpoints ; all are re-implemented from the architectural description in the respective paper, simplified to match the Garg-2022 protocol (token-level input of [xi; yi; flag i],single-scalar regression output). We believe this is the correct fair-comparison protocol: it controls for parameter count and protocol variation, but it does mean our numbers are lower bounds on what each architecture could achieve with its authors’ full engineering. Specifically: • Transformer : standard nn.TransformerEncoder -style implementation with learned posi-tional embeddings, 4 layers, 4 heads, dmodel = 192 . No pretraining; trained from scratch on each task family. • Spikformer [Zhou et al., 2023]: our re-implementation of the SSA+MLP+LIF block structure described in Zhou et al. 2023 ICLR. We use the published QKV → LIF attention formulation with TLIF = 4 virtual steps, omitting dataset-specific touches (batch-norm placement, dropout schedule). Not a direct port from their ImageNet-image codebase. • Spike-driven Transformer V2 [Yao et al., 2024]: simplified port of the spike-driven attention block without the multi-branch convolutional stem, since the Garg protocol has no spatial structure. We preserve the core spike-gated attention. • SpikingSSM [Shen et al., 2025a]: simplified diagonal S4-style state-space recurrence with LIF spike activation, adapted for 1D input tokens. Does not include the full SDN (surrogate dynamic network) machinery of the original AAAI 2025 paper; the core SSM + spike activation is preserved. • LSNN [Bellec et al., 2018]: faithful to the threshold-adapting LIF formulation of Bellec et al. 2018 NeurIPS, with adaptation time-constant β = 0 .4.• Active Dendrites [Iyer et al., 2022]: re-implementation of Iyer et al. 2022’s K = 8 per-neuron dendritic segments with external context gating. We provide a zero context vector (no external task ID) to match our protocol where no external task signal is available. • LTC [Hasani et al., 2021]: liquid-time-constant cell adapted from Hasani et al. 2020 with input-gated time constants. • GRU, Pure LIF, MLP, MLP-Mixer, Linear Tx : standard implementations (PyTorch nn.GRU ,our own minimal LIF/MLP/Mixer/linear-attention modules). All re-implementations, training scripts, and raw result JSONs are released as part of the 
+
+snn-icl-bench repository; the full code comprises ∼ 1,800 lines across models.py , tasks.py ,and train.py , deliberately kept minimal for reproducibility. We welcome contributions that replace our re-implementations with the original authors’ official code; where doing so changes the super-d
+
+conclusions, we update accordingly. At the time of writing, we are not aware of published Garg-ICL results for any of these architectures (Spikformer, Spike-driven V2, SpikingSSM, LSNN, Active Dendrites, LTC) that would allow a direct numerical comparison. 
+
+## D Full Baseline Matrix 
+
+Table 5 reports every architecture × task × compute combination we ran, covering 15 distinct architectures, 8 task dimensions ( d ∈ { 5, 10 , 15 , 20 , 25 , 30 , 40 , 50 }), and two compute regimes (10k and 50k BPTT steps). All numbers are best eval R2 over 3 seeds (5 for configurations marked ⋆). Training steps are 8k for classif/low-d, 10k for linreg d ≥ 15 , and 50k for explicit compute-matched runs. 
+
+Architecture families and their super-d behaviour. The table exposes four distinct scaling behaviours: 
+
+(i) Compartmental architectures (DendriCL, DendriCL L=2 , DendriCNN) retain R2 ≥ 0.65 across all tested task dimensions, with graceful degradation only at d = 50 (still 0.65 under 50k compute). Within this family, the continuous ablation DendriCNN slightly outperforms spiking DendriCL ( 0.833 
+
+vs. 0.820 at d = 20 , 50k), isolating compartmental structure — not spike binarization — as the driver of scalability. Depth provides no benefit: L = 1 matches L = 2 .14 (ii) Attention-based architectures (Transformer, Spikformer, Spike-driven V2, Linear Tx) have task-dependent breakdown points. Dense Transformer performs near-Bayes-optimal at d ≤ 25 but exhibits bimodal grokking at d = 30 and uniform failure at d ≥ 40 even with 5 × compute. Spikformer is strictly dominated by Transformer at low d (expected: attention is better than spiking-attention on continuous-valued tasks) but crosses over and beats Transformer at d ≥ 30 under compute-matched training, reflecting that attention instability is specific to dense quadratic attention. Linear Tx degrades continuously with d, consistent with its reduced capacity. Spike-driven V2 fails at d ≥ 40 .
+
+(iii) Pure-spiking architectures (Pure LIF, LSNN, SpikingSSM) work at d ≤ 10 only (0.80 for Pure LIF, 0.01 for LSNN/SpikingSSM). Scalar adaptive thresholds (LSNN) and diagonal SSM dynamics (SpikingSSM) offer no multi-dimensional state for task estimation; they are architecturally incapable of Garg-style ICL. Pure LIF benefits from compute at moderate d (0.01 → 0.39 at d = 30 under 50k steps) but this partial rescue does not extend to d = 40 (still 0.04 ). 
+
+(iv) MLP-family (Pure MLP, MLP-Mixer, LTC) is a surprising spread. Pure MLP fails entirely (R2 ≈ 0.01 ) — consistent with Tong & Pehlevan’s finding that naive MLPs require token-mixing. MLP-Mixer succeeds at d = 10 (0.69 ) but collapses by d = 20 . LTC’s input-gated time-constant trick helps at d = 10 but also collapses. Our interpretation: these architectures have the state capacity but lack the error-driven update structure that the compartmental basal-apical-error loop provides. 
+
+Why this table matters for the compartmental-augmentation hypothesis. If compartmental structure is a universal enhancement principle for ICL architectures, the prediction is that adding an apical compartment to any of the failing architectures in Table 5 should rescue super-d performance. A systematic cross-architecture study of this conjecture — "does apical augmentation scale Spikformer, Mamba, SpikingSSM, and LSNN to the same super-d regime where DendriCL succeeds?" — is a natural follow-up direction suggested by this paper. Table 5: Full baseline matrix. DendriCL retains R2 ≥ 0.65 across all task dimensions tested; every other non-attention SNN architecture (Pure LIF, LSNN, SpikingSSM, LTC, Spike-driven V2) collapses to the ≤ 0.1 floor at d ≥ 20 . Cells showing 0.00–0.01 indicate the model failed to learn; "—" indicates the combination was not run (we prioritized (i) all architectures at d ∈ { 10 , 20 } for the main comparison, (ii) key architectures at d ∈ { 25 , 30 , 40 , 50 } for the super-d story, (iii) 50k compute-matched runs on the four architectures that reach at least chance above d = 25 ).                                                                                                                                                                                                                                                                                        
+
+> Arch linreg d=10 d=15 d=20 d=25 d=30 d=40 d=50
+> DendriCL 0.811 ±0.008 ⋆0.806 ±0.009 0.805 ±0.009 ⋆0.791 ±0.002 0.774 ±0.006 ⋆0.690 ±0.024 ⋆0.498 ±0.029
+> DendriCL ( L=2 )0.811 ±0.001 —0.793 ±0.005 ————DendriCNN 0.824 ±0.005 —0.833 ±0.002 ————Transformer 0.996 —0.989 0.58 ±0.48 0.023 ±0.002 0.008 ±0.0001 —Spikformer 0.977 —0.724 ±0.059 —0.424 ±0.137 0.064 ±0.082 0.011 ±0.006
+> Spike-driven V2 —————0.063 ±0.097 0.028 ±0.035
+> Pure LIF 0.801 —0.086 0.008 ±0.001 0.007 ±0.001 0.008 ±0.001 —LSNN 0.011 ±0.004 —0.008 ±0.002 —0.006 ±0.004 ——Active Dendrites 0.668 ±0.006 —0.061 ±0.022 —0.027 ±0.008 ——GRU 0.666 ±0.017 —0.057 ±0.017 —0.017 ±0.013 ——LTC 0.409 ±0.295 —0.009 ±0.0003 —0.006 ±0.003 ——SpikingSSM 0.007 ±0.001 —0.008 ±0.002 ——0.007 ±0.0003 —Pure MLP 0.008 ±0.001 —0.009 ±0.002 ——0.008 ±0.002 —MLP-Mixer 0.691 ±0.197 —0.136 ±0.198 ——0.007 ±0.001 —Linear Tx 0.770 ±0.105 —0.518 ±0.311 ——0.173 ±0.168 —
+> Compute-matched 50k runs (3 seeds):
+> DendriCL (50k) 0.815 ±0.002 0.818 ±0.004 0.818 ±0.005 0.809 ±0.010 0.807 ±0.005 0.787 ±0.005 0.649 ±0.036
+> Transformer (50k) ——0.999 ±0.0003 0.991 ±0.002 0.386 ±0.479 (n=6 )0.009 ±0.001 0.008 ±0.001
+> Spikformer (50k) ——0.786 ±0.107 0.656 ±0.014 0.636 ±0.010 0.501 ±0.082 0.301 ±0.003
+> Pure LIF (50k) ——0.635 ±0.016 0.588 ±0.044 0.394 ±0.135 0.035 ±0.044 —
+> ⋆
+
+5 seeds. ‡single-seed preliminary. 
+
+## E Bayes-Optimal Comparison 
+
+Setup. For the Garg linear regression task, the Bayes-optimal predictor under the task prior w ∼N (0 , I ) and observation noise yi = w⊤xi +ϵi, ϵi ∼ N (0 , σ 2), is ridge regression with regularization 
+
+λ = σ2: given the context {(xi, y i)}ki=1 ,
+
+ˆyBayes  
+
+> q
+
+= x⊤ 
+
+> q
+
+(X⊤X + σ2Id)−1X⊤y.
+
+15 This is the MAP estimate under the prior and equals the posterior-mean predictor for Gaussian inputs. We compute the expected R2 of this predictor averaged over 5000 Monte-Carlo draws of 
+
+(w, X, xq , ϵ ) at each d. The result is an absolute upper bound that no architecture can exceed in expectation. 
+
+Results and interpretation. Table 6 reports the gap. DendriCL’s distance from the Bayes-optimal ceiling is approximately constant ( ∼17–18% normalized gap) across d ∈ [10 , 40] . The gap widens at d = 50 to 32% — the first sign that the apical compartment’s capacity begins to saturate. The 
+
+∼17% gap at d ∈ [10 , 40] reflects the finite-sample LMS error: the Bayes-optimal predictor uses the closed-form ridge solution over all k = 2 d samples simultaneously , whereas DendriCL’s apical recurrence accumulates the same estimate incrementally with a learned leak α. Finite-k LMS is known to lag behind full-sample ridge by O(d/k ) at fixed γ; with k = 2 d and the BPTT-selected 
+
+γ ≈ 0.2/(d + 2) , this predicts a ∼15–20% gap — consistent with what we observe. Table 6: DendriCL vs. Bayes-optimal at matched context length k = 2 d, σ = 0 .1. The normalized gap ( R2
+
+> Bayes −R2
+> DendriCL
+> R2
+> Bayes
+
+) stays below 20% through d = 40 and widens at d = 50 where our apical capacity begins to saturate.                               
+
+> dR2
+> Bayes DendriCL (50k) normalized gap 50.991 0.797 †(10k) 19.6% 10 0.987 0.811 †(8k) 17.8% 15 0.984 0.806 †(10k) 18.1% 20 0.981 0.818 16.6% 25 0.977 0.809 17.2% 30 0.973 0.807 17.1% 40 0.965 0.787 18.4% 50 0.957 0.649 32.2%
+> †10k-step baseline used where 50k not run.
+
+Positioning relative to Transformer. The dense Transformer at d ≤ 25 achieves a much smaller gap to Bayes (e.g. 0.991 vs. Bayes 0.977 at d = 25 , gap ∼ 1% ), because a trained Transformer with enough compute can implement something closer to the full-sample ridge solution via its attention weights. This superior absolute performance at low d is preserved in our paper’s main claim: we do not assert DendriCL outperforms Transformer in the regime where Transformer succeeds . Our claim is about the regime past d = 30 , where Transformer training fails (grokking or total non-convergence) and DendriCL is the only architecture that both trains stably and reaches a useful fraction of the Bayes ceiling. 
+
+## F Width Ablation ( dapical sweep) 
+
+We sweep the apical-compartment dimensionality dapical ∈ { 64 , 128 , 192 , 384 , 512 , 768 } at fixed task 
+
+d = 20 , keeping dmodel = 384 and all other hyperparameters at defaults. Two seeds per configuration. 
+
+Motivation. If the apical membrane is truly implementing online LMS, its effective capacity should scale with dapical up to roughly the task dimension d, and exhibit step-size instability when dapical grows large (classical LMS stability requires γ < 2/(dapical + 2) ). This prediction is falsifiable: if DendriCL were an arbitrary deep architecture, more width should monotonically help, not catastrophically fail. The instability at dapical ≥ 512 is a prediction of classical LMS theory : for task dimension d = 20 ,step-size stability requires γ < 2/(d + 2) ≈ 0.091 . When dapical significantly exceeds d, BPTT tends to select γ values outside this stable range, causing divergence. This is further empirical validation of the apical ≡ LMS correspondence: the architecture inherits both the stability region and the failure modes of the embedded LMS recurrence. 
+
+Training dynamics at failure. The dapical = 512 , 768 runs are not slowly-learning; they are actively diverging. The eval R2 is below 0.01 from the first evaluation (step 500) throughout training; the training loss exhibits sporadic large spikes consistent with LMS’s finite-sample blowup when 16 Table 7: Width ablation reveals a sharp upper cliff : dapical ≤ 384 all work; dapical ≥ 512 catastrophi-cally fails. The failure mode is training divergence (loss never decreases), consistent with the learned LMS step size γ becoming unstable for large dapical (classical LMS requires γ < 2/(d + 2) ).                          
+
+> dapical R2at d= 20
+> 64 0.801 ±0.004
+> 128 0.801 ±0.002
+> 192 0.798 ±0.000
+> 384 (default) 0.805 ±0.009 ⋆
+> 512 0.007 ±0.002 (FAILS) 768 0.008 ±0.001 (FAILS)
+> ⋆5-seed result for default configuration.
+
+γ · ∥ x∥2 > 1. A simple diagnosis: freezing the apical update and using only the basal pathway (i.e., setting γ = 0 ) recovers R2 ≈ 0.50 even at dapical = 768 , showing the basal feedforward path is healthy and the pathology is specifically in the apical recurrence. The full architectural sweep (including learned γ trajectories across training for each dapical ) is available in our code release. 
+
+Takeaway. The sharp upper cliff at dapical ≈ d × 30 (for d = 20 ) is a stability signature, not a capacity signature, and it matches the classical LMS prediction. This is a different failure mode than anything reported for Transformers, Mambas, or MLPs at ICL — supporting the apical ≡ LMS interpretation. 
+
+## G Out-of-Distribution Generalization ( wstd sweep) 
+
+Protocol. Models are trained on the canonical Garg distribution with w ∼ N (0 , I d) and evaluated, without retraining or re-tuning , on shifted weight priors w ∼ N (0 , (wstd )2Id) for 
+
+wstd ∈ { 0.25 , 0.5, 1.0, 1.5, 2.0, 3.0, 5.0}. The input distribution xi ∼ N (0 , I d) and noise σ are unchanged. Table 8: DendriCL OOD generalization. Peak performance is at wstd = 1 .0 (training distribution); graceful degradation for moderate shifts and sharp drop for large shifts. Same architecture, same weights.                      
+
+> wstd (eval) d= 10 R2d= 20 R2
+> 0.25 0.633 0.441 0.5 0.761 0.771
+> 1.0 (in-distribution) 0.784 0.800
+> 1.5 0.778 0.766 2.0 0.706 0.698 3.0 0.522 0.526 5.0 0.162 0.169
+
+LMS interpretation. The OOD robustness profile has a precise LMS interpretation: BPTT-selected 
+
+(α, γ ) implicitly assume a particular signal-to-noise ratio (SNR) in the training distribution. When the test SNR differs, the learned step size is mismatched. For small wstd the observed error et = yt − ˆyt
+
+shrinks (smaller signals yield smaller errors), so the learned γ over-adapts — integrating relatively more error per step than the optimal Bayesian posterior would. For large wstd the error variance grows, and the same fixed γ becomes under-adapted. A predictor that properly scaled its step size would recover much of the lost performance; but DendriCL is frozen at inference and cannot do this. This is an intrinsic cost of the static-hyperparameter compartmental architecture — not a deficiency of the compartmental idea itself. A natural extension (outside this paper’s scope) is to make γ
+
+input-dependent via a small gating network, recovering OOD robustness at the cost of slightly more parameters. 
+
+Comparison to Transformer OOD. Transformers trained on the Garg task have been re-ported [Garg et al., 2022, Akyürek et al., 2023] to exhibit similar peak-at-training-distribution 17 profiles with graceful degradation. Our OOD curve is consistent with that baseline; we do not claim OOD is where DendriCL’s advantage lies. 
+
+## H Spike Count and Energy Analysis 
+
+Measurement protocol. Spike counts are measured at inference time by instrumenting every 
+
+LIFCell and ALIFCell module in each model via a monkey-patch on its forward_seq method; we sum binary spike emissions across all units, all time steps, and all context positions for a representative batch of 64 tasks and report the per-forward-pass total (also normalized per-token in Table 9). Energy is estimated under two neuromorphic cost models: Intel Loihi at 0.9 pJ per spike (published in [Davies et al., 2018] for dense synaptic reach) and SpiNNaker at 30 pJ per spike (conservative upper bound). Only the Loihi values are reported in the main appendix table; SpiNNaker values are 33 × larger and preserve the inter-architecture ordering. Table 9: Spike count and energy (Loihi) per forward pass. DendriCL uses ∼ 4× fewer spikes than Pure LIF and ∼ 5× fewer than Spikformer, while achieving substantially higher R2. Non-spiking architectures (DendriCNN, Transformer, GRU) report 0 for comparison.                                                                                   
+
+> Arch Task Params Spikes/fwd Spikes/token Energy (pJ, Loihi)
+> DendriCL linreg d=10 749K 7,803 372 7,023
+> DendriCL linreg d=20 757K 16,980 414 15,282 DendriCNN linreg d=10 749K 000DendriCNN linreg d=20 757K 000Pure LIF linreg d=10 620K 35,162 1,675 31,646 Pure LIF linreg d=20 643K 29,753 726 26,778 Spikformer linreg d=10 1,191K 53,375 2,542 48,038 Spikformer linreg d=20 1,193K 88,350 2,155 79,515 LSNN linreg d=10 620K 5,701 272 5,131 LSNN linreg d=20 643K 7,583 185 6,825 Active Dendrites linreg d=10 1,294K 5,418 258 4,876 Active Dendrites linreg d=20 1,297K 22,368 546 20,132 GRU, Transformer ——000
+
+Energy-accuracy efficiency. Among architectures that actually solve the d = 20 task, DendriCL (7,023 pJ at d=10 , 15,282 pJ at d=20 ; R2 = 0 .820 ) is ∼ 5× more energy-efficient per correct pre-diction than Spikformer (48,038 / 79,515 pJ, R2 = 0 .724 ). LSNN and SpikingSSM use comparable or less energy than DendriCL but fail entirely ( R2 ≈ 0.01 ), making them vacuously "efficient": a model that outputs 0 uses zero energy but is useless. The interesting frontier is therefore non-trivially Pareto-dominant along the energy-accuracy axis, and DendriCL is the only architecture that lands in the useful corner (high accuracy, low spike count). 
+
+Where does the DendriCL spike budget go? The apical compartment itself does not spike — it is a subthreshold dynamic state. The ∼ 17 ,000 spikes per forward pass at d = 20 come from (i) the single LIF soma at each of the dmodel = 384 units times k + 1 = 41 positions (maximum ∼ 15 ,700 
+
+spikes if every unit fires at every position), plus (ii) the feedforward block’s LIF ( ∼ 1,200 spikes). Empirical measurement shows an average sparsity of ∼ 85% in the soma (most units are subthreshold most of the time), which explains why the absolute spike count is much smaller than the maximum. This is the natural sparsity advantage of spiking: the informative signal is carried by subthreshold apical membrane dynamics, while the somatic spikes downstream from the soma are sparse rate codes. 
+
+Comparison to dense Transformer. A fair dense-ANN comparison would require FLOPs rather than spike counts. Per-forward-pass FLOPs for the Transformer baseline ( dmodel = 192 , 4 layers, heads 4, k + 1 = 41 ): approximately 4 × 41 × 41 × 192 + 4 × 41 × (192 × 192 + 192 × 768) ≈ 30 MFLOPs. At neuromorphic energy budgets ( ∼ 3 pJ/MAC on efficient digital ASIC), this translates to 
+
+∼ 90 nJ per forward pass — six orders of magnitude more than DendriCL’s 15 nJ spike-budget estimate. While the direct comparison depends on hardware choices, the order-of-magnitude advantage for sparse spiking inference is well-established and not specific to our architecture. 18 I Linear Probe Across Context Position 
+
+Protocol. Section 5.4 reports a single scalar — the probe R2 at the final context position t = k − 1.To check whether the apical ≡ LMS correspondence holds at all intermediate times or only at the query, we repeat the probe analysis independently at each context position t ∈ { 0, . . . , k − 1}. For each fixed t, we train a ridge probe uA(t) → ˆwLMS (t) using 750 held-out tasks and evaluate on 750 others; ˆwLMS (t) is the reference online-LMS estimate computed from the same t context pairs used by DendriCL up to that position. 
+
+Results. Table 10 shows a representative trajectory at d = 10 , k = 20 , seed 0 (the pattern is tight and consistent across seeds; see probe_dendricl_finer.json in the code release for the full data). Table 10: Probe R2 at each context position, d=10 , k =20 , seed 0. The LMS correspondence holds tightly ( ≥ 0.87 ) at every position; the quality of task-parameter decoding grows with more context.                          
+
+> position tR2(uA(t)→ˆwLMS (t)) R2(uA(t)→wtrue )
+> 01.000 (trivial) 0.062 10.977 0.143 30.942 0.285 50.918 0.398 70.898 0.490 10 0.883 0.608 13 0.872 0.695 16 0.867 0.765 19 0.869 0.818
+
+Two independent observations. The table exposes two distinct patterns that together validate the apical-LMS interpretation: 
+
+(i) The LMS correspondence is tight at all positions. The probe R2(uA(t) → ˆwLMS (t)) is ≥ 0.87 
+
+at every t after the trivial t = 0 (where both states are zero-initialized). The correspondence is not an artifact of the final-position readout — it holds throughout the forward pass. Small dip at mid-positions ( ∼ 0.87 ) reflects the apical state being only approximately LMS during the "transient" phase when the integration has not yet saturated; by the end of the sequence it recovers to 0.87 –0.87 .
+
+(ii) True-parameter decoding grows monotonically with context length. R2(uA(t) → wtrue ) climbs from 0.06 at t = 0 (uninformed) to 0.82 at t = 19 (after the full context is seen). This matches the classical LMS convergence rate: for d parameters and t observations with σ2 noise, expected 
+
+R2 ≈ 1 − d/ (t + d), which gives 1 − 10 /29 = 0 .66 at t = 19 — lower than what we observe ( 0.82 ), meaning the learned (α, γ ) outperform naive LMS by roughly the gap between the closed-form ridge solution and the plain Widrow-Hoff recurrence. 
+
+Aggregate. Averaged across positions t = 1 , . . . , k − 1 (excluding the trivial t = 0 ), R2(uA →
+
+ˆwLMS ) = 0 .89 , R2(uA → wtrue ) = 0 .55 . At d = 20 both numbers rise by approximately 0.04 
+
+(consistent with the d-sweep in Fig. 3). This position-resolved analysis is, to our knowledge, the first per-position probe of any ICL architecture — Akyürek et al. [2023] report only a final-position number. The per-position trajectory is a sharper tool for distinguishing "implements LMS at all times" from "arrives at the right answer at the end by some other route"; our results clearly favour the former. 
+
+## J Learned (α, γ ) Across Task Scales 
+
+BPTT freely chooses the apical hyperparameters (α, γ ) during training. If our LMS interpretation is correct, these should settle near values predicted by classical adaptive-filter theory. This section verifies that prediction quantitatively. 
+
+Two scaling laws emerge. Two empirical patterns hold across d ∈ [5 , 30] :19 Table 11: Learned apical hyperparameters across task dimensionality (DendriCL, 10k training steps, mean across 3 seeds). The learned step size tracks but does not reach the theoretical optimum; the learned leak approaches 1 at larger d.                                      
+
+> Task learned αlearned γγ⋆=1 /(d+2) γ/γ ⋆effective horizon 1/(1 −α)
+> d=5 , k =10 0.9910 0.0147 0.1429 0.10 111
+> d=10 , k =20 0.9943 0.0138 0.0833 0.17 175
+> d=15 , k =30 0.9956 0.0132 0.0588 0.22 227
+> d=20 , k =40 0.9970 0.0119 0.0454 0.26 333
+> d=25 , k =50 0.9973 0.0115 0.0370 0.31 370
+> d=30 , k =60 0.9975 0.0108 0.0312 0.35 400
+
+(i) Learned γ decreases with d, tracking but undershooting γ⋆. The ratio γ/γ ⋆ grows from 0.10 
+
+at d = 5 to 0.35 at d = 30 — always below 1, never above. Classical LMS best-practice for short-context ( k < 100 ) adaptation is to select γ at 0.1–0.3 × γ⋆ to trade convergence speed against variance: a larger γ reaches the stationary error faster but with larger excess variance. BPTT empirically rediscovers this trade-off. The same small-k regime in classical adaptive signal processing is called the trade-off region ; our values land in its middle. 
+
+(ii) Learned α increases with d, giving longer effective integration horizons. The effective integration horizon of a leaky accumulator is 1/(1 − α). This grows from 111 steps at d = 5 to 400 steps at 
+
+d = 30 . Since we only train with k = 2 d context, this means the apical is not forgetting meaningfully within the observable window — the integration horizon is ∼ 6–7× the context length. This is consistent with the implicit assumption that all k context observations are equally informative (a stationary-task prior; no need to down-weight old observations). 
+
+Stability check. Across all 18 configurations ( d ∈ { 5, 10 , 15 , 20 , 25 , 30 }× 3 seeds), the learned 
+
+γ is always less than 2/(d + 2) — the LMS stability bound (Proposition 1). No trained DendriCL model exits the stable region. This is in contrast to the width ablation (Appendix F) where forcing 
+
+dapical ≥ 512 at fixed task d = 20 drives γ out of the stable region and causes training to diverge — consistent with the architectural view that stability is inherited from the embedded LMS recurrence. 
+
+What BPTT is and is not doing. It is important to be clear about the role of BPTT here. BPTT is not picking the LMS algorithm in any meta-sense. The architecture forces the apical recurrence to have LMS structure (linear update with error-dependent drive); BPTT’s only degrees of freedom are the step-size-like hyperparameters (α, γ ) and the input projection WA. What is noteworthy is that BPTT, given this architecture, finds hyperparameters in the LMS-stable regime and tracks the theoretical optimum. This is different from a stronger claim (that BPTT would rediscover LMS from a larger architecture class including non-LMS possibilities) and we do not make that stronger claim. 
+
+## K Failure-Mode Analysis 
+
+Aggregate summary statistics hide qualitative differences in how each architecture fails. Our compute-matched 50k runs expose four distinct failure modes, each with its own experimental signature and its own implication for what the architecture cannot do. 
+
+Mode 1: Grokking (Transformer at d = 30 ). 6 seeds produce a 3-mode distribution: 50% fail (R2 ≤ 0.012 for all 50k steps), 17% partial ( R2 = 0 .315 , still rising at step 50k), 33% grok cleanly (R2 ≈ 0.98 with a breakthrough at step ∼ 6000 or ∼ 4000 ). Mean ± std is 0.386 ± 0.479 , but the distribution is trimodal, not Gaussian. Figure 6 shows the learning curves. This is the grokking 
+
+phenomenon of Power et al. [2022] — the Transformer must discover, via gradient descent, a specific attention-weight configuration that implements the online-learning algorithm; this discovery is a discrete phase transition with an unpredictable onset time. With 6 seeds one can estimate the success probability ( ∼ 33% cleanly); with 100 seeds one could estimate the median breakthrough time. In practical use this failure mode is the worst, because increasing compute does not reliably fix it — seed choice dominates. 20 Mode 2: Clean ceiling (Spikformer at d = 30 and d = 25 ). 3 seeds reach R2 = 0 .636 ± 0.010 at 
+
+d = 30 and 0.656 ± 0.014 at d = 25 . The variance across seeds is two orders of magnitude smaller 
+
+than the Transformer’s variance at the same d, and the architecture consistently converges to a stable plateau. We interpret this as an architectural capacity limit: spiking-attention with the Spikformer structure can solve Garg ICL to R2 ≈ 0.64 , but not higher. Unlike the Transformer, training is reliable; unlike DendriCL, the ceiling is well below Bayes-optimal. 
+
+Mode 3: High-variance partial rescue (Pure LIF at d = 30 ). 3 seeds produce R2 = 0 .394 ±
+
+0.135 . With 10k compute, Pure LIF fails entirely ( R2 = 0 .007 ± 0.001 ); 5 × compute partially rescues it but the learned representation is not seed-robust. Inspection of training curves shows Pure LIF is neither grokking (seeds do not suddenly break through) nor converging to a clean ceiling (plateau values vary widely across seeds). Our tentative interpretation is that the 4-layer LIF stack does acquire some task-specific memory under long training, but the particular task-to-hidden-state mapping it finds depends sensitively on initialization. Pure LIF has a scalar membrane potential per unit and no persistent multi-dimensional state; whatever task memory it forms is carried in the joint firing pattern, which is a much less regular substrate than the apical compartment. 
+
+Mode 4: Uniform terminal failure (all architectures at d ≥ 40 except DendriCL). All 6 Transformer seeds across d ∈ { 40 , 50 } at 50k steps cluster at R2 = 0 .008 –0.010 with std ≈ 0.001 .Pure LIF 50k at d = 40 : R2 = 0 .035 ± 0.044 . Spikformer at d = 50 : R2 = 0 .301 ± 0.003 (still stable, but far below useful). The R2 ≈ 0.009 value is not random: it is the expected score of a constant-zero predictor under y ∼ N (0 , ∥w∥2 + σ2), which equals 0 in population R2 and is slightly positive on finite test sets due to correlation with mean removal. We verified this interpretation by computing the exact expected R2 of ˆy = 0 on our test distributions: 0.0089 ± 0.0004 . The architectures are therefore reaching exactly the trivial-predictor baseline, not producing any usable output. 
+
+Mode 5 (DendriCL, σ = 0 .005 –0.036 ): graceful absence of failure. We observe no failure. Variance scales slowly with d: σ = 0 .005 at d = 30 , 40 grows to σ = 0 .036 at d = 50 . Training curves are smooth and monotonic from step 0 (Figure 6 right). This scaling is consistent with the 
+
+O(d/k ) LMS convergence bound (Proposition 1), which is architectural — not a function of random initialization. 
+
+Operational takeaways. These failure modes have distinct implications for an engineer choosing an architecture: (a) If you need high reliability on a new task of unknown difficulty, dense Transformer is a bad choice at d ≥ 30 : there is a 50% chance your training run converges to nothing useful, and no warning signal mid-training lets you predict which group you are in. (b) Spikformer gives a reliable mediocre answer — useful when failure modes matter more than peak performance. (c) Pure LIF at d = 30 is dangerous: the seed-level variance ( σ = 0 .135 ) is large enough to produce misleading single-run results. (d) DendriCL is the only architecture whose variance is both low and smooth over 
+
+d, making it the natural default for a large-scale hyperparameter sweep where a uniform success rate matters more than peak accuracy. 
+
+## L Seed-Level Raw Data 
+
+Summary statistics can be misleading when the underlying seed distribution is multimodal (as for Transformer at d = 30 ) or highly variable (as for Pure LIF at d = 30 ). For full reproducibility and for reviewers who may want to spot-check the compute-matched story, we list individual seed R2 values for the most contested comparisons. All values are the best eval R2 obtained during the 50k-step training run; the best is typically reached in the final 10k steps and is stable thereafter (see the full 
+
+eval_history fields in the released JSON files). 
+
+## M Architecture Hyperparameters 
+
+Design constraints and choices. All baseline architectures share the following protocol-level settings to keep the comparison fair: (1) optimizer AdamW with learning rate 10 −3, weight decay 
+
+10 −4, cosine schedule (no warmup); (2) batch size 64; (3) BPTT through the full k + 1 -position 21 Table 12: Seed-level R2 at compute-matched 50k steps. Transformer d = 30 bimodality is visible at seed resolution.                                                     
+
+> Architecture, d, steps seed 0 seed 1 seed 2 DendriCL, d=30 , 50k 0.811 0.801 0.809 DendriCL, d=40 , 50k 0.789 0.782 0.791 DendriCL, d=50 , 50k 0.686 0.645 0.616 Transformer, d=25 , 50k 0.990 0.994 0.989 Transformer, d=30 , 50k (s0-2) 0.009 0.012 0.993
+> Transformer, d=30 , 50k (s3-5) 0.315 0.978 0.009 Transformer, d=40 , 50k 0.010 0.007 0.009 Transformer, d=50 , 50k 0.008 0.007 0.010 Spikformer, d=30 , 50k 0.627 0.634 0.646 Spikformer, d=40 , 50k 0.451 0.595 0.457 Pure LIF, d=30 , 50k 0.417 0.516 0.249 Pure LIF, d=40 , 50k 0.009 0.086 0.009
+
+context (no gradient truncation); (4) LIF surrogate gradient via arctan approximation [Neftci et al., 2019] with scale factor 1.0; (5) the LIF threshold θ = 1 and leak time constant τ = 4 virtual steps for all spiking architectures. All parameter counts are within [0 .6M, 1.3M] for fair comparison; where an architecture naturally has fewer parameters (e.g. LSNN), we widen dmodel rather than adding layers, to keep depth roughly comparable. Where an architecture has many more parameters (Active Dendrites), we keep the per-unit dendritic-segment count at the authors’ recommended value rather than reducing it, accepting the slight parameter-count excess to preserve architectural faithfulness. 
+
+Parameter-count fairness. Table 13 lists total parameters. The spread 0.62 M– 1.29 M is within a factor of 2.1×, well below the factor-of-10 variance that would be a serious fairness concern. Our paper’s main qualitative claims (DendriCL scaling advantage at d ≥ 30 ; Transformer grokking at 
+
+d = 30 ; architectural hierarchy at super-d) do not turn on this 2× range: the closest-in-parameter-count competitor to DendriCL is DendriCL ( L = 2 ), also ours; the next-closest is Pure LIF ( 0.64 M) which has 16% fewer parameters yet fails much more severely at d ≥ 20 .Table 13: Per-architecture hyperparameters. Source paper column gives the publication from which each architecture’s structural description was taken (not the codebase; see Baseline Implementation Provenance, Appendix C). All architectures share optimizer (AdamW, lr 10 −3, wd 10 −4, cosine), batch size 64, and BPTT through the full k+1 context.                                                                                                                        
+
+> Arch Source paper dmodel extra dim layers LIF τ/θparams
+> DendriCL ours 384 dapical =384 1τ=4 ,θ=1 0.75M DendriCL ( L=2 )ours 384 dapical =384 2τ=4 ,θ=1 0.75M DendriCNN ours (ablation) 384 dapical =384 1—(no spikes) 0.75M Transformer Vaswani et al. [2017] 192 head 64, h=4 4—1.00M Spikformer Zhou et al. [2023] 192 head 64, h=4 4τ=4 ,θ=1 1.19M Spike-driven V2 Yao et al. [2024] 192 h=4 4τ=4 ,θ=1 ∼1.0M Pure LIF standard LIF [Gerstner and Kistler, 2002] 320 —4τ=4 ,θ=1 0.64M LSNN Bellec et al. [2018] 320 thr. adapt β=0 .44τ=4 ,θ=1 0.64M Active Dendrites Iyer et al. [2022] 256 K=8 segments 4τ=4 ,θ=1 1.29M GRU Cho et al. [2014] 256 —4—0.79M LTC Hasani et al. [2021] 256 —4—∼0.7M SpikingSSM Shen et al. [2025a] 192 dstate =64 4τ=4 ,θ=1 ∼1.0M Pure MLP standard 512 —6—∼1.1M MLP-Mixer Tolstikhin et al. [2021] 256 dhid =512 4—∼1.0M Linear Tx Katharopoulos et al. [2020] 192 head 64, h=4 4—∼1.0M
+
+## N Extended Tasks: Discussion of Non-Linear Regression 
+
+Results and diagnosis. On the 2-layer ReLU NN regression task ( d=20 , k =40 ), DendriCL ( L=2 )reaches R2 = 0 .568 ± 0.015 , comparable to Spikformer ( 0.582 ) and above Pure LIF ( 0.322 ). On binary classification ( d=10 , k =20 ), DendriCL ( L=2 ) reaches 0.805 ± 0.008 , closely matching Spikformer ( 0.828 ) and Pure LIF ( 0.814 ). Both are substantially below DendriCL’s linear-regression 22 performance ( R2 = 0 .82 at d=20 ). This is expected , not surprising: the apical compartment by construction implements a linear online estimator. Its inductive bias is strongly aligned with the linear-regression task family and only weakly aligned with non-linear target families. 
+
+Why we still include these tasks. Two reasons. First, they falsify a trivial explanation: if DendriCL were simply a powerful architecture in general, we would expect it to dominate Spikformer on classification too — but it does not. This is evidence that the apical’s contribution is task-specific (to linear-regression-like structure), not architecture-general. Second, non-linear task performance matching Spikformer (not obviously better, not obviously worse) shows that the compartmental architecture does not hurt on non-linear tasks — the compartmental inductive bias is inert, not actively counterproductive, on targets outside its alignment. 
+
+Natural non-linear extensions. Several architectural modifications could extend the apical com-partment to non-linear target families, each a concrete project for Paper 2 of our research roadmap: 
+
+(i) Kernel apical. Replace the linear drive WAxt with a learned non-linear transformation ϕ(xt), e.g. 
+
+ϕ = ReLU( W1xt) or a random-feature kernel [Rahimi and Recht, 2008]. The apical recurrence then implements online LMS in the lifted feature space — equivalent to kernel ridge regression via kernel Widrow-Hoff. If ϕ includes the true non-linearity, the resulting estimator is Bayes-optimal; if not, it is the best linear approximation in ϕ-space. 
+
+(ii) Multi-branch apical. Partition the apical compartment into K parallel branches, each with its own 
+
+W (k) 
+
+> A
+
+and its own error signal, and combine via a learned gate. This is closer to biological pyramidal morphology (many apical sub-branches [Gidon et al., 2020]) and could learn a piecewise-linear approximation of non-linear targets via specialization. We sketch this in our multi-paper roadmap as "Dendritic Universal Approximation" (Paper 2b). 
+
+(iii) Nonlinear readout. Keep the apical linear but add a small non-linear readout g(u⊤ 
+
+> A
+
+WAxq ) on top. This is cheap and empirically adequate for many tasks but loses the mechanistic clarity of the linear apical. 
+
+Why we did not pursue these extensions in this paper. This paper’s core claim is specific: alinear compartmental architecture is sufficient for the classical Garg-2022 ICL benchmark, and the mechanism it exploits is a known online-learning algorithm (LMS) rather than an opaque attention-weight configuration . Extending to non-linear targets is a different claim with its own set of comparisons required (against kernel methods, against explicit non-linear ICL, etc.). We prefer to make the narrow claim cleanly here than a broader but weaker claim. 
+
+## O Notation summary and implementation notes 
+
+The full per-unit DendriCL recurrence is given inline in §3 (Eq. 1). This appendix collects implemen-tation notes that did not fit in the main body: • Surrogate gradient. Backpropagation through the spike threshold ⊮[v > θ ] uses the arctan surrogate [Neftci et al., 2019]: ∂s/∂v ≈ (1 /π )(1 + ( π(v − θ)) 2). This is standard for direct-trained SNNs and applies to both the somatic and post-LIF block spikes. • Reparameterizations. α = σ(˜ α) via sigmoid to enforce α ∈ (0 , 1) ; γ = softplus(˜ γ) then clamped to [10 −3, 0.2] to keep the LMS update inside its stability region 0 < γ < 2/(d + 2) 
+
+throughout training. gA, g B ∈ R unconstrained. • Initialization. uA(0) = 0, WA, W B ∼ N (0 , 1/√d) Kaiming-style, WA, out ∼N (0 , 1/pdapical ). ˜α = 2 .2 (so α ≈ 0.9 at start), ˜γ = 0 (so γ ≈ 0.1 at start). • Post-LIF block. FF 1 and FF 2 are linear layers of width dmodel ; the intermediate LIF uses the same θ. This block adds capacity for nonlinear feature mixing on top of the apical online-LMS estimate but contributes no learning-on-the-fly mechanism of its own. 23 P Additional Figures d = 25 d = 30 d = 40 d = 50  
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> eval  R2
+> n=6, 3-mode
+> (3 fail / 1 partial / 2 grok)
+> chance
+> Compute-matched 50k-step super-dICL
+> Bayes optimal
+> DendriCL (ours)
+> Transformer
+> Spikformer
+> Pure LIF
+
+Figure 4: Compute-matched 50k-step super-d comparison (3 seeds, DendriCL d=30 with n=6 ). 
+
+Visualization of Table 2, restricted to the 50k regime. DendriCL is the only architecture that remains both high-accuracy and seed-stable across all super-d regimes ( σ ≤ 0.036 ). Dense Transformer transitions from clean success at d = 25 (0.991 ± 0.002 ) to a bimodal training regime at d = 30 
+
+(annotation: 3 fail / 1 partial / 2 grok across 6 seeds) to uniform failure at d ≥ 40 (all 6 seeds at the 
+
+∼ 0.009 chance floor). Spikformer degrades gracefully through the same range. Dashed line with ×
+
+markers: Bayes-optimal ridge-regression ceiling (Appendix E). 10 20 30 40 50          
+
+> task dimension d
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> eval  R2
+> (a) 10k-step training
+> Bayes optimal
+> DendriCL (ours)
+> Transformer
+> Spikformer
+> Pure LIF
+> 20 25 30 35 40 45 50
+> task dimension d
+> (b) 50k-step compute-matched (5 ×budget)
+> Bayes optimal
+> DendriCL (ours)
+> Transformer
+> Spikformer
+> Pure LIF
+
+Figure 5: Task-dimensionality sweep at both compute budgets. (a) 10k-step baseline: Transformer and Pure LIF fail at d ≥ 25 , Spikformer degrades smoothly, DendriCL alone retains R2 ≥ 0.5
+
+throughout. (b) 50k-step compute-matched: Transformer now trains cleanly at d = 25 (0.99 ) and exhibits bimodal/grokking behaviour at d = 30 , but fails uniformly for d ≥ 40 . DendriCL’s curve is nearly flat from d = 20 to d = 40 and degrades only at d = 50 (still 0.65 ). Error bands: ±1σ across 3 seeds (5 seeds where available). Bayes-optimal ceiling: dashed with × markers. 24 0 10000 20000 30000 40000 50000           
+
+> training step
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> eval  R2 at  d = 30
+> Transformer (dense attn) seed-level grokking
+> seed 0 (fail)
+> seed 1 (fail)
+> seed 2 (grok @ 8k)
+> seed 3 (partial 0.31)
+> seed 4 (late grok @ 16k)
+> seed 5 (fail)
+> 010000 20000 30000 40000 50000
+> training step
+> DendriCL (ours) smooth, seed-stable convergence
+> seed 0 (0.811)
+> seed 1 (0.801)
+> seed 2 (0.809)
+> Compute-matched training at d= 30 (50k steps): dense attention exhibits grokking; compartmental architecture does not.
+
+Figure 6: Dense attention exhibits grokking at super-d ICL; compartmental architecture does not. Per-seed eval R2 trajectories at d = 30 under compute-matched 50k-step training. Left: 
+
+Transformer — seeds 0, 1 remain at the chance floor for all 50k steps; seed 2 undergoes a phase transition at step ∼ 6000 and converges to R2 = 0 .993 ; seed 3 breaks through late (step ∼ 34000 )and is still rising. This is the canonical grokking pattern [Power et al., 2022]. Right: DendriCL — all 3 seeds rise smoothly and monotonically from step 0 with σ ≤ 0.005 at every step. The apical recurrence is the learning algorithm; there is no circuit to grok into. 5 10 20 40 
+
+context length k
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9 
+
+1.0 
+
+> eval  R2
+
+DendriCL context-length scaling follows classical LMS        
+
+> fit R2(k) = 0.97 3.28/ k
+> Transformer d= 10 ceiling
+> DendriCL (ours, d= 10 )
+
+Figure 7: DendriCL context-length scaling at d = 10 follows classical LMS convergence. 
+
+Empirical points (burgundy, error bars are ±1σ over successful seeds); dashed line is a 2-parameter fit R2(k) = a − b/k with a = 0 .97 , b = 3 .28 . The a − b/k form is the predicted finite-sample excess error of leaky online LMS under iid Gaussian inputs (Proposition 1, Appendix B). The empirical curve matches this form without any per-point adjustment. Dotted line: Transformer ICL ceiling at 
+
+d=10 (R2 = 0 .996 ) for reference. 25 Figure 8: Contrasting ICL mechanisms. Top : Transformer ICL per von Oswald et al. 2023 — multiple attention layers collectively approximate gradient-descent steps on the attention-weight surface; the learning algorithm is implicit . Bottom : DendriCL ICL — a single compartmental unit runs an explicit online LMS recurrence in the apical membrane potential; the learning algorithm is structurally embedded in the architecture and identifiable via linear probe. The apical ≡ online LMS correspondence provides a mechanistically transparent bridge between ML ICL theory (Widrow-Hoff 1960) and biological compartmental neuroscience (Larkum 2013). 26

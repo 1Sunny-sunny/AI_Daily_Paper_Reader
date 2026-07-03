@@ -1,63 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-07-03
-- 运行时间：2026-07-03 05:29:54 北京时间
+- 最新运行日期：2026-07-04
+- 运行时间：2026-07-04 05:39:56 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今日解读15篇前沿研究，精读5篇并从中挖掘出两篇9.0高分脑机接口工作，聚焦脑电情感识别与面部动作生成。
-最值得关注的是PRISM用半监督域适应突破跨被试情感识别瓶颈，以及MindAU通过双流形对齐实现脑电驱动面部动作编辑。
-建议关注脑电信号在情绪解码与数字人交互中的落地路径，尝试将PRISM的迁移思路复用到其他生理信号上。
-- 详情：[/202607/03/README](/202607/03/README)
+今日AI日报聚焦脑机接口、类脑计算与可解释AI：15篇新研究中精读5篇，重点突破脑植入无线供能与单层脉冲网络学习。
+脑植入天线实现无线供电与通信（9分），单层脉冲神经网络靠树突实现上下文学习（9分），这两个方向最亮眼。
+想了解前沿，不妨先看这两篇精读：它们让大脑直连设备更安全、让低功耗AI学会“现学现用”。
+- 详情：[/202607/04/README](/202607/04/README)
 
 ### 精读区论文标签
-1. [PRISM: Prioritized Channel Importance with Semi-supervised Domain Adaptation for Cross-Subject EEG Emotion Recognition](/202607/03/2607.00358v1-prism-prioritized-channel-importance-with-semi-supervised-domain-adaptation-for-cross-subject-eeg-emotion-recognition)  
+1. [Antenna System for Simultaneous Wireless Power and Information Transfer to Brain Implants](/202607/04/2607.02036v1-antenna-system-for-simultaneous-wireless-power-and-information-transfer-to-brain-implants)  
    标签：评分：9.0/10、query:sr
-   evidence：基于通道重要性和域适应的跨被试脑电情感解码
-2. [MindAU: EEG-Conditioned Facial Action Unit Editing via Dual-Stream Manifold Alignment](/202607/03/2607.00410v1-mindau-eeg-conditioned-facial-action-unit-editing-via-dual-stream-manifold-alignment)  
+   evidence：带有双功能天线的无电池无线脑机接口系统，用于能量和数据传输
+2. [Dendritic In-Context Learning in a Single-Layer Spiking Neural Network](/202607/04/2607.02283v1-dendritic-in-context-learning-in-a-single-layer-spiking-neural-network)  
    标签：评分：9.0/10、query:sr
-   evidence：EEG条件的面部动作单元解码
-3. [Within-electrode temporal envelope processing predicts multi-channel speech outcomes across cochlear implant pulse rates](/202607/03/biorxiv-10-64898-2026-06-24-734273-v1-within-electrode-temporal-envelope-processing-predicts-multi-channel-speech-outcomes-across-cochlear-implant-pulse-rates)  
+   evidence：通过树突进行上下文学习的脉冲神经网络
+3. [A Simple Subject Independent Channel Selection in EEG for Motor Imagery Task](/202607/04/biorxiv-10-64898-2026-06-26-734867-v1-a-simple-subject-independent-channel-selection-in-eeg-for-motor-imagery-task)  
    标签：评分：9.0/10、query:sr
-   evidence：人工耳蜗时间包络处理预测言语效果
-4. [Context-Aware Evidence-Gated Plasticity for Multi-Goal Learning in Spiking Neural Networks](/202607/03/biorxiv-10-64898-2026-06-25-734613-v1-context-aware-evidence-gated-plasticity-for-multi-goal-learning-in-spiking-neural-networks)  
+   evidence：用于运动想象脑机接口解码的脑电通道选择
+4. [Uncovering internal states with a robust shared-state multi-neuron GLM-HMM framework](/202607/04/biorxiv-10-64898-2026-06-27-734988-v1-uncovering-internal-states-with-a-robust-shared-state-multi-neuron-glm-hmm-framework)  
    标签：评分：9.0/10、query:sr
-   evidence：具有STDP的多目标学习脉冲神经网络
-5. [Temporal Gating by Chandelier Cells Encodes Signed Prediction Errors](/202607/03/biorxiv-10-64898-2026-06-26-734797-v1-temporal-gating-by-chandelier-cells-encodes-signed-prediction-errors)  
+   evidence：多神经元GLM-HMM框架推断潜在状态
+5. [Time cells lead neural reinstatement of episodic memory](/202607/04/biorxiv-10-64898-2026-06-28-734674-v1-time-cells-lead-neural-reinstatement-of-episodic-memory)  
    标签：评分：9.0/10、query:sr
-   evidence：通过相对于可塑性窗口的尖峰时间编码预测误差符号
+   evidence：显示人类内侧颞叶的时间细胞组装成序列以恢复时间背景
 
 ### 速读区论文标签
-1. [Intrinsically Stable Spiking Neural Networks: Overcoming the Performance Barrier in the Absence of Batch Normalization](/202607/03/2606.31695v1-intrinsically-stable-spiking-neural-networks-overcoming-the-performance-barrier-in-the-absence-of-batch-normalization)  
+1. [I\textsuperscript{2}RiMA: Spectral Riemannian Representation with Temporal Attention for Mental Stress Detection based on EEG Signals](/202607/04/2607.01279v1-itextsuperscript2rima-spectral-riemannian-representation-with-temporal-attention-for-mental-stress-detection-based-on-eeg-signals)  
    标签：评分：8.0/10、query:sr
-   evidence：稳定脉冲神经网络架构
-2. [Device Passport: Enabling Spatio-Temporal Pretrained Models to Generalize Across Input Layouts](/202607/03/2607.00249v1-device-passport-enabling-spatio-temporal-pretrained-models-to-generalize-across-input-layouts)  
+   evidence：使用时间注意力和黎曼几何的EEG压力检测
+2. [Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability](/202607/04/2607.01799v1-expander-sparse-autoencoders-parameter-efficient-dictionaries-for-mechanistic-interpretability)  
    标签：评分：8.0/10、query:sr
-   evidence：生物信号解码布局泛化的时空预训练模型
-3. [DRIADA: A Python Toolkit for Cross-Scale Analysis of Single-Neuron Selectivity and Population Dynamics](/202607/03/2607.00851v1-driada-a-python-toolkit-for-cross-scale-analysis-of-single-neuron-selectivity-and-population-dynamics)  
+   evidence：用于神经网络激活机械可解释性的稀疏自编码器
+3. [Self-explainable Operator Learning for Discovering Spatial Patterns in Functional Data](/202607/04/2607.02203v1-self-explainable-operator-learning-for-discovering-spatial-patterns-in-functional-data)  
    标签：评分：8.0/10、query:sr
-   evidence：提供跨尺度分析神经元选择性和群体动力学的Python工具包
-4. [NeuroVLM: A generative vision-language framework for human neuroimaging](/202607/03/biorxiv-10-64898-2026-02-06-704508-v3-neurovlm-a-generative-vision-language-framework-for-human-neuroimaging)  
+   evidence：可自解释的算子学习框架提供可解释性
+4. [NEvo: Neural-Guided Evolutionary Video Synthesis for Dynamic Visual Selectivity](/202607/04/2607.02317v1-nevo-neural-guided-evolutionary-video-synthesis-for-dynamic-visual-selectivity)  
    标签：评分：8.0/10、query:sr
-   evidence：用于神经影像-文本对的生成式视觉语言模型
-5. [Representation as a Bottleneck for Mechanistic Interpretability: The Manifestation Unit Protocol](/202607/03/2607.00089v1-representation-as-a-bottleneck-for-mechanistic-interpretability-the-manifestation-unit-protocol)  
+   evidence：使用编码模型将刺激与体素活动关联
+5. [SA-HGNN: Sample-Adaptive Hyperbolic Graph Neural Network for EEG-Based Depression Recognition](/202607/04/2607.02063v1-sa-hgnn-sample-adaptive-hyperbolic-graph-neural-network-for-eeg-based-depression-recognition)  
    标签：评分：7.0/10、query:sr
-   evidence：神经网络组件机械可解释性协议
-6. [Perceptual glimpses are locally accumulated and globally maintained at distinct processing levels](/202607/03/biorxiv-10-1101-2025-04-30-651428-v4-perceptual-glimpses-are-locally-accumulated-and-globally-maintained-at-distinct-processing-levels)  
+   evidence：使用图神经网络进行抑郁症EEG解码
+6. [Perceptual training selectively strengthens top-down signaling to sensory cortex](/202607/04/biorxiv-10-64898-2026-06-25-734556-v1-perceptual-training-selectively-strengthens-top-down-signaling-to-sensory-cortex)  
    标签：评分：7.0/10、query:sr
-   evidence：EEG研究间歇性瞥见中的证据累积
-7. [Multiple-Demand Network encoding geometry balances generalization and dimensionality during novel task assembly.](/202607/03/biorxiv-10-64898-2026-04-22-720093-v2-multiple-demand-network-encoding-geometry-balances-generalization-and-dimensionality-during-novel-task-assembly)  
+   evidence：OFC神经元编码试验结果和刺激信息
+7. [When Can Brain Connectivity Track the Working Mind? A Large-Scale Benchmark of Dynamic Functional Connectivity Across Cognitive Paradigms](/202607/04/biorxiv-10-64898-2026-06-28-735101-v1-when-can-brain-connectivity-track-the-working-mind-a-large-scale-benchmark-of-dynamic-functional-connectivity-across-cognitive-paradigms)  
    标签：评分：7.0/10、query:sr
-   evidence：fMRI编码几何学将任务需求与神经活动关联
-8. [Representational geometry as a fidelity metric for connectome-constrained networks: evidence from the Drosophila visual system](/202607/03/biorxiv-10-64898-2026-06-10-731214-v10-representational-geometry-as-a-fidelity-metric-for-connectome-constrained-networks-evidence-from-the-drosophila-visual-system)  
+   evidence：动态功能连接基准测试追踪认知状态随时间变化
+8. [Temporal fingerprints of TMS-evoked potentials across thalamocortical circuits](/202607/04/biorxiv-10-64898-2026-06-29-734769-v1-temporal-fingerprints-of-tms-evoked-potentials-across-thalamocortical-circuits)  
    标签：评分：7.0/10、query:sr
-   evidence：表征几何作为连接网络活动与生物布线的度量
-9. [BrainRiem: Riemannian Prototype Learning for Source-Free Cross-Site Brain Network Diagnosis](/202607/03/2606.29200v1-brainriem-riemannian-prototype-learning-for-source-free-cross-site-brain-network-diagnosis)  
+   evidence：TMS诱发电位的时间特征分析
+9. [Distributed Hierarchical Temporal Memory with Shared Associative Memory for Cross-Entity Preemptive Warning](/202607/04/2606.31789v1-distributed-hierarchical-temporal-memory-with-shared-associative-memory-for-cross-entity-preemptive-warning)  
    标签：评分：6.0/10、query:sr
-   evidence：基于黎曼原型学习的fMRI脑网络诊断
-10. [Data-Adaptive Learning of Dynamical Systems by Matching Transfer Operators and Invariant Measures](/202607/03/2607.00391v1-data-adaptive-learning-of-dynamical-systems-by-matching-transfer-operators-and-invariant-measures)  
+   evidence：使用脉冲表示和时序记忆进行异常检测
+10. [Self-Organized Learning in Oscillatory Neural Networks with Memristive Signed Couplings](/202607/04/2607.00286v1-self-organized-learning-in-oscillatory-neural-networks-with-memristive-signed-couplings)  
    标签：评分：6.0/10、query:sr
-   evidence：数据自适应学习动力系统，可应用于神经时间序列解码
+   evidence：通过振荡神经网络建立相位关系与外部变量关联的数学框架
 

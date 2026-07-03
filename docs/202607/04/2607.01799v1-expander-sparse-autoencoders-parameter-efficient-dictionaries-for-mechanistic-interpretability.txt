@@ -1,0 +1,1805 @@
+Title: Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability
+
+URL Source: https://arxiv.org/pdf/2607.01799v1
+
+Published Time: Fri, 03 Jul 2026 00:38:44 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+# Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 
+
+Rodrigo Mendoza-Smith * 1 
+
+## Abstract 
+
+Sparse autoencoders (SAEs) decompose internal activations of neural networks into sparse lin-ear combinations of learned features by fitting an overcomplete dictionary W ∈ Rm×n with 
+
+m < n , and inferring a sparse code x ∈ Rn from 
+
+h ≈ Wx . This inference problem closely resem-bles the canonical setup of compressed sensing, but dense decoders requires O(mn ) learned val-ues, which becomes costly at large feature counts. We introduce Expander SAEs : TopK SAEs whose decoder and tied encoder are supported on a left-d-regular expander mask with d ≪ m,learning only dn decoder values while keeping the sparse-coding problem (m, n, k ) fixed. The same structure reduces storage and turns the matching-pursuit correlation step W⊤r in OMP into an O(dn ) gather-and-reduce operation. Our experiments show that across Pythia-70M/160M, Qwen2.5-3B, and Llama-3.2-1B residual-stream activations, varying d traces a consistent storage– fidelity frontier, and that at the most compressed modern-LM setting, Qwen2.5-3B with d = 7 uses 
+
+293 × fewer learned decoder values than the full dense decoder while retaining 84% of dense CE-loss recovered. Control experiments show that the improved storage–fidelity tradeoff is driven by sparse, diverse decoder support structure rather than by fewer learned decoder values, and that when sparse and dense decoders are compared at matched parameter count, part of the remain-ing gap comes from encoder amortisation. On the theoretical side, we show that expansion and column flatness are sufficient for identifiability of noiseless k-sparse codes, and we derive comple-mentary sufficient conditions under which OMP recovers the support exactly. 
+
+> 1
+
+Independent Researcher. Correspondence to: Rodrigo Mendoza-Smith <rms@isotropic.sh>. 
+
+Mechanistic Interpretability Workshop at the 43 rd International Conference on Machine Learning (ICML), Seoul, South Korea, 2026. Copyright 2026 by the author(s). 
+
+## 1. Introduction 
+
+Mechanistic interpretability aims to reverse-engineer the in-ternal representations of a neural network by decomposing them into human-understandable components (Olah et al., 2020; Elhage et al., 2022). A central hypothesis is super-position which proposes that neural networks can represent more features than they have dimensions by exploiting the sparsity of feature activations (Elhage et al., 2022). Sparse autoencoders (SAEs) have emerged as a central tool for studying this phenomenon by decomposing the internal ac-tivations of neural networks into sparse linear combinations of interpretable features (Cunningham et al., 2023; Bricken et al., 2023; Gao et al., 2024; Templeton et al., 2024). SAEs are built by learning an encoder that maps an activation vector h ∈ Rm to sparse feature coefficients x ∈ Rn with 
+
+n > m and a decoder which maps x back to activation space ˆh ∈ Rm. Recent work (Klindt et al., 2025; O’Neill et al., 2025) has emphasised that SAE inference is a sparse-recovery problem: given a trained decoder Wdec ∈ Rm×n
+
+with m < n and an activation h ≈ Wdec x, recover a sparse latent code x ∈ Rn. This is the regime studied in com-pressed sensing (Candes and Tao, 2005; Donoho, 2006), where recovery is possible only because the latent vector is sparse and the measurement matrix has a suitable geometry. Indeed, prior work has shown that replacing the encoder with classic compressed-sensing algorithms like orthogo-nal matching pursuit (OMP) (Tropp and Gilbert, 2007) or gradient pursuit (Blumensath and Davies, 2008) can close the “amortisation gap” and improve reconstruction (Google DeepMind MI Team, 2024; O’Neill et al., 2025; Costa et al., 2025). A niche line of work within compressed sensing known as combinatorial compressed sensing studies the problem of sparse recovery when W is the adjacency matrix of a bipartite left d-regular expander graph (Berinde et al., 2008; Jafarpour et al., 2009; Indyk and Razenshteyn, 2010; Mendoza-Smith and Tanner, 2015). When d ≪ m, these matrices are binary, sparse, and highly structured so they are cheap to store and enable efficient recovery algorithms with provable guarantees (Xu and Hassibi, 2007; Berinde and Indyk, 2008; Mendoza-Smith and Tanner, 2015; 2017). Inspired by this line of work, we propose Expander SAEs :1
+
+> arXiv:2607.01799v1 [cs.LG] 2 Jul 2026 Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability
+
+tied-weight TopK sparse autoencoders whose encoder and decoder dictionaries are masked by the adjacency matrix of a left d-regular expander graph. The mask reduces the num-ber of learned decoder values from mn to dn while keeping the sparse-coding problem (m, n, k ) fixed. Moreover, this same structure also turns the correlation step W⊤
+
+> dec
+
+r in matching-pursuit decoders into an O(dn ) sparse gather-and-reduce rather than an O(mn ) dense product. We make the following contributions. • Architecture. We introduce Expander SAEs, aparameter-efficient architecture that lets us separate dictionary quality from amortised-inference quality. • Storage-fidelity frontier. We show that across four open language models (Pythia-70M/160M, Qwen2.5-3B, Llama-3.2-1B), varying the sparsity parameter of the dictionary ( d) traces a smooth trade-off between learned decoder values and reconstruction fidelity, and that on Qwen2.5-3B, Expander-SAE ( d=7 ) recovers 
+
+84% of the full dense cross-entropy loss while using 
+
+293 × fewer learned decoder values. • Parallel OMP. We propose a parallel implementa-tion of OMP that exploits the left d-regular column structure, yielding a Pareto frontier of operating points between fast amortised encoder inference and high-fidelity iterative decoding. • Identifiability theory. We motivate the architecture by proving that if the fixed mask expands every 2k-feature subset and the learned decoder columns remain suffi-ciently flat on their supports, then every noiseless k-sparse code has a unique k-sparse explanation. Under a separate, stronger cumulative-coherence condition, OMP is also certified to recover the support exactly. 
+
+Related work. Our work is adjacent to a number of lines of research. In SAE architectures, Gated (Rajamanoharan et al., 2024a), JumpReLU (Rajamanoharan et al., 2024b), TopK (Gao et al., 2024), BatchTopK (Bussmann et al., 2024), Switch (Mudide et al., 2024), and Meta-SAEs (Buss-mann et al., 2025) all modify the encoder or sparsity mecha-nism while keeping the decoder dense. To our knowledge, Expander SAEs are the first SAE architecture to evaluate fixed decoder column sparsity as a storage/interpretability constraint. On the compressed-sensing for SAEs side, Google DeepMind MI Team (2024) first applied gradient pursuit to frozen dense decoders, O’Neill et al. (2025) for-malised the amortisation gap, and Costa et al. (2025) de-veloped matching-pursuit variants as inference procedures. Closest to our sparse construction, Ba (2018) studied deep sparse generative models with sparse-column measurement matrices. 
+
+## 2. Background 
+
+A transformer processes tokens through L layers. At layer 
+
+ℓ it maintains a residual stream vector h(ℓ) ∈ Rm that en-codes everything the model has computed about the current token up to that layer. Each layer updates the residual stream via attention ( Attn ) and MLP sub-layers according to 
+
+h(ℓ+1 /2) = h(ℓ) + Attn (ℓ)(h(ℓ)), (1) 
+
+h(ℓ+1) = h(ℓ+1 /2) + MLP (ℓ)(h(ℓ+1 /2) ). (2) The superposition hypothesis (Elhage et al., 2022) posits that h(ℓ) encodes far more than m interpretable concepts simultaneously. Each concept corresponds to a direction 
+
+wj ∈ Rm in activation space, and the activation is approxi-mately a sparse linear combination of these directions: 
+
+h(ℓ) ≈
+
+> n
+
+X
+
+> j=1
+
+xj wj + ε = Wx + ε, (3) where W = [ w1 | · · · | wn] ∈ Rm×n is a feature dictio-nary with m < n that is learned from data, x ∈ Rn is a sparse feature-activation vector and ε ∈ Rm is noise. The latent vector is assumed to satisfy ∥x∥0 = k ≪ n, so decod-ing x from h(ℓ) falls within the class of problems studied by compressed-sensing. Applied to a residual-stream activation h ∈ Rm, a sparse autoencoder (SAE) simultaneously learns a pair of dictionar-ies (Wenc , Wdec ) ∈ Rn×m × Rm×n and a pair of biases 
+
+(benc , bdec ) ∈ Rn × Rm by modelling the activation’s re-construction as 
+
+(x = σ(Wenc (h − bdec ) + benc ) ,
+
+ˆh = Wdec x + bdec , (SAE) where σ is a sparsifying nonlinearity such as ReLU +ℓ1 (Cunningham et al., 2023; Bricken et al., 2023), TopK (Gao et al., 2024), or JumpReLU (Raja-manoharan et al., 2024b). Different SAE variants impose sparsity in different ways. ReLU SAEs often use an ℓ1
+
+penalty, while TopK SAEs impose a hard cardinality constraint by retaining only the largest k pre-activations. In this paper, sparsity is enforced by TopK retaining the 
+
+k largest pre-activations and zeroing the rest, with no additional sparsity penalty in the training loss. At inference, given a fresh residual-stream activation h ∈ Rm and the parameters of a trained model (SAE) we solve the sparse recovery problem 
+
+min  
+
+> x∈Rn
+
+(h − bdec ) − Wdec x 22 subject to ∥x∥0 ≤ k. 
+
+(4) The problem (4) is NP-hard, but seminal compressed-sensing theory (Candes and Tao, 2005; Donoho, 2006) showed that x is unique and can be recovered exactly when 2Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 
+
+every small subset of columns of Wdec behaves almost 
+
+like an isometry. Namely, when there exists a constant 
+
+δk ∈ (0 , 1) such that 
+
+(1 − δk)∥x∥22 ≤ ∥ Wx ∥22 ≤ (1 + δk)∥x∥22 (5) for all x ∈ Rn such that ∥x∥0 ≤ k. Equation (5) is known as the restricted isometry property (RIP-2) and is the basis of compressed-sensing theory. 
+
+2.1. Combinatorial compressed sensing 
+
+Combinatorial compressed-sensing studies the problem of recovering a k-sparse vector x ∈ Rn from h = Mx where 
+
+M ∈ { 0, 1}m×n is the adjacency matrix of a (k, ε, d )-expander graph. For completeness, we define this concept from first principles. For an integer n ∈ N we let [n] = {1, . . . , n }. A bipartite graph is a tuple G = ( L, R, E ) with node set L ∪ R and edge set E such that L ∩ R = ∅ and E ⊂ L × R. Such a graph is called imbalanced if |R| < |L| and is called 
+
+left d-regular if each left vertex has exactly d neighbours. The adjacency matrix of such a graph can be represented as a binary matrix M ∈ { 0, 1}m×n such that m < n and 
+
+∥Mj ∥0 = d for all j ∈ [n], where we use the notation 
+
+Mj to refer to the j-th column of M. For S ⊆ [n], we let 
+
+Γ( S) := {i ∈ [m] : ∃j ∈ S such that Mij = 1 }. In other words, the set Γ( S) ⊂ [m] is the set of neighbours of the node set S ⊂ [n]. The graph G is a (k, ε, d )-expander if it is bipartite, left d-regular and 
+
+|Γ( S)| ≥ (1 − ε)d|S| (6) for every S ⊆ [n] with |S| ≤ k. The parameter ε ∈ (0 , 1) is the expansion parameter and quantifies how many collisions the nodes of S generate in [m]. That is, how often i ∈
+
+Γ( S) has more than one neighbour. Although certifying that a graph is a (k, ε, d )-expander is NP-hard, it has been shown that for appropriate scaling of m, n, k, and d arandom binary matrix with d ≪ m ones per column is a 
+
+(k, ε, d )-expander with high probability (Bah and Tanner, 2013). Moreover, it has been shown that when ε < 1/2,the adjacency matrix M ∈ { 0, 1}m×n of expander graphs satisfies a restricted isometry property in the ℓ1 norm (RIP-1) (Berinde et al., 2008): 
+
+(1 − 2ε) d ∥x∥1 ≤ ∥ Mx ∥1 ≤ d ∥x∥1 (7) for all x ∈ Rn such that ∥x∥0 ≤ k. RIP-1 unlocks a re-covery toolkit with different computational and geometric guarantees from the usual dense RIP-2 setting, including greedy and peeling algorithms (Berinde and Indyk, 2008; Jafarpour et al., 2009; Indyk and Razenshteyn, 2010) and GPU-parallelisable iterative schemes (Mendoza-Smith and Tanner, 2015; 2017). Applied to the mechanistic inter-pretability setting, expansion guarantees that any small set of features activates a correspondingly large set of distinct activation coordinates, limiting the ambiguity with which a sparse activation pattern can be inverted. 
+
+## 3. Expander SAE Architecture 
+
+An Expander SAE with hyperparameters (m, n, d, k ) has learnable parameters V ∈ Rm×n, benc ∈ Rn, and bdec ∈
+
+Rm which instantiates (SAE) by setting 
+
+Wdec = ( V ⊙ M) diag( ν)−1, Wenc = W⊤ 
+
+> dec
+
+(8) where M ∈ { 0, 1}m×n is a binary mask with ∥Mj ∥0 = d
+
+for all j ∈ [n] sampled at initialisation and ν ∈ Rn nor-malises each column of M⊙V to unit ℓ2 norm. The forward pass instantiates (SAE) with σ(z) = TopK k(z), which re-tains the k entries with largest values, not largest magnitudes, and zeroes the rest. Retained values can in principle be neg-ative, but empirically, our trained checkpoints almost never select negative pre-activations. Only the dn nonzero posi-tions of V receive gradients, giving dn + n + m learnable parameters in total. 
+
+3.1. Decoding with OMP 
+
+A number of algorithms for combinatorial compressed-sensing exist but they are not very robust to noise. We want to pick an algorithm that is able to exploit the geometry of expanders, but also achieve good reconstruction quality. In Appendix B we compare several sparse-decoding algo-rithms and find that Orthogonal Matching Pursuit (OMP) (Tropp and Gilbert, 2007) gives the strongest reconstruction improvement among the tested decoders for Expander-SAE checkpoints. Algorithm 1 gives the OMP variant used in our diagnostics. 
+
+Algorithm 1 OMP for Expander SAE 
+
+Require: measurement y, decoder W, bias b, sparsity k 
+
+> 1:
+
+r ← y − b, S ← ∅  
+
+> 2:
+
+for t = 1 , . . . , k do  
+
+> 3:
+
+j∗ ← arg max j / ∈S |⟨ wj , r⟩|  
+
+> 4:
+
+S ← S ∪ { j∗} 
+
+> 5:
+
+ˆxS ← W[: , S ]†(y − b) 
+
+> 6:
+
+r ← y − b − W[: , S ] ˆ xS 
+
+> 7:
+
+end for 
+
+Although OMP is well studied, standard guarantees do not directly apply to learned, non-binary expander-style de-coders. The effect of non-binary weights is quantified from the column-flatness factor 
+
+β(Wdec ) := √d max    
+
+> i,j :Mij =1
+
+|Wij |. (9) Since each decoder column is supported on at most d entries and has unit ℓ2-norm, we have 1 ≤ β(Wdec ) ≤ √d. Larger 3Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 
+
+β means that a feature has concentrated more mass on fewer coordinates. The resulting identifiability guarantee is stated in Theorem 3.1 
+
+Theorem 3.1 (Identifiability for learned SAE decoders) .
+
+Let Wdec ∈ Rm×n be an Expander SAE decoder with unit-normalised columns supported on a left d-regular mask 
+
+M. Assume that M is a (2 k, ε, d )-expander and let β := 
+
+β(Wdec ). If 
+
+2β2ε < 1, (10) 
+
+then every 2k-sparse vector u ∈ Rn satisfies 
+
+∥Wdec u∥1 ≥ √d
+
+ 1
+
+β − 2βε 
+
+
+
+∥u∥1. (11) 
+
+Consequently, for every k-sparse latent vector x⋆ ∈ Rn,the noiseless Expander SAE reconstruction model h =
+
+bdec + Wdec x⋆ has x⋆ as its unique k-sparse explanation. Equivalently, the sparse decoder (4) recovers x⋆ exactly in the noiseless case. 
+
+Theorem 3.1 is an idealised noiseless identifiability result for the sparse inverse problem defined by the learned de-coder and is proved in Appendix M. Specifically, it says that under expansion and flatness, the decoder has no nonzero 
+
+2k-sparse null vector, so two distinct k-sparse codes can-not produce the same centred activation. Note that when 
+
+β = 1 , (10) reduces to the classical lossless-expander con-dition ε < 12 (Jafarpour et al., 2009) and that for learned non-binary decoders, the expansion deficit must be smaller. Condition (10) is therefore the weighted Expander SAE ana-logue of the usual lossless-expander condition. A stronger cumulative-coherence condition gives a conservative suffi-cient condition for standard OMP recovery. 
+
+Corollary 3.2 (OMP recovery on Expander SAEs) . Let 
+
+W = Wdec have unit-normalised columns supported on a left d-regular mask M, and let β = β(W). If M is a 
+
+(k+1 , ε, d )-expander and 
+
+β2 ε (2 k+1) < 1,
+
+then in the noiseless model h = bdec +Wx ⋆, OMP recovers the support of every k-sparse x⋆ in k steps. 
+
+A proof of Corollary 3.2 is also given in Appendix M. Note that the conditions above are worst-case uniform re-covery guarantees, so they should not be read as a claim that every configuration used in Section 4 is certified. In fact, certifying the parameters of an expander graph or the RIP conditions of a matrix is NP-hard, so we provide Theorem 3.1 and Corollary 3.2 to motivate the fixed-support archi-tecture and connect it to established theory rather than to certify the regime in which our experiments operate. Algorithm 1 uses the absolute-value selection rule 
+
+arg max j / ∈S |⟨ wj , r⟩| , the standard formulation under which the cumulative-coherence guarantees of Corollary 3.2 and Tropp and Gilbert (2007) apply. We point out that our reference implementation uses the signed vari-ant arg max j / ∈S ⟨wj , r⟩, mirroring the convention that 
+
+TopK k(z) retains the k largest signed pre-activations (Gao et al., 2024), but the two coincide on the trained Expander-SAE dictionaries we evaluate (Appendix D). Therefore, signed and absolute-value argmax select the same support on these dictionaries, and the theoretical guarantees apply to the procedure actually run. As is standard in compressed sensing, these theorems mo-tivate an asymptotic interpretation as k,m,n → ∞ at fixed 
+
+ρ = k/m and δ = m/n (Donoho and Tanner, 2009). How-ever, it should be noted that our experiments choose k
+
+for reconstruction and interpretability, not to activate the theorem’s hypotheses, so these are worst-case sufficient conditions that should be read as architectural motivation rather than certification of every experimental setting. Ap-pendix B.4 reports empirical certificate ratios and discusses the asymptotic regimes in which the conditions are non-vacuous. That being said, we also stress that the condition of the theorem is nevertheless non-vacuous. Let 
+
+m = δn, k = ρm, 
+
+with fixed δ < 1 and fixed ρ > 0. Counting requires 
+
+2(1 − ε)dρ ≤ 1, because the neighbourhood of 2k columns must fit inside m rows. For any fixed flatness target β0,if d > 2β20 , then one can choose a constant 1/d < ε < 
+
+1/(2 β20 ). For sufficiently small fixed ρ > 0, random left d-regular masks are (2 k, ε, d )-expanders with high probability, so the theorem applies at positive sparsity density provided training yields β(W) ≤ β0.
+
+## 4. Experiments 
+
+Before turning to the results, we summarise the experimen-tal setup and reporting conventions used throughout. 1 We extract residual-stream activations from a fixed pre-trained language model at a single hook site, train sparse autoen-coders on those activations, and report three metrics through-out the paper: • trained-encoder relative reconstruction error 
+
+err( h) = ∥h − ˆh∥2
+
+∥h∥2
+
+, 
+
+> 1All training and evaluation runs used A10G GPUs on Modal (https://www.modal.com ). The codebase was implemented with the assistance of Claude Code (Anthropic Claude Opus 4.7) and is available at https://github.com/rodrgo/ expander-sae .
+
+4Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 20 40 60 80 100 120      
+
+> k
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> CE-loss recovered
+> CE recovered vs k (m=512, n=4096)
+> Expander-SAE (d=7)
+> Expander-SAE (d=50)
+> Expander-SAE (d=200)
+> Expander-SAE (d=m)
+> Dense-SAE 20 40 60 80 100 120
+> k
+> 0.30
+> 0.35
+> 0.40
+> 0.45
+> 0.50
+> 0.55
+> 0.60
+> 0.65
+> relative reconstruction error
+> Reconstruction error vs k (m=512, n=4096)
+> Expander-SAE (d=7)
+> Expander-SAE (d=50)
+> Expander-SAE (d=200)
+> Expander-SAE (d=m)
+> Dense-SAE
+
+Figure 1. Storage–fidelity frontier on Pythia-70M layer 3 ( m=512 , n=4096 , trained encoder). The left panel shows corrected CE-loss recovered versus TopK sparsity k, and the right panel shows relative reconstruction error versus k. Larger d approaches the dense fidelity floor, while smaller d retains high CE recovery with substantially fewer learned decoder values. 
+
+which measures ℓ2 reconstruction quality on a held-out split of 5,000 tokens; • zero-ablation-normalised CE-loss recovered, 
+
+CE rec = CE zero − CE recon 
+
+CE zero − CE clean 
+
+,
+
+which measures downstream language-modelling be-haviour; • dead-feature fraction, the proportion of features that never fire on the held-out set. We compare two main SAE families: Dense-SAE , the stan-dard sparse autoencoder with independent encoder and de-coder weights, and Expander-SAE-d, the tied-weight TopK sparse autoencoder of Section 3, whose decoder columns are supported on a frozen left-d-regular expander mask. We also report the d=m special case as a tied-dense baseline, which retains the tied architecture while removing the mask. All architectures use the same TopK nonlinearity, unit-ℓ2
+
+column normalisation through the forward graph, and the optimiser, learning-rate schedule, and dead-feature resam-pling rule described in Appendix A. Our headline setting uses residual-stream activations from layer 3 of Pythia-70M (Biderman et al., 2023), with m=512 ,
+
+n=4096 , and k=64 , and a 200 ,000 -token training split to-gether with a 5,000 -token held-out split drawn from the Pile (Gao et al., 2020). We replicate the main trends on Pythia-160M (Biderman et al., 2023), Qwen2.5-3B (Yang et al., 2024), and Llama-3.2-1B (Grattafiori et al., 2024) at residual-stream hooks. Unless explicitly marked as iterative OMP, all main-paper metrics use the trained encoder. We treat OMP and other compressed-sensing decoders as offline diagnostics; the main matched-parameter OMP comparison appears in Section 4.3, with full details in Appendix B. 
+
+4.1. Varying d traces a smooth storage–fidelity frontier across models 
+
+We first ask whether varying d traces a smooth storage– fidelity curve or merely picks out a single trade-off point. Figure 1 plots both metrics against TopK sparsity k for Expander-SAE at d ∈ { 7, 50 , 200 }, the tied-dense baseline at d=m, and Dense-SAE on Pythia-70M layer 3. At every k,increasing d trades learned decoder values for fidelity along a smooth curve. At d=7 the Expander decoder uses 73 ×
+
+fewer learned values than the dense decoder while retaining 
+
+86% of dense CE recovery ( 0.817 /0.947 ), and at d=200 
+
+the gap to dense closes to within five percentage points of CE while still using 2.6× fewer values. CE-recovered is not strictly monotone in d at every k, which is why we report it alongside relative reconstruction error rather than as the sole fidelity axis. Table 1 shows that the frontier replicates across model fam-ilies and scales. On three open language-model families spanning 70 M to 3B parameters and three different decoder designs (GPT-NeoX, Llama-style, and Qwen2-style), the same monotone d 7 → fidelity ordering holds at k=64 . The most extreme cell is Qwen2.5-3B at d=7 , where Expander uses 293 × fewer learned values than the corresponding Dense-SAE ( 114 ,688 against 33 ,554 ,432 ) and still recov-ers 84% of its CE. Pythia-70M layer 5 is omitted because Dense-SAE itself fails at that hook with CE rec < 0 (see Table 7), which we read as a model-stage limitation rather than an architecture-specific failure. 
+
+4.2. Support geometry, not just sparsity or parameter count, drives the gain 
+
+We run three controls to disentangle the contribution of the expander mask from confounds with parameter count, column sparsity, and support geometry. 5Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability                                                                                                                       
+
+> Table 1. Cross-model replication of the storage–fidelity frontier at k=64 , three seeds. Storage is the ratio of learned decoder values to Dense-SAE at the same (m, n ); rel err and CE rec are held-out trained-encoder metrics. Starred/daggered cells denote seed-instability caveats detailed in Appendix F. Model Layer mnMethod Storage rel err CE rec Pythia-70M 3512 4,096
+> Expander d=7 73 ×0.541 0.817
+> Expander d=50 10 ×0.489 0.859
+> Expander d=200 2.6×0.415 0.902
+> Dense-SAE 1×0.342 0.947
+> Pythia-160M 8768 6,144
+> Expander d=10 77 ×0.520 0.767
+> Expander d=75 10 ×0.461 0.836
+> Expander d=300 2.6×0.399 0.889
+> Dense-SAE 1×0.332 0.946
+> Qwen2.5-3B 12 2,048 16 ,384
+> Expander d=7 293 ×0.764 0.828
+> Expander d=30 68 ×0.703 0.894
+> Expander d=102 20 ×0.681 0.919
+> Dense-SAE 1×0.489 0.983
+> Qwen2.5-3B 24 2,048 16 ,384
+> Expander d=7 293 ×0.693 0.875
+> Expander d=30 68 ×0.848 ⋆0.821 ⋆
+> Expander d=102 20 ×0.659 0.884
+> Dense-SAE 1×0.591 0.936
+> Llama-3.2-1B 62,048 16 ,384
+> Expander d=7 293 ×0.809 0.576 †
+> Expander d=30 68 ×0.760 0.743
+> Expander d=102 20 ×0.732 0.816
+> Dense-SAE 1×0.568 0.952
+> Llama-3.2-1B 12 2,048 16 ,384
+> Expander d=7 293 ×0.757 0.608
+> Expander d=30 68 ×0.742 0.707
+> Expander d=102 20 ×0.720 0.758
+> Dense-SAE 1×0.499 0.958
+
+Matching parameters by shrinking n changes the sparse-coding problem, not just the budget. Figure 2 (bottom-right) trains a Dense-SAE at the same learned-parameter count by lowering n to n′ = dn/m . On this Pythia-70M layer 3, Expander beats it by 0.10 to 0.21 CE points at every shared budget, because reducing n shifts the sparse-recovery ratio δ = m/n , makes the dictionary undercomplete for small d, and at the smallest d drops n′ below the null-space property n > 2k where the cell is excluded entirely. At modern-LM scale the trained-encoder comparison appears to invert. Matched-Dense exceeds Expander by roughly 
+
+0.01 CE on Qwen2.5-3B and by 0.060 to 0.115 CE on Llama-3.2-1B at both layers. This gap is largely an encoder amortisation effect rather than a decoder-quality difference. Iterative OMP applied symmetrically to both architectures collapses the matched-n′=240 against Expander d=30 gap from +0 .060 to +0 .007 CE on Llama and from +0 .012 
+
+to −0.005 CE on Qwen, and narrows the matched-n′=816 
+
+against Expander d=102 gap on both models, as we unpack in Section 4.3 and Table 3. The structural advantages of Expander supports therefore hold at every scale, namely the flat (values , rows ) storage that admits structured-OMP decoding, the deterministic seed-regenerable masks, and the strong performance at the smallest d where the matched-n′
+
+cell falls below the NSP gate. 
+
+Sparse columns without support diversity leave many more features dead. Figure 2 (top) keeps (m, n, k, d )
+
+identical but partitions the rows into G = ⌊m/d ⌋ disjoint blocks and assigns every column to one block, deliberately destroying support diversity. It tracks Expander on relative reconstruction error at small and medium d, but at d=200 
+
+its dead-feature rate climbs by roughly 100 ×, from 0.7% to 
+
+6.2% . Column sparsity alone therefore does not explain the parameter-efficiency frontier, and support diversity controls whether features remain in use at large d.
+
+A dense model can be pruned into a good sparse de-coder, but only with extra training. Figure 2 (bottom-left) extracts a sparse mask from a pre-trained dense SAE by keeping the top-d rows per column. It closes most of the relative-reconstruction-error gap to dense at every d, but requires a second training pass, so the support-extraction win is real but bought with 2× the training compute. 
+
+4.3. Most of the large-model gap is encoder amortisation, which iterative OMP largely closes 
+
+Table 2 consolidates the deployment-relevant numbers at 
+
+k=64 on Pythia-70M layer 3, with on-disk storage, training cost, reconstruction error, CE recovery, and dead-feature fraction in one place. The remainder of this subsection un-6Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 20 40 60 80 100 120 
+
+> k
+> 0.30
+> 0.35
+> 0.40
+> 0.45
+> 0.50
+> 0.55
+> 0.60
+> 0.65
+> rel. err
+
+Reconstruction error      
+
+> Expander-SAE (d=7)
+> Expander-SAE (d=50)
+> Expander-SAE (d=200)
+> Clustered-sparse (d=7)
+> Clustered-sparse (d=50)
+> Clustered-sparse (d=200)
+> Dense-SAE
+> 20 40 60 80 100 120
+> k
+> 0.60
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> CE-loss recovered
+
+CE recovered         
+
+> 20 40 60 80 100 120
+> k
+> 10 3
+> 10 2
+> 10 1
+> dead-feature fraction
+
+Dead features 
+
+Support-structure controls (m=512, n=4096; mean over seeds) 20 40 60 80 100 120                              
+
+> k
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> rel. err
+> Reconstruction error
+> Expander-SAE (d=7)
+> Expander-SAE (d=50)
+> Expander-SAE (d=200)
+> Pruned dense (d=7)
+> Pruned dense (d=50)
+> Pruned dense (d=200)
+> 20 40 60 80 100 120
+> k
+> 0.60
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> CE-loss recovered
+> CE recovered
+> Expander-SAE (d=7)
+> Expander-SAE (d=50)
+> Expander-SAE (d=200)
+> Pruned dense (d=7)
+> Pruned dense (d=50)
+> Pruned dense (d=200)
+> Expander-SAE vs Pruned dense (m=512, n=4096, seeds mean ± SEM) 28,672
+> (d= 7)
+> 122,880
+> (d= 30)
+> 204,800
+> (d= 50)
+> 409,600
+> (d= 100)
+> 819,200
+> (d= 200)
+> learned-parameter budget
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> CE-loss recovered  n= 4096 n= 4096 n= 4096 n= 4096 n= 4096
+> n= 200
+> n= 400
+> n= 800
+> n= 28
+> (n< 2 k)
+> n= 120
+> (n< 2 k)
+> Budget-matched comparison ( m= 512, k= 64)
+> Expander-SAE
+> Dense-SAE
+
+Figure 2. Three controls at k=64 on Pythia-70M layer 3, three seeds. The top row shows reconstruction error, CE-loss recovered, and dead-feature fraction (log scale) for Expander (solid) and Clustered-sparse (dashed). The bottom-left panel compares Expander (solid) against Pruned-retuned dense (dotted) at d ∈ { 7, 50 , 200 }. The bottom-right panel reports the reduced-n dense baseline at matched parameter budget. 
+
+packs how iterative OMP changes the picture at modern-LM scale and points to two further diagnostics in the appendix. 
+
+Table 2. Deployment summary at m=512 , n=4096 , k=64 on Pythia-70M layer 3. Storage is total on-disk artefact size in KiB us-ing the deployable layout; sparse models use flat (values , rows )
+
+storage. Metrics are trained-encoder mean ± SEM over three seeds, except ‡ rows with two seeds. Each cell shows rel err over CE rec. Pruned dense counts both dense pretraining and sparse retuning. Full storage and metric breakdowns are in Tables 9–10. Architecture d Stor. (KiB) Tr. passes rel err / CE rec. Dead frac. Dense-SAE 512 16 ,402 1 0.342 ±.000 0.947 ±.001 0.6% 
+
+Expander-SAE 
+
+7 242 1 0.541 ±.006 0.817 ±.001 0.1% 50 1,618 1 0.489 ±.003 0.859 ±.002 0.3% 200 6,418 1 0.415 ±.001 0.902 ±.001 0.7% 
+
+Clust.-sparse 200 ‡ 6,418 1 0.518 ±.012 0.829 ±.016 6.2%
+
+Pruned dense 200 6,418 2 0.363 ±.002 0.934 ±.001 0.4% 
+
+Iterative OMP recovers the encoder amortisation gap at modern-LM scale. The trained-encoder CE-recovered numbers in Table 1 for Expander on Qwen2.5-3B and Llama-3.2-1B compress two effects into a single number, namely the quality of the learned d-regular decoder and the amor-tisation gap of the trained encoder against a stronger non-amortised sparse decoder on the same frozen dictionary. Replacing the encoder with iterative OMP at L=1 (top-
+
+1 pick by W⊤
+
+dec r, Cholesky refit on the active set, k se-quential iterations) decomposes the two effects, with results in Table 3. Two findings stand out. First, at the storage-extreme cell with d=7 and 293 × fewer learned values than full-Dense, iterative OMP gains +0 .073 CE on Qwen and 
+
++0 .118 CE on Llama, recovering most of the headroom to the larger-decoder cells and showing that the encoder amor-tisation gap is largest where storage compression is most aggressive. Second, the matched-parameter dense baseline gap from Section 4.2 is mostly an encoder effect at d=30 .Under iterative OMP applied symmetrically to both archi-tectures, matched-Dense n′=240 against Expander d=30 
+
+shrinks from +0 .060 to +0 .007 CE on Llama and from 
+
++0 .012 to −0.005 CE on Qwen, with Expander now slightly ahead. At the larger d=102 cell a smaller residual gap remains. The trained encoder remains the recommended online-deployment path at roughly 1.8M tokens per second on a single A10G against iterative OMP’s 13 k tokens per second (Table 5), and iterative OMP is the right choice for offline analysis at the storage-extreme cell. 
+
+Features stay novel while coherence degrades gracefully 
+
+Two qualitative diagnostics support the headline numbers. 7Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability                                                
+
+> Table 3. Encoder versus iterative OMP CE recovered at k=64 on Qwen2.5-3B and Llama-3.2-1B layer 12, three seeds. OMP runs on the same frozen checkpoints; Gain is Iter. OMP minus Encoder. Architecture Encoder Iter. OMP Gain CE rec CE rec
+> Qwen2.5-3B (layer 12)
+> Expander d=7 0.828 0.901 +0.073
+> Expander d=30 0.894 0.914 +0 .020
+> Expander d=102 0.919 0.933 +0 .014
+> Matched-Dense n′=240 0.906 0.909 +0 .003
+> Matched-Dense n′=816 0.945 0.952 +0 .007
+> Llama-3.2-1B (layer 12)
+> Expander d=7 0.608 0.726 +0.118
+> Expander d=30 0.707 0.765 +0 .058
+> Expander d=102 0.758 0.798 +0 .040
+> Matched-Dense n′=240 0.767 0.772 +0 .005
+> Matched-Dense n′=816 0.873 0.880 +0 .007
+
+Activation-Jaccard novelty against a Dense-SAE reference is 81% at d=7 , well above the 68% dense-vs-dense seed baseline and the firing-rate-matched null, and falls mono-tonically with d to 5.8% at d=m (Appendix D). A blinded evaluation by two LLM judges (Claude Sonnet 4.5 and GPT-4o, 25 features per architecture stratified by firing-rate quartile, anonymised IDs, three calls each at temperature 0)rates Expander-d=200 at 3.72 ± 0.19 against Dense-SAE at 
+
+3.59 ±0.19 on a 1 to 5 coherence scale, which is statistically indistinguishable. Expander-d=7 drops to 2.83 ± 0.22 , indi-cating that interpretability degrades gracefully at the storage extreme. Inter-judge Spearman correlation on per-feature mean coherence is ρ = 0 .74 , with details in Appendix E. 
+
+## 5. Conclusion 
+
+We introduced Expander SAEs, tied TopK sparse autoen-coders whose decoder columns are supported on a fixed left-
+
+d-regular mask. The architecture keeps the sparse-coding dimensions (m, n, k ) fixed while reducing learned decoder values from mn to dn . We prove a weighted-expander iden-tifiability result for learned real-valued decoders under ex-pansion and column-flatness assumptions, and empirically show across Pythia, Qwen, and Llama residual streams that varying d traces a storage–fidelity frontier. At small budgets, iterative OMP recovers part of the encoder amortisation gap, while support-structure controls show that diverse sparse supports avoid clustered-mask dead-feature pathologies. We therefore view Expander SAEs not as a final replacement for dense SAEs, but as evidence that decoder support structure is an important and underexplored design axis. Promising next steps are larger-scale evaluations, low-rank corrections, learned sparse supports, and sharper data-dependent theory. 
+
+## References 
+
+Demba Ba. Deeply-sparse signal representations (DS 2P). 
+
+arXiv:1807.01958 , 2018. Bubacarr Bah and Jared Tanner. Vanishingly sparse matrices and expander graphs, with application to compressed sensing. IEEE transactions on information theory , 59 (11):7491–7508, 2013. Radu Berinde and Piotr Indyk. Sequential sparse match-ing pursuit. In Allerton Conference on Communication, Control, and Computing , 2008. Radu Berinde, Anna Gilbert, Piotr Indyk, Howard Karloff, and Martin Strauss. Combining geometry and combi-natorics: A unified approach to sparse signal recovery. In Allerton Conference on Communication, Control, and Computing , 2008. Stella Biderman et al. Pythia: A suite for analyzing large language models across training and scaling. In Interna-tional Conference on Machine Learning (ICML) , 2023. Jeffrey D. Blanchard, Coralia Cartis, Jared Tanner, and An-drew Thompson. Phase transitions for greedy sparse approximation algorithms. Applied and Computational Harmonic Analysis , 30(2):188–203, 2011. doi: 10.1016/j. acha.2010.07.001. Thomas Blumensath and Mike E. Davies. Gradient pursuits. 
+
+IEEE Transactions on Signal Processing , 56(6):2370– 2382, 2008. Thomas Blumensath and Mike E. Davies. Normalized it-erative hard thresholding: Guaranteed stability and per-formance. IEEE Journal of Selected Topics in Signal Processing , 4(2):298–309, 2010. Trenton Bricken et al. Towards monosemanticity: Decom-posing language models with dictionary learning. Trans-former Circuits Thread , 2023. Bart Bussmann, Patrick Leask, and Neel Nanda. BatchTopK sparse autoencoders. arXiv:2412.06410 , 2024. Bart Bussmann et al. Matryoshka sparse autoencoders. 
+
+arXiv:2503.17547 , 2025. Emmanuel J Candes and Terence Tao. Decoding by linear programming. IEEE transactions on information theory ,51(12):4203–4215, 2005. Victor Costa, Thomas Fel, Ekdeep Singh Lubana, Ba-hareh Tolooshams, and Demba Ba. From flat to hier-archical: Matching pursuit for sparse representations. 
+
+arXiv:2506.03093 , 2025. 8Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 
+
+Hoagy Cunningham et al. Sparse autoencoders find highly interpretable features in language models. 
+
+arXiv:2309.08600 , 2023. David L. Donoho. Compressed sensing. IEEE Transactions on Information Theory , 2006. David L. Donoho and Jared Tanner. Observed universality of phase transitions in high-dimensional geometry, with implications for modern data analysis and signal process-ing. Philosophical Transactions of the Royal Society A ,367(1906):4273–4293, 2009. Nelson Elhage et al. Toy models of superposition. Trans-former Circuits Thread , 2022. Leo Gao et al. The pile: An 800GB dataset of diverse text for language modeling. arXiv:2101.00027 , 2020. Leo Gao et al. Scaling and evaluating sparse autoencoders. 
+
+arXiv:2406.04093 , 2024. Google DeepMind MI Team. Progress update 1: Inference-time optimisation. LessWrong, 2024. Aaron Grattafiori et al. The llama 3 herd of models. arXiv preprint arXiv:2407.21783 , 2024. Piotr Indyk and Ilya Razenshteyn. Sparse recovery using sparse random matrices. In Latin American Symposium on Theoretical Informatics (LATIN) , 2010. Sina Jafarpour, Weiyu Xu, Babak Hassibi, and Robert Calderbank. Efficient and robust compressed sensing using optimized expander graphs. IEEE Transactions on Information Theory , 55(9):4299–4308, 2009. Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization. In International Conference on Learning Representations , 2015. David Klindt et al. Superposition is compressed sensing. 
+
+arXiv:2503.01824 , 2025. Rodrigo Mendoza-Smith and Jared Tanner. Expander ℓ0-decoding. arXiv:1508.01256 , 2015. Rodrigo Mendoza-Smith and Jared Tanner. Robust expander 
+
+ℓ0-decoding. arXiv:1704.09012 , 2017. Anish Mudide et al. Switch sparse autoencoders. 
+
+arXiv:2410.08201 , 2024. Deanna Needell and Joel A. Tropp. CoSaMP: Iterative signal recovery from incomplete and inaccurate samples. 
+
+Applied and Computational Harmonic Analysis , 26(3): 301–321, 2009. Chris Olah, Nick Cammarata, Ludwig Schubert, Gabriel Goh, Michael Petrov, and Shan Carter. Zoom in: An introduction to circuits. Distill , 2020. Charles O’Neill, Nevil Gumran, and David Klindt. The amortisation gap of sparse autoencoders. In International Conference on Machine Learning (ICML) , 2025. Senthooran Rajamanoharan et al. Gated sparse autoencoders. In Neural Information Processing Systems (NeurIPS) ,2024a. Senthooran Rajamanoharan et al. JumpReLU sparse autoen-coders. arXiv:2407.14435 , 2024b. Adly Templeton et al. Scaling monosemanticity: Extracting interpretable features from Claude 3 Sonnet. Transformer Circuits Thread , 2024. Joel A. Tropp. Greed is good: Algorithmic results for sparse approximation. IEEE Transactions on Information Theory , 50(10):2231–2242, 2004. Joel A. Tropp and Anna C. Gilbert. Signal recovery from random measurements via orthogonal matching pursuit. 
+
+IEEE Transactions on Information Theory , 53(12):4655– 4666, 2007. Jian Wang, Seokbeop Kwon, and Byonghyo Shim. General-ized orthogonal matching pursuit. IEEE Transactions on Signal Processing , 60(12):6202–6216, 2012. Weiyu Xu and Babak Hassibi. Efficient compressive sensing with deterministic guarantees using expander graphs. In 
+
+IEEE Information Theory Workshop (ITW) , 2007. An Yang et al. Qwen2.5 technical report. arXiv preprint arXiv:2412.15115 , 2024. 9Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 
+
+## A. Training and evaluation details 
+
+This appendix specifies the activation extraction, optimisation, and dead-feature resampling procedures used throughout the paper. 
+
+Activations. Let f (ℓ)LM ( · ) ∈ Rm denote the residual-stream output of layer ℓ of a fixed pre-trained language model. The headline configuration is Pythia-70M (Biderman et al., 2023) at ℓ = 3 with m = 512 , hooked on the residual-stream output of lm.gpt_neox.layers[3] (equivalent to TransformerLens blocks.3.hook_resid_post ). We tokenise sequences from the Pile (Gao et al., 2020) with the model’s tokeniser, truncate or pad to length L = 128 , and run all L tokens through the model under no_grad . The activation dataset is the multiset of per-token residual-stream vectors, 
+
+D =  hs,t := f (ℓ)LM 
+
+ us
+
+ 
+
+> t
+
+s = 1 , . . . , N seq , t = 1 , . . . , L , (12) with |D| = 210 ,000 , extracted in a single Modal A100 forward pass ( ∼ 40 s) and cached. Activations are used raw without whitening, and the decoder bias bdec is initialised to zero. All subsequent SAE training and evaluation runs use A10G GPUs on Modal. 
+
+Loss and sparsity. The TopK nonlinearity retains the k pre-activations with the largest values and zeroes the rest. The retained values are signed in principle, though the trained encoders we report produce non-negative codes (verified by the sign-aware diagnostic in Appendix D). A feature is counted as firing when its coefficient is nonzero. The training loss is per-sample ℓ2 reconstruction error with no sparsity penalty, since sparsity is enforced by TopK, 
+
+L = 1
+
+B
+
+> B
+
+X
+
+> b=1
+
+hb − ˆhb
+
+> 22
+
+, (13) with batch size B = 256 . The column normalisation in Eq. (8) is part of the forward graph, so the loss is differentiable through it. 
+
+Optimisation. We use Adam (Kingma and Ba, 2015) with β1 = 0 .9, β2 = 0 .999 , ϵ = 10 −8, and a single-period cosine learning-rate schedule over T = 5000 steps, 
+
+ηt = 10 −5 + 12
+
+ 3 · 10 −4 − 10 −5  1 + cos( πt/T ). (14) Gradients are clipped to global ℓ2 norm 1.0. Mini-batches are drawn with shuffle=True, drop_last=True , and the loader cycles through Dtrain until T steps are completed. 
+
+Dead-feature resampling. Following Bricken et al. (2023); Gao et al. (2024), every Tr = max(1000 , T / 5) steps we identify columns that fired on fewer than 5 of the last Tr · B samples. For each dead column j we pick the sample in the current mini-batch with the largest residual rb, project it onto the column’s mask support Sj = {i : Mij = 1 }, and reset 
+
+VSj ,j ← 1
+
+√d
+
+(rb)Sj
+
+∥(rb)Sj ∥2
+
+, (Wenc )j, : ← (Wdec )⊤ 
+
+> :,j
+
+, benc ,j ← 0. (15) Resampling is disabled when more than 80% of features are dead. 
+
+## B. OMP and inference-method diagnostics 
+
+This appendix benchmarks four sparse decoders on the trained Expander SAE checkpoints from Appendix F, then describes the engineering steps that exploit the d-regular structure to make iterative OMP practical at scale. Since the ground-truth sparse code x is unobserved, we measure performance on the reconstruction ˆh via the relative reconstruction error 
+
+err( h) = ∥h − ˆh∥2
+
+∥h∥2
+
+, (16) averaged over a held-out batch, alongside CE-loss recovered (Appendix I) as a downstream check that a small ℓ2 gap preserves language-modelling behaviour. 10 Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 
+
+B.1. Comparing sparse-decoding procedures 
+
+We freeze the trained Expander SAE decoders ( m=512 , n=4096 , d ∈ { 7, 50 , 200 }) and evaluate four sparse-decoding procedures at the matching k. The trained encoder, OMP, NIHT (Blumensath and Davies, 2010), and CoSaMP (Needell and Tropp, 2009) all solve Eq. (4) on the same held-out activations, and we report per-sample relative reconstruction error averaged over activations and seeds. OMP reduces reconstruction error by 15 to 25% relative to the trained encoder across every (d, k ) tested, consistent with the amortisation-gap findings of O’Neill et al. (2025) and Google DeepMind MI Team (2024). NIHT and CoSaMP close part of the gap but do not match OMP, in contrast to their typical behaviour on idealised CS benchmarks (Blanchard et al., 2011). SAE activations are not exactly k-sparse in the learned dictionary, and OMP’s greedy one-column-at-a-time support selection appears more robust to this mismatch than NIHT’s hard-thresholded iterative projection or CoSaMP’s support-pruning strategy. We therefore use OMP for the remaining diagnostics. 20 40 60 80 100 120              
+
+> k
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> rel. err
+> d=7
+> encoder
+> omp
+> niht
+> cosamp
+> 20 40 60 80 100 120
+> k
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> d=50
+> 20 40 60 80 100 120
+> k
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> d=200
+> Inference procedures on frozen Expander SAE decoders ( m= 512, n= 4096)
+
+Figure 3. Relative reconstruction error versus k for each decoding method on frozen Expander SAE decoders, shared y-range across d.Error bars show the seed min/max range. 
+
+B.2. Structured OMP for expander dictionaries 
+
+The d-regular column structure admits three optimisations that turn iterative OMP from a CPU-bound diagnostic into a GPU-batched inference procedure, and a block-size sweep then exposes a continuum of operating points between iterative and single-shot decoding. Table 4 reports throughput and reconstruction error for every variant, and Table 5 sweeps the block size L at d=7 .The (values , rows ) storage already used by the encoder forward turns the correlation step W⊤r into an O(dn ) gather and segment-sum rather than an O(mn ) dense GEMV, and turns the residual update into an O(d|support |) scatter. This yields an 11 × throughput improvement at d=7 , 8× at d=50 , and 3× at d=200 over vanilla OMP, a roughly m/d scaling consistent with Amdahl’s law applied to the correlation share of per-iteration cost. The Dense-SAE row still improves by 1.5× because the residual-update scatter is cheaper than a dense Wˆx matmul. Replacing the per-iteration numpy.linalg.lstsq 
+
+with an incremental QR refit that grows the active-set factorisation via modified Gram-Schmidt reduces the lstsq cost from 
+
+O(mk 2 + k3) to O(mk + k2) per iteration, and the combined structure-aware and incremental-QR implementation reaches 
+
+70 × over vanilla OMP at d=7 (224 tok/s on CPU), 19 × at d=50 , and 5× at d=200 . Since the OMP iteration loop is sequential within a sample but independent across samples, casting Q, R, and the intermediate gather to bfloat16 (with the 
+
+k × k triangular solve kept in fp32 for numerical safety) and batching the largest B that fits in GPU memory reaches 11 ,587 
+
+tokens/s at d=7 , 2,245 at d=50 , 542 at d=200 , and 207 for Dense-SAE on a single A10G. Two further variants exploit the d-regular structure to amortise OMP’s k sequential iterations. Generalised OMP (Wang et al., 2012) picks the top-L correlated columns per outer iteration, and on a d-regular dictionary a block of L picks hits nearly disjoint rows whenever Ld ≤ m, keeping the QR refit well-conditioned. Cholesky refit replaces the per-block sequential picks with one batched Cholesky-on-normal-equations solve, forming the Gram matrix W⊤ 
+
+> S
+
+WS via two bmm sand producing xS in three CUDA kernels per block. A Triton kernel computes W⊤r directly from the (values , rows )
+
+storage, and at d=7 a further specialisation computes W⊤ 
+
+> S
+
+WS via a (d · d)-unrolled inner loop over column-pair index intersections, never materialising the dense WS tensor and recovering W⊤ 
+
+> S
+
+y as a free gather at the picked support. Sweeping 11 Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 
+
+L ∈ { 1, 2, 4, 8, 16 , 32 , 64 } at d=7 , where ⌊m/d ⌋ = 73 ≥ k so L=64 completes in a single block, traces the Pareto frontier in Table 5. At L=64 single-shot decoding reaches 689 k tokens/s with rel err 0.546 , 0.024 better than the encoder’s 0.570 on the same hardware at only 2.6× throughput cost. At L=4 rel err drops to 0.465 at 54 k tokens/s, within 0.007 of full iterative OMP at 33 × encoder cost. The iterative limit L=1 delivers OMP’s full 0.458 rel err at 13 .3k tokens/s, 135 × slower than the encoder. 
+
+Table 4. Trained encoder versus OMP variants at k=64 , seed 0, Pythia-70M layer 3. The ∗ marker denotes single-thread Apple silicon CPU and ‡ denotes a single Modal A10G with bfloat16 and B=1024 , with B=256 where annotated since Dense-SAE OOMs at B=1024 .The speed-ratio column compares each row to the same-hardware encoder. CPU implementations agree to 10 −5, and the bfloat16 GPU implementation agrees with fp32 within sample-averaging noise. Architecture Inference rel err tokens/s vs same-HW encoder Expander-SAE ( d=7 )trained encoder ∗ 0.533 52 ,280 –OMP vanilla ∗ 0.452 3.19 16 ,388 × slower OMP structured + QR ∗ 0.452 224 .09 233 × slower trained encoder ‡ 0.570 1,798 ,710 –OMP structured + QR ‡ 0.458 11 ,587 155 × slower Cholesky + Triton + struct. Gram, L=64 †‡ 0.546 689 ,364 2.6× slower Expander-SAE ( d=50 )trained encoder ∗ 0.485 42 ,532 –OMP vanilla ∗ 0.390 3.15 13 ,502 × slower OMP structured + QR ∗ 0.390 60 .23 706 × slower trained encoder ‡ 0.509 1,916 ,684 –OMP structured + QR ‡ 0.380 2,245 854 × slower gOMP L=4 ‡ 0.390 7,367 260 × slower gOMP L=m/d ‡ 0.409 13 ,270 144 × slower Cholesky refit + Triton corr. ‡ 0.409 48 ,784 39 × slower Expander-SAE ( d=200 )trained encoder ∗ 0.415 64 ,540 –OMP vanilla ∗ 0.344 3.12 20 ,686 × slower OMP structured + QR ∗ 0.344 16 .11 4,007 × slower trained encoder ‡ 0.440 1,930 ,422 –OMP structured + QR ‡ 0.331 542 3,556 × slower gOMP L=m/d ‡ 0.334 1,063 1,818 × slower Dense-SAE trained encoder ∗ 0.343 67 ,303 –OMP vanilla ∗ 0.270 3.14 21 ,434 × slower OMP structured + QR ∗ 0.270 5.48 12 ,282 × slower trained encoder ‡ 0.365 2,249 ,358 –OMP structured + QR ‡ (B=256) 0.279 207 10 ,867 × slower 
+
+† The block-size sweep for this row at d=7 traces a complete rel-err versus throughput Pareto curve, shown in Table 5. 
+
+Table 5. Block-size L sweep for the Cholesky-refit + Triton-correlation + structured-Gram OMP variant at d=7 (m=512 , n=4096 , k=64 ,A10G, bf16, B=1024 , seed 0). L controls the number of columns added to the active set per outer iteration, with L=1 recovering iterative OMP and L=64 collapsing to single-shot decoding. The final column compares each row to the same-hardware encoder throughput of 
+
+1,798 ,710 tok/s. Supports are picked by topk on W⊤r, matching the encoder’s TopK convention exactly. 
+
+L outer iters rel err tokens/s ms / 1024-batch vs same-HW encoder 
+
+1 64 0.458 13 ,305 77 .0 135 × slower 
+
+2 32 0.461 26 ,605 38 .5 68 × slower 
+
+4 16 0.465 53 ,924 19 .0 33 × slower 
+
+8 8 0.473 107 ,529 9.52 17 × slower 
+
+16 4 0.489 214 ,774 4.77 8.4× slower 
+
+32 2 0.513 410 ,614 2.49 4.4× slower 
+
+64 1 0.546 689 ,364 1.49 2.6× slower trained encoder (same HW) 1,798 ,710 0.57 1×
+
+12 Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 
+
+B.3. The encoder as amortised OMP 
+
+When k ≤ m/d , single-shot expander OMP and the trained encoder pick supports through the same structured d-regular gather followed by a topk , with the encoder additionally biased by its learned benc . Their supports overlap by roughly 82% 
+
+at d=7 on a held-out batch. Where the encoder emits the raw pre-activation, OMP solves a Cholesky on the picked support to recover the optimal least-squares coefficients, and the 0.024 rel err improvement at d=7 is the amortisation gap of O’Neill et al. (2025) attributable to this coefficient refit at 2.6× throughput cost. With sample-batching on GPU, OMP throughput is bounded by the k sequential iterations rather than by dictionary size, so at d=200 and Dense-SAE the encoder-vs-OMP gap remains ∼ 1,800 × and ∼ 11 ,000 × where many sequential blocks dominate. The encoder remains the inference method used throughout the rest of the paper, and OMP is reported as an offline diagnostic that quantifies its amortisation gap. 
+
+B.4. Geometry diagnostics: distance to identifiability and OMP certification 
+
+This appendix reports empirical estimates of the two quantities that govern the worst-case recovery certificates in Theorem 3.1 and Corollary M.4, namely the expansion deficit of the fixed mask and the flatness factor β(W ) of the learned decoder, so that the distance between our finite trained models and the certified regimes is explicit. We define the ideal-decoder identifiability ratio 
+
+Rid (k) := 2 β2max bε(2 k),
+
+corresponding to the condition in Theorem 3.1, and the OMP sufficient-condition ratio 
+
+ROMP (k) := β2max bε(k + 1) (2 k + 1) ,
+
+corresponding to Corollary M.4. Values below one certify the corresponding worst-case condition under the empirical expansion estimate, and values above one do not imply failure but mean the worst-case certificate is inactive. We compute both ratios at m=512 , n=4096 , seed 0. The empirical expansion deficit bεgreedy is obtained as a one-sided stress test, taking the maximum observed 1 − |N (S)|/(d|S|) over size-s candidate subsets produced by 10 3 uniform random subsets, 
+
+30 greedy collision-maximising restarts, and the top-overlap neighbourhood for every column. The flatness factor uses 
+
+βmax = max j
+
+√d ∥wj ∥∞ after column normalisation. 10 22 × 10 1 3 × 10 1 4 × 10 1 6 × 10 1   
+
+> k
+> 10 0
+> 10 1
+> 10 2
+> 10 3
+> 10 4
+> Rid  = 2  2max  greedy (2 k)
+> d=7
+> d=30
+> d=50
+> d=100
+> d=200
+> 10 22 × 10 13 × 10 14 × 10 16 × 10 1
+> k
+> ROMP  = 2max  greedy (k+1) (2 k+1)
+> Geometry diagnostics (m=512, n=4096, seed=0; dashed line = certificate threshold)
+
+Figure 4. Empirical certificate ratios on the trained Expander-SAE grid, one line per d. The dashed horizontal line marks the certificate threshold, and values below the line satisfy the worst-case sufficient condition. 
+
+Both ratios sit well above the certificate threshold across the entire trained grid, while OMP and the trained encoder reconstruct successfully on the same models. The current sufficient certificates are therefore loose in the operating regime probed by our language-model experiments, which is consistent with the asymptotic phase-transition framing in Section 3 but does not by itself guarantee recovery on any individual cell. 
+
+## C. Active-support collision diagnostic 
+
+This appendix tests the expansion property on the supports the trained SAE actually uses, rather than on worst-case random subsets. For each held-out activation we read off the active TopK support S ⊆ [n] (|S| = k) and compute the empirical 13 Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 
+
+expansion deficit 1 − | Γ( S)|/(d|S|) and the duplicate-edge count P 
+
+> i
+
+max(0 , deg i(S) − 1) on the trained mask, giving a data-dependent counterpart of the worst-case stress test in Appendix B.4. d=7 d=50 d=200    
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> active-support deficit  1 | ( S)|/( d k )
+> Expander-SAE
+> Clustered-sparse
+> Pruned dense
+> d=7 d=50 d=200
+> 10 3
+> 10 4
+> duplicate-edge count  i
+> max(0, deg i (S) 1) Active-support collisions on held-out activations ( k= 64, mean over seeds; bar: median, error: min--p95)
+
+Figure 5. Active-support collision diagnostic at k=64 on held-out activations, three seeds. The left panel shows per-sample empirical expansion deficit on the active TopK support, with bars at the median and error bars spanning min to p95. The right panel shows per-sample duplicate-edge count on a log scale. 
+
+On the trained Expander-SAE’s active supports, the collision deficit and duplicate-edge count fall below the matched Clustered-sparse control at every d. The gap is largest at d=7 , where Expander has median deficit 0.36 against Clustered’s 
+
+0.41 . At d ∈ { 50 , 200 } both architectures saturate the row budget ( d|S| > m ), so the deficit is dominated by an unavoidable combinatorial floor and the two architectures look similar on this metric. The dead-feature pathology at d=200 in Figure 8 is therefore driven by the loss of distinct supports rather than by per-sample collisions, since Clustered d=200 admits only two possible column supports. 
+
+## D. Feature novelty diagnostics 
+
+This appendix measures how different the Expander SAE’s feature decomposition is from the Dense-SAE baseline using activation-pattern overlap on held-out Pythia-70M layer-3 activations. For each pair of features we compute the Jaccard overlap of their binary firing patterns under the convention that feature j fires when xj̸ = 0 , and call an Expander feature 
+
+activation-novel if its best-match Jaccard against the dense reference set is below 0.1. We compare against an ensemble of dense SAEs rather than a single seed, since novelty relative to one seed can reflect ordinary seed variation. We use activation Jaccard rather than decoder-column cosine similarity because cosine is geometrically biased at low d, where a d-sparse decoder column has limited cosine to a dense column with mass spread evenly across coordinates regardless of whether the two represent the same feature. Decoder-cosine results appear in Appendix J, and at d=m the two metrics agree. We calibrate the raw novelty fraction against two nulls. The first is a firing-rate-matched null in which 20 random firing sets of the same size as each feature are sampled from the held-out activations, isolating the contribution of feature rarity to low Jaccard scores. The second is a dense-vs-dense baseline of 0.68 , computed between two dense tied SAEs trained with different seeds, which gives the rate at which one dense SAE has features the other does not match under the same threshold. The matched null sits close to one across all d tested while the observed Expander novelty fraction is strictly lower, with 
+
+0.85 against 0.97 at d=7 and 0.60 against 1.00 at d=200 . The raw novelty proxy is therefore partly inflated by feature rarity, since random sparse firing sets routinely fall below the Jaccard threshold, but the Expander features still overlap with dense features above the rarity baseline. Reading these against the dense-vs-dense seed-variation baseline of 0.68 sharpens the picture further. At d=7 the observed Expander-vs-dense fraction of 0.85 exceeds dense seed variation by about 0.17 , so the low-d Expander lands on a decomposition more different from dense than two dense SAE seeds are from each other. At d=50 the observed fraction 0.68 matches the dense-vs-dense baseline, indicating the difference is largely explained by seed variation. At d=200 the Expander fraction 0.60 falls slightly below the baseline, consistent with the architecture converging towards the dense decomposition as d → m. Low-d Expander SAEs therefore land on a substantively different decomposition from dense baselines, while at higher d the difference falls within the seed-variation noise floor. 14 Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 20 40 60 80 100 120 
+
+k
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> fraction with Jaccard<0.1 vs Standard-SAE
+
+Feature novelty m=512, n=4096, seed=0      
+
+> Expander-SAE-m
+> Expander-SAE-d (d=7)
+> Expander-SAE-d (d=50)
+> Expander-SAE-d (d=200) 20 40 60 80 100 120
+
+k
+
+> 5
+> 6
+> 7
+> 8
+> median target-token entropy (bits)
+
+Feature monosemanticity proxy m=512, n=4096, seed=0         
+
+> Expander-SAE-m
+> Expander-SAE-d (d=7)
+> Expander-SAE-d (d=50)
+> Expander-SAE-d (d=200) 246810
+> firing-rate decile (1=rarest, 10=most frequent)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> novelty fraction (best-Jaccard < 0.1)  Activation novelty vs firing-rate-matched null, by decile
+> observed d=7
+> null d=7
+> observed d=50
+> null d=50
+> observed d=200
+> null d=200
+> d=7 d=50 d=200
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> overall novelty fraction
+> Overall
+> dense seed-variation (0.68)
+> observed
+> null
+> Firing-rate-matched novelty null (Expander vs dense tied, k= 64, seed 0)
+
+Figure 6. Feature novelty diagnostics for Expander-SAE against the Dense-SAE reference (trained encoder). The top-left panel shows activation-Jaccard novelty, the fraction of Expander features whose best-match Jaccard against the dense reference falls below 0.1. The top-right panel shows median per-feature target-token entropy as a monosemanticity proxy. The bottom panels show the firing-rate-matched novelty null at k=64 , seed 0, with novelty stratified by firing-rate decile on the left and the overall fractions per d on the right. 
+
+Sign-aware firing convention. We recompute the activation-Jaccard novelty under three firing definitions, xj̸ = 0 , xj > 0,and xj < 0. For all trained Expander-SAE and Dense-SAE checkpoints in our sweep, the xj < 0 rule yields zero alive features, since the TopK-of-largest-pre-activations operator with n ≫ k drives the trained encoders to non-negative codes in practice. The xj > 0 rule therefore coincides exactly with xj̸ = 0 , and the analysis above is unchanged under sign-aware splitting. 
+
+D.1. Feature reliability diagnostics 
+
+This appendix reports firing-rate and target-token entropy summaries for the activation-novel and shared feature subsets that the novelty analysis in Appendix D produces. We classify a feature as activation-novel when its best-match Jaccard against the dense reference falls below 0.1, and as shared when the best-match Jaccard exceeds 0.5, computed at k=64 and seed 0 over 128 ,000 held-out Pythia-70M layer-3 tokens. Table 6 reports the median firing rate and median target-token entropy within each subset across d.Two qualitative observations follow. First, novel features fire on rarer subsets than shared features at every d, with median firing rate 0.8 to 1.0% against 2.5% or higher, which is consistent with the firing-rate-matched null in Appendix D explaining a substantial part of the raw novelty fraction. Second, the median target-token entropy of novel features is roughly stable across d at 7.8 to 8.0 bits, indicating that novel features fire on a broad set of token identities rather than concentrating on a small set, since the unconditional unigram entropy of the Pile under Pythia-70M’s tokeniser sits in the low double digits. Shared features’ entropies are more variable across d, reflecting the small per-bucket counts of 20 to 57 features at any d. Together these diagnostics show that activation-novel features are reproducible under our proxies in the sense that their firing sets are not driven by single rare tokens, while leaving open the stronger question of whether they are more 15 Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 
+
+Table 6. Per-feature firing rate and target-token entropy, taken as the median over the indicated subset, for Expander-SAE at five d values against the dense tied reference at k=64 , seed 0. Counts are out of n=4096 total features, and alive means firing on at least one held-out token. 
+
+d alive novel ( J< 0.1) shared ( J> 0.5)rate med novel rate med shared entropy med novel (bits) entropy med shared (bits) 7 4096 3424 22 0.82% 2.51% 7.90 7.72 
+
+30 4096 2903 20 0.96% 3.18% 7.97 7.90 
+
+50 4096 2688 20 0.86% 32 .51% 7.87 10 .31 
+
+100 4095 2528 34 0.86% 3.15% 7.90 7.06 
+
+200 4096 2459 57 0.84% 2.82% 7.77 6.78 
+
+interpretable than shared features. Split-half firing-rate reliability and token-frequency stability across halves are computed in experiments/feature_analysis.py (_split_half_reliability ) and follow the same pattern. 
+
+## E. Blinded LLM evaluation of feature dashboards 
+
+This appendix tests whether the Expander SAE’s distinct feature decomposition is interpretable, since novelty against the dense baseline (Appendix D) does not by itself establish meaningfulness. We sample 25 features each from Expander-SAE at 
+
+d=7 , Expander-SAE at d=200 , and the Dense-SAE baseline (Pythia-70M layer 3, k=64 , seed 0), stratified across firing-rate quartiles per architecture so that quartile distributions match. For each feature we render a dashboard of the 15 top-activating Pile contexts in 16 -token windows with the target token highlighted, under a global anonymised feature ID ( F01 –F75 ) that hides d, the decoder column, firing rate, and architecture name from the judge. Two LLM judges, Claude Sonnet 4.5 and GPT-4o, score each dashboard on a 1 to 5 coherence scale where 5 marks a clear unifying theme and 1 marks unrelated activations, and propose a 1 to 3-word concept label or “no clear concept”, at temperature 0 with three calls per (feature, judge) pair. Inter-judge Spearman correlation on per-feature mean coherence is ρ = 0 .74 .1 2 3 4 5           
+
+> coherence (1-5)
+> 0
+> 5
+> 10
+> 15
+> 20
+> # features
+> Expander d=7
+> mean = 2.83 ± 0.22, concept = 84\%
+> 12345
+> coherence (1-5)
+> Expander d=200
+> mean = 3.72 ± 0.19, concept = 96\%
+> 12345
+> coherence (1-5)
+> Dense-SAE
+> mean = 3.59 ± 0.19, concept = 100\%
+> Blinded LLM evaluation of feature dashboards (Pythia-70M layer 3, k= 64, seed 0; inter-judge Spearman = 0.74)
+
+Figure 7. Per-architecture distribution of mean coherence ratings under blinded LLM evaluation, averaged across two judges and three calls each then rounded to integers 1 to 5. n=25 features per architecture, stratified by firing-rate quartile so that quartile distributions match across architectures. Architecture is invisible to the judges, with features identified only by anonymised ID. 
+
+Mean coherence is 3.59 ± 0.19 for Dense-SAE, 3.72 ± 0.19 for Expander d=200 , and 2.83 ± 0.22 for Expander d=7 ,with 95% bootstrap CIs of [3 .21 , 3.96] , [3 .34 , 4.06] , and [2 .43 , 3.27] respectively. The fraction of features assigned a non-empty concept label is 100% for Dense-SAE, 96% for Expander d=200 , and 84% for Expander d=7 . At d=200 ,interpretability is statistically indistinguishable from the dense baseline while the Expander uses 2.6× fewer learned values. At the storage extreme d=7 (73 × fewer learned values), coherence drops by about 0.8 points on the 1 to 5 scale, but 84% of features still receive a concrete concept label, matching the activation-Jaccard novelty result that low-d Expander finds a substantively different but still meaningful decomposition. The architectural constraint at extreme storage compression carries a measurable interpretability cost that scales with the storage savings, while at d=200 the cost falls below the measurement noise floor. 16 Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 
+
+## F. Cross-model and cross-layer replication: full results 
+
+This appendix reports the full storage-fidelity sweep that Section 4.1 summarises, including all (d, k ) cells on the Pythia-70M headline configuration and the cross-layer, cross-model, and cross-architecture replications referenced in Table 1. CE-loss recovered is computed by replacing the layer-ℓ residual stream of the language model with the SAE reconstruction and measuring next-token cross-entropy on held-out sequences, 
+
+CE recovered = CE zero − CE recon 
+
+CE zero − CE clean 
+
+, (17) where CE clean is the cross-entropy of the unmodified language model, CE zero replaces the activation by the all-zero vector at the hook site, and CE recon replaces it by ˆh = Wdec x + bdec . A value of 1 means the reconstruction matches the clean model’s CE, 0 means it is no better than zero-ablation, and negative values mean it is worse than zero-ablation. In Figure 1 we sweep Expander SAE at m=512 , n=4096 over d ∈ { 7, 50 , 200 } and TopK levels k ∈ { 16 , 32 , 64 , 128 }, comparing against the tied dense SAE at d=512 and Dense-SAE, with each point averaged over three seeds. Relative to the dense tied baseline, Expander uses 73 × fewer learned decoder values at d=7 , 10 × at d=50 , and 2.6× at d=200 . Figure 1 also shows that across d, the Expander SAE traces a smooth decoder-sparsity and fidelity frontier where larger d approaches the dense fidelity floor and smaller d retains high CE-loss recovered with substantially fewer learned decoder values. 
+
+F.1. Cross-layer and cross-model replication on Pythia 
+
+This subsection tests whether the storage-fidelity ratio depends on the specific Pythia-70M layer 3 hook. We re-extract Pythia-70M residual-stream activations at layers 1 and 5 and retrain Expander-SAE at d ∈ { 7, 50 , 200 } and Dense-SAE on each layer at k=64 , three seeds, matching the 200 ,000 -token train and 5,000 -token test split. We then repeat the experiment on Pythia-160M ( m=768 , n=6144 ) at layers 4 and 8 with d ∈ { 10 , 75 , 300 }, chosen to match the d/m ratios used at m=512 for storage savings of approximately 77 ×, 10 ×, and 2.6× relative to Expander d=m. Table 7 reports trained-encoder relative reconstruction error and CE-loss recovered.                                                                        
+
+> Table 7. Cross-layer and cross-model replication at k=64 , three seeds (mean reported; SEM is below 0.01 on every cell except where flagged in the body). rel err is trained-encoder relative reconstruction error on a 5,000 -token held-out split, and CE rec is CE-loss recovered against the same hook site. Per-layer (CE clean / CE zero-ablation): Pythia-70M layers 1/3/5 ( 3.44 /8.93 ,3.44 /12 .73 ,
+> 3.44 /8.75 ); Pythia-160M layers 4/8 ( 2.96 /10 .96 ,2.96 /11 .96 ). Expander dExpander d′Dense-SAE Model Layer rel err CE rec rel err CE rec rel err CE rec
+> Pythia-70M (m=512 ,n=4096 ,d∈ { 7,50 ,200 }left to right inside each Expander column-pair) Pythia-70M 10.570 /0.738 0.516 /0.819 0.446 /0.883 0.368 0.938
+> Pythia-70M 30.532 /0.817 0.489 /0.859 0.415 /0.902 0.342 0.947
+> Pythia-70M 50.375 /−0.347 0.341 /0.036 0.433 /−0.163 0.607 −0.550
+> Pythia-160M (m=768 ,n=6144 ,d∈ { 10 ,75 ,300 }left to right inside each Expander column-pair) Pythia-160M 40.643 /0.742 0.588 /0.836 0.515 /0.901 0.439 0.949
+> Pythia-160M 80.520 /0.767 0.461 /0.836 0.399 /0.889 0.332 0.946
+
+The storage-fidelity ratio replicates across both the layer dimension and the model-size dimension. On Pythia-70M layers 1
+
+and 3 and on both tested Pythia-160M layers, Expander-SAE recovers within 5 to 20 percentage points of CE of Dense-SAE while using 73 × (d=7 at m=512 ) or 77 × (d=10 at m=768 ) fewer learned decoder values, and the medium and large d
+
+values continue to trace the same monotone frontier. Pythia-70M layer 5 is a regime in which all SAE architectures we tested fail to preserve LM behaviour, since Dense-SAE itself yields a negative CE-loss recovered. The residual-stream output of the last GPT-NeoX block is harder to reconstruct without breaking the unembedding than at earlier layers regardless of architecture, and we read this as a known limitation of SAE-style probes at late layers rather than a feature specific to Expander supports. 
+
+F.2. Qwen2.5-3B cross-architecture replication 
+
+The Pythia experiments above use a single LM family. To check whether the storage-fidelity claim transfers to a modern non-Pythia architecture at a scale where SAE storage is operationally painful, we replicate on Qwen2.5-3B, a 3B-parameter decoder-only LM with hidden size m=2048 , 36 transformer blocks, RoPE positional encoding, grouped-query attention, 17 Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 
+
+and SwiGLU MLPs, all of which depart substantially from Pythia’s GPT-NeoX style. We extract residual-stream activations at layers 12 and 24 (third and two-thirds of depth, mirroring the Pythia-160M pattern) and train Expander-SAE at d ∈{7, 30 , 102 }, where d=7 matches the headline Pythia-70M configuration and d ∈ { 30 , 102 } correspond to d/m ∈{1.5% , 5% }. We compare against a Dense-SAE at n=16 ,384 (8× overcompleteness) and matched-parameter reduced-n
+
+Dense-SAEs at n′ ∈ { 240 , 816 } that match Expander’s unique-parameter count at d ∈ { 30 , 102 }. The matched cell at d=7 
+
+would require n′=56 < 2k and is excluded by the NSP gate. Every SAE is trained at k=64 on three seeds with the same 
+
+200 k-token / 5k-token train/test split as the Pythia experiments. The mask sampler in models/expander.py re-rolls whenever any row receives no incoming edges, which is a low-probability event at these dimensions ( d · n/m ≈ 56 at d=7 ).                                                                    
+
+> Table 8. Qwen2.5-3B replication at m=2048 ,n=16 ,384 ,k=64 , three seeds (mean reported; standard deviation across seeds is below
+> 0.02 on every cell except where flagged with ⋆). rel err is trained-encoder relative reconstruction error on the 5,000 -token held-out split, and CE rec is CE-loss recovered against the same hook site. The matched-parameter Dense-SAE columns ( d=30 →n′=240 ,
+> d=102 →n′=816 ) report Dense-SAEs trained at reduced nto match Expander’s unique-parameter count, and the d=7 matched cell is excluded because n′=56 <2k. CE clean / CE zero-ablation are 2.29 /15 .98 at layer 12 and 2.29 /23 .30 at layer 24. The starred cell (d=30 at layer 24) has one of three seeds diverge during training (rel err 1.13 , included in the reported mean); without that seed the rel err mean is 0.704 and CE rec is 0.854 .Expander-SAE Dense-SAE (full n)Matched-n′Dense-SAE Layer metric d=7 d=30 d=102 n=16 ,384 n′=240 n′=816 12 rel err 0.764 0.703 0.681 0.489 0.608 0.556
+> CE rec 0.828 0.894 0.919 0.983 0.906 0.945 24 rel err 0.693 0.848 ⋆0.659 0.591 0.541 0.488
+> CE rec 0.875 0.821 ⋆0.884 0.936 0.911 0.946
+
+The monotone d 7 → fidelity frontier survives the jump to a 3B-parameter modern decoder-only LM with a different architecture. At layer 12 , CE-recovered scales as 0.83 → 0.89 → 0.92 → 0.98 with d ∈ { 7, 30 , 102 , m }, and at d=7 
+
+Expander retains 84% of the full Dense-SAE’s recovery while using a decoder 293 × smaller in learned values ( 114 ,688 
+
+against 33 ,554 ,432 ). Layer 24 shows the same qualitative pattern, with CE-recovered 0.88 at d=7 rising to 0.94 at full Dense-SAE. The matched-parameter dense baselines at n′ ∈ { 240 , 816 } score 0.91 and 0.95 at layer 12 , and 0.91 and 0.95 
+
+at layer 24 , which sits moderately above the corresponding Expander rows. At this scale, a fully-flexible dense decoder with the same parameter count is therefore somewhat better in pure CE-recovered terms, and the case for Expander supports rests on three structural advantages. First, Expander masks are compatible with the (values , rows ) flat layout that makes structured-OMP-style decoding tractable (Appendix B). Second, the mask is regenerable from an 8-byte seed (Table 9). Third, Expander is Pareto-optimal at the smallest d, where the matched-parameter dense baseline is excluded by the NSP gate and the dense full-n baseline is 1170 × larger. Two layer-24 -specific observations follow. First, Dense-SAE at n′=816 
+
+outperforms Dense-SAE at full n=16 ,384 on rel-err ( 0.488 against 0.591 ), suggesting the residual stream at this layer is intrinsically lower-rank than at layer 12 and that overcomplete dictionaries waste capacity. Second, one of the three seeds at 
+
+d=30 diverges during training (rel err 1.13 on both the original run and a retrain with the same seed), which is included in the reported mean. Whether the matched-dense gap closes at 7B+ models, and whether seed instability at deep Qwen layers extends to other model families, is left for future work. 
+
+## G. Controls: full results 
+
+This appendix reports the full per-control results for the support-structure controls summarised in Section 4.2, and explains why our primary controls fix (m, n, k ) rather than the learned-value count. Parameter-matched dense SAEs may seem like the natural baseline, but matching learned decoder values forces a dense SAE to use only n′ 
+
+> dense
+
+= dn/m features, which shifts δ = m/n , changes the dictionary overcompleteness, and sometimes makes the dictionary undercomplete or smaller than the target sparsity level. Sparse-recovery behaviour depends on the problem geometry, with compressed-sensing phase transitions described asymptotically at fixed δ = m/n and ρ = k/m (Donoho and Tanner, 2009). Our primary controls therefore preserve (m, n, k, d ) and change only the support structure, using clustered sparse masks and pruned-retuned dense supports. The reduced-n Dense-SAE comparison in Appendix G.3 is reported as a sanity check rather than a primary baseline. 18 Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 
+
+G.1. Clustered-sparse and the dead-feature pathology 
+
+This subsection isolates whether the low dead-feature rate of the Expander mask comes from column sparsity itself or from the diversity of the tied supports. We add a Clustered-sparse control matched to Expander-SAE in (m, n, k, d ),learned-decoder-value count, optimiser, training steps, and seeds, differing only in the mask. The m rows are partitioned into 
+
+G = ⌊m/d ⌋ disjoint blocks B0, . . . , B G−1 of size d, and each column j is assigned to one block uniformly at random with 
+
+supp( wj ) = Bgj . Columns in the same block therefore share an identical support, which breaks the expansion property since a size-s subset of columns concentrated in one block contains only d distinct neighbours, so bεgreedy → 1 − 1/s . We measure dead-feature fraction on the same trained grid as Appendix F ( m=512 , n=4096 , d ∈ { 7, 50 , 200 }) over the same held-out activations, counting a feature as dead if it never fires under the convention xj̸ = 0 .20 40 60 80 100 120              
+
+> k
+> 0.30
+> 0.35
+> 0.40
+> 0.45
+> 0.50
+> 0.55
+> 0.60
+> 0.65
+> rel. err
+> Reconstruction error
+> Expander-SAE (d=7)
+> Expander-SAE (d=50)
+> Expander-SAE (d=200)
+> Clustered-sparse (d=7)
+> Clustered-sparse (d=50)
+> Clustered-sparse (d=200)
+> Dense-SAE
+> 20 40 60 80 100 120
+> k
+> 0.60
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> CE-loss recovered
+> CE recovered
+> 20 40 60 80 100 120
+> k
+> 10 3
+> 10 2
+> 10 1
+> dead-feature fraction
+> Dead features
+> Support-structure controls (m=512, n=4096; mean over seeds)
+
+Figure 8. Expander-SAE against Clustered-sparse on three metrics at matched (d, k ) with m=512 , n=4096 , trained encoder. Solid lines are Expander-SAE, dashed lines are Clustered-sparse at the matching d, and black is the Dense-SAE reference. The left panel shows reconstruction error, the middle panel shows corrected CE-loss recovered, and the right panel shows dead-feature fraction on a log scale. 
+
+Expander-SAE acts as a structural regulariser against dead features. Whenever the decoder column for feature j aligns with any sample’s residual, the encoder row for j reads activations on the same d neurons and picks it up immediately, so dead-feature rates remain low across d. Clustered-sparse is competitive on reconstruction at small and medium d, but destroying support diversity drives a feature-usage pathology at large d, with the dead-feature rate at d=200 rising by roughly 100 × relative to Expander-SAE at the same column sparsity. Column sparsity alone therefore does not explain the parameter-efficiency frontier, and the diversity of the support also matters. 
+
+G.2. Pruned-retuned dense 
+
+This subsection tests whether a support extracted from a pre-trained dense decoder carries a more useful geometry than a random d-regular expander. The Pruned-retuned dense control starts from a trained dense-tied SAE at the matching 
+
+(m, n, k, seed ), forms the sparse mask by keeping the d rows of largest |wij | per decoder column, initialises the sparse decoder values from the retained dense weights, column-normalises, and fine-tunes only the retained values for 5000 steps under the Expander training recipe. Supports extracted from a trained dense SAE close most of the reconstruction gap to dense at every d tested, but require a full dense pretraining pass on top of the sparse retune. The dense-derived support therefore yields a real geometry advantage, paid for in two training passes. 
+
+G.3. Reduced-n dense at matched parameter budget 
+
+This subsection reports the parameter-matched comparison that the opening discussion flags as not isolating the support effect. Reducing n to match learned parameters shifts δ = m/n , makes the dictionary undercomplete for small d, and can drop n below the target sparsity k, so the comparison conflates support structure with problem geometry. We run it as a budget-matched sanity check. For each Expander-SAE (m=512 , n =4096 , d ) at k=64 we train three reduced-n dense controls at the matching learned-parameter budget. Dense-tied uses ntied = dN/M to match Expander’s dn values against tied dense’s mn , while Dense-SAE (independent encoder, warm-tied init) and Dense rand-init (independent encoder, random init) both use nindep = dN/ (2 M ) since they have 2mn parameters. All controls use the same optimiser, learning-rate schedule, and held-out evaluation as Appendix F, and configurations that fall below the null-space property n > 2k are 19 Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 20 40 60 80 100 120 
+
+> k
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> rel. err
+
+Reconstruction error      
+
+> Expander-SAE (d=7)
+> Expander-SAE (d=50)
+> Expander-SAE (d=200)
+> Pruned dense (d=7)
+> Pruned dense (d=50)
+> Pruned dense (d=200)
+> 20 40 60 80 100 120
+> k
+> 0.60
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> CE-loss recovered
+
+CE recovered 
+
+> Expander-SAE (d=7)
+> Expander-SAE (d=50)
+> Expander-SAE (d=200)
+> Pruned dense (d=7)
+> Pruned dense (d=50)
+> Pruned dense (d=200)
+
+Expander-SAE vs Pruned dense (m=512, n=4096, seeds mean ± SEM) 
+
+Figure 9. Expander-SAE against Pruned dense at matched (d, k ), three seeds (mean ± SEM). Solid lines are Expander-SAE and dotted lines are Pruned dense. Panels show trained-encoder reconstruction error and corrected CE-loss recovered. 
+
+excluded. At every shared budget, Expander-SAE recovers more CE than the reduced-n dense baselines, with gaps of 0.10 to 0.21 .The parameter saving is therefore not equivalent to running a smaller dense SAE, since reducing n shrinks the dictionary along recovery-relevant axes ( δ, overcompleteness, and sometimes n < k ) while the Expander keeps the full n=4096 
+
+dictionary and reduces only the per-column degree. 
+
+## H. Full storage breakdown and empirical metrics 
+
+This appendix collects the complete storage breakdown and per-architecture empirical metrics referenced from the practical summary in Section 4.3, and records the parameter choices for the Clustered-sparse and Pruned-retuned dense controls. The block count G = ⌊m/d ⌋ for the Clustered-sparse mask varies substantially across the three trained degrees. At m=512 ,the clustered mask yields G=73 disjoint blocks at d=7 with one row unused, G=10 blocks at d=50 with 12 rows unused, and G=2 blocks at d=200 with 112 rows unused. With n=4096 features and columns assigned to blocks uniformly, each block is shared in expectation by n/G ≈ 56 columns at d=7 , ≈ 410 at d=50 , and ≈ 2,048 at d=200 . The Clustered-sparse 
+
+d=200 model therefore has only two possible column supports in the whole dictionary, so approximately half of all features share an identical 200 -row support with any randomly chosen reference column. This collapse of support diversity at large d is intentional, since it lets us check whether support diversity helps avoid clustered-mask pathologies at large d or whether the size d of individual supports alone explains the observed parameter-efficiency frontier. We train Clustered-sparse at d ∈ { 7, 50 , 200 }, k ∈ { 16 , 32 , 64 , 128 }, three seeds, with the same 5000 -step cosine-schedule optimiser settings as Expander-SAE-d (Appendix A). Pruned-retuned dense is trained at d ∈ { 7, 50 , 200 }, k ∈ { 16 , 64 , 128 }, three seeds, using the same per-seed dense-tied SAE as its source. Across the trained grid, Expander-SAE-d delivers substantial decoder-storage reductions and high CE-loss recovery in a single training pass. The controls clarify which gains come from column sparsity, support diversity, or a dense-derived support, and which require additional training. 
+
+## I. CE-loss recovered protocol 
+
+This appendix specifies the CE-loss recovered evaluation used as the downstream functional check throughout the paper. For each evaluation sequence we run the clean language model and record the next-token cross-entropy over non-padding token positions, then run two hooked evaluations at the same layer and hook site used for SAE training. In the zero-ablation run, the layer-ℓ residual-stream activation at the hook site is replaced by the all-zero vector. In the reconstruction run, the same activation is replaced by the SAE reconstruction ˆh = Wdec x + bdec . The reported metric is 
+
+CE recovered = CE zero − CE recon 
+
+CE zero − CE clean 
+
+,
+
+20 Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 28,672 
+
+(d = 7) 
+
+122,880 
+
+(d = 30) 
+
+204,800 
+
+(d = 50) 
+
+409,600 
+
+(d = 100) 
+
+819,200 
+
+(d = 200) 
+
+learned-parameter budget 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0                 
+
+> CE-loss recovered  n= 4096 n= 4096 n= 4096 n= 4096 n= 4096
+> n= 200
+> n= 400
+> n= 800
+> n= 28
+> (n< 2 k)
+> n= 120
+> (n< 2 k)
+
+## Budget-matched comparison ( m = 512, k = 64) 
+
+> Expander-SAE
+> Dense-SAE
+
+Figure 10. CE-loss recovered at k=64 versus learned-parameter budget (trained encoder). Each group of bars sits at the budget shared by an Expander-SAE configuration ( d ∈ { 7, 30 , 50 , 100 , 200 } at n=4096 ) and three dense baselines reduced to the same budget by lowering n, annotated above each bar. Bars show min/max range across seeds. 
+
+where 1 matches the clean model’s CE and 0 matches zero-ablation. The CE evaluation uses 1000 held-out Pile sequences of length 128 , disjoint from the sequences used to build the SAE training activation cache. The released experiment configuration specifies the literal hook name, whether padding tokens are excluded from CE, and whether the hook is applied to every token position or only to non-padding positions. 
+
+## J. Decoder-cosine novelty 
+
+This appendix reports decoder-cosine novelty as a complement to the activation-Jaccard novelty in Appendix D. A d-sparse decoder column has bounded cosine similarity to a dense column whose mass is spread evenly across coordinates, irrespective of whether the two represent the same feature, so the metric is biased downward at small d for purely geometric reasons. At d=m the bias vanishes and the cosine and Jaccard metrics agree. 
+
+## K. Synthetic sparse-recovery experiment 
+
+This appendix reports a classical compressed-sensing sanity study on d-regular Expander sensing matrices, decoupled from the language-model activation setting, that isolates the recovery behaviour of OMP on the Expander support geometry alone. We fix the decoder values analytically so the column-flatness factor β(W) is minimised by construction and there is no encoder to train, and we draw measured signals from the exact model the theorem assumes. Recovery failure at a given 
+
+(d, k synth ) is therefore attributable to the mask rather than to suboptimal learned weights. For each (d, k synth , mask seed , σ )
+
+we sample a d-regular bipartite mask M and construct a balanced signed decoder with Wij = ±1/√d on the mask support under independent random signs, and zero elsewhere. On each trial we sample a ksynth -sparse signal xS ∼ N (0 , I ) on a uniformly drawn support S of size ksynth , form the measurement h = Wx , optionally add noise σ · (∥Wx ∥2/√m) · z with 
+
+z ∼ N (0 , I ), and run OMP for exactly ksynth iterations to record whether the recovered support equals S. We fix m=512 ,
+
+n=4096 , 100 trials per configuration, 3 mask seeds, and σ ∈ { 0, 0.01 , 0.05 }.21 Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 
+
+Table 9. Storage breakdown at m=512 , n=4096 for each architecture and d, in KiB unless otherwise noted. Learned values counts the unique decoder weights only ( d · n float32 entries for the sparse architectures and m · n for Dense-SAE and Expander d=m). Decoder + rows is the on-disk decoder storage including int32 row indices in the (d · n, ) flat layout used by the structured kernels, with no indptr 
+
+array since every column has exactly d nonzeros at known positions; for dense architectures this equals the learned-values column. 
+
+Encoder + biases is the additional inference storage, namely bdec and benc for tied-encoder models plus the full (n, m ) encoder weights for Dense-SAE. Total adds the previous two columns plus 8 bytes for the mask seed. Mask via seed reports the overhead of regenerating the binary mask deterministically from a single int64 , with no mask for Dense-SAE. The Ratio column is the learned-values ratio against Expander-SAE at d=m=512 , equal to m/d by construction. Architecture d
+
+(1) Learned values (KiB) Ratio (2) Decoder 
+
++ rows (KiB) (3) Encoder 
+
++ biases (KiB) (4) Total (KiB) (5) Mask via seed Dense-SAE 512 8,192 .0 1× 8,192 .0 8,210 .0 16 ,402 .0 –Expander-SAE 
+
+7 112 .0 73 × 224 .0 18 .0 242 .0 8 B
+
+30 480 .0 17 × 960 .0 18 .0 978 .0 8 B
+
+50 800 .0 10 × 1,600 .0 18 .0 1,618 .0 8 B
+
+100 1,600 .0 5× 3,200 .0 18 .0 3,218 .0 8 B
+
+200 3,200 .0 2.6× 6,400 .0 18 .0 6,418 .0 8 B
+
+512 (= m) 8,192 .0 1× 8,192 .0 18 .0 8,210 .0 8 BClustered-sparse 
+
+7 112 .0 73 × 224 .0 18 .0 242 .0 8 B
+
+50 800 .0 10 × 1,600 .0 18 .0 1,618 .0 8 B
+
+200 3,200 .0 2.6× 6,400 .0 18 .0 6,418 .0 8 BPruned dense 
+
+7 112 .0 73 × 224 .0 18 .0 242 .0 8 B
+
+50 800 .0 10 × 1,600 .0 18 .0 1,618 .0 8 B
+
+200 3,200 .0 2.6× 6,400 .0 18 .0 6,418 .0 8 B
+
+## L. Feature Dashboards 
+
+This appendix presents a qualitative look at individual features learned by the Expander SAE at d=30 . We sample features from two regimes: novel features, defined as having best-match Jaccard overlap below 0.1 against the dense SAE baselines considered in Appendix D, and shared features with best-match Jaccard above 0.5 against some dense feature. For each feature we report the Feature ID, a heuristic category ( neuron-pattern , positional , other , or incoherent ) derived from the entropy of its firing positions, preceding tokens, target tokens, and the co-activation pattern of the d underlying neurons; the best-match Jaccard overlap against any dense-baseline feature; the split-half firing-rate ratio as a reliability check; the top target tokens by firing frequency; and a small number of sample contexts, with the target token highlighted in brackets. An interpretive note follows each feature where we can offer one. 
+
+Novel features (best-match Jaccard < 0.1)Feature 2113 (neuron-pattern). Jaccard 0.085 ; rate ratio 0.902 . Top targets: \n , >, “ don”, (); , “ a”. Sample contexts (target in brackets): • ... "scale" : "2x", [",] 
+
+• ...; return 2; end;; f(); Where[();] 
+
+• ...screen-width" : ">145" ["] 
+
+• ...documentation.[ers] 
+
+No single dominant target; the underlying 30 neurons co-activate at well above the random-co-firing baseline, which is what places it in the neuron-pattern category. 
+
+Feature 1834 (neuron-pattern). Jaccard 0.082 ; rate ratio 0.977 . Top targets: “ don” ( 24 ), “ doesn” ( 22 ), , (20 ), - (14 ), “ number” ( 11 ). Top preceding tokens: “ the” ( 35 ), “ it” ( 12 ), . (10 ). Sample contexts: • ... it simply [doesn]’t give me 
+
+• ...A: SEDE data [ isn]’t live 
+
+22 Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability                                                                                         
+
+> Table 10. Empirical metrics at m=512 ,n=4096 ,k=64 on Pythia-70M layer 3 (CE clean 3.44 , CE zero-ablation 12 .73 ). All metrics use the trained encoder, with entries reporting mean ±SEM over three seeds except where marked †(single seed) or ‡(two seeds) due to the original sweep grid. Training passes counts the full SAE training runs needed, with Pruned dense requiring a dense pretraining pass before the sparse retune. Novel ( J< 0.1)is the fraction of features whose best-match activation-Jaccard against Dense-SAE is below 0.1
+> from the single-seed feature-analysis pipeline. The corresponding storage breakdown is in Table 9. Architecture d
+> Training passes rel err CE rec. Dead frac Novel †
+> (J< 0.1)Dense-SAE 512 10.342 ±0.000 0.947 ±0.001 0.6% ±0.0–Expander-SAE
+> 710.541 ±0.006 0.817 ±0.001 0.1% ±0.081 .1%30 10.508 ±0.001 0.851 ±0.001 0.2% ±0.072 .6% 50 10.489 ±0.003 0.859 ±0.002 0.3% ±0.069 .4% 100 10.467 ±0.003 0.882 ±0.000 0.3% ±0.166 .8% 200 10.415 ±0.001 0.902 ±0.001 0.7% ±0.065 .5% 512 (= m)10.388 ±0.008 0.937 ±0.000 0.3% ±0.15.8%
+> Clustered-sparse
+> 710.531 ±0.001 0.810 ±0.001 0.4% ±0.082 .1% 50 10.478 ±0.001 0.867 ±0.000 1.5% ±0.278 .4% 200 ‡10.518 ±0.012 0.829 ±0.016 6.2%±0.377 .3%
+> Pruned dense
+> 720.520 ±0.001 0.829 ±0.001 0.3% ±0.182 .3% 50 20.450 ±0.004 0.885 ±0.005 0.4% ±0.162 .2% 200 20.363 ±0.002 0.934 ±0.001 0.4% ±0.015 .1%
+
+• ...with a single font and it [ doesn]’t turn to 
+
+• ...this [ isn]’t a bigger 
+
+Plausibly the “second piece of an English contraction whose first piece is n+not ” (e.g. the doesn in doesn’t , the isn in 
+
+isn’t ). This feature is mostly missed by the dense SAE. 
+
+Feature 1587 (other). Jaccard 0.091 ; rate ratio 0.847 . Top targets: “ of” ( 62 ), “ the” ( 29 ), “ for” ( 10 ). Top preceding tokens: “ of” ( 14 ), “ some” ( 9), “ one” ( 8). Plausibly an “of-phrase head noun” detector, firing on the content word immediately following an of -preposition. Its absence from the dense SAE baselines considered here is consistent with the interpretation that the Expander column geometry supports a parameterisation that the dense SAE does not preferentially select. 
+
+Feature 3248 (incoherent). Jaccard 0.091 ; rate ratio 0.995 ; target entropy 6.62 bits. Fires on a highly diverse set of targets ( d, \n , int , lib , “ F”) with no consistent left context. The high rate ratio indicates the firing pattern is reproducible across data splits, but none of our heuristics identifies a dominant concept. 
+
+Feature 3045 (incoherent). Jaccard 0.089 ; rate ratio 0.970 ; target entropy 5.98 bits. Top targets are punctuation and digits ( _, ., 2). Plausibly a “code-like context” detector, but the target distribution is too diffuse to isolate a single concept under our metrics. 
+
+Shared features (best-match Jaccard > 0.5)Feature 2967 (neuron-pattern). Jaccard 0.962 ; target entropy 1.45 bits. Top targets: . (110 ), \n (78 ). A clean “end-of-sentence” detector. The dense SAE baselines considered here contain a near-identical feature, as expected. 
+
+Feature 1500 (neuron-pattern). Jaccard > 0.5. Matches a dense-SAE feature cleanly and is classified as neuron-pattern under our heuristics. 
+
+Feature 2909 (positional). Jaccard 0.929 ; target entropy 6.32 bits, but position entropy is below threshold. Top targets: “ In” ( 11 ), “ M” ( 10 ), # (9), “ package” ( 9), “ F” ( 8). Sample contexts: • ...Every industry has its [Every] 
+
+• ...Serum alpha-[Ser] 
+
+23 Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 20 40 60 80 100 120 
+
+k
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> fraction with max |cos|<0.3 vs Standard-SAE
+
+Decoder-cosine novelty m=512, n=4096, seed=0 
+
+> Expander-SAE-m
+> Expander-SAE-d (d=7)
+> Expander-SAE-d (d=50)
+> Expander-SAE-d (d=200)
+
+Figure 11. Fraction of Expander decoder columns whose maximum absolute cosine against any Dense-SAE decoder column is below 0.1.10 1 10 2  
+
+> ksynth
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> exact support recovery rate
+> = 0.0
+> 10 110 2
+> ksynth
+> = 0.01
+> 10 110 2
+> ksynth
+> = 0.05
+> d=7
+> d=30
+> d=50
+> d=100
+> d=200
+> Synthetic OMP recovery on d-regular Expander decoders (m=512, n=4096)
+
+Figure 12. Exact support-recovery rate as a function of ksynth , with one curve per Expander degree d ∈ { 7, 30 , 50 , 100 , 200 } and one panel per noise level σ. Points are means over three mask seeds and error bars show the standard error. 
+
+• ...Debbie Gregory D[Deb] 
+
+• ...Frederick L[Fred] 
+
+• ...Buy Nureflex [Buy] 
+
+A “beginning-of-token” detector firing at sentence-initial positions. The high target-token entropy but low position entropy is the signature that places this feature in the positional rather than the neuron-pattern category. 
+
+## M. Theory for Expander SAE decoders 
+
+This appendix proves Theorem 3.1 via a weighted version of the standard expander recovery argument. The proof has two ingredients. The binary mask M controls how many collisions occur between feature supports, and the flatness factor 
+
+β(Wdec ) controls how much learned decoder mass can sit on those colliding edges. We first establish a combinatorial bound on collisions using the expansion property, then show that column normalisation pins down the ℓ1-mass of each decoder column, and finally combine the two to prove the identifiability theorem and its corollaries. Throughout this appendix we write W = Wdec for brevity. We assume the columns of W are unit-normalised and supported on a left d-regular mask M, so that 
+
+∥wj ∥2 = 1 , Wij = 0 whenever Mij = 0 .
+
+For J ⊆ [n], the neighbourhood of J in the bipartite graph defined by M is 
+
+Γ( J) := { i ∈ [m] : Mij = 1 for some j ∈ J },
+
+24 Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 10 1 10 2     
+
+> ksynth
+> 10 4
+> 10 3
+> 10 2
+> relative reconstruction error
+> = 0.0
+> 10 110 2
+> ksynth
+> = 0.01
+> 10 110 2
+> ksynth
+> = 0.05
+> d=7
+> d=30
+> d=50
+> d=100
+> d=200
+> Synthetic OMP reconstruction error on d-regular Expander decoders
+
+Figure 13. Relative reconstruction error ∥Wˆx − Wx ∥2/∥Wx ∥2 for the same synthetic experiment as Figure 12, on log-log axes. Points are means over three mask seeds and error bars show the standard error. 
+
+and the flatness factor is 
+
+β(W) := √d max    
+
+> i,j :Mij =1
+
+|Wij |.
+
+M.1. Expansion gives few collisions 
+
+This subsection translates the expansion property of M into a bound on the cumulative number of collision edges that appear when we add columns to a set one at a time. The argument is purely combinatorial and uses only the expansion of M, not the values of W.Let S ⊆ [n] with |S| ≤ s, and order its elements as 
+
+j1, j 2, . . . , j |S|.
+
+For r = 1 , . . . , |S|, define the prefix 
+
+Sr := {j1, . . . , j r }
+
+and the set of collision edges created by jr relative to previous columns, 
+
+Br := Γ( jr ) ∩ Γ( Sr−1), br := |Br |,
+
+so br counts the neighbours of jr that were already used by earlier columns in the prefix. 
+
+Lemma M.1 (Prefix collision bound) . If M is a left d-regular (s, ε, d )-expander, then for every ordering of every S ⊆ [n]
+
+with |S| ≤ s, rX
+
+> q=1
+
+bq ≤ εdr for every r ≤ | S|.
+
+Proof. When column jq is added to the prefix, it contributes d − bq new neighbours. Hence 
+
+|Γ( Sr )| =
+
+> r
+
+X
+
+> q=1
+
+(d − bq ) = dr −
+
+> r
+
+X
+
+> q=1
+
+bq .
+
+By expansion, 
+
+|Γ( Sr )| ≥ (1 − ε)dr. 
+
+Therefore 
+
+dr −
+
+> r
+
+X
+
+> q=1
+
+bq ≥ (1 − ε)dr, 
+
+which gives rX
+
+> q=1
+
+bq ≤ εdr. 
+
+25 Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 
+
+The prefix bound controls collision counts uniformly over r, but the proof of the main theorem needs a weighted version in which each collision is reweighted by an entry of the latent vector. The next lemma provides that weighted bound by combining Lemma M.1 with summation by parts. 
+
+Lemma M.2 (Weighted collision bound) . Let a1 ≥ a2 ≥ · · · ≥ as ≥ 0. Under the assumptions of Lemma M.1, 
+
+> s
+
+X
+
+> r=1
+
+br ar ≤ εd 
+
+> s
+
+X
+
+> r=1
+
+ar .
+
+Proof. Let 
+
+Cr := 
+
+> r
+
+X
+
+> q=1
+
+bq .
+
+By Lemma M.1, 
+
+Cr ≤ εdr. 
+
+Set as+1 = 0 . By summation by parts, sX
+
+> r=1
+
+br ar =
+
+> s
+
+X
+
+> r=1
+
+Cr (ar − ar+1 ).
+
+Therefore sX
+
+> r=1
+
+br ar ≤ εd 
+
+> s
+
+X
+
+> r=1
+
+r(ar − ar+1 ) = εd 
+
+> s
+
+X
+
+> r=1
+
+ar .
+
+M.2. Flatness bounds learned weighted cancellations 
+
+The previous subsection treats M as a combinatorial object and ignores the values of W. This subsection extracts the two consequences of the flatness factor that the main proof needs, both following from β(W) together with column normalisation. The first bounds the magnitude of any single colliding entry, and the second lower-bounds the total ℓ1-mass of every decoder column. By definition of β(W),
+
+|Wij | ≤ β(W)
+
+√d whenever Mij = 1 ,
+
+so each colliding edge contributes at most 
+
+β(W)
+
+√d |uj |
+
+in absolute value, for any latent vector u.For the second consequence, column normalisation gives a lower bound on the total ℓ1-mass of every decoder column. Since 
+
+∥wj ∥2 = 1 ,
+
+1 = X
+
+> i
+
+|Wij |2 ≤ ∥ wj ∥∞∥wj ∥1 ≤ β(W)
+
+√d ∥wj ∥1.
+
+Therefore 
+
+∥wj ∥1 ≥√dβ(W) . (18) Equation (18) is the point at which the learned non-binary nature of the SAE decoder enters the proof. In the balanced binary case β(W) = 1 , recovering the lossless-expander setting of Jafarpour et al. (2009). For a learned decoder, β(W)
+
+measures how much the weighted argument deviates from that ideal balanced case. 26 Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 
+
+M.3. Proof of Theorem 3.1 
+
+The proof has two stages. The first stage establishes a uniform lower bound on ∥Wu ∥1 for every 2k-sparse vector u, by decomposing the row sums of Wu into a primary contribution A and a colliding-edge correction B, and then applying Lemma M.2 together with the column ℓ1-bound (18) . The second stage uses this lower bound to deduce that no two distinct 
+
+k-sparse codes can produce the same centred activation, which gives the identifiability claim. 
+
+Proof. Let 
+
+β := β(W).
+
+We prove that every u with ∥u∥0 ≤ 2k satisfies 
+
+∥Wu ∥1 ≥ √d
+
+ 1
+
+β − 2βε 
+
+
+
+∥u∥1.
+
+The claim is trivial when u = 0 , so assume u̸ = 0 .Let 
+
+S := supp( u), s := |S| ≤ 2k. 
+
+Order the elements of S as 
+
+j1, . . . , j s
+
+so that 
+
+|uj1 | ≥ | uj2 | ≥ · · · ≥ | ujs |,
+
+and set 
+
+ar := |ujr |.
+
+For each row i ∈ Γ( S), let jr(i) be the first column in this ordering that touches row i. We call the edge (i, j r(i)) primary, and call all later edges touching the same row colliding. For each row i, write 
+
+tij := Wij uj .
+
+By the reverse triangle inequality, 
+
+X
+
+> j∈S
+
+tij ≥ | ti,j r(i) | − X   
+
+> j∈S:Mij =1
+> j̸=jr(i)
+
+|tij |.
+
+Equivalently, 
+
+X
+
+> j∈S
+
+tij ≥ X  
+
+> j∈S:Mij =1
+
+|tij | − 2 X   
+
+> j∈S:Mij =1 (i,j )colliding
+
+|tij |.
+
+Summing this inequality over rows gives 
+
+∥Wu ∥1 ≥ A − 2B, (19) where 
+
+A := X
+
+> j∈S
+
+|uj | ∥ wj ∥1
+
+is the total absolute decoder mass and 
+
+B := X 
+
+> colliding edges (i,j )
+
+|Wij uj |
+
+is the total absolute mass on colliding edges. We first lower-bound A. By (18), 
+
+A = X
+
+> j∈S
+
+|uj | ∥ wj ∥1 ≥√dβ
+
+X
+
+> j∈S
+
+|uj | =
+
+√dβ ∥u∥1.
+
+27 Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 
+
+We next upper-bound B. In the ordering above, the colliding edges of column jr are contained in 
+
+Γ( jr ) ∩ Γ( {j1, . . . , j r−1}),
+
+and the number of such edges is br . Since 
+
+|Wij | ≤ β
+
+√d ,
+
+we have 
+
+B ≤
+
+> s
+
+X
+
+> r=1
+
+br ar
+
+β
+
+√d .
+
+By Lemma M.2, sX
+
+> r=1
+
+br ar ≤ εd 
+
+> s
+
+X
+
+> r=1
+
+ar = εd ∥u∥1,
+
+so 
+
+B ≤ βε √d ∥u∥1.
+
+Substituting the bounds on A and B into (19) gives 
+
+∥Wu ∥1 ≥√dβ ∥u∥1 − 2βε √d ∥u∥1,
+
+hence 
+
+∥Wu ∥1 ≥ √d
+
+ 1
+
+β − 2βε 
+
+
+
+∥u∥1.
+
+If 2β2ε < 1, the coefficient is strictly positive. To deduce identifiability, let x⋆ be k-sparse and suppose z is another k-sparse vector with 
+
+Wz = Wx ⋆.
+
+Set 
+
+u := z − x⋆.
+
+Then ∥u∥0 ≤ ∥ z∥0 + ∥x⋆∥0 ≤ 2k and Wu = 0 . The lower bound gives 
+
+0 = ∥Wu ∥1 ≥ √d
+
+ 1
+
+β − 2βε 
+
+
+
+∥u∥1.
+
+Since the coefficient is positive, ∥u∥1 = 0 , and therefore u = 0 and z = x⋆. So x⋆ is the unique k-sparse latent vector producing the noiseless centred activation Wx ⋆. Since x⋆ is feasible for the ideal sparse decoding problem and achieves zero reconstruction error, every minimiser of (4) must equal x⋆.
+
+M.4. Corollaries 
+
+Theorem 3.1 has three immediate consequences. The first translates the uniform 2k-sparse lower bound into a spark statement, which gives the unique-sparsest-explanation property of the ideal ℓ0 decoder. The second derives a cumulative-coherence bound that activates the classical OMP exact-recovery condition. The third extends the identifiability claim to a stable-recovery statement under bounded ℓ1-residual mismatch. 
+
+Corollary M.3 (Spark and ideal sparse-decoder recovery) . Under the assumptions of Theorem 3.1, 
+
+spark( Wdec ) > 2k. 
+
+Consequently, every k-sparse code x⋆ is the unique sparsest explanation of the noiseless centred activation Wdec x⋆, and the ideal ℓ0 decoder in Eq. (4) recovers x⋆ exactly. 
+
+28 Expander Sparse Autoencoders: Parameter-Efficient Dictionaries for Mechanistic Interpretability 
+
+Proof. Theorem 3.1 gives ∥Wdec u∥1 > 0 for every nonzero 2k-sparse vector u, so no set of at most 2k decoder columns is linearly dependent and spark( Wdec ) > 2k. The sparse-identifiability implication follows. If two k-sparse vectors x and z
+
+satisfy Wdec x = Wdec z, then u = x − z is 2k-sparse and lies in the nullspace, so u = 0 .The second corollary moves from existential identifiability to a constructive recovery guarantee. The classical analysis of Tropp (2004) certifies OMP exact recovery whenever the cumulative coherence satisfies μ1(k; W) + μ1(k − 1; W) < 1,and we show that the prefix collision bound of Lemma M.1 controls μ1(s; W) in our setting. 
+
+Corollary M.4 (A sufficient cumulative-coherence condition for OMP) . Let W = Wdec have unit-normalised columns supported on a left d-regular mask M, and let β = β(W). Define the cumulative coherence 
+
+μ1(s; W) := max  
+
+> j∈[n]
+
+max   
+
+> T⊂[n]\{ j}|T|=s
+
+X
+
+> ℓ∈T
+
+|⟨ wj , wℓ⟩| .
+
+If M is a (k + 1 , ε, d )-expander, then 
+
+μ1(s; W) ≤ β2ε(s + 1) for every s ≤ k. 
+
+In particular, if 
+
+β2ε(2 k + 1) < 1, (20) 
+
+then μ1(k; W)+ μ1(k−1; W) < 1, so the standard cumulative-coherence exact-recovery condition for OMP applies (Tropp, 2004). In the noiseless model h = bdec + Wx ⋆, OMP then recovers the support of every k-sparse x⋆ in k steps. This is the statement quoted in the main text as Corollary 3.2. Proof. For two columns j̸ = ℓ, let 
+
+cjℓ = | supp( wj ) ∩ supp( wℓ)|.
+
+Since every nonzero decoder entry has magnitude at most β/ √d,
+
+|⟨ wj , wℓ⟩| ≤ β2
+
+d cjℓ .
+
+Fix j and T with |T | = s ≤ k, and order {j} ∪ T with j first. By the prefix collision bound (Lemma M.1, applied at 
+
+r = s + 1 ≤ k + 1 ), the total number of collision edges created by the s + 1 columns is at most εd (s + 1) . Since P 
+
+> ℓ∈T
+
+cjℓ 
+
+is bounded by this collision count, X
+
+> ℓ∈T
+
+|⟨ wj , wℓ⟩| ≤ β2ε(s + 1) .
+
+Taking the maximum over j and T gives the cumulative-coherence bound, and the final statement follows from the standard OMP sufficient condition μ1(k; W) + μ1(k − 1; W) < 1 (Tropp, 2004). The third corollary upgrades identifiability to a quantitative stability statement. Under the assumptions of Theorem 3.1 the lower bound (11) holds with constant c = √d(1 /β − 2βε ) > 0, and we show that this constant directly controls how the 
+
+ℓ1-distance between two candidate k-sparse codes scales with the ℓ1-residual between their reconstructions. 
+
+Corollary M.5 (Stability under bounded residual mismatch) . Let c = √d(1 /β −2βε ) > 0 be the constant from Theorem 3.1. Under the assumptions of that theorem, suppose x⋆ is k-sparse and z is k-sparse with 
+
+∥Wz − Wx ⋆∥1 ≤ η. 
+
+Then 
+
+∥z − x⋆∥1 ≤ η/c. 
+
+Proof. The vector u = z − x⋆ is 2k-sparse, so the lower bound (11) gives ∥Wu ∥1 ≥ c∥u∥1. Combining with ∥Wu ∥1 ≤ η
+
+yields ∥u∥1 ≤ η/c .29
