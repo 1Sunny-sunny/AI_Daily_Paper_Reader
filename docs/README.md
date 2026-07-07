@@ -1,63 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-07-07
-- 运行时间：2026-07-07 05:01:42 北京时间
+- 最新运行日期：2026-07-08
+- 运行时间：2026-07-08 05:15:00 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今日精读15篇脑科学前沿，聚焦脑机语音合成与决策神经环路两大突破。
-最值得关注：Brain2voice 2.0 实现高质量语音合成脑机接口，大幅逼近实用化；额叶眼动区主导了抽象分类决策的分布式眼动网络。
-下一步可优先追踪神经假体康复进展，或深入理解大脑如何统一高效与预测编码。
-- 详情：[/202607/07/README](/202607/07/README)
+今日前沿：从运动想象脑电解码到情感识别，高效适配与对抗鲁棒性成为突破关键。
+值得细读：堆叠LoRA让脑电基础模型快速适配个体差异，重新定义CLIP在脑解码中的作用则揭示了对抗训练的非凡价值。
+想跟进脑机智能？不妨先从这两篇高分论文的代码和对抗鲁棒性实验入手。
+- 详情：[/202607/08/README](/202607/08/README)
 
 ### 精读区论文标签
-1. [Brain2voice 2.0: High-performance voice synthesis brain-computer interface](/202607/07/biorxiv-10-64898-2026-06-30-735633-v1-brain2voice-20-high-performance-voice-synthesis-brain-computer-interface)  
-   标签：评分：10.0/10、query:sr
-   evidence：高性能语音合成BCI从脑活动解码语音
-2. [Frontal Eye Field Leads a Distributed Oculomotor Circuit for Abstract Categorical Decisions](/202607/07/biorxiv-10-64898-2026-06-30-735630-v1-frontal-eye-field-leads-a-distributed-oculomotor-circuit-for-abstract-categorical-decisions)  
+1. [Stacked LoRA for Subject-Adaptive EEG Foundation Models in Motor Imagery Decoding](/202607/08/2607.03094v1-stacked-lora-for-subject-adaptive-eeg-foundation-models-in-motor-imagery-decoding)  
    标签：评分：9.0/10、query:sr
-   evidence：跨脑区神经群体编码分类决策
-3. [Anticipatory organization of neural population dynamics speeds behavioral decisions](/202607/07/biorxiv-10-64898-2026-06-30-735699-v2-anticipatory-organization-of-neural-population-dynamics-speeds-behavioral-decisions)  
+   evidence：使用堆叠LoRA的脑机接口脑电解码
+2. [Rethinking Brain Decoding with CLIP: The Role of Adversarial Robustness](/202607/08/2607.03165v1-rethinking-brain-decoding-with-clip-the-role-of-adversarial-robustness)  
    标签：评分：9.0/10、query:sr
-   evidence：听觉前脑神经群体动态与时间解码
-4. [Rapid value learning reveals generalized and context-dependent codes in frontal cortex](/202607/07/biorxiv-10-64898-2026-07-03-736027-v1-rapid-value-learning-reveals-generalized-and-context-dependent-codes-in-frontal-cortex)  
+   evidence：使用CLIP进行fMRI脑解码
+3. [EEG-Based Imagined Speech Decoding Using a Hybrid CNN-SNN Architecture](/202607/08/2607.03844v1-eeg-based-imagined-speech-decoding-using-a-hybrid-cnn-snn-architecture)  
    标签：评分：9.0/10、query:sr
-   evidence：记录前额叶皮层单神经元活动，揭示不同的神经编码
-5. [Human primary auditory cortex and insula encode perceptual decisions, not stimulus features](/202607/07/biorxiv-10-64898-2026-07-03-736338-v1-human-primary-auditory-cortex-and-insula-encode-perceptual-decisions-not-stimulus-features)  
+   evidence：基于SNN的EEG脑机接口时序解码算法
+4. [NeuroOnline: Bridging Pretraining and Online Adaptation for EEG Foundation Models](/202607/08/2607.03925v1-neuroonline-bridging-pretraining-and-online-adaptation-for-eeg-foundation-models)  
    标签：评分：9.0/10、query:sr
-   evidence：听觉皮层和岛叶中知觉决策的神经表征
+   evidence：提出NeuroOnline实现EEG持续自适应，直接支持脑机接口的时序解码
+5. [SleepBand: Single-Source Domain Generalization for Sleep Staging via Physiologically Structured Spectral Modeling](/202607/08/2607.04851v1-sleepband-single-source-domain-generalization-for-sleep-staging-via-physiologically-structured-spectral-modeling)  
+   标签：评分：9.0/10、query:sr
+   evidence：解码随时间变化的神经活动以提取信息
 
 ### 速读区论文标签
-1. [Distributed encoding of action-mediated outcome drives consistent population dynamics during goal-directed reaching](/202607/07/biorxiv-10-1101-2024-11-04-621878-v2-distributed-encoding-of-action-mediated-outcome-drives-consistent-population-dynamics-during-goal-directed-reaching)  
+1. [See the Emotion: A Facial Emoji Proxy Modeling for EEG Emotion Recognition](/202607/08/2607.02912v1-see-the-emotion-a-facial-emoji-proxy-modeling-for-eeg-emotion-recognition)  
    标签：评分：8.0/10、query:sr
-   evidence：分布式的神经群体动态编码目标导向伸手的结果预期
-2. [A unified theory of context-conditioned efficient and predictive coding](/202607/07/biorxiv-10-1101-2025-02-24-639817-v2-a-unified-theory-of-context-conditioned-efficient-and-predictive-coding)  
+   evidence：从EEG到面部表情符号的重建用于情绪识别
+2. [Shunting Inhibition and Dendritic Branching Shape Local Credit Assignment](/202607/08/2607.03556v1-shunting-inhibition-and-dendritic-branching-shape-local-credit-assignment)  
    标签：评分：8.0/10、query:sr
-   evidence：上下文条件高效和预测编码的统一理论
-3. [The Premotor Language Area Encodes a Full Acoustic-to-semantic Speech Hierarchy](/202607/07/biorxiv-10-64898-2026-07-01-735929-v1-the-premotor-language-area-encodes-a-full-acoustic-to-semantic-speech-hierarchy)  
+   evidence：提出了一个基于电导的树突网络模型用于局部信用分配，有助于理解神经计算
+3. [Learning Biophysical Models of Large-Scale Multineuronal Data to Enable Precise Neurostimulation](/202607/08/2607.04063v1-learning-biophysical-models-of-large-scale-multineuronal-data-to-enable-precise-neurostimulation)  
    标签：评分：8.0/10、query:sr
-   evidence：使用计算编码模型表征前运动皮层的语音表征
-4. [Estimating the Explainable Variance of EEG Responses to Natural Speech](/202607/07/biorxiv-10-64898-2026-07-02-736170-v1-estimating-the-explainable-variance-of-eeg-responses-to-natural-speech)  
+   evidence：从细胞外记录拟合生物物理Hodgkin-Huxley模型，解释神经编码机制
+4. [Overt visual attention modulates decision-related signals in the frontal cortex](/202607/08/biorxiv-10-1101-2024-10-25-620227-v3-overt-visual-attention-modulates-decision-related-signals-in-the-frontal-cortex)  
    标签：评分：8.0/10、query:sr
-   evidence：将脑电反应与语音特征关联的数学框架（可解释方差）
-5. [Electronic Bursting Neuron: design, equations and hardware implementation](/202607/07/2607.02122v1-electronic-bursting-neuron-design-equations-and-hardware-implementation)  
+   evidence：解码随时间变化的神经活动模式
+5. [Inferring Cooperativity From Pooled Measurements](/202607/08/2607.03088v1-inferring-cooperativity-from-pooled-measurements)  
    标签：评分：7.0/10、query:sr
-   evidence：用于神经假体和脉冲网络的硬件电子神经元
-6. [Distinct sensorimotor encoding in tuft dendrites and somata associated with action, correction, and learning](/202607/07/biorxiv-10-64898-2026-05-06-722323-v2-distinct-sensorimotor-encoding-in-tuft-dendrites-and-somata-associated-with-action-correction-and-learning)  
+   evidence：和依赖马尔可夫链从多通道电生理推断协同性
+6. [AIGOR: A Modular, Event-Driven Neuromorphic Architecture for Configurable SNN Inference](/202607/08/2607.03191v1-aigor-a-modular-event-driven-neuromorphic-architecture-for-configurable-snn-inference)  
    标签：评分：7.0/10、query:sr
-   evidence：树突和胞体的感觉运动编码
-7. [Representations of active grasp maintenance emerge during reach-grasp-carry learning in mouse motor cortex](/202607/07/biorxiv-10-64898-2026-06-30-735546-v1-representations-of-active-grasp-maintenance-emerge-during-reach-grasp-carry-learning-in-mouse-motor-cortex)  
+   evidence：支持时序解码的SNN推理神经形态架构
+7. [Masked Generative-Contrastive Representation Learning for Cross-Dataset EEG-Based Emotion Recognition](/202607/08/2607.04139v1-masked-generative-contrastive-representation-learning-for-cross-dataset-eeg-based-emotion-recognition)  
    标签：评分：7.0/10、query:sr
-   evidence：从运动皮层神经活动解码抓握维持状态
-8. [The human language processing system straightens natural speech](/202607/07/biorxiv-10-64898-2026-06-30-735613-v1-the-human-language-processing-system-straightens-natural-speech)  
+   evidence：基于SSL时空编码器的脑电情绪解码
+8. [Beyond DSA: Conjugacy-based Comparison of Dynamical Systems](/202607/08/2607.04493v1-beyond-dsa-conjugacy-based-comparison-of-dynamical-systems)  
    标签：评分：7.0/10、query:sr
-   evidence：测量言语处理中表征轨迹曲率的方法
-9. [Efficient Temporal Point Processes via Monotone Alternating Splines](/202607/07/2607.01752v1-efficient-temporal-point-processes-via-monotone-alternating-splines)  
+   evidence：基于共轭的动态系统比较方法用于神经科学
+9. [Rank-Order N-of-M Codes for Sparse Distributed Memory: Disentangling Representation and Learning Effects in Noise Robustness Against Contemporary Neuromorphic Architectures](/202607/08/2607.02967v1-rank-order-n-of-m-codes-for-sparse-distributed-memory-disentangling-representation-and-learning-effects-in-noise-robustness-against-contemporary-neuromorphic-architectures)  
    标签：评分：6.0/10、query:sr
-   evidence：用于时间点过程的新样条框架，可应用于神经尖峰序列
-10. [Subliminal Clocks: Latent Time Modelling in Diffusion Language Models](/202607/07/2607.01774v1-subliminal-clocks-latent-time-modelling-in-diffusion-language-models)  
+   evidence：评估排序N选M脉冲编码用于神经表示
+10. [SHiPPO: Recurrent Memory with Transported Polynomial Projections](/202607/08/2607.03055v1-shippo-recurrent-memory-with-transported-polynomial-projections)  
    标签：评分：6.0/10、query:sr
-   evidence：从扩散语言模型内部激活中解码潜在时间步，方法可迁移至神经解码可解释性
+   evidence：SHiPPO循环记忆利用传输多项式投影处理时序动态
 
