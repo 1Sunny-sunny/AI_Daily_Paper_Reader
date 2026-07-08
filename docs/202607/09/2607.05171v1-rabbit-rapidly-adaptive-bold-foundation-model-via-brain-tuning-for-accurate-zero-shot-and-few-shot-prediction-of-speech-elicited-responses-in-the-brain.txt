@@ -1,0 +1,1151 @@
+Title: RABBiT: Rapidly adaptive BOLD foundation model via brain-tuning for accurate zero-shot and few-shot prediction of speech-elicited responses in the brain
+
+URL Source: https://arxiv.org/pdf/2607.05171v1
+
+Published Time: Tue, 07 Jul 2026 03:46:39 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# RABBiT: Rapidly adaptive BOLD foundation model via brain-tuning for accurate zero-shot and few-shot prediction of speech-elicited responses in the brain 
+
+Omer Moussa 
+
+Max Planck Institute for Software Systems Saarbrücken, Germany 
+
+omoussa@mpi-sws.org 
+
+Mariya Toneva 
+
+Max Planck Institute for Software Systems Saarbrücken, Germany 
+
+mtoneva@mpi-sws.org 
+
+Abstract 
+
+Language understanding in the brain is context-dependent, varying across exper-imental stimuli and individuals, which makes it difficult to build computational models that generalize across both. This calls for a foundation model of language-evoked brain activity that can capture shared structure while adapting efficiently to new participants and inputs. We introduce RABBiT (Rapidly Adaptive BOLD foundation model via BraIn-Tuning), a compact audio-to-fMRI encoder designed for accurate zero- and few-shot prediction. A comprehensive evaluation on 324 participants across multiple unseen fMRI datasets shows that RABBiT enables accurate zero-shot prediction of fMRI responses to natural speech across auditory and language-selective regions, surpassing the SOTA foundation model for fMRI and predictions based on group averages. With as little as 10 minutes of participant-specific data, RABBiT further improves performance via parameter-efficient tuning, substantially outperforming per-participant linear models. RABBiT’s performance is driven by two key innovations: (1) learned region-specific attention, and (2) a decomposition of brain responses into shared and subject-specific components, combined with a brain-tuned speech backbone. In addition to supporting strong pre-dictive accuracy, the structured, region-specific representations that RABBiT learns enable interpretability. By eliminating the need for extensive per-participant data and model fitting, RABBiT enables scalable population-level analyses of language in the human brain. We make the code available at https://github.com/bridge-ai-neuro/rabbit. 
+
+1 Introduction 
+
+Natural language comprehension evokes brain responses that are both reliable across listeners and strongly shaped by individual variation. Early auditory regions exhibit relatively consistent responses across participants, whereas higher-order language regions vary substantially across brains [ 24 ]. This creates a central challenge for language fMRI modeling: a useful encoder must capture the shared structure of language processing while remaining adaptable to individual listeners. Most existing brain encoding approaches address only one side of this problem. Standard voxel-wise encoding models fit a separate readout for each participant [ 16 , 2]. Although effective with sufficient data, these methods require collecting new fMRI recordings and fitting a high-dimensional model for every participant. More recent brain-tuning approaches improve the underlying speech representations using fMRI supervision [ 21 , 23 , 31 ], but still rely on participant-specific voxel-wise fitting at inference time. In parallel, recent foundation-style brain encoders improve zero-shot prediction across participants [ 7 , 5 ], yet they are not designed for efficient adaptation to new                               
+
+> Preprint.
+> arXiv:2607.05171v1 [cs.CL] 6 Jul 2026 ZERO -SHOT
+> NO RE-TRAINING NEEDED
+> VALIDATED OVER 324 PARTICIPANTS
+> beats multimodal SOTA in language regions ·~80× smaller
+> FEW -SHOT
+> ~10 MIN CALIBRATION ·PER SUBJECT
+> NEW SUBJECT 10 MIN OF DATA
+> beats per -subject ridge with 1000×
+> fewer params
+> PREDICTED ACCURACY LOW HIGH
+> A U D I O
+> RABBiT
+
+(a) RABBiT transfers after training. q1 A1            
+
+> q2STG/STS
+> qiIFG
+> qi+ 1 Angular
+> qnvis-higher
+> Speech Model
+> WQ
+> WK
+> WV
+> K q i
+> √dk
+> softmax
+> zi= ∑
+> t
+> αi,t⋅vt
+> z1
+> z2
+> zi
+> zi+ 1
+> zn
+> ROI queries
+
+⋮               
+
+> audio
+> x1x2xT⋯
+> Cross-attention
+> PE
+> qi=WQq
+> kt=WK(xt+pt)
+> vt=WVxt
+> αi
+> attention weights αi∈ℝT
+> per-ROI latent
+
+⋮ (b) Cross-attention module in brain transformer. audio                
+
+> Speech Model
+> frozen +lora
+> P R E T R A I N E D B A C K B O N E
+> tokens
+> P E R T R
+> Temporal Brain Transformer
+> trainable
+> z1... zn
+> P E R R O I L A T E N T S
+> PREDICTED
+> L O S S
+> MSE +CORR LOSSES
+> MEASURED
+> ZI
+> PER ROI
+
+× 
+
+> SHARED TEMPLATE
+
+= 
+
+> SHARED PART
+
+× 
+
+> PER-SUBJ IDIOSYNCRASIES
+
+= 
+
+> IDIOSYNCRATIC PART
+
++
+
+π
+
+> SHARED
+> COEFFICIENTS
+
+ρ
+
+> IDIOSYNCRATIC
+> COEFFICIENTS
+> S I D
+
+(c) Training: predict fMRI per ROI, compare to measured. 
+
+Figure 1: Overview of RABBiT. (a) A single encoder that supports two transfer regimes for new subjects. Zero-shot : predicting group-level responses; tested on 324 unseen participants across 16 held-out studies with naturalistic listening; RABBiT’s predictions on auditory ROIs already saturate near the inter-subject consistency. Few-shot : adapting to a new subject with small data; RABBiT rapidly and effectively adapts to unseen subjects with only ∼10 minutes of paired audio, improving idiosyncratic language ROIs with 3 orders of magnitude fewer parameters than voxel-wise models. 
+
+(b) The cross-attention readout: learnable ROI query tokens attend to audio output tokens of the speech backbone, yielding a per-ROI latent zi that feeds to prediction heads. (c) Training pipeline. Audio is encoded by a speech model into a temporal token sequence; the cross-attention transformer routes those tokens to ROI latents; the per-ROI latent passes through our SID decomposition (learnable shared + per-subject idiosyncratic components) to form the predicted fMRI response; the loss is applied between predicted and measured fMRI. The whole pipeline has ≈12.9M trainable parameters. individuals, particularly at high cortical resolution. These limitations motivate a foundation model for language-evoked brain activity: a single encoder that predicts the shared response structure of unseen listeners while supporting rapid adaptation to individual brains from limited calibration data. We introduce RABBiT (Rapidly Adaptive BOLD foundation model via Bra In-Tuning; Fig.1), a compact audio-to-fMRI encoder designed for accurate zero-shot predictions and efficient few-shot adaptation to new participants. RABBiT first brain-tunes a self-supervised speech backbone using LoRA adapters, adapting speech representations directly for cortical prediction. A novel 
+
+Temporal Brain Transformer (TBT) then constructs explicit ROI-level representations by learning region-specific attention over the speech stream, replacing fixed temporal pooling and fragmented voxel-wise processing. Finally, a novel Shared–Idiosyncratic Decomposition (SID) maps each ROI representation to cortical activity through a low-rank shared component and a low-rank participant-specific deviation. The shared component enables accurate zero-shot population prediction, while the deviation pathway supports efficient few-shot adaptation for a new participant with only a small number of trainable parameters. In summary, our main contributions are: (i) We introduce RABBiT , a compact brain-tuned audio-to-fMRI encoder that supports both zero-shot population prediction and parameter-efficient few-shot adaptation to new subjects. 2(ii) We propose Temporal Brain Transformer (TBT) as one key component of RABBiT, which learns region-specific attention over speech representations, enabling explicit ROI-level temporal routing instead of fixed temporal pooling or independent voxel-wise processing. In addition to improving the predictive performance, TBT learns interpretable ROI-query representations that we show recover a coarse cortical hierarchy from auditory to higher-order language regions. (iii) We propose Shared–Idiosyncratic Decomposition (SID) as a second key component of RABBiT, which learns low-rank factorizations of the neural response into shared population structure and subject-specific deviations. SID preserves zero-shot accuracy while enabling efficient adaptation to new participants from minutes of fMRI data. (iv) We evaluate on two held-out naturalistic listening cohorts totaling 324 unseen participants, and show that RABBiT’s zero-shot performance exceeds that of much larger baselines, including TRIBEv2. It can also reproduce canonical language network localizers without any re-training, indicating its utility as a model organism for in-silico neuroscience of language and speech. (v) We show that few-shot SID adaptation significantly beats voxel-wise ridge encoders trained on the same calibration data. The largest gains occur in higher-order language ROIs that vary most across participants, confirming the model’s central intuition. 
+
+2 Related Work 
+
+Pretrained brain encoding models. Pretrained language and speech models are widely used to predict brain responses to naturalistic language [ 32 , 17 , 29 , 26 , 16 , 2, 20 , 30 , 25 ]. However, the dominant approach—participant-specific voxel-wise ridge regression—does not support either zero-shot prediction for unseen participants or efficient few-shot adaptation. 
+
+Brain-tuned speech encoders. Brain-tuning methods improve speech representations using fMRI supervision [ 21 , 22 , 23 , 31 ]. These approaches enhance features later used by participant-specific readouts, whereas RABBiT integrates brain-tuning as part of a full encoder designed for both zero-shot and few-shot prediction. 
+
+Zero-shot brain foundation models. Recent large-scale brain encoders move toward zero-shot prediction across participants. TRIBEv2 [ 7], for example, combines large multimodal backbones with a large transformer and subject-conditioned output heads to predict group-level responses. In contrast, RABBiT is a compact, parameter-efficient audio-to-fMRI foundation model specialized for auditory and language regions. It supports accurate zero-shot prediction while producing higher-resolution outputs (4x the resolution of TRIBEv2) and enabling efficient adaptation to new participants. 
+
+Few-shot transfer to new participants. Voxel-wise ridge regression remains a strong participant-specific baseline when sufficient fMRI data are available [ 16 , 2], but performs poorly in low-data regimes due to its large number of parameters. Although TRIBEv2 also supports participant adapta-tion, it requires fine-tuning large model components and constructing new output heads [ 7]. RABBiT instead freezes the shared encoder and adapts only a low-rank subject-specific pathway. The closest related approach, Universal Brain Encoder [ 4], performs few-shot adaptation for image-to-fMRI prediction, whereas RABBiT supports both speech-based zero-shot prediction and efficient few-shot adaptation within a unified framework. 
+
+Region-level transformer routing. RABBiT’s temporal brain transformer is inspired by transformer-based brain encoders for vision [ 1], which use ROI queries to route visual information to cortical regions. RABBiT extends this idea to temporal speech representations, multi-subject training, and shared–idiosyncratic decoding through SID, yielding a reusable region-level temporal routing mechanism rather than a participant-specific readout. Overall, prior work lacks a compact speech-to-fMRI encoder that simultaneously supports accurate zero-shot prediction and efficient few-shot adaptation. RABBiT addresses this gap by combining brain-tuning, ROI-level temporal routing, and a low-rank shared–idiosyncratic decomposition. 33 Methods 
+
+We motivate here the design choices for RABBiT and provide details about each model component, the training process, and the zero-shot and few-shot evaluation settings. 
+
+3.1 Low-rank Decomposition of Brain Responses 3.1.1 Intuition 
+
+A transferable encoder for language-evoked brain activity must balance two competing objectives: capturing subject-specific structure while remaining scalable across participants. A single population-level readout is scalable but obscures reliable individual variability, whereas participant-specific readouts scale poorly with cohort size and cortical resolution [ 7]. This tradeoff is particularly acute in fMRI, where outputs are high-dimensional and subject-level data are limited. To characterize which response components are shared across participants, we measure, for each auditory and language ROI, how well an individual’s response correlates with the group average when that individual is included versus excluded from the average. Higher-order language regions show substantial degradation under leave-one-out averaging (App.B.1), indicating stronger idiosyncratic structure, whereas early auditory regions remain comparatively stable across participants, consistent with prior inter-subject correlation analyses [24]. Motivated by this structure, we introduce a novel Shared–Idiosyncratic Decomposition (SID) 
+
+in which each ROI response is modeled as the sum of a low-rank shared component and a low-rank subject-specific deviation. The shared component captures response structure that transfers across listeners, while the deviation component models individual variability without requiring a full participant-specific voxel-wise readout. This decomposition naturally supports both transfer settings used throughout the paper. In zero-shot prediction, RABBiT combines the shared component with the average learned deviation to estimate population responses (Sec.3.6). In few-shot calibration, only the low-rank deviation parameters are updated, enabling efficient subject adaptation without relearning the full cortical mapping (Sec.3.8). 
+
+3.1.2 Formulation 
+
+Shared-Idiosyncratic Decomposition (SID) decomposes each brain region-of-interest (ROI’s) response into a population-shared component and a small per-subject part. Concretely, let zi ∈ Rdo be the representation used to predict the brain response (e.g., the output of temporal brain transformer; Sec.3.2). Then for ROI i with Vi voxels, SID predicts the ROI response for subject s as 
+
+ˆy(s) 
+
+> i
+
+= πi(zi) Φ i + ρi(zi) ∆ i,s ,
+
+where Φi ∈ RM ×Vi is the shared basis that defines the population response subspace for ROI i,
+
+∆i,s ∈ RR×Vi is the deviation basis that defines the subject-specific correction subspace, R < M ,and the coefficient maps πi : Rdo → RM and ρi : Rdo → RR make both terms stimulus-dependent. SID can be viewed as a per-ROI mixed-effects readout consisting of a shared population component and a low-rank subject-specific component. The rank constraint serves as the key regularizer, enabling subject-specific flexibility only where supported by data while preventing an unconstrained voxel-wise per-subject model. Unlike independent subject-specific heads [ 7], the deviation components form a compact basis of systematic individual differences from the population response. We initialize the bases from the same empirical split that motivated the model: the shared bases from PCA of the mean training response, and the deviation bases from SVD of each subject’s residual from that mean. This starts training from cross-subject structure in the shared term and residual subject structure in the deviation term; initialization details are given in App.B.2. 
+
+3.2 Temporal Brain Transformer 
+
+SID defines the mapping from ROI-level latents zi to voxel-level brain responses, while the temporal brain transformer determines how each region constructs its latent representation from the speech stream. In contrast, voxel-wise ridge regression lacks an explicit region-level representation: it applies fixed temporal pooling (e.g., HRF convolution or lag windows [ 16 , 2 ]) followed by independent 4regression for each cortical vertex. RABBiT replaces both components with learned ROI-level routing, where each region adaptively integrates temporal context and shares a common latent representation across its voxels via SID. 
+
+Cross-attention module. Concretely, each cross-attention block (Fig.1b) lets a learnable ROI query token qi attend over a window of speech model output tokens. The attention profile αi, · is the model’s learned temporal pooling rule for ROI i: it specifies which parts of the speech context are used to form that region’s state. Because the query is shared across subjects, this temporal profile can be inspected directly from the trained model, without fitting a separate per-subject temporal readout; full mathematical details including the choice of positional embedding in App.C.2. 
+
+Temporal brain transformer. The full temporal brain transformer stacks L such cross-attention blocks over the ROI queries, following the design of [ 1 ]. The first layer reads backbone features into the ROI queries; later layers re-attend with updated region states, refining what each region selects from the speech stream. Multi-head attention lets a region combine complementary temporal patterns in parallel, such as faster acoustic structure and slower contextual structure, while the FFN in each block transforms the resulting ROI state. The final state is the per-ROI latent zi passed to SID. This architecture is powerful without becoming voxel-wise. The transformer learns temporal routing once per ROI, rather than learning separate temporal filters for every vertex and subject. Vertex-level and subject-specific structure are handled downstream by SID’s low-rank shared and deviation bases. As a result, the routing module remains compact: our main model uses two cross-attention layers with eight heads per layer and hidden dimension 256 , for ∼2.4M parameters reused across participants; full architecture details are given in Sec.3.5. 
+
+3.3 Brain-tuning of the Speech Backbone 
+
+The temporal brain transformer learns which parts of the speech stream each ROI should use, but this routing is only as useful as the tokens it receives. A pretrained speech model provides strong acoustic and linguistic features, but its representations can be improved to predict cortical responses better with brain-tuning. Following recent work [ 21 , 23 ], we therefore brain-tune the speech backbone during RABBiT training using LoRA adapters [15]. Brain-tuning is integrated directly into the encoder: gradients propagate from the SID readout through the temporal brain transformer into the LoRA adapters, adapting speech representations for both shared population prediction and subject-specific deviations. The adapter constraint enables parameter-efficient adaptation while preserving a shared backbone across participants, avoiding both full model retraining and reliance on fixed pretrained features. We follow the multi-subject brain-tuning setup of [23]; dataset construction and optimization details are provided in App.C.1. 
+
+3.4 Dataset Details Surface projection. All fMRI data are projected to the FreeSurfer fsaverage6 cortical surface (with 42K vertices per hemisphere) [ 11 ] and then parcellated to 30 Brain ROIs, totaling ∼41K cortical vertices. The ROIs span auditory and language cortex as well as visual, motor, and theory-of-mind control regions (see App.A.1 for the full list of ROIs and the rationale for choosing them) 
+
+Training data. We train on the Friends subset of CourtoisNeuroMod [ 12 , 28 ] — 6 participants watching naturalistic audio-visual episodes ( ∼565K TRs total). Additional details on participant hours, data splits, and TR duration are provided in App.A.2. We also evaluated training on additional datasets, including Moth Radio [ 18 ] ( ∼113K TRs), but did not observe consistent performance improvements across settings (App.A.4). This suggests that integrating heterogeneous naturalistic datasets may require more careful treatment, which we leave to future work. 
+
+Evaluation data. Zero-shot evaluation uses two held-out listening cohorts with no participant overlap with training: seven stories from Narratives [24 ] (mean length 15 min; ∼30 participants per story) and the English Le Petit Prince audiobook [ 19 ] (49 participants, 9 sections, ∼90 min). Together, these cohorts provide 324 unseen participants for zero-shot group-response evaluation. Per-story durations, participant counts, and inclusion criteria are given in App.A.3.1. 53.5 Training Details 
+
+The full training proceeds as follows. Input audio is encoded into temporal speech representations by the speech backbone (Sec.3.3), which are mapped to ROI-level latents by the temporal brain transformer (Sec.3.2). These latents are then mapped onto fMRI responses through the SID readout (Sec.3.1). Training minimizes the difference between predicted and true fMRI by jointly optimizing the SID parameters, temporal brain transformer, and LoRA-based speech adapters (Fig.1c). 
+
+Loss. We train jointly on S=6 participants from Friends, in fsaverage6 space (Sec.3.4). The loss combines a per-ROI z-scored MSE and a Pearson-correlation term. We train until convergence on a validation set. Full details for the loss and training hyperparameters can be found in App.C.4. 
+
+Model components details. We use Wav2Vec2.0-base (90M params) [ 3] as our main speech backbone. Using a bigger pretrained model did not lead to significant gains (see Sec.4.2). For brain-tuning, we use LoRA rank 8 after ablation (App.C.1). For the brain transformer, we use 2 layers, with 8 heads and a hidden dimension of 256 (full architecture ablations are in App.C.2). For the SID matrices, we use M = 100 and R = 15 after ablation (see App.B.3 for more details). 
+
+3.6 Zero-shot Evaluation 
+
+For a new stimulus, RABBiT performs zero-shot inference by estimating the population-level response using the training subjects. The shared component is used directly, while the subject-specific deviation basis is replaced by its average across the S training participants (see App.C.3). 
+
+Linear baseline. As a lower bound on performance, we train a linear baseline over the mean pooled outputs of the speech model (no brain transformer, no brain-tuning, and no SID). 
+
+Per-subject Full-rank baseline. To validate our low-rank SID approach, we also report a subject-specific heads baseline (i.e., one full readout head per-subject) while keeping everything else the same. This adds around 6x more trainable parameters. If our model matches or beats that at zero-shot settings, this confirms our SID decomposition is sound and not an efficiency-performance trade-off. 
+
+TRIBEv2. As a strong baseline, we compare with the multimodal TRIBEv2 [ 7]. We use the official code to infer the model’s output for the same evaluation naturalistic listening stories (which zeros-out the visual component of TRIBEv2). To represent it fairly, we compute the whole brain correlation on a subset of narratives and compare it with the reported range of the original paper (see App. D.3). To report performance over different fMRI studies (Sec.3.4), we use group-level Pearson correlation (rgroup ) between the predictions and group-level mean of the study, following [ 7]. For each of these studies, we obtain and validate the audio-onset (a standard practice in fMRI studies to account for the mismatch between stimulus and machine recording times); full details can be found in App.A.3.2. 
+
+3.7 In-silico Analyses and Ablations 
+
+Beyond held-out encoding accuracy, we detail here the use of RABBiT as a model organism to localize the language network, the interpretability analyses of our temporal brain transformer, as well as the ablations used to validate the role of each component of our RABBiT model. 
+
+In-silico language localization. We ask whether our model reproduces known functional selectivity 
+
+when probed with controlled stimuli, treating the trained encoder as an in-silico subject that can be submitted to the same functional localizers used in human fMRI. We use an auditory adaptation of the functional language-localizer approach [ 9]: 18 s blocks of intact speech contrasted against acoustically matched, spectrally degraded (unintelligible) speech, a standard intelligibility manipulation that isolates linguistic processing above low-level acoustics [ 27 , 8]. Each of the 32 source-matched intact/degraded materials is presented to the model as a continuous stimulus; we slide the model’s 
+
+1.49 s TR window with its trained hemodynamic delay basis over the block and read out the sustained (plateau) response. The per-vertex Intact −Degraded contrast map is evaluated with a paired 
+
+t-test across the 32 source-matched pairs, leaving voxels with q < 0.0001 (FDR-corrected) on the 
+
+fsaverage6 surface. 
+
+Cortical hierarchy from query embeddings. In addition to improving accuracy and parameter-efficiency, the brain transformer enables analyses that linear voxel-wise readouts do not. The ROI query tokens are themselves data-driven learned representations of brain regions, and the 6relationships among them can be tested and related to literature about the brain’s organization of language processing. We test this with a simple greedy walk: starting from primary auditory cortex (A1), at each step we move to the nearest unvisited ROI in query space using cosine similarity of query embeddings. If the queries have learned the right structure, the walk should retrace the cortical hierarchy of speech-to-language processing — primary auditory → belt → STG/STS → higher-order temporal and frontal regions — a structure that was never given to the model as supervision. 
+
+Ablations. Lastly, we ablate each design choice in turn to assess its contribution. Freezing wav2vec2.0 isolates the contribution of brain-tuning. Replacing the brain transformer with a direct linear readout isolates the importance of our brain transformer. Replacing SID with independent per-subject heads tests whether parameter sharing costs accuracy. As a robustness check, we also swap in WavLM-large [6 ] — a larger (317M parameters) and more capable speech model — to test whether the choice of model architecture or size is a bottleneck. 
+
+3.8 Few-shot Evaluation 
+
+Given a short calibration window of paired audio-fMRI from a new participant, we perform few-shot adaptation by updating only the per-ROI deviation coefficients (the ρi terms in Sec.3.1.2), while keeping other components frozen. This results in only ∼115K coefficients to update (as opposed to ∼200M ridge parameters). This efficiency is enabled by the SID formulation, which isolates subject-specific variability into a compact set of parameters that target idiosyncratic cortical responses not captured by the population-level component (Sec.3.1); see App.E.2 for full details. 
+
+No SID RABBiT baseline. To assess the role of SID in few-shot transfer, we construct a variant in which SID is replaced by linear readouts applied to the transformer outputs. We then apply the same few-shot adaptation, updating only the linear readout. This ablation tests whether structured low-rank decomposition is necessary for effective adaptation from limited calibration data (more in App.E.4). 
+
+Ridge baselines. We compare RABBiT few-shot calibration against two voxel-wise ridge encoders trained on the same calibration data (details in App.E.3). The first uses pretrained speech features, following the canonical subject-specific encoding setup [ 2]. The second uses multi-brain-tuned fea-tures, which are expected to be more data-efficient than pretrained features [ 23 ]. This second baseline tests whether RABBiT’s few-shot gains come merely from inherited brain-tuned representations, or from SID’s low-rank subject-adaptation pathway. 
+
+4 Results 
+
+Our evaluation tests transfer without the need for full participant-specific retraining. In zero-shot prediction, RABBiT uses audio input to predict group-average responses of unseen participants to held-out stories, evaluating how well the model captures shared population structure. In few-shot adaptation, a short paired audio–fMRI segment is provided for target participants and only the SID deviation pathway is updated, testing the efficiency of adaptation to subject-specific responses. We additionally perform ablations to identify the model components driving performance, and query-embedding analyses to characterize the learned cortical structure. 
+
+4.1 Zero-shot Evaluation 
+
+We evaluate RABBiT’s zero-shot predictions on Narratives and Le Petit Prince, totaling 324 unseen participants over two cohorts (Sec.3.4), and report rgroup over language ROIs. Because the target is a group-average response, a relevant reference point is the leave-one-out inter-subject consistency (ISC). RABBiT surpasses this ISC estimate on both held-out cohorts (Fig.2a). It substantially outperforms the linear baseline and the much larger TRIBEv2 model, while matching the Per-Subject head variant that uses roughly five times more parameters. The important point is therefore not only that RABBiT is accurate, but that SID preserves zero-shot accuracy while replacing independent per-subject heads with a compact shared–deviation readout. The per-region comparison makes the pattern more diagnostic with statistical significance (two-sided t-test) measured across the different studies (Fig.2c; Fig.2b). RABBiT improves most over TRIBEv2 in auditory and temporal language regions. In other language regions, such as the IFG and MFG, the two perform comparably and near the inter-subject consistency estimate. The only exception is 70.1 0.0 0.1 0.2 0.3 0.4 0.5 
+
+rgroup 
+
+> Narratives
+> Little Prince
+> Language ROIs (LH+RH)
+> Single-subject peer-ISC
+> RABBiT (12.9M)
+> Per-subject Full-rank (68.0M)
+> TRIBEv2 (1B)
+> Linear baseline (12.7M)
+> LOO ISC ceiling
+
+(a) Zero-shot comparison across cohorts (b) Zero-shot difference with TRIBEv2 Auditory Early                                       
+
+> (A1+Belt)
+> STG / STS
+> IFG (Broca's)
+> MFG / DLPFC
+> Insula / FOp
+> Posterior Temporal
+> Temporal Pole
+> Medial PFC (ToM)
+> Angular Gyrus
+> Precuneus / PCC
+> Supramarginal
+> Sensorimotor
+> (Visual+Motor)
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> rgroup
+> RABBiT vs TRIBE vs Linear baseline *p< . 05 ,* * p< . 01 ,* * * p< . 001
+> ***
+> ***
+> n.s.
+> n.s.
+> ** n.s. *** *n.s.
+> *
+> n.s.
+> n.s.
+> *** **** **** *** *** *** *** n.s. *** ** *** *n.s. n.s. *** *** **** *** n.s. n.s.
+> RABBiT (12.9M) TRIBEv2 (1B) Linear baseline (12.7M) LOO ISC ceiling
+
+(c) Per-ROI comparison 
+
+Figure 2: Zero-shot prediction in unseen participants. (a) Group-level prediction over language ROIs for two cohorts. RABBiT exceeds both the inter-subject consistency estimates and the per-formance of the much larger baselines TRIBEv2 and linear encoders. (b) Voxel-wise correlation gain of RABBiT over upsampled TRIBEv2 (matched cortical resolution; Sec.2). (c) ROI group-level correlation averaged over held-out stories and segments. RABBiT yields the largest gains in auditory and temporal regions, with comparable performance to TRIBEv2 in higher-order language regions. precuneus/PCC, where TRIBEv2 performs better. Outside the speech-language network, predictions in the visual and motor regions expectedly remain near chance, due to the nature of the test stimulus. 
+
+4.2 In-silico Analyses and Ablations Results Language Localization. RABBiT’s Intact −Degraded contrast map reproduces a lot of the canonical, strongly left-lateralized language response [ 27 , 14 ]. Fig.3a shows the contrast map of the voxels with q < 0.0001 ; intact speech is preferred in left anterior temporal cortex ( t = +5 .7), angular gyrus ( +6 .2), middle frontal gyrus ( +5 .8) and superior temporal gyrus/sulcus ( +2 .2). Despite the pretrained backbone being acoustic in nature, after naturalistic brain-tuning, RABBiT recovers the spatial signature of the language network without ever being trained on a controlled localizer or any non-naturalistic datasets. 
+
+Learned Query Embeddings. The learned ROI queries provide a direct view into the temporal brain transformer. Because each query specifies the speech context an ROI attends to, their embedding geometry reflects the model’s cortical organization. Starting from A1 and greedily stepping to the nearest unvisited ROI in query space (cosine similarity), we recover a coherent trajectory without any hierarchy or spatial supervision. The resulting path progresses from primary and belt auditory cortex through STG/STS and temporal association areas toward parietal and frontal language regions (Fig.3b), revealing an interpretable cortical structure absent in voxel-wise ridge models. 
+
+Component Ablations. We further perform ablations to quantify component contributions. Remov-ing brain-tuning yields the largest drop in zero-shot performance ( ∼ 60% ; Fig.3c, p < 0.001 ), and 8Intelligible vs degraded speech     
+
+> The Queen s got a great
+> sense of humour.
+> (intelligible speech)
+> vs
+> unintelligible speech
+> (matched acoustics)
+> left hemisphere right hemisphere
+> 0+0.39
+> predicted BOLD (intact degraded)
+
+(a) Language Network: strong left fronto-temporal lateralization 0.6 0.4 0.2 0.0 0.2 0.4               
+
+> PC 1 (23.2%)
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> PC 2  (19.3%)
+> Left hemisphere
+> A1
+> Belt
+> STG
+> PT
+> TP
+> AG
+> SM
+> IFG MFG
+> start
+> 0.6 0.4 0.2 0.0 0.2 0.4 0.6
+> PC 1 (23.5%)
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> PC 2  (20.8%)
+> Right hemisphere
+> A1
+> Belt
+> STG
+> PT
+> TP
+> AG
+> SM
+> IFG
+> MFG
+> start
+> Primary auditory Belt STG/STS Temporal Parietal Frontal greedy walk step
+
+(b) Learned hierarchy from query embeddings RABBiT RABBiT            
+
+> WavLM
+> Per-Subject
+> Full-rank
+> RABBiT no
+> Brain-tuning
+> RABBiT no
+> Transformer
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> rgroup
+> 0.198 0.198 0.204
+> 0.123
+> 0.182
+> n.s.
+> n.s.
+> ***
+> *
+> Brackets: paired Wilcoxon (two-sided) vs RABBiT. * * * p< . 001 ,* * p< . 01 ,*p< . 05
+
+(c) Ablations of model components 
+
+Figure 3: Model analysis and ablations. (a) Language network localizes reproduce the canonical left-lateralized language areas. (b) Interpretation of ROI-query embeddings learned by TBT, revealing a learned coarse speech-to-language progression. (c) Ablation of model components shows the importance of TBT and brain-tuning for RABBiT’s strong zero-shot performance. removing the temporal brain transformer also significantly degrades performance ( p < 0.05 ). In contrast, replacing SID with larger per-subject heads provides no significant improvement despite 
+
+∼5× more parameters, and swapping Wav2Vec2.0 for WavLM-large has negligible effect. Together, these results indicate that brain-tuning and ROI-level routing are essential for zero-shot prediction, while SID provides compact subject modeling without sacrificing performance. 
+
+4.3 Few-shot Evaluation 
+
+We further test whether RABBiT can improve over zero-shot prediction for a new participant using limited fMRI calibration data. For each participant, we freeze the speech backbone, temporal brain transformer, and shared SID pathway, and update only the low-rank per-ROI deviation parameters (∼115K parameters; Sec.3.8). We compare against voxel-wise ridge regression trained on the same calibration data using either pretrained or brain-tuned speech features [ 16 , 2 , 23 ]. This is a strong baseline: ridge fits a full voxel-wise subject-specific readout, whereas RABBiT only learns a compact correction to its zero-shot prediction. We evaluate primarily on long narrative segments ( ∼50 min) to allow for increasing amounts of calibration data (see App.E.1). RABBiT few-shot improves over zero-shot with only 5 minutes of calibration and outperforms both ridge baselines at every tested duration from 5 to 40 minutes (Fig.4a). Similar trends hold on an additional dataset (15 min; App.E.5). The strongest ridge variant (brain-tuned features) improves with more data but starts below zero-shot and requires substantially more calibration to match performance. In contrast, RABBiT begins from a strong population model and uses calibration data exclusively to refine subject-specific deviations, yielding roughly three orders of magnitude fewer trainable parameters than ridge while achieving better prediction. Improvements are concentrated in specific regions. At 10 minutes, the largest gains occur in IFG, supramarginal gyrus, mPFC, angular gyrus, MFG/DLPFC, and precuneus/PCC (Fig.4b), reaching 
+
+30 –90% relative improvement. These are the same higher-order language regions identified as most idiosyncratic in our analysis in Sec.3.1, indicating that few-shot adaptation selectively recovers 9Pretrained ridge Brain-tuned ridge RABBiT no SID RABBiT Zero-shot 5.0 9.9 20 30 40       
+
+> Calibration duration (minutes)
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> Mean correlation  r
+> n.s. n.s. n.s. n.s.
+> p<0.05, p<0.01, p<0.001 paired two-sided t-test
+
+(a) Few-shot Calibration -25% +0% +25% +50% +75% +100% +125% +150%         
+
+> % change in rvs Zero-shot
+> IFG LH
+> Precuneus / PCC RH
+> Supramarginal LH
+> mPFC (ToM) RH
+> Angular gyrus RH
+> MFG / DLPFC RH
+> IFG RH
+> Precuneus / PCC LH
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> p<0.05, p<0.01, p<0.001 one-sample t-test of rvs Zero-shot
+
+(b) ROI % change after 10 min of calibration 
+
+(c) few-shot difference with zero-shot for 10 mins of calibration 
+
+Figure 4: Few-shot calibration for new participants. (a) RABBiT few-shot performance improves over zero-shot with only 5 minutes of calibration data and outperforms both ridge baselines. SID is key to this ability. (b) Per-ROI percent change in performance relative to zero-shot with 10 minutes of calibration (other calibration sizes reported in App.E.5). RABBiT’s largest gains occur in higher-order ROIs that were most idiosyncratic in the shared–idiosyncratic diagnostic (Sec.3.1.1). (c) Difference between few-shot and zero-shot predictions after 10mins of calibration; results for more calibration sizes and other baselines can be found in App.E.5. structured individual variability. Ridge baselines do not show comparable targeted recovery at low data regimes, though they approach similar trends with substantially more data (App.E.5). 
+
+5 Discussion and Conclusion 
+
+The central insight of RABBiT is that accurate personalization in predicting language-evoked fMRI does not require fitting a new high-dimensional model for every participant. Instead, RABBiT separates prediction into a shared speech-to-brain mapping and a compact subject-specific correction pathway. This structure naturally supports both transfer regimes explored in this work: zero-shot pre-diction through the shared component, and few-shot adaptation through low-rank subject deviations. RABBiT bridges a gap between prior brain-tuning approaches and recent foundation-style brain encoders. Brain-tuning improves speech representations for fMRI prediction, but still relies on participant-specific voxel-wise readouts [ 21 , 23 , 31 ]. Foundation-style models move toward population-level prediction, but often depend on large backbones, subject-specific heads, or coarse spatial outputs [ 7, 5]. In contrast, RABBiT shows that a compact audio-only encoder can achieve highly accurate group-level prediction while supporting efficient subject adaptation from only minutes of calibration data. Importantly, calibration updates only the compact SID deviation pathway rather than relearning the full speech-to-brain mapping. 10 The regional structure of these gains is particularly informative. Higher-order language regions both exhibit the largest inter-subject variability and benefit most from few-shot adaptation, indicating that individual differences are structured rather than noise-like. SID captures this structure in a compact representation that can be efficiently adapted with limited data. The temporal brain transformer provides a complementary level of structure by learning ROI-specific temporal queries over the speech stream. Beyond improving prediction, these learned queries recover a coarse progression from auditory to higher-order language regions without explicit supervision, suggesting a promising framework for probing cortical language hierarchies. Together, these results position RABBiT as a foundation model of language-evoked brain activity. The model predicts responses for unseen listeners without additional fMRI, adapts efficiently to new individuals, and exposes interpretable regional structure. More broadly, our findings suggest that effective brain foundation models should explicitly separate shared and individual variability and model how different brain regions integrate information over time. 
+
+Limitations and Future Work. RABBiT is evaluated primarily on English naturalistic listening and auditory/language regions. Extending the evaluation to multilingual, conversational, reading, and multimodal settings will assess the generality of its shared and subject-specific representations. Second, the training cohort remains relatively small, and preliminary experiments combining datasets did not yield proportional gains, suggesting that scaling training across datasets may require improved handling of inter-dataset variability. Finally, we only partially explored scaling to larger speech backbones; a more systematic investigation of model scaling remains a direction for future work. 11 References 
+
+[1] Hossein Adeli, Minni Sun, and Nikolaus Kriegeskorte. Transformer brain encoders explain human high-level visual responses. In Advances in Neural Information Processing Systems (NeurIPS) , 2025. Spotlight. [2] Richard Antonello, Aditya Vaidya, and Alexander Huth. Scaling laws for language encoding models in fmri. Advances in Neural Information Processing Systems , 36, 2024. [3] Alexei Baevski, Yuhao Zhou, Abdelrahman Mohamed, and Michael Auli. wav2vec 2.0: A framework for self-supervised learning of speech representations. Advances in Neural Information Processing Systems , 33:12449–12460, 2020. [4] Roman Beliy, Navve Wasserman, Amit Zalcher, and Michal Irani. The wisdom of a crowd of brains: A universal brain encoder. arXiv preprint arXiv:2406.12179 , 2024. [5] Roman Beliy, Navve Wasserman, Amit Zalcher, and Michal Irani. The wisdom of a crowd of brains: A universal brain encoder, 2025. [6] Sanyuan Chen, Chengyi Wang, Zhengyang Chen, Yu Wu, Shujie Liu, Zhuo Chen, Jinyu Li, Naoyuki Kanda, Takuya Yoshioka, Xiong Xiao, et al. WavLM: Large-scale self-supervised pre-training for full stack speech processing. IEEE Journal of Selected Topics in Signal Processing ,16(6):1505–1518, 2022. [7] Stéphane d’Ascoli, Jérémy Rapin, Yohann Benchetrit, Teon Brookes, Katelyn Begany, Joséphine Raugel, Hubert Banville, and Jean-Rémi King. A foundation model of vision, audition, and language for in-silico neuroscience. 2026. [8] Matthew H Davis and Ingrid S Johnsrude. Hierarchical processing in spoken language compre-hension. Journal of Neuroscience , 23(8):3423–3431, 2003. [9] Evelina Fedorenko, Po-Jang Hsieh, Alfonso Nieto-Castañón, Susan Whitfield-Gabrieli, and Nancy Kanwisher. New method for fmri investigations of language: defining rois functionally in individual subjects. Journal of Neurophysiology , 104(2):1177–1194, 2010. [10] Bruce Fischl. Freesurfer. NeuroImage , 62(2):774–781, aug 2012. [11] Bruce Fischl, Martin I. Sereno, Roger B. H. Tootell, and Anders M. Dale. High-resolution intersubject averaging and a coordinate system for the cortical surface. Human Brain Mapping ,8(4):272–284, 1999. [12] Alessandro T Gifford, Domenic Bersch, Marie St-Laurent, Basile Pinsard, Julie Boyle, Lune Bellec, Aude Oliva, Gemma Roig, and Radoslaw M Cichy. The algonauts project 2025 challenge: How the human brain makes sense of multimodal movies. arXiv preprint arXiv:2501.00504 ,2024. [13] Matthew F Glasser, Timothy S Coalson, Emma C Robinson, Carl D Hacker, John Harwell, Essa Yacoub, Kamil Ugurbil, Jesper Andersson, Christian F Beckmann, Mark Jenkinson, et al. A multi-modal parcellation of human cerebral cortex. Nature , 536(7615):171–178, 2016. [14] Gregory Hickok and David Poeppel. The cortical organization of speech processing. Nat. Rev. Neurosci. , 8(5):393–402, May 2007. [15] Edward J Hu, yelong shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. LoRA: Low-rank adaptation of large language models. In 
+
+International Conference on Learning Representations , 2022. [16] Alexander G Huth, Wendy A de Heer, Thomas L Griffiths, Frédéric E Theunissen, and Jack L Gallant. Natural speech reveals the semantic maps that tile human cerebral cortex. Nature ,532(7600):453–458, 2016. [17] Shailee Jain and Alexander Huth. Incorporating context into language encoding models for fmri. Advances in Neural Information Processing Systems , 31, 2018. 12 [18] Amanda LeBel, Lauren Wagner, Shailee Jain, Aneesh Adhikari-Desai, Bhavin Gupta, Allyson Morgenthal, Jerry Tang, Lixiang Xu, and Alexander G Huth. A natural language fmri dataset for voxelwise encoding models. Scientific Data , 10(1):555, 2023. [19] Jixing Li, Shohini Bhattasali, Shulin Zhang, Berta Franzluebbers, Wen-Ming Luh, R. Nathan Spreng, Jonathan R. Brennan, Yiming Yang, Christophe Pallier, and John Hale. Le petit prince multilingual naturalistic fmri corpus. Scientific Data , 9(1):530, 2022. [20] Juliette Millet, Charlotte Caucheteux, Yves Boubenec, Alexandre Gramfort, Ewan Dunbar, Christophe Pallier, Jean-Remi King, et al. Toward a realistic model of speech processing in the brain with self-supervised learning. Advances in Neural Information Processing Systems ,35:33428–33443, 2022. [21] Omer Moussa, Dietrich Klakow, and Mariya Toneva. Improving semantic understanding in speech language models via brain-tuning. In The Thirteenth International Conference on Learning Representations (ICLR) , 2025. [22] Omer Moussa and Mariya Toneva. Brain-tuned speech models better reflect speech processing stages in the brain. arXiv preprint arXiv:2506.03832 , 2025. [23] Omer Moussa and Mariya Toneva. Brain-tuning improves generalizability and efficiency of brain alignment in speech models. In Advances in Neural Information Processing Systems (NeurIPS) , 2025. [24] Samuel A Nastase, Yun-Fei Liu, Hanna Hillman, Asieh Zadbood, Liat Hasenfratz, Neggin Keshavarzian, Janice Chen, Christopher J Honey, Yaara Yeshurun, Mor Regev, et al. The “narratives” fmri dataset for evaluating models of naturalistic language comprehension. Scientific data , 8(1):250, 2021. [25] Subba Reddy Oota, Emin Çelik, Fatma Deniz, and Mariya Toneva. Speech language models lack important brain-relevant semantics. Annual Meeting of the Association for Computational Linguistics (ACL) , 2024. [26] Martin Schrimpf, Idan Asher Blank, Greta Tuckute, Carina Kauf, Eghbal A Hosseini, Nancy Kanwisher, Joshua B Tenenbaum, and Evelina Fedorenko. The neural architecture of language: Integrative modeling converges on predictive processing. Proceedings of the National Academy of Sciences , 2021. [27] Sophie K Scott, C Catrin Blank, Stuart Rosen, and Richard JS Wise. Identification of a pathway for intelligible speech in the left temporal lobe. Brain , 123(12):2400–2406, 2000. [28] Marie St-Laurent, Basile Pinsard, Oliver Contier, Elizabeth DuPre, Katja Seeliger, Valentina Borghesani, Julie A Boyle, Lune Bellec, and Martin N Hebart. Cneuromod-things, a densely-sampled fmri dataset for visual neuroscience. Scientific Data , 2026. [29] Mariya Toneva and Leila Wehbe. Interpreting and improving natural-language processing (in machines) with natural language-processing (in the brain). Advances in Neural Information Processing Systems , 32, 2019. [30] Aditya R Vaidya, Shailee Jain, and Alexander Huth. Self-supervised models of audio effectively explain human cortical responses to speech. In International Conference on Machine Learning ,pages 21927–21944, 2022. [31] Nishitha Vattikonda, Aditya R. Vaidya, Richard J. Antonello, and Alexander G. Huth. Brain-WavLM: Fine-tuning speech representations with brain responses to language, 2025. [32] Leila Wehbe, Brian Murphy, Partha Talukdar, Alona Fyshe, Aaditya Ramdas, and Tom Mitchell. Simultaneously uncovering the patterns of brain regions involved in different story reading subprocesses. PloS One , (11), 2014. 13 A Datasets and preprocessing 
+
+All experiments use a common cortical space so that the trained encoder can be evaluated easily across datasets and participants without refitting. This section details the parcellation of ROIs, the additional details of training and evaluation data, and the exploratory mixed-data run that motivated training on Friends alone (App.A.4). 
+
+A.1 Brain ROIs Details 
+
+All fMRI is projected to FreeSurfer’s fsaverage6 surface ( 40 ,962 vertices per hemisphere; mean inter-vertex spacing ∼2 mm) [ 11 , 10 ] and restricted to 30 bilateral HCP-MMP1 ROIs [ 13 ], totaling 
+
+∼41 ,394 vertices ( ∼half of the full fsaverage6 cortex). The 30 ROIs cover the canonical auditory and language network plus sensorimotor, default-mode/theory-of-mind, and visual regions. We expand beyond language regions to test our model ability and efficiency to learn around 50% of the cortical surface while being parameter-efficient. It stress tests the brain transformer’s ability to scale the output size with substantial increase in the trainable parameters as with the full linear ridge models. The 30 ROIs are organized into 15 functional groups (each with LH and RH instances), with HCP-MMP1 parcels enumerated for the auditory and language groups: • Auditory. aud_primary (A1); aud_belt (A4, A5, LBelt, MBelt, PBelt). • Superior temporal and temporal pole. stg_sts (STGa, STSda, STSdp, STSva, STSvp, STV); temporal_pole (TE1a, TE1m, TE1p, TE2a, TE2p, TGd, TGv); posterior_temp (PHT, TPOJ1, TPOJ2, TPOJ3). • Parietal language. angular_gyrus (PGi, PGs, PGp, PFm); supramarginal (PFop, PFt, PFcm, PSL). • Frontal language. ifg (44, 45, 47l); mfg_dlpfc (55b, IFJa, IFSp, SFL, 8Av, 8BL). • Default-mode and theory-of-mind controls. mpfc_tom ; precuneus_pcc .• Sensorimotor and insular controls. motor ; insula_fop .• Visual controls. visual_early (V1–V4); visual_higher (V6, V6A, V7, V8, LO1, LO2, MT, MST, FST parcels). 
+
+A.2 Training data 
+
+We train on the Friends subset of CourtoisNeuroMod [ 12 , 28 ]: S=6 participants watching natural-istic audio-visual TV episodes at TR = 1.49 s, totaling ∼565 ,000 TRs ( ∼234 hours, ∼39 hours per participant). RABBiT is audio-only, so only the audio track is used as input; we use the audio of an audio-visual corpus to keep input modality and recording pipeline comparable to our held-out audio-only evaluation cohorts. The fMRI is provided in volumetric MNI space at 2 mm resolution and projected onto fsaverage6 
+
+surface vertices, with the ∼41 ,394 vertices belonging to the 30 ROIs retained per clip. The released CourtoisNeuroMod data are already z-scored per voxel per run, so no further temporal centering is applied — consistent with the SID shared-basis initialization (App.B.2). Within each subject’s clips we hold out a fixed 4 clips of validation set and a fixed 4 clips for test set (held-out evaluations on training participants); the split is identical across subjects so validation losses are directly comparable. 
+
+A.3 Evaluation data 
+
+The two held-out cohorts together include 324 unseen participant–story instances — 275 across the 
+
+7 Narratives stories [ 24 ] (the column total of Table1, with each story drawn from an independent participant pool) plus 49 unique Le Petit Prince participants [ 19 ] who heard all 9 audiobook sections. None overlap with the Friends training cohort. 
+
+A.3.1 Per-cohort details Narratives [ 24 ]. We use 7 stories from the Narratives corpus (OpenNeuro ds002345 ), each with an independent participant pool: four longer stories and three shorter, large-cohort stories (Table1). 14 Story TRs Duration (min) Participants Calibrated audio onset (s)                                 
+
+> 21styear 2249 56.2 20 0.0
+> slumlordreach 1210 30.0 18 3.0
+> tunnel 1037 25.5 23 0.0
+> sherlock 725 18.0 36 3.0
+> pieman 300 7.5 82 0.0
+> notthefall 400 9.7 56 1.5
+> prettymouth 475 11.9 40 1.5
+> total / mean 6396 ∼159 275 —
+
+Table 1: Narratives held-out stories used in zero-shot evaluation. TRs at the corpus’s native TR = 1.5 s. Participant counts are independent across stories; the column total is the participant–story instance count. Calibrated audio onsets are validated as in App.A.3.2. 
+
+Le Petit Prince [ 19 ]. The English audiobook portion of OpenNeuro ds003643 : 49 native English speakers listening to 9 scanning sections totaling ∼93 minutes at TR = 2.0 s on a 3T GE Discovery MR750 (a different scanner from CourtoisNeuroMod or Narratives), providing an out-of-distribution test of RABBiT’s transfer beyond the Narratives recording conventions. The released preprocessed runs already strip the leading silence at audio onset, so the audio plays at scanner-time zero and no per-section onset calibration is required (the A1-LH shift sweep peaks at 0 or +1 TR for 6 of the 
+
+9 sections; the 3 noise-dominated sections are evaluated at the same 0-TR convention). We use an audio onset of 0 for the LPP dataset. 
+
+A.3.2 Audio–fMRI alignment and onset validation 
+
+The released stimulus audio for each Narratives story typically begins with a brief leading silence whose duration is neither zero nor the BIDS-listed music-start time. We therefore calibrate the audio-onset value using by estimating it first from metadata and then try multiple values for the shift on a small subset and then measure the A1-belt response activation start. This is used as a correction for the onset time estimated at the beginning; this onset is used consistently across models. Table1 shows the estimated onset values that are used identically by every model (for 4 of the 7 stories the calibrated onset disagrees with the BIDS music-start time). It’s important to note that the audio-onset offset is a property of how the stimulus file was exported, not of the model or the brain — the same number for every participant on a given story. Fixing it once per story removes a confounding free parameter from the evaluation, so residual differences across models reflect model quality rather than alignment search. 
+
+A.4 Training with mixed data 
+
+We added the Moth Radio Hour subset of [ 18 ] (we chose 6 participants, ∼113 ,000 TRs at TR = 2.0 s, 
+
+∼63 hours) to the Friends mix, yielding a 12 -participant combined cohort with the same SID architec-ture (the shared bases Φ was obtained from both dataset mixtures while the Idiosyncratic part remains per subject.). During training, we forced a 1:2 Moth-to-Friends batch ratio per training block to ac-count for the size mismatch between the datasets. Across the four narrative story zero-shot evaluation, the combined model achieves a story-mean vertex-wise r of 0.108 versus 0.117 for Friends-only (an ∼8% relative drop). The combined model matches Friends-only on Friends-side validation loss, ruling out undertraining. We have also tried per-subject Full-rank alternatives (see Sec.3.6) and got similar behavior. This suggests that mixing datasets during training is not straightforward and scaling law doesn’t apply linearly regardless of the training data sources, complementary to the findings in [23]; thus, we defer this to future work. 
+
+B Shared–Idiosyncratic diagnostic and SID details 
+
+The SID readout is motivated by a simple empirical observation: some cortical regions are well predicted by the group-mean response across listeners, while others lose reliability sharply when the target listener is excluded from that mean. 15 B.1 The shared–idiosyncratic diagnostic 
+
+For each ROI i and subject s with stimulus-aligned response y(s) 
+
+> i
+
+∈ RT ×Vi , we compute the vertex-averaged Pearson correlation between y(s) 
+
+> i
+
+and the cohort-mean response ¯yi (including subject s), then repeat with the leave-one-out cohort-mean ¯y(−s) 
+
+> i
+
+. The drop between the two measures how much of subject s’s response is captured only when they are part of the mean: a large drop means the LOO mean predicts subject s poorly, so the response in ROI i is more idiosyncratic than shared. Fig.5 plots this contrast across the auditory and language ROIs, averaged over three Narratives stories. Early auditory regions (A1, auditory belt) and superior temporal cortex remain stable under leave-one-out averaging — their responses are largely shared, consistent with high inter-subject correlations in naturalistic listening [ 24 ]. Higher-order language and theory-of-mind regions (IFG, MFG/DLPFC, supramarginal, angular gyrus, mPFC) show substantial drops, indicating subject-specific structure that a population mean alone cannot capture. SID’s per-subject deviation pathway gives these idiosyncratic regions a bounded budget of subject-specific structure to draw on; the shared component handles the regions on the shared end. Primary Auditory        
+
+> Auditory Belt
+> STG / STS
+> Angular Gyrus
+> Posterior Temporal
+> MFG / DLPFC
+> IFG (Broca's)
+> Supramarginal
+> Temporal Pole
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> Rgroup
+> -23.6% (±4.0) -24.0% (±3.7)
+> -39.9% (±5.6)
+> -47.8% (±1.0) -53.7% (±5.2) -57.6% (±3.1) -63.6% (±2.3) -71.6% (±6.0) -77.6% (±1.6)
+> Language ROIs (9 bilateral) averaged across 3 stories (tunnel + 21styear + slumlordreach)
+> ROIs sorted by % drop ascending; error bars = std across stories
+> r_with (group inc. subj)
+> r_loo (group ex. subj)
+
+Figure 5: Shared–idiosyncratic diagnostic across language and auditory ROIs. Vertex-averaged correlation of each subject’s response with the cohort-mean fMRI when the subject is included versus excluded, averaged across three Narratives stories ( 21styear , tunnel , slumlordreach ) and across participants. Auditory and STG/STS regions remain stable; higher-order language regions show substantial drops. 
+
+B.2 SID Bases construction and initialization 
+
+The SID bases are warm-started from an empirical decomposition of the training fMRI. For each ROI 
+
+i and training subject s, we run a per-ROI PCA on 20 ,000 subsampled TRs from that subject’s clips, taking the top M = 100 principal components as a per-subject basis Φ(s) 
+
+> i
+
+. The shared basis Φi is the cross-subject average re-orthogonalized via SVD: Φi = SVD  S−1 P 
+
+> s
+
+Φ(s)
+
+> i
+
+. The idiosyncratic (deviation) basis ∆i,s is the SVD of Φ(s) 
+
+> i
+
+−Φi truncated to the top R = 15 right singular vectors — the dominant directions in which subject s departs from the shared basis. During joint training the bases are anchored to their initialization with Lanchor = λΦ
+
+P 
+
+> i
+
+∥Φi − Φ(0)  
+
+> i
+
+∥2 
+
+> F
+
++ λ∆
+
+P 
+
+> i,s
+
+∥∆i,s − ∆(0)  
+
+> i,s
+
+∥2
+
+> F
+
+with λΦ=λ∆=10 −3. This value was chosen empirically based on grid log-scale hypereparamter search over a subset of the training data. We find very strong values to prevent generalization and low values to cause basis drift easily, both of which hurt performance. 
+
+More details on the Idiosyncratic (Deviation) bases ∆i,s . The per-subject deviation basis is built from each subject’s residual in basis-coefficient space: we form Φ(s) 
+
+> i
+
+− Φi, take its SVD, and keep the top R = 15 right singular vectors as ∆i,s ∈ RR×Vi . By construction, ∆i,s spans the dominant directions in which subject s’s within-ROI response geometry departs from the cohort-shared basis. 
+
+B.3 Choice of shared and deviation ranks 
+
+The shared rank M is chosen as a coverage threshold: at M = 100 the cumulative explained variance of the per-subject PCA reaches 0.993 averaged across 6 subjects ×30 ROIs (Table2); only bilateral 16 motor cortex ( V ≈ 5,000 ) is below 95% . Auditory cortex saturates by M =20 , language ROIs by 
+
+M =50 . M =100 is conservative; M =50 would lose only ∼2% mean coverage.                                         
+
+> Mmean cum. var. std min ROI median ROI max ROI 50.737 0.114 0.463 0.755 0.978 10 0.836 0.095 0.587 0.863 0.997 20 0.914 0.071 0.697 0.938 1.000 30 0.947 0.055 0.763 0.970 1.000 50 0.975 0.036 0.843 0.990 1.000 75 0.988 0.022 0.900 0.997 1.000
+> 100 0.993 0.015 0.933 0.999 1.000
+
+Table 2: Cumulative explained variance of the per-subject shared bases as a function of M .
+
+n=180 cells per row ( 6 subjects ×30 ROIs). The default M =100 retains 99 .3% of within-ROI variance on average. The deviation rank R = 15 is a regularization budget, not a coverage threshold: at R=15 the deviation basis retains only 29% of the per-subject residual variation. To reach 80 –90% residual energy would require R ≈ 50 –75 , granting the readout disproportionate per-subject flexibility. A joint M =200 ,
+
+R=30 ablation at the same backbone and transformer mostly probes the R axis ( M > 100 adds at most 0.7% coverage, while R:15 →30 nearly doubles deviation flexibility; in our experiments, this scaling does not improve held-out performance. 
+
+C RABBiT Architecture and Training Details 
+
+This section gives the full architecture, loss, and optimization details that reproduce the headline configuration. 
+
+C.1 Speech backbone and brain-tuning 
+
+The speech backbone supplies RABBiT with a temporal stream of frame-level audio tokens that the brain transformer routes into ROI latents. We use Wav2Vec2.0-base [ 3 ] as the backbone in all reported runs — a 90 M-parameter self-supervised model trained on 960 hours of LibriSpeech — because it is the standard acoustic SSL backbone in the brain-tuning lineage [ 21 , 23 , 31 ] and produces a feature sequence at 50 Hz ( 20 ms per frame), giving the brain transformer a fine-grained acoustic stream to pool over. 
+
+LoRA adapters. We brain-tune the backbone with parameter-efficient LoRA [ 15 ] of rank r = 8 
+
+(after ablation; Fig.6), inserted only in the linear projections of the audio-encoder transformer blocks. The pretrained weights of every module are kept frozen; only the LoRA matrices are updated in the backbone over the course of training. This keeps the backbone shared across all training subjects this adds approximately 0.6M trainable backbone parameters compared to the 90 M frozen body. 
+
+Learning rate and Freeze warmup. We use a learning rate of 1e − 4 with a linear warmup period of 10% and then a linear decay over epochs. For the first 3 epochs the backbone is held entirely frozen and only the brain transformer and SID readout are updated; LoRA training begins thereafter, governed by the same early-stopping criterion (patience 5). 
+
+Training hardware We use AdamW optimizer to update the trainable paramters of the model; we train with a batch size of 256 for 30 epochs with early stopping available with a 5 epoch patience. The training takes around 10 hours for 30 epochs on a single H200 GPU, with early stopping usually stopping the training at 10-13 epochs. 
+
+C.2 Temporal brain transformer architecture 
+
+The temporal brain transformer is a stack of transformer cross-attention blocks (Fig.1b in main text). We chose L = 2 layers for it and a hidden dimension do = 256 , H = 8 heads, and FFN dimension 4do = 1024 with GELU non-linearity. Backbone features at 50 Hz are projected to do via a learned linear layer with sinusoidal positional encoding added to keys at each cross-attention. The 
+
+30 ROI queries ( qi ∈ Rdo , one per bilateral ROI; ∼7.7K params) are initialized to zero and combined 17 4 8 16 32 
+
+LoRA rank 
+
+0.00 
+
+0.02 
+
+0.04 
+
+0.06 
+
+0.08 
+
+0.10   
+
+> mean Pearson r
+> +0.065 +0.070
+> +0.062 +0.062
+
+All-vertex Figure 6: LoRA rank ablation on Le Petit Prince zero-shot. Group-level rgroup on language ROIs as a function of LoRA rank. Performance peaks at rank 8 (our default) and is robust across nearby ranks; very small ranks under-parameterize the backbone adaptation and very large ranks begin to overfit the limited fMRI training signal. with a learned per-ROI positional embedding. Each block applies self-attention over the queries, then cross-attention from queries to backbone tokens (values gathered without positional info), then FFN. The second-layer self-attention is the load-bearing one for cross-ROI coordination: its inputs carry stimulus-specific information from the first cross-attention, which lets each query condition its second-pass extraction on the global brain state. Two ablations on Le Petit Prince zero-shot support these choices: depth L = 2 is the empirical peak (Fig.7), with deeper variants ( L ∈ { 4, 8, 10 }) regressing on the all-vertex aggregate by 0.008 –0.010 
+
+r; hidden dimension do = 256 is also the peak (Fig.8), with both narrower ( do ∈ { 64 , 128 }) and wider ( do = 512 ) configurations regressing on all three scopes. 2 4 8 10 
+
+Transformer depth (num_layers) 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.15    
+
+> mean Pearson r  +0.110 +0.102 +0.099 +0.102
+
+All-vertex 
+
+Figure 7: Brain-transformer depth ablation on Le Petit Prince zero-shot. Group-level rgroup on language ROIs as a function of decoder depth L. Performance peaks at L = 2 (our default); deeper variants do not improve held-out language-ROI prediction. 18 64 128 256 512 
+
+Transformer hidden dim 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.15  
+
+> mean Pearson r
+> +0.088 +0.094
+> +0.110
+> +0.083
+
+All-vertex Figure 8: Brain-transformer hidden dim ablation on Le Petit Prince zero-shot. Group-level 
+
+rgroup on language ROIs as a function of decoder hidden dimension H. Performance peaks at 256 
+
+(our default); deeper variants do not improve held-out language-ROI prediction. 
+
+C.3 SID prediction and zero-shot inference 
+
+After the brain transformer produces a per-ROI latent zi ∈ Rdo , the SID readout maps zi to vertex-level fMRI in two parallel pathways: shared coefficients πi(zi) ∈ RM combine with the shared basis 
+
+Φi, and deviation coefficients ρi(zi) ∈ RR combine with the per-subject deviation basis ∆i,s (both 
+
+πi, ρ i are linear). For ROI i and subject s,
+
+ˆy(s) 
+
+> i
+
+= πi(zi) Φ i + ρi(zi) ∆ i,s .
+
+For a held-out subject the idiosyncratic (deviation) basis ∆i,s is unknown; we replace it with the cohort average ¯∆i = 1
+
+> S
+
+P 
+
+> s
+
+∆i,s , giving ˆyi = πi(zi) Φ i + ρi(zi) ¯∆i. This single substitution is the only change between training-time and zero-shot inference. Replacing the cohort-averaged deviation pathway with zero (predicting only the shared component) recovers approximately half the signal of the averaged-deviation prediction across the auditory and language ROIs of the held-out cohorts: even when no individual training-subject’s deviation basis matches the new participant, the cohort average captures population-level structure the new participant inherits as a population draw. 
+
+C.4 Loss and training details 
+
+Training optimizes the full encoder end-to-end against measured fMRI responses across the six Friends training participants (App.A.2), using the loss 
+
+L = X
+
+> i
+
+  si LL2  
+
+> i
+
++ λcorr Lcorr 
+
+> i
+
+ + Lanchor 
+
+where LL2  
+
+> i
+
+is the per-ROI vertex-wise squared error between predicted and measured z-scored fMRI, 
+
+Lcorr  
+
+> i
+
+is the per-ROI correlation loss ( 1 minus the per-ROI vertex-mean Pearson correlation), and si
+
+is a per-ROI learned scalar that lets each ROI calibrate its own squared-error weight independently. The anchor term ( Lanchor ) is defined in App.B.2. 
+
+Why the per-ROI scaled-correlation form. The squared-error term alone produces predictions well-calibrated in magnitude but only weakly correlated with the target on the higher-order ROIs whose response geometry is harder to recover; the correlation term alone produces predictions that are correlated but unscaled, and trains poorly because correlation gradients are scale-invariant. The scaled-correlation form combines the two, so each ROI gets gradient pressure on both correlation and magnitude, with a per-ROI learned scale that absorbs cross-ROI variation in noise floor (auditory ROIs have a much higher signal-to-noise ratio than e.g. mPFC and need less L2 weight to be well-fit). We use λcorr = 1 throughout. Our choice for this value was also done empirically, similar to the anchor search (see App.B.2) 19 Optimization. Parameters are optimized with AdamW. The brain transformer, coefficient maps, and LoRA adapters share a base learning rate; the SID bases use a smaller learning rate that keeps them close to their PCA/SVD initialization while still allowing fine-grained refinement under gradients from the brain-tuned backbone. 
+
+D Zero-shot evaluation and Baselines 
+
+Zero-shot evaluation tests whether the trained encoder predicts the reliable group response of unseen listeners without using any fMRI from those listeners. 
+
+D.1 Accuracy metrics and the inter-subject consistency 
+
+We report two metrics per (model, ROI, story). The group-level correlation r(i)group =vertex _mean v∈i
+
+corr t(ˆ y[t, v ], ¯y(cohort )[t, v ])  targets the cohort-mean fMRI; the per-subject con-sistency r(i,s ) targets each individual subject’s fMRI and is averaged across the N subjects in the cohort. Both inputs are z-scored per vertex over time before correlation. The leave-one-out inter-subject correlation (LOO ISC), computed by holding out each subject in turn and correlating the mean fMRI of the other N −1 with the held-out subject, is the cleanest stimulus-only predictor the cohort itself provides and serves as the natural consistency (ceiling) for r(i,s ). It is not a strict ceiling for 
+
+rgroup : a model whose prediction is identical for every subject can exceed LOO ISC in rgroup when the cohort is small or the ROI is highly stereotyped, because the cohort-mean target is itself noisy at small N but the model’s prediction is noiseless across subjects (RABBiT’s A1 reaches rgroup ≈ 0.55 
+
+vs LOO ISC ≈ 0.27 on the headline Narratives stories). An important note is that for RABBiT, we use the same audio onset as the other models and add the hemodynamic delay of 3TRs as well, a standard practice since audio at time t correspond a later fMRI, typically 4-6 seconds after onset [ 2]; TRIBEv2 does the same but it bakes the delay into its prediction and training from the start. 
+
+D.2 Linear and Per-Subject Full-Rank baselines Linear baseline. The Linear baseline removes everything that distinguishes RABBiT from a frozen-feature linear probe: a frozen Wav2Vec2.0-base, mean-pooling over time within each TR-aligned window to a single 768 -dim vector, and a per-ROI linear layer mapping that vector to all Vi vertices in ROI i. There is no temporal brain transformer and no SID; the only trainable parameters are the per-ROI linear readouts. Any gap between RABBiT and the Linear baseline must come from brain-tuning, the temporal brain transformer, or SID, not from the backbone or the vertex parcellation. 
+
+Per-Subject Full-Rank baseline. The Per-Subject Full-Rank baseline preserves the brain-tuned backbone and the temporal brain transformer but replaces the SID readout with one independent full-rank linear layer per ROI per training subject (no shared–deviation factorization). This adds ∼5×
+
+more total parameters than RABBiT (per-subject heads grow linearly with the cohort) but otherwise matches RABBiT exactly. If RABBiT matches or beats this variant in zero-shot, the SID compression has no measurable accuracy cost — the bounded shared-plus-deviation parametrization is at least as expressive as independent per-subject heads at this cohort size. 
+
+D.3 TRIBEv2 baseline 
+
+TRIBEv2 [ 7] is a tri-modal encoder over video, audio, and text trained on multiple large public fMRI corpora, with frozen LLaMA / Wav2Vec-BERT / V-JEPA backbones, learned MLP projectors per modality, an 8-layer cross-modal transformer, and subject-conditioned linear output heads predicting onto ∼20 ,000 fsaverage5 vertices at 1 Hz with a 5 s hemodynamic offset baked into its training contract. Vision modality is zeroed at our inference and must be disclosed: our held-out cohorts are pure naturalistic listening, so TRIBEv2’s vision input is replaced with a zero tensor and the visual contribution to the cross-modal combiner reduces to a constant baseline. (TRIBEv2 was trained with 30% modality dropout, so missing-modality input is in-distribution, but the model still optimizes for the joint case.) RABBiT outperforming TRIBEv2 on visual ROIs is therefore an audio-only-vs-audio-only comparison. 20 We run TRIBEv2 on each held-out story with the released model weights, chunking the audio at 
+
+62 .4375 s per chunk and stitching per-chunk predictions; the stream is aligned to scanner time using the calibrated audio-onset values of App.A.3.2 with the 5 s hemodynamic offset unmodified. Whole-brain rgroup on a subset of Narratives stories falls within the range reported in the original TRIBEv2 paper (Fig.9), confirming that our inference and alignment pipeline represents the baseline fairly. 
+
+Figure 9: Whole-brain rgroup for TRIBEv2 across several Narratives stories. TRIBEv2 predic-tions correlated against cohort-mean fMRI on the full cortical surface, with the inter-subject ceiling overlaid per story. Numbers fall within the range reported in the original TRIBEv2 paper. 
+
+E Few-shot Calibration and Baselines 
+
+Few-shot evaluation tests whether a short calibration scan can recover listener-specific signal without refitting a full voxel-wise model. 
+
+E.1 Calibration setup 
+
+We use the longest single-stimulus Narratives cohort, 21styear (56 minutes per participant, 20 
+
+participants from App.A.3.1), as the headline benchmark; one participant (sub-244 ) is excluded for quality reasons, leaving 19 . A second, smaller-stimulus replication on slumlordreach (∼30 minutes, 
+
+18 participants) is in App.E.5. For each participant we hold out a fixed test segment (the last 400 TRs of the story, ∼10 minutes) and use a contiguous prefix as the calibration window. We sweep five calibration ( C for short) durations: 200 , 400 , 800 , 1200 , 1600 TRs ( ∼5, 10 , 20 , 30 , 40 minutes at TR = 1.49 s); the test segment is identical across calibration sizes so any difference in test-set r reflects calibration size only. We report per-subject vertex-mean r on the test segment, averaged across the 19 participants with ±standard-error bands. Cross-validation across the full story would let calibration size co-vary with test position, mixing the calibration-size effect with temporal-coherence effects; the fixed-test protocol avoids this confound. 
+
+E.2 RABBiT few-shot adaptation 
+
+RABBiT personalization freezes the backbone, the brain transformer, the SID shared bases Φi, the shared coefficient maps πi, and the per-subject deviation bases (initialized at the cohort average ¯∆i
+
+used at zero-shot inference). The only parameters updated are the per-ROI deviation coefficient maps ρi : Rdo → RR, totaling ∼115 ,000 parameters across the 30 ROIs. We minimize a per-ROI 21 vertex-wise correlation loss with an anchor regularizer that penalizes drift of ρi from its pretrained value: 
+
+Lfs = X
+
+> i
+
+Lcorr  
+
+> i
+
+(ρi) + λρ
+
+X
+
+> i
+
+ρi − ρ(0)  
+
+> i
+> 2
+> F
+
+.
+
+The anchor weight λρ is the only material hyperparameter at calibration time. At calibration sizes 
+
+C ≥ 200 TRs, λρ = 5 ×10 −5 is at or near the held-out optimum across a 4-subject probe sweep (per-subject optimum varies 10 −5 to 10 −3, but population-mean held-out r is flat across this range to within ∼0.005 ). At smaller calibrations ( C ≤ 100 ) it is too weak: occasional subjects collapse below their own zero-shot performance, and a stronger λρ = 10 −3 stabilizes them at the cost of 
+
+∼0.005 –0.01 relative loss at C ≥ 800 . We use λρ = 5 ×10 −5 in all reported headline saturation curves. Optimization is AdamW for several hundred steps at a fixed learning rate, held constant across calibration sizes. 
+
+E.3 Ridge baselines 
+
+We compare RABBiT few-shot calibration against two voxel-wise ridge encoders trained on the same per-subject calibration window. Both follow the canonical pipeline of [ 16 ] and [ 2]: extract per-frame audio features from a frozen backbone, build a delayed stimulus matrix using FIR taps spanning the hemodynamic window, z-score per fold, fit ridge regression per vertex via cross-validated alpha selection on a GPU implementation of bootstrap ridge. The pretrained-features ridge uses features from a frozen Wav2Vec2.0-base (no brain-tuning) — the canonical subject-specific encoding setup of the field. The brain-tuned-features ridge uses features from a multi-brain-tuned Wav2Vec2.0-base [ 23 ] — a backbone that has already absorbed cross-subject signal during multi-subject brain-tuning training but has no learned readout structure. The performance gap between the two ridge variants and RABBiT few-shot directly attributes RABBiT’s gain to the SID readout pathway versus the backbone. A vertex-wise ridge readout on the headline 30 -ROI vertex set ( Vtot ≈ 41 ,394 ) and a multi-tap FIR delay basis has ∼222 M trainable parameters with the 768 -dim wav2vec backbone and ∼297 M with the 1024 -dim WavLM backbone — approximately three orders of magnitude more than the ∼115 ,000 parameters that RABBiT few-shot updates per participant. 
+
+E.4 No-SID RABBiT (direct fine-tune) baseline 
+
+The few-shot variant of the Per-Subject Full-Rank baseline (App.D.2) tests whether the gains in App.E.2 come from the SID structure itself or merely from freezing most of the model and updating a small head. Architecture is identical to RABBiT except the SID readout is replaced by one per-ROI linear layer mapping zi directly to all Vi vertices (no shared–deviation factorization). The full readout is ∼10 .6M parameters per participant ( ∼92 × more than RABBiT few-shot’s ∼115 ,000 , but ∼22 ×
+
+fewer than brain-tuned ridge). At calibration time we adapt this per-ROI linear readout with the same correlation-plus-anchor objective and training schedule. Because this baseline lacks RABBiT’s strong shared-bases prior, few-shot adaptation initially loses 
+
+held-out signal at small calibrations before recovering. At C = 200 TRs ( ∼5 min), the No-SID readout falls to language-aggregate r = 0 .118 versus its own zero-shot value of r = 0 .136 — a 
+
+∼13% drop. RABBiT few-shot at the same calibration size starts above its zero-shot ( r = 0 .139 )and gains a further ∼+0 .01 from adaptation, never going below zero-shot. The No-SID baseline only recovers parity by C ≈ 800 TRs ( ∼20 min); this is the structural advantage SID’s bounded subject-adaptation pathway provides at small calibrations. 
+
+E.5 Additional few-shot results 
+
+Table3 reports paired two-sided t-tests across the 19 -subject panel between consecutive sorted conditions of the saturation curve. RABBiT few-shot significantly outperforms the No-SID direct fine-tune at every calibration size from 5 to 40 minutes ( p < 0.001 for 5–30 min, p ≈ 0.006 at 
+
+40 min). The No-SID direct fine-tune does not significantly outperform the brain-tuned ridge baseline from 10 minutes onward (numerical ∆r ≈ +0 .003 –+0 .005 , p > 0.10 ). The headline per-ROI figure (main text Fig.4b) shows the per-ROI percent change at C=400 . Fig.12 gives the per-ROI breakdown at the four other calibration sizes ( C ∈ { 200 , 800 , 1200 , 1600 })22 Calibration ridge → direct direct → RABBiT few-shot ridge → RABBiT few-shot 5 min ( C=200 ) ∆ +0 .009 , p=0 .029 * ∆ +0 .030 , p< 0.001 *** *** 10 min ( C=400 ) ∆ +0 .005 , p=0 .108 n.s. ∆ +0 .021 , p< 0.001 *** *** 20 min ( C=800 ) ∆ +0 .003 , p=0 .201 n.s. ∆ +0 .014 , p< 0.001 *** *** 30 min ( C=1200 ) ∆ +0 .004 , p=0 .112 n.s. ∆ +0 .009 , p=0 .0001 *** *** 40 min ( C=1600 ) ∆ +0 .003 , p=0 .172 n.s. ∆ +0 .005 , p=0 .006 ** ** 
+
+Table 3: Pairwise paired two-sided t-tests on the language-aggregate saturation curve. n=19 
+
+participants on 21styear ; ∆r between consecutive sorted conditions. on 21styear : the qualitative ROI ordering is preserved, the magnitude grows monotonically with calibration size, and the largest improvements remain concentrated in higher-order language and DMN ROIs (IFG, supramarginal, mPFC, angular gyrus, MFG/DLPFC, precuneus/PCC). Fig.10 and Fig.13 give the corresponding saturation curve and per-ROI breakdown on slumlordreach (18 participants, calibration sizes {100 , 200 , 400 , 600 } TRs); at C=400 on the wav2vec backbone, RABBiT few-shot reaches r = 0 .114 on the LH-language aggregate vs r = 0 .098 for No-SID direct and r = 0 .094 
+
+for brain-tuned ridge. Two methodological notes: slumlordreach has a different optimal residual hemodynamic shift than 21styear (∆t ≈ 2 vs 3 TRs), and we use per-story-calibrated comparisons throughout; the headline anchor λρ = 5 ×10 −5 used in all reported saturation curves is appropriate for 
+
+C ≥ 200 TRs (a stronger λρ = 10 −3 is recommended for very-small-calibration regimes C ≤ 100 ). Pretrained ridge Brain-tuned ridge RABBiT no SID RABBiT Zero-shot 2.5 5.0 9.9 15     
+
+> Calibration duration (minutes)
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> Mean correlation  r
+> n.s. n.s.
+> n.s.
+> p<0.05, p<0.01, p<0.001 paired two-sided t-test
+
+Figure 10: Few-shot saturation curve on slumlordreach . Per-subject mean correlation r on the held-out test segment versus calibration duration on 18 participants 23 (a) Pretrained ridge — zero-shot for C = 400 TRs ( ∼10 min) 
+
+(b) Brain-tuned ridge — zero-shot for C = 400 TRs ( ∼10 min) 
+
+(c) Few-shot — zero-shot for C = 800 TRs ( ∼20 min) 
+
+Figure 11: Additional brain plots for the delta in r relative to zero-shot on 21styear .
+
+24 Pretrained ridge Brain-tuned ridge RABBiT no SID RABBiT -25% +0% +25% +50% +75% +100% +125% 
+
+% change in r vs Zero-shot 
+
+Precuneus / PCC RH 
+
+Supramarginal LH 
+
+IFG LH 
+
+Angular gyrus RH 
+
+MFG / DLPFC RH 
+
+IFG RH 
+
+Posterior temp RH 
+
+STG / STS RH 
+
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+
+p<0.05, p<0.01, p<0.001 one-sample t-test of r vs Zero-shot (a) C = 200 TRs ( ∼5 min) +0% +50% +100% +150% +200% 
+
+% change in r vs Zero-shot 
+
+Precuneus / PCC RH 
+
+Supramarginal LH 
+
+IFG LH 
+
+mPFC (ToM) RH 
+
+Supramarginal RH 
+
+Angular gyrus RH 
+
+Precuneus / PCC LH 
+
+MFG / DLPFC RH 
+
+> n.s. n.s.
+> n.s.
+> n.s.
+> n.s.
+
+p<0.05, p<0.01, p<0.001 one-sample t-test of r vs Zero-shot 
+
+(b) C = 800 TRs ( ∼20 min) +0% +50% +100% +150% +200% 
+
+% change in r vs Zero-shot 
+
+Precuneus / PCC RH 
+
+Supramarginal LH 
+
+IFG LH 
+
+mPFC (ToM) RH 
+
+Supramarginal RH 
+
+Angular gyrus RH 
+
+MFG / DLPFC RH 
+
+Precuneus / PCC LH n.s. 
+
+p<0.05, p<0.01, p<0.001 one-sample t-test of r vs Zero-shot 
+
+(c) C = 1200 TRs ( ∼30 min) +0% +50% +100% +150% +200% 
+
+% change in r vs Zero-shot 
+
+Supramarginal LH 
+
+Precuneus / PCC RH 
+
+IFG LH 
+
+mPFC (ToM) RH 
+
+Angular gyrus RH 
+
+Supramarginal RH 
+
+MFG / DLPFC RH 
+
+IFG RH 
+
+p<0.05, p<0.01, p<0.001 one-sample t-test of r vs Zero-shot 
+
+(d) C = 1600 TRs ( ∼40 min) 
+
+Figure 12: Per-ROI percent change in r relative to zero-shot on 21styear , across four additional calibration sizes. Each panel reports per-ROI deltas for RABBiT few-shot, brain-tuned ridge, and pretrained-features ridge. C=400 panel is in the main text. 25 Pretrained ridge Brain-tuned ridge RABBiT no SID RABBiT -50% +0% +50% +100% +150% +200% 
+
+% change in r vs Zero-shot 
+
+Supramarginal RH 
+
+Posterior temp RH 
+
+Angular gyrus LH 
+
+Supramarginal LH 
+
+mPFC (ToM) LH 
+
+IFG LH 
+
+MFG / DLPFC LH 
+
+STG / STS RH 
+
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+
+p<0.05, p<0.01, p<0.001 one-sample t-test of r vs Zero-shot (a) C = 100 TRs ( ∼2.5 min) -50% +0% +50% +100% +150% 
+
+% change in r vs Zero-shot 
+
+Precuneus / PCC LH 
+
+Posterior temp RH 
+
+mPFC (ToM) LH 
+
+STG / STS RH 
+
+Supramarginal LH 
+
+Angular gyrus LH 
+
+IFG LH 
+
+Angular gyrus RH 
+
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+
+p<0.05, p<0.01, p<0.001 one-sample t-test of r vs Zero-shot 
+
+(b) C = 200 TRs ( ∼5 min) -50% +0% +50% +100% +150% +200% +250% +300% +350% 
+
+% change in r vs Zero-shot 
+
+Supramarginal RH 
+
+mPFC (ToM) LH 
+
+Precuneus / PCC LH 
+
+Posterior temp RH 
+
+Supramarginal LH 
+
+STG / STS RH 
+
+Angular gyrus LH 
+
+Precuneus / PCC RH 
+
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+
+p<0.05, p<0.01, p<0.001 one-sample t-test of r vs Zero-shot 
+
+(c) C = 400 TRs ( ∼10 min) +0% +50% +100% +150% +200% +250% +300% +350% 
+
+% change in r vs Zero-shot 
+
+Supramarginal RH 
+
+Precuneus / PCC LH 
+
+Supramarginal LH 
+
+mPFC (ToM) LH 
+
+Posterior temp RH 
+
+STG / STS RH 
+
+Angular gyrus LH 
+
+IFG LH 
+
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+> n.s.
+
+p<0.05, p<0.01, p<0.001 one-sample t-test of r vs Zero-shot 
+
+(d) C = 600 TRs ( ∼15 min) 
+
+Figure 13: Per-ROI percent change in r relative to zero-shot on slumlordreach , across four calibration sizes. Each panel includes the No-SID direct fine-tune as a comparator. 26

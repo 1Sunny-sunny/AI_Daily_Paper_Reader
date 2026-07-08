@@ -1,63 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-07-08
-- 运行时间：2026-07-08 05:15:00 北京时间
+- 最新运行日期：2026-07-09
+- 运行时间：2026-07-09 05:32:32 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今日前沿：从运动想象脑电解码到情感识别，高效适配与对抗鲁棒性成为突破关键。
-值得细读：堆叠LoRA让脑电基础模型快速适配个体差异，重新定义CLIP在脑解码中的作用则揭示了对抗训练的非凡价值。
-想跟进脑机智能？不妨先从这两篇高分论文的代码和对抗鲁棒性实验入手。
-- 详情：[/202607/08/README](/202607/08/README)
+今日精读聚焦脑机语音解码新范式，两项高分研究均突破非侵入式脑信号转语音的鲁棒性与适应速度。  
+最值得关注的方向是“用生理噪声增强”和“快速自适应基础模型”让无创读脑更精准，同时帕金森自适应深部脑刺激芯片取得进展。  
+建议关注脑机接口从实验室走向日常的工程化关键：如何让算法像人脑一样快速自我校准、抵御噪声。
+- 详情：[/202607/09/README](/202607/09/README)
 
 ### 精读区论文标签
-1. [Stacked LoRA for Subject-Adaptive EEG Foundation Models in Motor Imagery Decoding](/202607/08/2607.03094v1-stacked-lora-for-subject-adaptive-eeg-foundation-models-in-motor-imagery-decoding)  
+1. [Physiological Noise Augmentation Improves Non-Invasive Brain-to-Speech](/202607/09/2607.05165v1-physiological-noise-augmentation-improves-non-invasive-brain-to-speech)  
    标签：评分：9.0/10、query:sr
-   evidence：使用堆叠LoRA的脑机接口脑电解码
-2. [Rethinking Brain Decoding with CLIP: The Role of Adversarial Robustness](/202607/08/2607.03165v1-rethinking-brain-decoding-with-clip-the-role-of-adversarial-robustness)  
+   evidence：使用生理噪声增强解码脑信号（MEG/EEG）为语音，直接匹配用户需求
+2. [RABBiT: Rapidly adaptive BOLD foundation model via brain-tuning for accurate zero-shot and few-shot prediction of speech-elicited responses in the brain](/202607/09/2607.05171v1-rabbit-rapidly-adaptive-bold-foundation-model-via-brain-tuning-for-accurate-zero-shot-and-few-shot-prediction-of-speech-elicited-responses-in-the-brain)  
    标签：评分：9.0/10、query:sr
-   evidence：使用CLIP进行fMRI脑解码
-3. [EEG-Based Imagined Speech Decoding Using a Hybrid CNN-SNN Architecture](/202607/08/2607.03844v1-eeg-based-imagined-speech-decoding-using-a-hybrid-cnn-snn-architecture)  
+   evidence：从语音刺激预测fMRI响应，实现刺激重建
+3. [DBNN: Neural Spike Classification Using a Deep Binarized Neural Network](/202607/09/2607.05590v1-dbnn-neural-spike-classification-using-a-deep-binarized-neural-network)  
    标签：评分：9.0/10、query:sr
-   evidence：基于SNN的EEG脑机接口时序解码算法
-4. [NeuroOnline: Bridging Pretraining and Online Adaptation for EEG Foundation Models](/202607/08/2607.03925v1-neuroonline-bridging-pretraining-and-online-adaptation-for-eeg-foundation-models)  
+   evidence：使用二值化神经网络进行神经尖峰分类用于脑机接口
+4. [DS-MTNet:Structured Multi-Task EEG Decoding for Human-Machine Collaboration](/202607/09/2607.06297v1-ds-mtnetstructured-multi-task-eeg-decoding-for-human-machine-collaboration)  
    标签：评分：9.0/10、query:sr
-   evidence：提出NeuroOnline实现EEG持续自适应，直接支持脑机接口的时序解码
-5. [SleepBand: Single-Source Domain Generalization for Sleep Staging via Physiologically Structured Spectral Modeling](/202607/08/2607.04851v1-sleepband-single-source-domain-generalization-for-sleep-staging-via-physiologically-structured-spectral-modeling)  
+   evidence：结构化多任务脑电解码用于人机协作脑机接口
+5. [Rapid odorant metabolism organizes identity- and timing-based odor representations by olfactory bulb inputs and outputs](/202607/09/biorxiv-10-64898-2026-07-01-735924-v1-rapid-odorant-metabolism-organizes-identity--and-timing-based-odor-representations-by-olfactory-bulb-inputs-and-outputs)  
    标签：评分：9.0/10、query:sr
-   evidence：解码随时间变化的神经活动以提取信息
+   evidence：研究嗅觉感觉神经元中气味诱发的尖峰时序模式
 
 ### 速读区论文标签
-1. [See the Emotion: A Facial Emoji Proxy Modeling for EEG Emotion Recognition](/202607/08/2607.02912v1-see-the-emotion-a-facial-emoji-proxy-modeling-for-eeg-emotion-recognition)  
+1. [Neuromorphic Silicon Neuron Controller for Adaptive Deep Brain Stimulation in Parkinson's Disease](/202607/09/2607.05453v1-neuromorphic-silicon-neuron-controller-for-adaptive-deep-brain-stimulation-in-parkinsons-disease)  
    标签：评分：8.0/10、query:sr
-   evidence：从EEG到面部表情符号的重建用于情绪识别
-2. [Shunting Inhibition and Dendritic Branching Shape Local Credit Assignment](/202607/08/2607.03556v1-shunting-inhibition-and-dendritic-branching-shape-local-credit-assignment)  
+   evidence：用于自适应深部脑刺激的神经形态硅神经元控制器，实现脑-设备直接通信
+2. [Quantifying Entrainment Evidence: A Comparison of Frequentist and Bayesian Approaches for Information Processing Pathway Maps](/202607/09/2607.06284v1-quantifying-entrainment-evidence-a-comparison-of-frequentist-and-bayesian-approaches-for-information-processing-pathway-maps)  
    标签：评分：8.0/10、query:sr
-   evidence：提出了一个基于电导的树突网络模型用于局部信用分配，有助于理解神经计算
-3. [Learning Biophysical Models of Large-Scale Multineuronal Data to Enable Precise Neurostimulation](/202607/08/2607.04063v1-learning-biophysical-models-of-large-scale-multineuronal-data-to-enable-precise-neurostimulation)  
+   evidence：贝叶斯方法将模型输出映射到神经活动
+3. [The Premotor Language Area Encodes a Full Acoustic-to-semantic Speech Hierarchy](/202607/09/biorxiv-10-64898-2026-07-01-735929-v2-the-premotor-language-area-encodes-a-full-acoustic-to-semantic-speech-hierarchy)  
    标签：评分：8.0/10、query:sr
-   evidence：从细胞外记录拟合生物物理Hodgkin-Huxley模型，解释神经编码机制
-4. [Overt visual attention modulates decision-related signals in the frontal cortex](/202607/08/biorxiv-10-1101-2024-10-25-620227-v3-overt-visual-attention-modulates-decision-related-signals-in-the-frontal-cortex)  
+   evidence：计算编码模型将语音与神经活动相关联
+4. [Cell-type-specific coupling of single-unit spikes and cortical ripples in macaque and human V1](/202607/09/biorxiv-10-64898-2026-07-02-736041-v1-cell-type-specific-coupling-of-single-unit-spikes-and-cortical-ripples-in-macaque-and-human-v1)  
    标签：评分：8.0/10、query:sr
-   evidence：解码随时间变化的神经活动模式
-5. [Inferring Cooperativity From Pooled Measurements](/202607/08/2607.03088v1-inferring-cooperativity-from-pooled-measurements)  
+   evidence：分析尖峰-波纹耦合和细胞类型特异性放电模式
+5. [Subjective ratings reveal Poisson-like noise underlying perception](/202607/09/biorxiv-10-64898-2026-03-02-709083-v3-subjective-ratings-reveal-poisson-like-noise-underlying-perception)  
    标签：评分：7.0/10、query:sr
-   evidence：和依赖马尔可夫链从多通道电生理推断协同性
-6. [AIGOR: A Modular, Event-Driven Neuromorphic Architecture for Configurable SNN Inference](/202607/08/2607.03191v1-aigor-a-modular-event-driven-neuromorphic-architecture-for-configurable-snn-inference)  
+   evidence：提出一个将刺激与感知关联的含泊松噪声数学模型
+6. [Topographic CA1 input shapes subicular spatial coding](/202607/09/biorxiv-10-64898-2026-03-24-714092-v2-topographic-ca1-input-shapes-subicular-spatial-coding)  
    标签：评分：7.0/10、query:sr
-   evidence：支持时序解码的SNN推理神经形态架构
-7. [Masked Generative-Contrastive Representation Learning for Cross-Dataset EEG-Based Emotion Recognition](/202607/08/2607.04139v1-masked-generative-contrastive-representation-learning-for-cross-dataset-eeg-based-emotion-recognition)  
+   evidence：研究拓扑CA1输入如何塑造下托空间编码，使用群体记录
+7. [The emergence of a novel CA1 spatial map requires direct entorhinal input](/202607/09/biorxiv-10-64898-2026-07-02-736055-v1-the-emergence-of-a-novel-ca1-spatial-map-requires-direct-entorhinal-input)  
    标签：评分：7.0/10、query:sr
-   evidence：基于SSL时空编码器的脑电情绪解码
-8. [Beyond DSA: Conjugacy-based Comparison of Dynamical Systems](/202607/08/2607.04493v1-beyond-dsa-conjugacy-based-comparison-of-dynamical-systems)  
+   evidence：证明直接内嗅输入是新CA1空间地图出现所必需的
+8. [Hippocampal engrams configure prefrontal context representations to guide flexible decisions](/202607/09/biorxiv-10-64898-2026-07-06-732916-v1-hippocampal-engrams-configure-prefrontal-context-representations-to-guide-flexible-decisions)  
    标签：评分：7.0/10、query:sr
-   evidence：基于共轭的动态系统比较方法用于神经科学
-9. [Rank-Order N-of-M Codes for Sparse Distributed Memory: Disentangling Representation and Learning Effects in Noise Robustness Against Contemporary Neuromorphic Architectures](/202607/08/2607.02967v1-rank-order-n-of-m-codes-for-sparse-distributed-memory-disentangling-representation-and-learning-effects-in-noise-robustness-against-contemporary-neuromorphic-architectures)  
+   evidence：海马印迹与前额叶情境表征指导灵活决策
+9. [Machine-Learning-Enabled Full-State Reconstruction of Fusion Plasmas from Minimal Sensor Measurements](/202607/09/2607.04390v1-machine-learning-enabled-full-state-reconstruction-of-fusion-plasmas-from-minimal-sensor-measurements)  
    标签：评分：6.0/10、query:sr
-   evidence：评估排序N选M脉冲编码用于神经表示
-10. [SHiPPO: Recurrent Memory with Transported Polynomial Projections](/202607/08/2607.03055v1-shippo-recurrent-memory-with-transported-polynomial-projections)  
+   evidence：从稀疏传感器进行状态重建的时间编码和空间解码
+10. [Lightweight ML-Based Automatic Sleep Staging Framework with Constrained CNN and Mamba for Small-Sample EEG Datasets](/202607/09/2607.04934v1-lightweight-ml-based-automatic-sleep-staging-framework-with-constrained-cnn-and-mamba-for-small-sample-eeg-datasets)  
    标签：评分：6.0/10、query:sr
-   evidence：SHiPPO循环记忆利用传输多项式投影处理时序动态
+   evidence：轻量级单通道EEG自动睡眠分期
 
