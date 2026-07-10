@@ -1,63 +1,61 @@
 ## 最新日报
-- 最新运行日期：2026-07-10
-- 运行时间：2026-07-10 05:54:39 北京时间
+- 最新运行日期：2026-07-11
+- 运行时间：2026-07-11 05:25:58 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今日精读神经形态硬件上的动态闭环控制与单实体脉冲神经元模型综述，速读储备池在线自监督学习、脑电自监督表征及嵌入式神经接口安全等新工作。  
-动态神经流形为类脑芯片上的灵活控制提供新范式，而脉冲神经元统一综述揭示了从生物到计算的关键连接。  
-建议优先追踪神经形态系统与自监督学习结合的安全落地路径，这两者正快速交汇。
-- 详情：[/202607/10/README](/202607/10/README)
+今日精读聚焦于神经接口的安全框架与类脑硬件的闭环控制，并速览了脑电自动化尖峰检测、情绪识别及视觉神经编码等前沿成果。最值得关注的方向是：嵌入式神经接口的“安全证书失效”统一防护机制，以及基于动态神经流形的神经形态硬件灵活控制方法。建议读者持续跟进安全验证与实时自适应技术如何加速脑机接口和类脑计算的实用化进程。
+- 详情：[/202607/11/README](/202607/11/README)
 
 ### 精读区论文标签
-1. [Dynamic neural manifolds for flexible closed-loop control on neuromorphic hardware](/202607/10/2607.07373v1-dynamic-neural-manifolds-for-flexible-closed-loop-control-on-neuromorphic-hardware)  
+1. [When Certificates Fail: A Unified Safety Framework for Embedded Neural Interface Models](/202607/11/2607.06630v1-when-certificates-fail-a-unified-safety-framework-for-embedded-neural-interface-models)  
    标签：评分：9.0/10、query:sr
-   evidence：在神经形态硬件上用于闭环控制的动态神经流形
-2. [Single-Entity Spiking Neuron Models: Survey](/202607/10/2607.07429v1-single-entity-spiking-neuron-models-survey)  
+   evidence：嵌入式神经接口模型的安全框架
+2. [Dynamic neural manifolds for flexible closed-loop control on neuromorphic hardware](/202607/11/2607.07373v1-dynamic-neural-manifolds-for-flexible-closed-loop-control-on-neuromorphic-hardware)  
    标签：评分：9.0/10、query:sr
-   evidence：用于信息编码的尖峰神经元模型综述
-3. [The impact of the serotonergic psychedelic DOI on active vision in freely moving mice](/202607/10/biorxiv-10-1101-2025-10-14-682230-v2-the-impact-of-the-serotonergic-psychedelic-doi-on-active-vision-in-freely-moving-mice)  
+   evidence：在神经形态硬件上使用流形动力学的闭环控制
+3. [Spectral envelopes of facial movements predict intention, cortical representations, and neural prosthetic control](/202607/11/biorxiv-10-1101-2025-09-10-675423-v4-spectral-envelopes-of-facial-movements-predict-intention-cortical-representations-and-neural-prosthetic-control)  
    标签：评分：9.0/10、query:sr
-   evidence：研究主动视觉下V1的神经编码动态
-4. [Revisiting Analog Electrical Stimulation with Current Focusing in a Guinea Pig Model of Cochlear Implants.](/202607/10/biorxiv-10-64898-2026-07-02-735566-v1-revisiting-analog-electrical-stimulation-with-current-focusing-in-a-guinea-pig-model-of-cochlear-implants)  
+   evidence：面部运动解码用于神经假体控制
+4. [Effects of EEG Preprocessing on Channel-Wise Attention and Effective Connectivity Alignment in Visual EEG Decoding](/202607/11/biorxiv-10-64898-2026-07-02-736026-v1-effects-of-eeg-preprocessing-on-channel-wise-attention-and-effective-connectivity-alignment-in-visual-eeg-decoding)  
    标签：评分：9.0/10、query:sr
-   evidence：人工耳蜗刺激与神经记录
-5. [Functional ultrasound imaging through a human cranial window for mesoscopic mapping of motor effector encoding within the sensorimotor cortex](/202607/10/biorxiv-10-64898-2026-07-03-735688-v1-functional-ultrasound-imaging-through-a-human-cranial-window-for-mesoscopic-mapping-of-motor-effector-encoding-within-the-sensorimotor-cortex)  
+   evidence：评估脑电图预处理对基于Transformer的视觉脑电图解码和注意力机制的影响
+5. [Shared but temporally distinct neural representations support semantic matching across word and picture formats: evidence from EEG decoding and temporal generalization analyses](/202607/11/biorxiv-10-64898-2026-07-06-736728-v1-shared-but-temporally-distinct-neural-representations-support-semantic-matching-across-word-and-picture-formats-evidence-from-eeg-decoding-and-temporal-generalization-analyses)  
    标签：评分：9.0/10、query:sr
-   evidence：功能性超声用于脑机接口运动解码
+   evidence：EEG时间解码与泛化分析
 
 ### 速读区论文标签
-1. [Scalable Perturbation Learning for Online Self-Supervised Echo State Networks](/202607/10/2607.06079v1-scalable-perturbation-learning-for-online-self-supervised-echo-state-networks)  
+1. [EEG-SpikeAgent: Agentic Closed-Loop Program Synthesis for Automated EEG Spike Detection](/202607/11/2607.04558v1-eeg-spikeagent-agentic-closed-loop-program-synthesis-for-automated-eeg-spike-detection)  
    标签：评分：8.0/10、query:sr
-   evidence：用于回声状态网络的在线自监督学习支持时间神经解码
-2. [STST-JEPA: Shallow-Target Spatio-Temporal Joint Embedding Prediction Architecture For EEG Self-Supervised Learning](/202607/10/2607.06629v1-stst-jepa-shallow-target-spatio-temporal-joint-embedding-prediction-architecture-for-eeg-self-supervised-learning)  
+   evidence：大语言模型代理系统用于自动脑电图尖峰检测，通过迭代特征合成增强可解释性
+2. [Graph-Regularized Deep Learning for EEG-Based Emotion Recognition with Psychologically-Grounded Label Structure](/202607/11/2607.07773v1-graph-regularized-deep-learning-for-eeg-based-emotion-recognition-with-psychologically-grounded-label-structure)  
    标签：评分：8.0/10、query:sr
-   evidence：用于EEG解码的自监督时空架构
-3. [When Certificates Fail: A Unified Safety Framework for Embedded Neural Interface Models](/202607/10/2607.06630v1-when-certificates-fail-a-unified-safety-framework-for-embedded-neural-interface-models)  
+   evidence：基于图正则化深度学习的脑电情绪识别；解码时间神经模式
+3. [From stuff to things: Responses of neurons in macaque V4 to textures and objects](/202607/11/biorxiv-10-1101-2024-02-20-581273-v3-from-stuff-to-things-responses-of-neurons-in-macaque-v4-to-textures-and-objects)  
    标签：评分：8.0/10、query:sr
-   evidence：嵌入式神经接口模型的安全框架
-4. [Tensorized algorithms and scalable filtering methods for hidden Markov and factorial hidden Markov models](/202607/10/2607.07008v1-tensorized-algorithms-and-scalable-filtering-methods-for-hidden-markov-and-factorial-hidden-markov-models)  
+   evidence：研究V4神经元对物体与纹理的选择性
+4. [Image-grounded encoding models reveal distinct temporal profiles of naturalistic object and scene processing in the human brain](/202607/11/biorxiv-10-64898-2026-04-24-720581-v2-image-grounded-encoding-models-reveal-distinct-temporal-profiles-of-naturalistic-object-and-scene-processing-in-the-human-brain)  
    标签：评分：8.0/10、query:sr
-   evidence：适用于神经解码的因子HMM可扩展滤波算法
-5. [A Hardware-Aware Open-Source Framework for Design Space Exploration of Mixed-Signal Spiking Neural Networks](/202607/10/2607.06456v1-a-hardware-aware-open-source-framework-for-design-space-exploration-of-mixed-signal-spiking-neural-networks)  
+   evidence：从自然图像构建脑预测编码模型，揭示时间特征
+5. [Conclusions Drawn From Neural Network to Brain Alignment Depend Strongly on the Chosen Similarity Measure](/202607/11/biorxiv-10-1101-2024-08-07-607035-v2-conclusions-drawn-from-neural-network-to-brain-alignment-depend-strongly-on-the-chosen-similarity-measure)  
    标签：评分：7.0/10、query:sr
-   evidence：脉冲神经网络仿真框架
-6. [Latent graph encoding of multimodal neuroimaging features with generative AI architectures](/202607/10/2607.07027v1-latent-graph-encoding-of-multimodal-neuroimaging-features-with-generative-ai-architectures)  
+   evidence：研究显示相似性度量选择影响脑-模型对齐结论
+6. [Ocular Response Functions reveal how ocular processes relate to neural activity](/202607/11/biorxiv-10-1101-2024-11-19-624356-v4-ocular-response-functions-reveal-how-ocular-processes-relate-to-neural-activity)  
    标签：评分：7.0/10、query:sr
-   evidence：神经影像特征的潜在图编码
-7. [Mechanistic Interpretability for Neural Networks: Circuits, Sparse Features and Symbolic Reasoning](/202607/10/2607.07316v1-mechanistic-interpretability-for-neural-networks-circuits-sparse-features-and-symbolic-reasoning)  
+   evidence：时间分辨回归方法连接眼动过程与神经活动
+7. [Temporal Processing during Decision Making under Uncertainty.](/202607/11/biorxiv-10-64898-2026-06-30-735611-v1-temporal-processing-during-decision-making-under-uncertainty)  
    标签：评分：7.0/10、query:sr
-   evidence：神经网络的机制可解释性可应用于神经编码模型
-8. [Reliable mechanistic operator recovery with biologically-informed neural networks: principles for architecture and optimisation design](/202607/10/2607.07425v1-reliable-mechanistic-operator-recovery-with-biologically-informed-neural-networks-principles-for-architecture-and-optimisation-design)  
+   evidence：利用颅内电生理解码决策中的时间神经模式
+8. [Dendritic Wave Recurrent Neural Networks](/202607/11/biorxiv-10-64898-2026-07-03-736415-v1-dendritic-wave-recurrent-neural-networks)  
    标签：评分：7.0/10、query:sr
-   evidence：生物启发神经网络用于可解释算子恢复
-9. [A Common Neural Signal of Evidence Accumulation for Perceptual and Mnemonic Decisions](/202607/10/biorxiv-10-1101-2025-11-13-688140-v2-a-common-neural-signal-of-evidence-accumulation-for-perceptual-and-mnemonic-decisions)  
+   evidence：RNN中的树突非线性模拟神经脉冲处理
+9. [An event-driven framework for fly-inspired visual motion detection](/202607/11/2607.05205v1-an-event-driven-framework-for-fly-inspired-visual-motion-detection)  
    标签：评分：6.0/10、query:sr
-   evidence：决策中证据积累的脑电图相关信号
-10. [Action Progress Provides an Abstract Coordinate for Motor Memory](/202607/10/biorxiv-10-64898-2026-02-09-704807-v2-action-progress-provides-an-abstract-coordinate-for-motor-memory)  
+   evidence：仿蝇神经网络实现具有时间动态的视觉运动检测
+10. [Empirical Minimal-Realisation Compression of Deep Neural Networks via Controllability-Observability Tests](/202607/11/2607.05457v1-empirical-minimal-realisation-compression-of-deep-neural-networks-via-controllability-observability-tests)  
    标签：评分：6.0/10、query:sr
-   evidence：动作进程作为运动记忆检索的抽象坐标
+   evidence：可控可观性框架解释深度网络内部
 

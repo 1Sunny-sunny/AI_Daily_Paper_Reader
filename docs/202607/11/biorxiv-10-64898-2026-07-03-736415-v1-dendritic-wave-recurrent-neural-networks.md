@@ -1,0 +1,24 @@
+---
+title: Dendritic Wave Recurrent Neural Networks
+title_zh: 树突波递归神经网络
+authors: "Kubo, Y."
+date: 2026-07-09
+pdf: "https://www.biorxiv.org/content/10.64898/2026.07.03.736415v1.full.pdf"
+tags: ["query:sr"]
+score: 7.0
+evidence: RNN中的树突非线性模拟神经脉冲处理
+tldr: 受生物神经元树突非线性整合的启发，本研究在波递归神经网络（wRNN）的输入路径中引入非线性基底树突分支，提出树突波递归神经网络（DWRNN）。在序列图像分类任务上，DWRNN相比标准wRNN取得更高准确率和更低跨种子训练方差，同时保留了原有的行波动力学模式，表明树突计算与行波递归动力学可互补增强序列学习。
+source: biorxiv
+selection_source: fresh_fetch
+figures_json: "[{\"url\": \"assets/figures/biorxiv/biorxiv-10-64898-2026-07-03-736415-v1/fig-003.webp\", \"caption\": \"Figure 1: Learning curves on the copy task for delay lengths Tdelay ∈ {0, 30, 80}. The memory length was fixed to 10 symbols. Both wRNN and DW-RNN were trained using cross-entropy loss for categorical token prediction. Solid lines indicate the mean over five random seeds, and shaded regions indicate standard deviation.\", \"page\": 5, \"index\": 3, \"width\": 806, \"height\": 271}, {\"url\": \"assets/figures/biorxiv/biorxiv-10-64898-2026-07-03-736415-v1/fig-004.webp\", \"caption\": \"Table 2: Test accuracy (%) on sequential image-classification tasks. Results are reported as mean ± standard deviation over five random seeds. DW-RNN improves mean accuracy and reduces acrossseed variability on all three benchmarks.\", \"page\": 5, \"index\": 4, \"width\": 702, \"height\": 257}, {\"url\": \"assets/figures/biorxiv/biorxiv-10-64898-2026-07-03-736415-v1/fig-001.webp\", \"caption\": \"Figure 2: Learning curves on sequential image-classification tasks.\", \"page\": 6, \"index\": 1, \"width\": 806, \"height\": 271}, {\"url\": \"assets/figures/biorxiv/biorxiv-10-64898-2026-07-03-736415-v1/fig-002.webp\", \"caption\": \"Figure 3: Hidden-layer activity on sMNIST for DW-RNN and the standard wRNN. Each heatmap shows the mean hidden activation across channels for a representative test example. The horizontal axis represents time step, and the vertical axis represents hidden position. DW-RNN preserves the characteristic diagonal wave-like activity patterns observed in the standard wRNN, indicating that nonlinear basal dendritic input integration does not disrupt the recurrent traveling-wave dynamics.\", \"page\": 6, \"index\": 2, \"width\": 826, \"height\": 287}]"
+motivation: 标准波递归神经网络的输入路径相对简单，未利用生物神经元树突的非线性整合能力。
+method: 在wRNN的输入到隐层路径中增加非线性基底树突分支，同时保持原有的递归行波动力学。
+result: "在sMNIST、psMNIST和nsCIFAR-10上，DWRNN的平均准确率分别提升至97.82%、96.92%和55.65%，且训练稳定性提高。"
+conclusion: 树突计算和行波递归动力学为序列学习提供了互补机制，并可提升模型性能和训练稳定性。
+---
+
+## 摘要
+波递归神经网络 (wRNNs) 是受生物启发的递归架构，利用行波动力学支持序列学习和记忆。然而，与生物神经元相比，其输入到隐藏层的路径仍然相对简单，生物神经元中的树突执行非线性输入整合。在本研究中，我们引入了树突波递归神经网络 (DWRNN)，它在保留原始递归波动力学的同时，用非线性基底树突分支增强了 wRNN 的输入路径。我们在简单的复制任务、序列 MNIST (sMNIST)、置换序列 MNIST (psMNIST) 和噪声序列 CIFAR-10 (nsCIFAR-10) 上评估了 DW-RNN。在复制任务上，DW-RNN 显示出与标准 wRNN 相当的学习行为，表明树突输入整合不会破坏基于递归波的记忆机制。在三个序列图像分类基准上，DW-RNN 优于标准 wRNN，在 sMNIST 上准确率从 97.27 ± 0.15% 提高到 97.82 ± 0.12%，在 psMNIST 上从 96.74 ± 0.17% 提高到 96.92 ± 0.10%，在 nsCIFAR-10 上从 54.30 ± 0.79% 提高到 55.65 ± 0.55%。除了提高平均准确率外，DW-RNN 在所有三个分类基准上表现出更低的跨种子变异性，表明树突输入整合可能提高 wRNN 训练的稳定性。隐藏活动可视化进一步表明，DW-RNN 保留了原始 wRNN 的特征行波模式。这些结果表明，树突计算和行波递归动力学为生物启发的序列学习提供了互补的机制。
+
+## Abstract
+Wave recurrent neural networks (wRNNs) are biologically inspired recurrent architectures that use traveling-wave dynamics to support sequence learning and memory. However, their input-to-hidden pathway remains relatively simple compared with biological neurons, where dendrites perform nonlinear input integration. In this study, we introduce the Dendritic Wave Recurrent Neural Network (DWRNN), which augments the input pathway of the wRNN with nonlinear basal dendritic branches while preserving the original recurrent wave dynamics. We evaluate DW-RNN on a simple copy task, sequential MNIST (sMNIST), permuted sequential MNIST (psMNIST), and noisy sequential CIFAR-10 (nsCIFAR-10). On the copy task, DW-RNN shows learning behavior comparable to the standard wRNN, suggesting that dendritic input integration does not disrupt the recurrent wave-based memory mechanism. On the three sequential image-classification benchmarks, DW-RNN outperforms the standard wRNN, improving accuracy from 97.27 {+/-} 0.15% to 97.82 {+/-} 0.12% on sMNIST, from 96.74 {+/-} 0.17% to 96.92 {+/-} 0.10% on psMNIST, and from 54.30 {+/-} 0.79% to 55.65 {+/-} 0.55% on nsCIFAR-10. In addition to improving mean accuracy, DW-RNN exhibits lower across-seed variability on all three classification benchmarks, suggesting that dendritic input integration may improve the stability of wRNN training. Hidden-activity visualizations further show that DW-RNN preserves the characteristic traveling-wave patterns of the original wRNN. These results suggest that dendritic computation and traveling-wave recurrent dynamics provide complementary mechanisms for biologically inspired sequence learning.
