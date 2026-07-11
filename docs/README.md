@@ -1,61 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-07-11
-- 运行时间：2026-07-11 05:25:58 北京时间
+- 最新运行日期：2026-07-12
+- 运行时间：2026-07-12 04:50:34 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今日精读聚焦于神经接口的安全框架与类脑硬件的闭环控制，并速览了脑电自动化尖峰检测、情绪识别及视觉神经编码等前沿成果。最值得关注的方向是：嵌入式神经接口的“安全证书失效”统一防护机制，以及基于动态神经流形的神经形态硬件灵活控制方法。建议读者持续跟进安全验证与实时自适应技术如何加速脑机接口和类脑计算的实用化进程。
-- 详情：[/202607/11/README](/202607/11/README)
+今日精选15篇论文，深度聚焦神经驱动解码与人工耳蜗电刺激优化两大方向。  
+最值得关注：核维度对肌电神经驱动泛化影响有限，而人工耳蜗的电流聚焦技术或能显著提升听觉重建效果。  
+建议读者进一步结合跨模态可解释模型与自然阅读脑数据集，探索更鲁棒的神经信号解析方法。
+- 详情：[/202607/12/README](/202607/12/README)
 
 ### 精读区论文标签
-1. [When Certificates Fail: A Unified Safety Framework for Embedded Neural Interface Models](/202607/11/2607.06630v1-when-certificates-fail-a-unified-safety-framework-for-embedded-neural-interface-models)  
+1. [Kernel Dimensionality Has Limited Impact on Generalizability of CNN-Based Neural Drive Estimation from HD-sEMG](/202607/12/biorxiv-10-64898-2026-03-20-712696-v2-kernel-dimensionality-has-limited-impact-on-generalizability-of-cnn-based-neural-drive-estimation-from-hd-semg)  
+   标签：评分：10.0/10、query:sr
+   evidence：基于CNN的高密度肌电神经驱动估计
+2. [Revisiting Analog Electrical Stimulation with Current Focusing in a Guinea Pig Model of Cochlear Implants.](/202607/12/biorxiv-10-64898-2026-07-02-735566-v2-revisiting-analog-electrical-stimulation-with-current-focusing-in-a-guinea-pig-model-of-cochlear-implants)  
    标签：评分：9.0/10、query:sr
-   evidence：嵌入式神经接口模型的安全框架
-2. [Dynamic neural manifolds for flexible closed-loop control on neuromorphic hardware](/202607/11/2607.07373v1-dynamic-neural-manifolds-for-flexible-closed-loop-control-on-neuromorphic-hardware)  
+   evidence：直接脑机通信（人工耳蜗）与神经记录
+3. [A Unified Computational Framework for Deep Brain Stimulation at the Cellular and Network Levels](/202607/12/biorxiv-10-64898-2026-07-02-736102-v1-a-unified-computational-framework-for-deep-brain-stimulation-at-the-cellular-and-network-levels)  
    标签：评分：9.0/10、query:sr
-   evidence：在神经形态硬件上使用流形动力学的闭环控制
-3. [Spectral envelopes of facial movements predict intention, cortical representations, and neural prosthetic control](/202607/11/biorxiv-10-1101-2025-09-10-675423-v4-spectral-envelopes-of-facial-movements-predict-intention-cortical-representations-and-neural-prosthetic-control)  
+   evidence：建模深部脑刺激对神经回路放电活动的调节
+4. [Seamless interaction in VR: decoding user intent with eye gaze and passive brain-computer interfaces](/202607/12/biorxiv-10-64898-2026-07-06-736575-v1-seamless-interaction-in-vr-decoding-user-intent-with-eye-gaze-and-passive-brain-computer-interfaces)  
    标签：评分：9.0/10、query:sr
-   evidence：面部运动解码用于神经假体控制
-4. [Effects of EEG Preprocessing on Channel-Wise Attention and Effective Connectivity Alignment in Visual EEG Decoding](/202607/11/biorxiv-10-64898-2026-07-02-736026-v1-effects-of-eeg-preprocessing-on-channel-wise-attention-and-effective-connectivity-alignment-in-visual-eeg-decoding)  
+   evidence：使用EEG和注视解码VR BCI中的交互意图
+5. [Spatial and temporal representations are organized along a stable coding gradient in the medial entorhinal cortex](/202607/12/biorxiv-10-64898-2026-07-09-737618-v1-spatial-and-temporal-representations-are-organized-along-a-stable-coding-gradient-in-the-medial-entorhinal-cortex)  
    标签：评分：9.0/10、query:sr
-   evidence：评估脑电图预处理对基于Transformer的视觉脑电图解码和注意力机制的影响
-5. [Shared but temporally distinct neural representations support semantic matching across word and picture formats: evidence from EEG decoding and temporal generalization analyses](/202607/11/biorxiv-10-64898-2026-07-06-736728-v1-shared-but-temporally-distinct-neural-representations-support-semantic-matching-across-word-and-picture-formats-evidence-from-eeg-decoding-and-temporal-generalization-analyses)  
-   标签：评分：9.0/10、query:sr
-   evidence：EEG时间解码与泛化分析
+   evidence：内嗅皮层时空编码梯度
 
 ### 速读区论文标签
-1. [EEG-SpikeAgent: Agentic Closed-Loop Program Synthesis for Automated EEG Spike Detection](/202607/11/2607.04558v1-eeg-spikeagent-agentic-closed-loop-program-synthesis-for-automated-eeg-spike-detection)  
+1. [Cross-seed explainability using Procrustes-conditioned Joint End-to-end Top-K Sparse Autoencoders](/202607/12/2607.08499v1-cross-seed-explainability-using-procrustes-conditioned-joint-end-to-end-top-k-sparse-autoencoders)  
    标签：评分：8.0/10、query:sr
-   evidence：大语言模型代理系统用于自动脑电图尖峰检测，通过迭代特征合成增强可解释性
-2. [Graph-Regularized Deep Learning for EEG-Based Emotion Recognition with Psychologically-Grounded Label Structure](/202607/11/2607.07773v1-graph-regularized-deep-learning-for-eeg-based-emotion-recognition-with-psychologically-grounded-label-structure)  
+   evidence：提出使用稀疏自编码器进行跨种子可解释性的方法
+2. [BCCWJ-Brain: A Multi-Modal fMRI, MEG, and EEG Dataset of Naturalistic Japanese Reading](/202607/12/biorxiv-10-64898-2026-07-05-736621-v1-bccwj-brain-a-multi-modal-fmri-meg-and-eeg-dataset-of-naturalistic-japanese-reading)  
    标签：评分：8.0/10、query:sr
-   evidence：基于图正则化深度学习的脑电情绪识别；解码时间神经模式
-3. [From stuff to things: Responses of neurons in macaque V4 to textures and objects](/202607/11/biorxiv-10-1101-2024-02-20-581273-v3-from-stuff-to-things-responses-of-neurons-in-macaque-v4-to-textures-and-objects)  
+   evidence：多模态神经影像数据集，用于自然阅读
+3. [Dissociation between impaired explicit spatial remapping and preserved implicit neural dynamics in Alzheimers disease](/202607/12/biorxiv-10-64898-2026-07-06-736718-v1-dissociation-between-impaired-explicit-spatial-remapping-and-preserved-implicit-neural-dynamics-in-alzheimers-disease)  
    标签：评分：8.0/10、query:sr
-   evidence：研究V4神经元对物体与纹理的选择性
-4. [Image-grounded encoding models reveal distinct temporal profiles of naturalistic object and scene processing in the human brain](/202607/11/biorxiv-10-64898-2026-04-24-720581-v2-image-grounded-encoding-models-reveal-distinct-temporal-profiles-of-naturalistic-object-and-scene-processing-in-the-human-brain)  
+   evidence：海马神经群体编码与时间动态
+4. [The neural signature of simple overlearned temporal expectations resembles episodic retrieval](/202607/12/biorxiv-10-64898-2026-07-07-737020-v1-the-neural-signature-of-simple-overlearned-temporal-expectations-resembles-episodic-retrieval)  
    标签：评分：8.0/10、query:sr
-   evidence：从自然图像构建脑预测编码模型，揭示时间特征
-5. [Conclusions Drawn From Neural Network to Brain Alignment Depend Strongly on the Chosen Similarity Measure](/202607/11/biorxiv-10-1101-2024-08-07-607035-v2-conclusions-drawn-from-neural-network-to-brain-alignment-depend-strongly-on-the-chosen-similarity-measure)  
+   evidence：解码神经活动模式（fMRI）以提取时间预期信息
+5. [Distinct roles of brain network flexibility in motor learning across age](/202607/12/biorxiv-10-1101-2024-10-29-620762-v3-distinct-roles-of-brain-network-flexibility-in-motor-learning-across-age)  
    标签：评分：7.0/10、query:sr
-   evidence：研究显示相似性度量选择影响脑-模型对齐结论
-6. [Ocular Response Functions reveal how ocular processes relate to neural activity](/202607/11/biorxiv-10-1101-2024-11-19-624356-v4-ocular-response-functions-reveal-how-ocular-processes-relate-to-neural-activity)  
+   evidence：研究运动学习中脑网络灵活性的时间动态
+6. [Connectivity patterns predictive of cognition, but not affect, reflect a segregated intrinsic network architecture](/202607/12/biorxiv-10-64898-2026-02-10-704998-v2-connectivity-patterns-predictive-of-cognition-but-not-affect-reflect-a-segregated-intrinsic-network-architecture)  
    标签：评分：7.0/10、query:sr
-   evidence：时间分辨回归方法连接眼动过程与神经活动
-7. [Temporal Processing during Decision Making under Uncertainty.](/202607/11/biorxiv-10-64898-2026-06-30-735611-v1-temporal-processing-during-decision-making-under-uncertainty)  
+   evidence：解码连接模式以预测认知能力
+7. [Distinct regimes of spatial prediction across the visual field during natural vision](/202607/12/biorxiv-10-64898-2026-03-27-714859-v2-distinct-regimes-of-spatial-prediction-across-the-visual-field-during-natural-vision)  
    标签：评分：7.0/10、query:sr
-   evidence：利用颅内电生理解码决策中的时间神经模式
-8. [Dendritic Wave Recurrent Neural Networks](/202607/11/biorxiv-10-64898-2026-07-03-736415-v1-dendritic-wave-recurrent-neural-networks)  
+   evidence：使用生成模型将刺激可预测性与神经反应联系起来
+8. [Coordinated acetylcholine release and adaptation of neuronal representations in the retrosplenial cortex during contextual uncertainty](/202607/12/biorxiv-10-64898-2026-05-02-722331-v2-coordinated-acetylcholine-release-and-adaptation-of-neuronal-representations-in-the-retrosplenial-cortex-during-contextual-uncertainty)  
    标签：评分：7.0/10、query:sr
-   evidence：RNN中的树突非线性模拟神经脉冲处理
-9. [An event-driven framework for fly-inspired visual motion detection](/202607/11/2607.05205v1-an-event-driven-framework-for-fly-inspired-visual-motion-detection)  
+   evidence：研究不确定性期间神经表征和适应
+9. [Contravariance Theory: Strong Alignment for Minimal Solutions to Hard Tasks](/202607/12/2607.08561v1-contravariance-theory-strong-alignment-for-minimal-solutions-to-hard-tasks)  
    标签：评分：6.0/10、query:sr
-   evidence：仿蝇神经网络实现具有时间动态的视觉运动检测
-10. [Empirical Minimal-Realisation Compression of Deep Neural Networks via Controllability-Observability Tests](/202607/11/2607.05457v1-empirical-minimal-realisation-compression-of-deep-neural-networks-via-controllability-observability-tests)  
+   evidence：形式化反变理论以对齐DNN与大脑
+10. [Calibrated Persistent-Laplacian CUSUM for Online Change-Point Detection](/202607/12/2607.08635v1-calibrated-persistent-laplacian-cusum-for-online-change-point-detection)  
    标签：评分：6.0/10、query:sr
-   evidence：可控可观性框架解释深度网络内部
+   evidence：时间序列在线变化点检测方法
 
