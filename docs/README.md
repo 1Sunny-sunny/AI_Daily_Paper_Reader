@@ -1,63 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-07-12
-- 运行时间：2026-07-12 04:50:34 北京时间
+- 最新运行日期：2026-07-13
+- 运行时间：2026-07-13 03:56:03 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今日精选15篇论文，深度聚焦神经驱动解码与人工耳蜗电刺激优化两大方向。  
-最值得关注：核维度对肌电神经驱动泛化影响有限，而人工耳蜗的电流聚焦技术或能显著提升听觉重建效果。  
-建议读者进一步结合跨模态可解释模型与自然阅读脑数据集，探索更鲁棒的神经信号解析方法。
-- 详情：[/202607/12/README](/202607/12/README)
+今日推荐聚焦脑解码与神经AI，精读揭示从fMRI直接“读心”成文、闭眼也能追踪眼动的新突破。  
+最值得看的是《NiCLIP》用脑图预测文本，实现了大脑与语言模型的跨模态对齐，另一篇则让fMRI眼动追踪摆脱睁眼限制。  
+普通读者可先从这两篇精读切入，感受AI读心术如何从科幻逼近现实，再回头琢磨听觉、运动与记忆的编码新解。
+- 详情：[/202607/13/README](/202607/13/README)
 
 ### 精读区论文标签
-1. [Kernel Dimensionality Has Limited Impact on Generalizability of CNN-Based Neural Drive Estimation from HD-sEMG](/202607/12/biorxiv-10-64898-2026-03-20-712696-v2-kernel-dimensionality-has-limited-impact-on-generalizability-of-cnn-based-neural-drive-estimation-from-hd-semg)  
-   标签：评分：10.0/10、query:sr
-   evidence：基于CNN的高密度肌电神经驱动估计
-2. [Revisiting Analog Electrical Stimulation with Current Focusing in a Guinea Pig Model of Cochlear Implants.](/202607/12/biorxiv-10-64898-2026-07-02-735566-v2-revisiting-analog-electrical-stimulation-with-current-focusing-in-a-guinea-pig-model-of-cochlear-implants)  
+1. [NiCLIP: Neuroimaging contrastive language-image pretraining model for predicting text from brain activation images](/202607/13/biorxiv-10-1101-2025-06-14-659706-v4-niclip-neuroimaging-contrastive-language-image-pretraining-model-for-predicting-text-from-brain-activation-images)  
    标签：评分：9.0/10、query:sr
-   evidence：直接脑机通信（人工耳蜗）与神经记录
-3. [A Unified Computational Framework for Deep Brain Stimulation at the Cellular and Network Levels](/202607/12/biorxiv-10-64898-2026-07-02-736102-v1-a-unified-computational-framework-for-deep-brain-stimulation-at-the-cellular-and-network-levels)  
+   evidence：从脑激活图像预测文本
+2. [Optimizing MR-based gaze-decoding for eyes-closed eye-tracking in fMRI](/202607/13/biorxiv-10-64898-2026-07-07-736972-v1-optimizing-mr-based-gaze-decoding-for-eyes-closed-eye-tracking-in-fmri)  
    标签：评分：9.0/10、query:sr
-   evidence：建模深部脑刺激对神经回路放电活动的调节
-4. [Seamless interaction in VR: decoding user intent with eye gaze and passive brain-computer interfaces](/202607/12/biorxiv-10-64898-2026-07-06-736575-v1-seamless-interaction-in-vr-decoding-user-intent-with-eye-gaze-and-passive-brain-computer-interfaces)  
+   evidence：基于深度学习的眼MR信号注视解码
+3. [Simple Geometric Recentering Rivals Deep Sequence Models for Cross-Session EEG Motor-Imagery Decoding](/202607/13/biorxiv-10-64898-2026-07-07-736991-v1-simple-geometric-recentering-rivals-deep-sequence-models-for-cross-session-eeg-motor-imagery-decoding)  
    标签：评分：9.0/10、query:sr
-   evidence：使用EEG和注视解码VR BCI中的交互意图
-5. [Spatial and temporal representations are organized along a stable coding gradient in the medial entorhinal cortex](/202607/12/biorxiv-10-64898-2026-07-09-737618-v1-spatial-and-temporal-representations-are-organized-along-a-stable-coding-gradient-in-the-medial-entorhinal-cortex)  
+   evidence：用于跨session EEG运动想象解码的几何重定心方法，一种脑机接口应用
+4. [Learning complex temporal dependencies via local synaptic plasticity](/202607/13/biorxiv-10-64898-2026-07-09-737423-v1-learning-complex-temporal-dependencies-via-local-synaptic-plasticity)  
    标签：评分：9.0/10、query:sr
-   evidence：内嗅皮层时空编码梯度
+   evidence：研究通过局部突触可塑性学习时间依赖性的时间预测编码
+5. [Steering Neural Network Training through Interpretable Constraints Based on Partial Dependence](/202607/13/2607.08641v1-steering-neural-network-training-through-interpretable-constraints-based-on-partial-dependence)  
+   标签：评分：8.0/10、query:sr
+   evidence：通过部分依赖约束的解释引导学习
 
 ### 速读区论文标签
-1. [Cross-seed explainability using Procrustes-conditioned Joint End-to-end Top-K Sparse Autoencoders](/202607/12/2607.08499v1-cross-seed-explainability-using-procrustes-conditioned-joint-end-to-end-top-k-sparse-autoencoders)  
+1. [Parvalbumin and somatostatin interneurons support distinct computations during auditory scene analysis](/202607/13/biorxiv-10-64898-2026-07-08-736456-v1-parvalbumin-and-somatostatin-interneurons-support-distinct-computations-during-auditory-scene-analysis)  
    标签：评分：8.0/10、query:sr
-   evidence：提出使用稀疏自编码器进行跨种子可解释性的方法
-2. [BCCWJ-Brain: A Multi-Modal fMRI, MEG, and EEG Dataset of Naturalistic Japanese Reading](/202607/12/biorxiv-10-64898-2026-07-05-736621-v1-bccwj-brain-a-multi-modal-fmri-meg-and-eeg-dataset-of-naturalistic-japanese-reading)  
+   evidence：尖峰距离分类揭示中间神经元在听觉场景分析中的作用
+2. [Device-embedded accelerometry complements neural signals for tracking parkinsonian motor states](/202607/13/biorxiv-10-64898-2026-07-08-737286-v1-device-embedded-accelerometry-complements-neural-signals-for-tracking-parkinsonian-motor-states)  
    标签：评分：8.0/10、query:sr
-   evidence：多模态神经影像数据集，用于自然阅读
-3. [Dissociation between impaired explicit spatial remapping and preserved implicit neural dynamics in Alzheimers disease](/202607/12/biorxiv-10-64898-2026-07-06-736718-v1-dissociation-between-impaired-explicit-spatial-remapping-and-preserved-implicit-neural-dynamics-in-alzheimers-disease)  
+   evidence：使用神经和加速度计信号的自适应DBS运动状态追踪
+3. [Egocentric spatial scaffolds organize cortical memory engrams](/202607/13/biorxiv-10-64898-2026-07-09-737550-v1-egocentric-spatial-scaffolds-organize-cortical-memory-engrams)  
    标签：评分：8.0/10、query:sr
-   evidence：海马神经群体编码与时间动态
-4. [The neural signature of simple overlearned temporal expectations resembles episodic retrieval](/202607/12/biorxiv-10-64898-2026-07-07-737020-v1-the-neural-signature-of-simple-overlearned-temporal-expectations-resembles-episodic-retrieval)  
+   evidence：皮层记忆印记富含自我中心和边界编码神经元
+4. [Attention reshapes the information dynamics of thalamic and cortical prediction-error learning](/202607/13/biorxiv-10-64898-2026-07-10-737794-v1-attention-reshapes-the-information-dynamics-of-thalamic-and-cortical-prediction-error-learning)  
    标签：评分：8.0/10、query:sr
-   evidence：解码神经活动模式（fMRI）以提取时间预期信息
-5. [Distinct roles of brain network flexibility in motor learning across age](/202607/12/biorxiv-10-1101-2024-10-29-620762-v3-distinct-roles-of-brain-network-flexibility-in-motor-learning-across-age)  
+   evidence：使用颅内脑电和互信息分析预测误差编码
+5. [Prior knowledge reveals two computational regimes for syntactic processing in the human brain](/202607/13/biorxiv-10-64898-2026-07-11-737945-v1-prior-knowledge-reveals-two-computational-regimes-for-syntactic-processing-in-the-human-brain)  
+   标签：评分：8.0/10、query:sr
+   evidence：使用MEG对句法特征进行时间神经解码
+6. [A Non-Hermitian Potential Well Formalism for Conscious--Preconscious--Subliminal Processing](/202607/13/2607.08302v1-a-non-hermitian-potential-well-formalism-for-conscious--preconscious--subliminal-processing)  
    标签：评分：7.0/10、query:sr
-   evidence：研究运动学习中脑网络灵活性的时间动态
-6. [Connectivity patterns predictive of cognition, but not affect, reflect a segregated intrinsic network architecture](/202607/12/biorxiv-10-64898-2026-02-10-704998-v2-connectivity-patterns-predictive-of-cognition-but-not-affect-reflect-a-segregated-intrinsic-network-architecture)  
+   evidence：非厄米特模型连接感觉编码与意识访问
+7. [Memory Traces Reflect How They Were Last Retrieved](/202607/13/biorxiv-10-1101-2025-05-30-657135-v2-memory-traces-reflect-how-they-were-last-retrieved)  
    标签：评分：7.0/10、query:sr
-   evidence：解码连接模式以预测认知能力
-7. [Distinct regimes of spatial prediction across the visual field during natural vision](/202607/12/biorxiv-10-64898-2026-03-27-714859-v2-distinct-regimes-of-spatial-prediction-across-the-visual-field-during-natural-vision)  
+   evidence：基于fMRI的记忆检索神经模式解码研究
+8. [Stars2Cells: Astrometric Tracking of Neurons Across Imaging Sessions](/202607/13/biorxiv-10-64898-2026-07-03-736144-v1-stars2cells-astrometric-tracking-of-neurons-across-imaging-sessions)  
    标签：评分：7.0/10、query:sr
-   evidence：使用生成模型将刺激可预测性与神经反应联系起来
-8. [Coordinated acetylcholine release and adaptation of neuronal representations in the retrosplenial cortex during contextual uncertainty](/202607/12/biorxiv-10-64898-2026-05-02-722331-v2-coordinated-acetylcholine-release-and-adaptation-of-neuronal-representations-in-the-retrosplenial-cortex-during-contextual-uncertainty)  
+   evidence：用于慢性钙成像的追踪管线，研究神经群体活动随时间变化
+9. [Hippocampal CA3 forms a two-layer network of molecularly distinct cell types in mice and humans](/202607/13/biorxiv-10-64898-2026-07-04-736487-v1-hippocampal-ca3-forms-a-two-layer-network-of-molecularly-distinct-cell-types-in-mice-and-humans)  
    标签：评分：7.0/10、query:sr
-   evidence：研究不确定性期间神经表征和适应
-9. [Contravariance Theory: Strong Alignment for Minimal Solutions to Hard Tasks](/202607/12/2607.08561v1-contravariance-theory-strong-alignment-for-minimal-solutions-to-hard-tasks)  
-   标签：评分：6.0/10、query:sr
-   evidence：形式化反变理论以对齐DNN与大脑
-10. [Calibrated Persistent-Laplacian CUSUM for Online Change-Point Detection](/202607/12/2607.08635v1-calibrated-persistent-laplacian-cusum-for-online-change-point-detection)  
-   标签：评分：6.0/10、query:sr
-   evidence：时间序列在线变化点检测方法
+   evidence：揭示海马CA3区分子不同的细胞类型，有助于神经编码
+10. [Dissociating representations of object shape, real-world size, and mobility in human visual cortex](/202607/13/biorxiv-10-64898-2026-07-05-736560-v1-dissociating-representations-of-object-shape-real-world-size-and-mobility-in-human-visual-cortex)  
+   标签：评分：7.0/10、query:sr
+   evidence：使用fMRI研究物体特征在视觉皮层中的表征方式
 
