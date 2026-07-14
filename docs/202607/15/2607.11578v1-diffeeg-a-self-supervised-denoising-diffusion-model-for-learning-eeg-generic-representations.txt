@@ -1,0 +1,601 @@
+Title: DiffEEG: A Self-Supervised Denoising Diffusion Model for Learning EEG Generic Representations
+
+URL Source: https://arxiv.org/pdf/2607.11578v1
+
+Published Time: Tue, 14 Jul 2026 03:05:52 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# DiffEEG: A Self-Supervised Denoising Diffusion Model for Learning EEG Generic Representations 
+
+Abdulkader Helwan 1 , Lina Abou-Abbas 1,∗ , Hussein El Amouri 1 , Belkacem Chikhaoui 2 and Khadidja Henni 2  
+
+> 1Department of Electrical and Computer Engineering, Lebanese American University, Byblos, Lebanon
+> 2Institute of Applied Artificial Intelligence, T ´ELUQ University, Montreal, Canada
+> ∗Author to whom any correspondence should be addressed.
+> E-mail: lina.abouabbas@lau.edu.lb
+> Keywords: EEG, Deep learning, denoising diffusion, foundation model, reinforcement learning.
+
+Abstract 
+
+Deep learning for EEG-based seizure detection faces critical challenges: severe annotation scarcity and extreme class imbalance, where ictal events comprise less than 10% of clinical recordings. We present DiffEEG, a 9.6M-parameter self-supervised foundation model that addresses both limitations through denoising diffusion pre-training and reinforcement learning (RL)-based fine-tuning. Pre-trained on 1.3M unlabeled segments from the Temple University Hospital Seizure Corpus (TUHSZ), DiffEEG learns generic neural representations via a 1D U-Net with multi-head self-attention. For downstream adaptation, a reinforced decision layer employs policy gradient optimization to directly maximize F1-score, prioritizing sensitivity to rare seizure events over overall accuracy. Under strict patient-wise evaluation (279 patients, Leave-One-Fold-Out), DiffEEG achieves 61% accuracy and 59% F1 for 4-class seizure subtyping, and 81% accuracy with 85% weighted F1 for binary detection, maintaining clinically viable seizure recall (59%) despite extreme imbalance (6.7% prevalence). Segment-level evaluation establishes an upper bound of 97.6% accuracy, confirming strong architectural capacity. DiffEEG demonstrates that diffusion-based pre-training combined with metric-aware reinforcement learning enables clinically deployable seizure monitoring with minimal labeled data requirements. 
+
+1 Introduction 
+
+Epilepsy is one of the most prevalent neurological disorders globally, characterized by recurrent, unprovoked electrical disturbances in the brain [1], affecting more than 50 million individuals of all ages worldwide. Electroencephalography (EEG) remains the primary non-invasive diagnostic tool for identifying seizures due to its high temporal resolution; however, the manual interpretation of EEG recordings is a labor-intensive and expensive process that necessitates highly specialized expertise [1–3], and visual analysis frequently suffers from significant inter-rater variability that compromises diagnostic consistency in acute clinical settings [4]. To overcome these constraints, researchers have increasingly employed machine learning and deep learning to identify latent spatio-temporal patterns in multi-channel EEG signals [2, 3, 5–10]. The field transitioned from handcrafted feature engineering toward automatic feature extraction through convolutional and recurrent architectures [2, 3, 6, 9, 11], and more recently through transformer-based models capable of capturing long-range temporal dependencies via self-attention [12–15]. Multimodal strategies, such as EEG-ECG synchronization toward EEG-free detection [16], were also explored in parallel, though without resolving the fundamental limitation that generalization across patients, recording setups, and institutional protocols remained fragile, and the volume of labeled EEG required to train these models reliably remained a persistent practical barrier. These limitations motivated a shift toward EEG foundation models (FMs), large architectures pretrained in a self-supervised or unsupervised fashion on thousands of hours of unlabeled recordings from corpora such as the Temple University Hospital (TUH) EEG Corpus [17], and subsequently fine-tuned on specific downstream tasks [5, 12, 18–25]. By learning universal brain activity representations from massive and diverse data, these approaches mitigate subject-specific variability and improve adaptability to downstream clinical tasks [26]. BioSerenity-E1 [22] , a self-supervised model that combines spectral tokenization with masked prediction to learn generalized representations for seizure detection and abnormality classification. EEGFormer [5, 18], a transformer-based foundation model that employs vector quantization to derive universal EEG features that generalize across diverse clinical paradigms. EEGPT [12], a 
+
+Preprint — 1 arXiv:2607.11578v1 [cs.LG] 13 Jul 2026 hierarchical transformer that introduces spatio-temporal representation alignment enabling efficient adaptation under low-label and few-shot conditions. Wavelet2Vec [24], an architecture that integrates filter bank analysis with a masked autoencoder to learn multi-grained neural representations from decomposed EEG wavelets. Despite demonstrating significant success in generalized representation learning [5, 12, 18–21], the downstream clinical evaluations of these models remain largely confined to standard and relatively balanced benchmarks such as CHB-MIT [27] and the Temple University Abnormal and EEG Events corpora [17], which do not adequately capture the severe class imbalances inherent to acute continuous monitoring. Consequently, existing architectures such as BIOT [19], LaBraM [20], and LCM [21] are rarely optimized for or evaluated on the TUHSZ corpus for binary seizure detection or granular seizure subtype classification, where epileptiform events constitute a minor fraction of the overall recording [17]. A critical gap therefore remains in the literature regarding the application of foundation models to realistic clinical monitoring conditions [26], where seizure events constitute only approximately 6.7% of total recording time [5, 12, 18–21], and where many current models require significant computational resources that limit their utility in resource-constrained medical environments [12, 22]. To address these challenges, we propose DiffEEG, a 9.6M-parameter self-supervised foundation model tailored for seizure detection in continuous monitoring and other EEG-related tasks. DiffEEG is pretrained on 1.3M unlabeled segments from the TUHSZ corpus using a diffusion-based objective [28] applied to a 1D U-Net with multi-head self-attention, learning robust neural representations without requiring any annotations. A reinforced decision layer (RDL) subsequently employs policy gradient (PL) optimization to directly maximize the F1-score, sharpening sensitivity to rare seizure events rather than optimizing for overall accuracy. Unlike previous architectures, DiffEEG is explicitly fine-tuned and benchmarked on the highly imbalanced TUHSZ dataset and on complex seizure subtyping tasks, demonstrating that foundational representations can be strictly optimized for real-world clinical environments where maximizing sensitivity to rare events is paramount. The main contributions of this work are: 1. A diffusion-driven pretraining strategy that captures transferable neural representations from non-seizure EEG. 2. A reinforcement-based adaptation mechanism that enhances sensitivity to rare seizure events. 3. Demonstration of label efficiency and scalability through few-shot learning and partial fine-tuning. 4. A transparent and reproducible framework for clinical translation. 
+
+2 Methods 
+
+DiffEEG is organized as a two-stage framework. In the first stage, a 1D U-Net encoder built from residual blocks with FiLM conditioning, multi-head self-attention, and sinusoidal position embeddings is pretrained in a fully self-supervised manner through a denoising diffusion objective [28], learning to recover clean EEG segments from corrupted inputs without any annotation. In the second stage, the pretrained encoder is adapted to seizure classification through a reinforced decision layer that employs policy gradient optimization to directly maximize the F1-score, prioritizing sensitivity to rare ictal events over global accuracy. 
+
+2.1 Diffusion Process Formulation 
+
+The diffusion process follows the framework established by Ho et al. [28], comprising a forward noising process and a learned reverse denoising process. Given an original EEG signal x0 ∈ RC×L,where C represents the number of EEG channels and L denotes the temporal length, the forward process progressively adds Gaussian noise across T timesteps according to: 
+
+xt = √¯αtx0 + √1 − ¯αtϵ, ϵ ∼ N (0 , I) (1) where ¯ αt = Qti=1 αi and αi = 1 − βi. The variance schedule βt is computed using a cosine-based approach following Nichol and Dhariwal [29]: 
+
+βt = clip 
+
+
+
+1 − ¯αt+1 
+
+¯αt
+
+, 0, 0.999 
+
+
+
+(2)              
+
+> Preprint — 2 ENCODER
+> BOTTLENECK
+> DECODER
+> U-NET
+> Timestep t Sin Embedding (512-d)
+> MLP 512 →1024 →512 FiLM Conditioning
+> Input 22 ch 1280 samples
+> Level 0 2×ResBlock 32 ch
+> ↓ × 2
+> Level 1 2×ResBlock 64 ch
+> ↓ × 2
+> Level 2 2×ResBlock 128 ch [Attn]
+> ↓ × 2
+> Level 3 2×ResBlock 256 ch [Attn]
+> Bottleneck 3×ResBlock 256 ch [All Attn]
+> Level 0 3×ResBlock 256 ch [Attn]
+> ↑ × 2
+> Level 1 3×ResBlock 128 ch [Attn]
+> ↑ × 2
+> Level 2 3×ResBlock 64 ch
+> ↑ × 2
+> Level 3 3×ResBlock 32 ch
+> Output Pred Noise ϵ
+> 22 ch, 1280 samples
+> *FiLM applied to ALL residual blocks
+> Skip Connections
+> Legend:
+> [Attn] = Multi-head self-attention enabled (8 heads)
+> ↓ × 2 / ↑ × 2 = Temporal resolution downsampling/upsampling
+> FiLM = Feature-wise Linear Modulation from timestep
+> Skip Connections = Encoder features added to decoder (preserves high-freq)
+
+Figure 1. Overview of the DiffEEG 1D U-Net architecture, showing the encoder, bottleneck, and decoders pathway used for feature extraction. 
+
+where ¯ αt is derived from: ¯αt =cos 2
+
+ t/T +s
+
+1+ s · π
+
+2
+
+
+
+cos 2
+
+ s
+
+1+ s · π
+
+2
+
+ (3) with s = 0 .008 as a small offset to prevent the schedule from reaching zero too early. The cosine schedule provides more stable training dynamics compared to linear alternatives, particularly important for the high-frequency characteristics of EEG signals. The reverse process, which the neural network learns to approximate, is given by: 
+
+pθ (xt−1|xt) = N  μθ (xt, t ), σ 2
+
+t I (4) where the mean μθ (xt, t ) is computed from the network’s noise prediction ϵθ (xt, t ). 
+
+2.2 1D U-Net Architecture Overview 
+
+The core neural network ϵθ (xt, t ) employs a U-Net-based encoder-decoder architecture augmented with multi-head self-attention mechanisms and feature-wise linear modulation (FiLM) conditioning [30]. This architectural configuration enables the model to capture both local temporal patterns characteristic of EEG signals and long-range dependencies across channels and time. The network receives as input the noisy EEG sample xt ∈ RC×L concatenated with a timestep embedding, producing as output the predicted noise component ϵθ (xt, t ) ∈ RC×L. The architecture follows an encoder-bottleneck-decoder structure with symmetric skip connections preserving high-frequency information essential for accurate EEG signal reconstruction. Figure 1 shows the full conditional denoising diffusion model, showing the U-Net blocks, sinusoidal position embeddings, and FiLM conditioning. 1. Encoder The encoder pathway consists of multiple resolution stages, each containing residual blocks with progressive channel expansion. Given base model channels m = 32 and channel multipliers [1 , 2, 4, 8], the encoder produces feature maps with dimensions [m, 2m, 4m, 8m] across successive levels. At each resolution level i, the output channels are computed as Ci = m · multipliers[ i]. Each level contains N = 2 residual blocks processing feature maps at that resolution before downsampling. Downsampling employs strided convolution with kernel size 3 and stride 2, reducing temporal resolution by half while preserving channel count. 2. Bottleneck The bottleneck processes the most compressed representation, consisting of three stacked residual blocks with self-attention enabled. The bottleneck operates at the finest temporal compression ( L/ 16) with the highest channel count (8 m = 256), enabling global context aggregation before reconstruction. 
+
+Preprint — 3 3. Decoder The decoder pathway mirrors the encoder structure with upsampling operations replacing downsampling. Each upsampling stage employs linear interpolation (scale factor 2) followed by convolution to restore temporal resolution. Skip connections from corresponding encoder levels are fused via channel-wise addition after temporal interpolation to align dimensions between encoder and decoder features. 
+
+2.3 Residual Blocks with FiLM Conditioning 
+
+Each residual block implements a conditioning mechanism based on FiLM, originally introduced for neural network conditioning in generative modeling [30]. The FiLM layer modulates intermediate feature representations based on the diffusion timestep, enabling the network to adapt its processing based on the noise level present in the input. The residual block structure is shown in Figure 2. Given input features h ∈ RB×C×L where B denotes batch size, C represents channels, and L
+
+represents sequence length, the residual block computes: 1. First normalization and convolution: 
+
+h′ = Conv 1(SiLU(InstanceNorm( h))) (5) 2. FiLM conditioning: The timestep embedding temb ∈ RD is processed through a conditioning network: [γ, β ] = W2 · SiLU( W1 · temb + b1) + b2 (6) where γ, β ∈ RC are per-channel scale and bias vectors. The conditioning network comprises: 
+
+• Input projection: Demb → 2C
+
+• SiLU activation (Sigmoid Linear Unit) 
+
+• Output projection producing scale and shift parameters The FiLM operation applies: 
+
+h′′ = h′ · (1 + γ) + β (7) 3. Second normalization, activation, dropout, and convolution: 
+
+h′′′ = Conv 2(SiLU(InstanceNorm( h′′ ))) (8) 4. Attention computation :
+
+hattn = MultiHeadAttention( h′′′ ) (9) 
+
+h′′′ = h′′′ + Proj( hattn ) (10) 5. Residual connection: 
+
+hout = h′′′ + ResidualConv( hin ) (11) The residual connection employs a 1 × 1 convolution when input and output channel dimensions differ, enabling flexible channel expansion throughout the network. 
+
+2.4 Multi-Head Self-Attention 
+
+Self-attention modules are strategically positioned within the network to balance computational efficiency with representational capacity: 
+
+• Encoder attention: Attention is applied in the deeper encoder levels (second half of channel multipliers) and only at the final residual block of each level, capturing high-level abstractions while maintaining local feature processing in earlier stages. 
+
+• Bottleneck attention: All three bottleneck residual blocks employ self-attention, enabling global context aggregation at the most compressed representation. 
+
+• Decoder attention: Attention is applied in earlier decoder levels (first half of channel multipliers) at the first residual block of each level, facilitating reconstruction of spatial-temporal patterns from high-level representations. This asymmetric attention placement reflects the progressive abstraction characteristic of encoder-decoder architectures: encoder attention captures hierarchical feature representations while decoder attention focuses on reconstructing detailed output patterns. 
+
+> Preprint — 4
+
+2.5 Sinusoidal Position Embeddings 
+
+Temporal information within the diffusion process is encoded using sinusoidal position embeddings, following the original transformer architecture introduced by Vaswani et al. [31]. These fixed positional embeddings provide the model with awareness of temporal position within the diffusion trajectory without introducing learnable parameters. 
+
+2.5.1 Embedding Computation For a timestep t ∈ [0 , T − 1] and embedding dimension D, the position embedding vector P E ∈ RD is constructed as: 
+
+P E (2 i) = sin 
+
+ t
+
+10000 2i/D 
+
+
+
+, P E (2 i+1) = cos 
+
+ t
+
+10000 2i/D 
+
+
+
+(12) where i ∈ [0 , D/ 2) indexes the dimension position. This formulation produces embeddings where different positions yield distinct vectors while maintaining a structured relationship that enables the model to generalize to unseen positions. The embedding dimension D = 512 is used throughout the experiments. The timestep is normalized to [0 , 1] before computing embeddings, ensuring consistent scaling regardless of the absolute number of diffusion timesteps. 
+
+2.5.2 Time Embedding Network The raw timestep embedding undergoes further processing through a multilayer perceptron before FiLM conditioning: 
+
+temb = MLP( P E (t)) (13) The MLP comprises: 1. Linear projection: D → 2D
+
+2. SiLU activation 3. Linear projection: 2 D → D
+
+This two-layer network transforms the sinusoidal embedding into a richer representation suitable for conditioning the residual blocks. 
+
+3 Experiments and Setup 
+
+To address the spatio-temporal complexity of EEG signals and the inherent scarcity of labeled seizure subtype data, we propose a multi-stage hierarchical learning framework. This approach transitions from general neural representation learning to specialized clinical classification. 
+
+3.1 Self-Supervised Diffusion Pre-training 
+
+The foundational stage of our framework involves pre-training a denoising EEG diffusion model on a large-scale dataset of non-seizure EEG recordings. Unlike traditional discriminative pre-training, the diffusion objective forces the model to learn the underlying manifold of healthy brain activity by reversing a stochastic degradation process. We employ a 1D U-Net architecture integrated with residual blocks and multi-head self attention mechanisms. Given a clean EEG segment x0, a forward diffusion process adds Gaussian noise according to a Cosine Beta Schedule over T = 1000 timesteps, resulting in a latent representation xT . The model ϵθ is trained to minimize the Mean Squared Error (MSE) between the added noise and the predicted noise: 
+
+Ldif f = Ex0,ϵ,t 
+
+∥ϵ − ϵθ (xt, t )∥2 (14) Additionally, a reconstruction loss is incorporated to ensure the high-fidelity preservation of the signal’s structural components, providing a robust initialization for subsequent tasks. 
+
+3.2 Seizure Detection via Fine-Tuning 
+
+Binary seizure detection employs the same multi-timestep feature extraction strategy (explained in D.2), probing the diffusion backbone at Tprobe = {50 , 250 , 500 , 750 , 950 } and aggregating hierarchical features via global average pooling. 
+
+> Preprint — 5
+
+3.2.1 Dataset and Class Imbalance We utilized the complete TUHSZ corpus for seizure detection, comprising three official splits: training (790,501 segments), development (550,597 segments), and evaluation (228,667 segments). The training and development sets were combined to maximize available data for fine-tuning, yielding 1,341,098 five-second EEG segments. The predefined evaluation set of the data set was held out for the final patient-wise assessment. The dataset exhibits substantial class imbalance reflective of clinical reality: 
+
+• Training: 89,345 seizure vs. 701,156 non-seizure (11.3% seizure) 
+
+• Development: 28,945 seizure vs. 521,652 non-seizure (5.3% seizure) 
+
+• Evaluation: 15,361 seizure vs. 213,306 non-seizure (6.7% seizure) The combined training pool (train + dev) contained 118,290 seizure and 1,222,808 non-seizure segments (8.8% seizure prevalence). A stratified 95%/5% split was applied to create training and validation partitions while preserving class distributions. To address the class imbalance, we employed inverse frequency weighting in the cross-entropy loss: 
+
+wk = N
+
+2 · nk
+
+(15) where N is the total sample count and nk is the count for class k.
+
+3.2.2 Reinforced Decision Layer Standard cross-entropy training optimizes per-sample accuracy, which can lead to classifiers that achieve high overall accuracy by favoring the majority class while underperforming on the clinically critical seizure class. To address this, we introduce a RDL that directly optimizes for seizure detection F1-score through PL learning [32]. 
+
+Architecture The decision layer parameterizes a policy network πϕ : RD → R that maps the aggregated feature vector to a scalar logit adjustment: 
+
+a = πϕ(z) = W2 · ReLU( W1z + b1) + b2 (16) where the hidden dimension is set to max(64 , D/ 4). This adjustment is applied asymmetrically to the classifier logits: ˜lseizure = lseizure + a, ˜lnormal = lnormal − a (17) Positive adjustments a > 0 increase sensitivity toward seizure detection, while negative adjustments increase specificity. Crucially, the network learns to modulate this trade-off conditioned on the input features, enabling context-dependent decision boundaries. 
+
+Policy Gradient Training During training, we sample binary decisions from a Bernoulli distribution parameterized by the adjusted probabilities: 
+
+p = σ(˜lseizure − ˜lnormal ), ˆy ∼ Bernoulli( p) (18) The reward signal is the batch-level F1-score for the seizure class, computed on the sampled predictions: 
+
+R = 2 · TP 2 · TP + FP + FN + ϵ (19) where TP, FP, and FN are accumulated across the minibatch and ϵ = 10 −6 ensures numerical stability. We employ the REINFORCE algorithm [32] with a moving-average baseline for variance reduction. The policy gradient loss is: 
+
+LPG = −(R − b) · 1
+
+NbNbX
+
+> i=1
+
+log p(ˆ yi|zi) (20) where the baseline b tracks the expected reward via exponential moving average: 
+
+b ← α · b + (1 − α) · R, α = 0 .9 (21) This baseline subtracts the expected reward from the observed reward, reducing gradient variance while preserving the unbiased gradient estimate. Actions that yield above-average F1-scores receive positive gradient updates, reinforcing the policy toward improved seizure detection. 
+
+> Preprint — 6
+
+3.2.3 Combined Training Objective The total loss combines weighted cross-entropy with the policy gradient term: 
+
+L = LCE + λLPG , λ = 0 .1 (22) The cross-entropy loss provides stable gradient signal for learning discriminative features, while the policy gradient loss directly optimizes the target clinical metric. Gradients from both terms are clipped to unit norm before the optimizer step to ensure training stability. 
+
+3.2.4 Fine-Tuning Protocol We adopt partial fine-tuning to balance representation preservation with task adaptation. The diffusion backbone is partitioned as follows: 
+
+• Frozen: Initial convolution, early downsampling blocks (levels 1–4), and first bottleneck block 
+
+• Trainable: Final two downsampling blocks, last two bottleneck blocks, classification head, and reinforced decision layer. 
+
+3.3 Seizure Subtypes Classification with Few-Shot Learning(K-Shot Analysis) 
+
+To evaluate the transferability of the representations learned in stages 1 and 2, we conduct a few-shot learning (FSL) analysis on seizure subtypes. A key technical contribution of our framework is the reuse of the discriminative head from the binary detection task. Rather than initializing a stochastic classification head, we utilize the specific weights from the stage 2 detector (Section III-B). We found that the binary detector had already learned to distinguish ictal morphologies from the background manifold; therefore, by removing only the final binary output layer and replacing it with a 5-class linear layer, the model preserved high-level discriminative features that a randomly initialized head would require significantly more data to learn. This architectural reuse demonstrated significant performance gains over a standard initialization approach. EEG segments were first normalized using precomputed channel-wise mean and standard deviation. All available subtype folders were loaded, and the three least frequent subtype classes were excluded to reduce the impact of extreme class sparsity, leaving the five most represented classes for downstream classification as shown in Table III. The retained subtype labels were remapped to contiguous class indices. The dataset was split using a stratified 80/20 partition to preserve class proportions. To simulate few-shot learning, we sampled a fixed number of training examples per class, denoted by 
+
+K and evaluated multiple values of K. The tested values were constrained so that K did not exceed half of the smallest training-class size, thereby avoiding overuse of the rarest class. For each training configuration, the model therefore used approximately 5 K base training samples, with additional augmented samples generated only for minority classes. Data augmentation consisted of additive Gaussian perturbation applied to sampled training examples from classes with fewer than 2000 available samples. The classifier architecture used a pretrained diffusion model’s encoder as the feature extractor. Feature representations were obtained by probing the encoder at five diffusion timesteps 
+
+Tprobe = {50 , 250 , 500 , 750 , 950 } (23) At each timestep, multi-scale encoder activations were globally average-pooled and concatenated to form a fixed-dimensional representation. This representation was passed to a three-layer fully connected classifier with batch normalization, GELU activation, and dropout. Two transfer-learning settings were compared: (i) a frozen-backbone setting, in which only the classifier head was optimized, and (ii) a partially unfrozen setting, in which the final two encoder blocks and the temporal embedding module were fine-tuned. In addition to the diffusion-pretrained backbone, the classifier head was optionally initialized from a previously trained seizure-versus-nonseizure model, excluding the final output layer, which was replaced to match the multi-class subtype classification task. 
+
+3.4 Patient-Wise Seizure Subtypes Classification with RL 
+
+Building upon the pre-trained diffusion model, we developed a downstream classification framework for seizure subtype identification. This section details the architectural modifications, training methodology, and evaluation protocol. 
+
+> Preprint — 7
+
+3.4.1 Problem Formulation and Class Selection Seizure subtype classification was formulated as a multi-class supervised learning problem. From the five most prevalent seizure types in the TUHSZ corpus (Table III), we selected four classes based on sufficient representation: focal non-specific seizures (FNSZ, n = 68 ,369), generalized non-specific seizures (GNSZ, n = 43 ,399), complex partial seizures (CPSZ, n = 16 ,761), and tonic seizures (TNSZ, n = 2 ,276). Absence seizures (ABSZ, 
+
+n = 856) were excluded due to limited samples, which would compromise reliable cross-validation estimates. The resulting dataset comprised 130,805 five-second EEG segments from 279 patients. 
+
+3.4.2 Feature Extraction via Multi-Timestep Diffusion Probing A key insight from diffusion-based representation learning is that the model’s internal representations vary meaningfully across the noise schedule [29]. Early timesteps (low noise) preserve fine-grained signal characteristics, while later timesteps (high noise) capture abstract, semantically meaningful features. To exploit this property, we extract features at multiple points along the diffusion trajectory rather than at a single timestep. Specifically, we define a set of probe timesteps T = {50 , 250 , 500 , 750 , 950 } uniformly spanning the diffusion schedule ( T = 1000). For each input segment x ∈ RC×L where C = 22 channels and 
+
+L = 1280 samples (5 seconds at 256 Hz), we compute the encoder’s hierarchical representations at each probe timestep. The diffusion backbone employs a U-Net architecture with channel multipliers [1 , 2, 4, 8] applied to a base channel dimension of 32, yielding feature maps at four resolution levels with dimensions {32 , 64 , 128 , 256 } channels respectively. At each timestep t ∈ T , we extract the output of each encoder level ℓ ∈ { 1, 2, 3, 4} after the residual blocks and apply global average pooling (GAP) to obtain a fixed-length representation: 
+
+f (t) 
+
+> ℓ
+
+= 1
+
+LℓLℓX
+
+> i=1
+
+h(t) 
+
+> ℓ,i
+
+∈ Rdℓ (24) where h(t) 
+
+> ℓ,i
+
+denotes the hidden state at spatial position i of level ℓ for timestep t, Lℓ is the sequence length at level ℓ after downsampling, and dℓ ∈ { 32 , 64 , 128 , 256 } is the channel dimension. The complete feature vector is formed by concatenating across all levels and timesteps: 
+
+z = M
+
+> t∈T
+> 4
+
+M
+
+> ℓ=1
+
+f (t) 
+
+> ℓ
+
+∈ RD (25) where D = |T | × P 
+
+> ℓ
+
+dℓ = 5 × (32 + 64 + 128 + 256) = 2 ,400. 
+
+3.4.3 Hybrid Training Objective To address the dual challenges of class imbalance and optimizing for the target evaluation metric (F1-score), we employ a hybrid loss function combining weighted cross-entropy with a policy gradient auxiliary term (same in Section III (2 and 3)). 
+
+3.4.4 Partial Fine-Tuning Strategy Transfer learning from the pre-trained diffusion model requires balancing preservation of learned EEG representations against task-specific adaptation. We adopt a partial fine-tuning strategy with differential learning rates. The backbone is partitioned into three groups: (1) early layers (initial convolution and downsampling blocks 1–4), which capture low-level temporal and spectral patterns and remain frozen; (2) late layers (downsampling blocks 5–6 and bottleneck), which encode higher-level abstractions and are unfrozen; and (3) the classification head. This partitioning resulted in 94 frozen parameter tensors and 114 trainable backbone parameter tensors (where each tensor represents a weight or bias matrix). The fine-tuning model comprises approximately 9.6 million parameters (m=32, 4 encoder levels, 2 residual blocks per level). Note that while the pretraining stage utilized the full U-Net architecture (encoder and decoder), the decoder pathway was discarded for all downstream classification tasks to optimize computational efficiency, retaining only the encoder and bottleneck for feature extraction. We employ the AdamW optimizer [33] with differential learning rates: ηhead = 5 × 10 −4 for the classification head and ηbackbone = 1 × 10 −5 for unfrozen backbone layers. Weight decay of 10 −4 is applied uniformly. The learning rate follows a cosine annealing schedule over the training horizon. 
+
+3.4.5 Leave-one-Fold-Out: LOFO To obtain unbiased performance estimates and assess generalization across patients, we employed a 5-fold patient-wise cross-validation strategy, referred to as LOFO (Leave-One-Fold-Out). The 279 patients were randomly partitioned into five disjoint folds of approximately equal size (55–56 patients each). For each fold, one subset served as the 
+
+> Preprint — 8
+
+validation set while the remaining four comprised the training set, ensuring strict patient-level separation to prevent data leakage. Figure 3 shows the patient-wise 5-fold cross-validation for seizure subtype classification. Models were fine-tuned for a maximum of 60 epochs with early stopping triggered after 20 consecutive epochs without improvement in validation weighted F1-score. 
+
+3.5 Implementation Details 3.5.1 Data processing The proposed framework was developed and validated using the Temple University Seizure Corpus (TUHSZ v2.0.2), a large scale, open source collection of clinical EEG recordings. This study uses a publicly available, deidentified dataset, and no data sharing or IRB agreements are required to access the data. The dataset comprises anonymized recordings from over 600 patients, featuring diverse seizure morphologies across eight distinct seizure types. For the purposes of this study, we utilized the entire non seizure corpus for self supervised foundation pre training and reserved the annotated seizure segments for fine tuning and benchmarking. To prepare the signals for deep learning, the raw EEG was segmented into 5-second windows with a 30% overlap between consecutive segments to maintain temporal continuity. Signal quality was ensured through a rigorous preprocessing pipeline consisting of a 50 Hz notch filter to suppress power-line interference, followed by a zero-phase Butterworth bandpass filter spanning 1 Hz to 75 Hz to remove low-frequency baseline drift and high-frequency muscular artifacts. Channel-wise normalization was finally applied using the global mean and standard deviation computed from the non-seizure pretraining set, ensuring numerical stability throughout the diffusion process. 
+
+3.5.2 Training Environment and Foundation Model Implementation The DiffEEG framework was implemented using the PyTorch deep learning library. Due to the high computational overhead of 1D U-Net diffusion models and the scale of the TUHSZ dataset, all experiments were conducted on the Digital Research Alliance of Canada (formerly Compute Canada) High-Performance Computing (HPC) infrastructure. A single NVIDIA A100 (80GB) GPUs per node was used for pre-training the foundation model (Stage 1). The complete pretraining architecture comprises approximately 9.6 million parameters, including 22 residual blocks (4 encoder levels × 2 blocks + 3 bottleneck + 4 decoder levels × 3blocks) and 4 strided downsampling convolutions. For downstream classification tasks, the decoder pathway is discarded, retaining only the encoder and bottleneck (approximately 6.5M parameters) for feature extraction. 
+
+4 Results 
+
+In this section, we present the empirical evaluation of the proposed DiffEEG framework. We assess performance across two primary downstream tasks: binary seizure detection and seizure subtypes classification. All fine-tuning experiments in this study incorporated the RL policy gradient auxiliary loss as described in Section II-3. The RL configuration is shown in Table I.        
+
+> Table 1. Reinforcement Learning Auxiliary Loss Configuration
+> Parameter Value
+> RL Weight ( λ)0.15 Warmup Epochs 5Baseline Momentum ( α)0.9 Entropy Bonus ( β)0.01 Reward Metric Macro F1-Score
+
+4.1 Binary Seizure Detection Performance 
+
+The performance of the model fine-tuned for the binary seizure classification task was assessed on the held-out Evaluation set predefined in the TUHSZ dataset. As shown in Table II, the model achieved a ROC-AUC of 0.7557 and a weighted F1-score of 0.85. The model achieved an overall accuracy of 0.81. While the specificity for the non-seizure class was high (Precision: 0.97, Recall: 0.82), the seizure class recall reached 0.59.          
+
+> Preprint — 9 Table 2. Binary Seizure Detection Performance on Held-Out Evaluation Set (Patient-Wise Splits)
+> Metric Evaluation Set (LOFO)
+> Samples 228,667 Seizure Prevalence 6.7% ROC-AUC 0.7557
+> Accuracy 0.81 Seizure Recall 0.59 Macro F1 0.59 Weighted F1 0.85
+
+4.2 Segment-Wise Seizure Subtype Classification 
+
+To evaluate the transferability of the learned representations, we conducted experiments on seizure subtype classification. We explored two distinct regimes: a few-shot learning regime (limited labels per class) and a full supervised sine-tuning regime (abundant labels). For the few-shot subtype classification experiments, we selected the five most represented seizure subtype classes from the TUHSZ corpus to ensure sufficient sample support across all K-shot configurations. The resulting dataset comprised 131,661 five-second EEG segments distributed across five classes: Class 0 (FNSZ): 68,369 samples, Class 1 (GNSZ): 43,399 samples, Class 2 (TNSZ): 2,276 samples, Class 3 (CPSZ): 16,761 samples, and Class 4 (ABSZ): 856 samples. This selection strategy prioritized classes with adequate representation while maintaining clinical relevance across focal, generalized, and absence seizure categories. 
+
+4.2.1 Few-Shot Learning (K-Shot Analysis) In this setting, we simulated low-label clinical scenarios by restricting the training data to samples per class. We compared frozen backbone strategies against unfrozen (partial fine-tuning) strategies. As detailed in Figure 4, the unfrozen strategy consistently outperformed the frozen backbone. At the highest shot configuration (K=342), the unfrozen model achieved a Weighted F1-score of 0.6578. 
+
+4.2.2 Full Supervised Fine-Tuning (80/20 Stratified Split) To establish an upper bound on performance when label scarcity is not a constraint, we fine-tuned the pretrained model on a larger subset of data using an 80/20 stratified train/test split. Unlike the binary detection task, this split was performed at the segment level, meaning segments from the same patient could appear in both training and testing sets. This setup evaluates the model’s capacity to learn subtype distinctions when provided with sufficient data, albeit with potential patient-level data leakage. The model demonstrated exceptional performance in this regime, achieving an Accuracy of 0.9766 and a Weighted F1-score of 0.9767. As shown in Table III, the model maintained high precision and recall across all five major subtype classes, including the minority classes (e.g., Subtype 5, samples=856).                             
+
+> Table 3. Full Supervised Seizure Subtype Classification Performance (80/20 Stratified Split, segment-wise)
+> Class Prec Rec F1
+> Subtype 1 (FNSZ) 0.9873 0.9702 0.9787 Subtype 2 (GNSZ) 0.9549 0.9827 0.9686 Subtype 3 (CPSZ) 0.9919 0.9848 0.9884 Subtype 4 (TNSZ) 0.9707 0.9886 0.9795 Subtype 5 (ABSZ) 0.9907 0.9953 0.9930 Accuracy ––0.9766 Macro Average 0.9791 0.9843 0.9816 Weighted Average 0.9770 0.9766 0.9767
+
+4.3 Patient-Wise Seizure Subtype Classification (5-Fold Leave-One-Fold-Out Cross-Validation (LOFO)) 
+
+To rigorously evaluate the generalization capability of DiffEEG across unseen patients, we conducted a 5-fold patient-wise cross-validation experiment for seizure subtype classification, as shown in Figure 3. Unlike the stratified segment-level split described in Section IV-B2, this protocol ensures strict patient-level separation: no EEG segments from validation patients appear during training, preventing data leakage that could arise from within-patient temporal correlations.                                    
+
+> Preprint — 10 Table 4. 5-Fold Patient-Wise Cross-Validation Results (Seizure 4-Subtypes Classification with RL Auxiliary Loss)
+> Fold Train Test Test Acc Test F1
+> 1223 56 0.5156 0.4866 2223 56 0.6953 0.6738 3223 56 0.6661 0.6502 4223 56 0.6555 0.6580 5224 55 0.5023 0.4788
+> Mean ±Std ––0.61 ±0.0812 0.59 ±0.0875
+
+4.3.1 LOFO Results Performance varied across folds, reflecting the inherent difficulty of cross-patient generalization in EEG analysis. Table IV summarizes the best validation performance per fold. The mean weighted F1-score across folds was 0.59, with an accuracy of 0.61. Fold 2 achieved the highest performance (F1: 0.6738), while Folds 1 and 5 showed lower performance (F1: 0.4866 and 0.4788, respectively).  
+
+> Figure 5. Fine-tuning and reinforcement learning dynamics for the proposed model. The vertical dashed line indicates the activation of the Policy Gradient-based decision layer at Epoch 6.
+
+4.3.2 Training Dynamics and RL Contribution The policy gradient (RL) auxiliary loss was activated after epoch 5 (warmup period). As shown in Figure 5, the RL reward (macro F1) consistently improved after activation, even when cross-entropy loss plateaued. For example, in Fold 2, the RL reward increased from 0.4617 at epoch 6 to 0.7461 at epoch 49, demonstrating that the RL auxiliary loss successfully optimized the model for the target F1 metric rather than per-sample accuracy alone. Early stopping was triggered between epochs 23–49 across folds, with no improvement in validation F1 for 20 consecutive epochs. 
+
+4.4 Comparison and Benchmarking 
+
+To evaluate the architectural capacity of DiffEEG, we benchmarked the framework against state-of-the-art supervised baselines and large-scale EEG foundation models across three primary objectives. Table V presents the comparative results of the segment-wise classification of the four seizure subtypes against other supervised deep learning models. Table VI details the patient-wise seizure subtype classification performance in comparison to related CNN and transformer-based models. Furthermore, Table VII provides a comparative analysis of the patient-wise binary detection performance on the TUHSZ corpus, alongside the performance metrics obtained from a 
+
+Preprint — 11 Table 6. Patient-Wise (LOFO) Seizure Subtype Classification Comparison on TUHSZ                                                                                                         
+
+> Study TUHSZ Ver. Classes Patients Accuracy (%) Weighted F1 (%)
+> MBMD Transformer (2024) [42] v1.5.2 468 74.6 73.9 Albaqami et al. (2022) [34] v1.5.2 5>300 –74.7 Wavelet2Vec (2023) [24] v1.5.2 468 73.0 72.0 TIE-EEGNet (2022) [25] v1.5.2 468 63.0 66.0 SeizureNet (2020) [37] v1.5.2 7315 –59.2 Albaqami et al. (2022) [34] v1.5.2 7>300 –56.2 Roy et al. (2020) [41] v1.5.2 7315 –56.1
+> DiffEEG - Average v2.0.2 4279 61.0 59.0 DiffEEG - Best Fold (Fold 2) v2.0.2 456 69.5 67.4 Table 7. Primary Benchmarks for Patient-Independent Binary Seizure Detection on TUSZ.
+> Study / Model Methodology Win. (s) Pts AUROC Acc. (%) F1 (%)
+> BioSerenity-E1 (2025) [22] Foundation (VQ-VAE) 16 50 0.926 ––EEGFORMER (L) (2024) [5] Foundation (Transformer) 12 50 0.883 ∗––BrainBERT (2023) [23] Foundation (Masked) 12 50 0.814 ––Li et al. (2020) [39] CE-stSENet ≈250 –92.0 93.7
+> Zhang et al. (2020) [43] CNN + Attention –14 –80.0 –Saab et al. (2020) [44] Weakly Supervised CNN 12 50 0.780 ––
+> DiffEEG (2024) Diffusion + RL 550 †0.7557 81.0 85.0 ‡∗Reported as Macro AUROC; †Based on the TUSZ predefined evaluation set patient count [17]; ‡Weighted F1-score.
+
+cross-dataset evaluation using the TUAB dataset for clinical abnormality detection compared against other foundational architectures, shown in Table VIII.  
+
+> Table 5. Segment-Wise (Seizure-Wise) Seizure 4-Subtypes Classification Performance on TUHSZ
+
+Study Methodology Acc. (%) W-F1 (%) 
+
+Albaqami et al. (2022) [34] LightGBM + DTCWT (7-cl) – 96.04 ResBiLSTM (2024) [35] ResNet + BiLSTM 95.03 95.03 Huang et al. (2023) [36] 3D-CBAMNet 94.47 94.38 Asif et al. (2020) [37] SeizureNet (Ens. CNNs) – 94.00 Jia et al. (2022) [38] VWCNNs 91.71 94.00 Li et al. (2020) [39] CE-stSENet 92.00 93.69 Zhang et al. (2022) [40] VMD + NLTWSVM 92.29 92.30 Roy et al. (2020) [41] k-NN / XGBoost – 90.10 
+
+DiffEEG Denoising Diffusion + RL 97.66 97.67 
+
+5 Discussion 
+
+5.1 Binary Patient-Wise Seizure Classification 
+
+The binary seizure detection results (Table II) demonstrate the efficacy of the RDL in navigating the severe class imbalance, only 6.7% seizure prevalence, inherent to the TUHSZ evaluation set. By utilizing PL optimization to directly maximize the F1-score, the model is explicitly incentivized to prioritize sensitivity to rare ictal events rather than collapsing into the majority non-seizure class, resulting in a robust Weighted F1-score of 0.85 and a Macro F1-score of 0.59. Furthermore, the ability to achieve a 0.59 seizure recall on entirely unseen patients further validates the strength of the learned generic neural representations, demonstrating that the diffusion-pretrained backbone can effectively contend with the high neurophysiological variability across the 279-patient cohort. 
+
+5.2 Label Efficiency and Few-Shot Adaptation 
+
+A primary objective of DiffEEG is to address the ”critical gap” of label scarcity in clinical EEG monitoring. The k-shot analysis (Figure 3) reveals that the model effectively leverages foundational representations even with minimal supervision. While the frozen backbone strategy provides a reliable baseline, the unfrozen (partial fine-tuning) strategy consistently yielded superior results, reaching a Weighted F1-score of 0.6578 at the 342-shot level. This performance trajectory suggests that while self-supervised pretraining on vast amounts of unlabeled data captures generic brain activity structures, the fine-tuning of the encoder is essential to capture the nuanced clinical features required for granular subtype classification. 
+
+Preprint — 12 5.3 Impact of RL-Optimization on Patient-Wise Generalization 
+
+The patient-wise 5-fold cross-validation results (Table IV) highlight the neurophysiological diversity inherent in the 279-patient TUHSZ cohort. Performance variability across folds, peaking at 67.38% F1 in Fold 2, reflects the challenges posed by differing electrode placements, recording equipment, and individual seizure signatures. To stabilize performance in these high variance scenarios, the integration of the policy gradient (RL) auxiliary loss was critical. By utilizing the Macro F1-score as a reward signal, the model was explicitly incentivized to prioritize sensitivity to minority seizure classes rather than collapsing into the majority class (FNSZ). Training dynamics (Figure 5) confirm that the activation of the RL loss at Epoch 6 facilitates a sustained performance gain, particularly in challenging folds, ensuring the model remains clinically relevant for identifying rare but medically significant events. 
+
+5.4 Comparison and Benchmarking 
+
+This section presents the performance of DiffEEG in the context of state-of-the-art (SOTA) supervised clinical models and large-scale EEG foundation models. 
+
+5.4.1 Seizure Subtype Classification Benchmarking Our benchmarking of DiffEEG for seizure 5-subtypes classification demonstrates a critical balance between maximum discriminatory capacity and patient-independent robustness. By employing two distinct evaluation protocols, we highlight the model’s ability to learn highly discriminative neural representations while contending with significant neurophysiological variability. In segment-wise experiment (Table V), which serves as a measure of the model’s theoretical upper bound for feature discrimination, DiffEEG establishes a new state-of-the-art for the TUHSZ corpus with an Accuracy of 97.66% and a Weighted F1-score of 97.67%, outperforming all previously surveyed literature. While the patient-wise (LOFO) generalization protocol (Table VI) presents a more rigorous challenge for cross-subject inference, our results must be contextualized by the scale of the evaluation. Although supervised architectures such as the MBMD Transformer (2024) and Wavelet2Vec (2023) report higher average F1-scores, those benchmarks were constrained to a limited subset of only 68 patients. In contrast, DiffEEG benchmarks (Table VI) reflect performance across a significantly larger and more diverse cohort of 279 patients, achieving a mean Weighted F1-score of 59.0% and a peak fold performance of 67.4%. As illustrated in the parameter size comparison in Figure 6, this balance of sensitivity and robustness is achieved with a 9.6M parameter pre-trained model, confirming that diffusion-pretrained representations provide a more computationally efficient route to clinical utility than traditional massive foundational architectures. 10 1 10 2 10 3 
+
+> Parameter Count (Millions, Log Scale)
+> BIOT
+> EEGPT-Tiny
+> LaBraM-Base
+> DiffEEG (Ours)
+> BioSerenity-E1
+> EEGPT
+> LaBraM-Large
+> LaBraM-Huge
+> 3.3M
+> 4.7M
+> 5.8M
+> 9.6M
+> 11.7M
+> 25.0M
+> 46.0M
+> 369.0M
+> Other Models
+> DiffEEG (Ours)
+> Figure 6. Model sizes comparison in terms of parameter count.
+
+5.4.2 Binary Seizure Detection Benchmarking (Patient-Wise) The binary detection task evaluates the ability to distinguish ictal segments from interictal background activity. Table VII compares DiffEEG against foundation models and supervised clinical baselines using the primary metrics explicitly reported in each study. Foundational architectures such as BioSerenity-E1 (2025) and EEGFORMER (Large) prioritize AUROC to demonstrate generalizable representation learning across massive unlabeled datasets. DiffEEG achieves an ROC-AUC of 0.7557 and an 
+
+> Preprint — 13
+
+Accuracy of 81.0% on the official TUSZ evaluation set. Notably, DiffEEG utilizes a finer temporal resolution of 5-second windows, compared to the 12–16 second clips commonly used by foundation models and the weakly supervised CNN from Saab et al. (2020). Despite the extreme class imbalance of the TUHSZ evaluation set (6.7% seizure prevalence), DiffEEG maintains a robust Weighted F1-score of 85.0% and a macro F1-score of 59%. 
+
+5.4.3 Abnormal EEG Detection ON TUAB Table VIII shows the benchmarking results on the TUAB dataset, in which DiffEEG achieves a state-of-the-art AUROC of 0.922, significantly outperforming leading larger foundation models such as LaBraM (0.902) and BioSerenity-E1 (0.890). While BioSerenity-E1 maintains a lead in PR-AUC (0.910), DiffEEG delivers robust performance with a PR-AUC of 0.860 and a 78% F1-score, highlighting its strong discriminatory capacity for identifying clinical abnormalities.                              
+
+> Table 8. Benchmarking Foundation Models on TUAB.
+> Model Type AUROC PR-AUC Acc / B-Acc DiffEEG (Ours) Denoising Diffusion 0.922 0.860 79.78% BioSerenity-E1 (2025) [22] VQ-VAE 0.890 0.910 82.25% LaBraM (2024) [20] Neural Tokenizer 0.902 0.839 81.40% BIOT (2023) [19] Biosignal Transformer 0.881 0.884 79.59% EEGPT (2024) [12] Hierarchical Transformer 0.871 0.869 79.83% EEGFormer (2023) [18] Transformer Tokenizer 0.876 0.872 –
+
+6 Conclusion 
+
+This paper proposes DiffEEG, a self-supervised foundation model that integrates denoising diffusion pre-training with a RDL to address label scarcity and class imbalance in EEG decoding. Our model achieves remarkable results on imbalanced data for seizure subtyping and a binary detection on the TUHSZ corpus. Furthermore, we evaluated DiffEEG on the TUAB dataset, where it demonstrated superior performance compared to many existing models. Despite these achievements, a primary limitation remains the inherent difficulty of cross-patient generalization due to neurophysiological diversity and variations in recording equipment. Future research will focus on testing the model across more diverse datasets to further validate its cross-dataset robustness and clinical reliability. 
+
+Declaration of Generative AI and AI Assisted Technologies in the Manuscript Preparation Process 
+
+During the preparation of this work, the authors used ChatGPT and Claude to improve language and readability. After using these tools, the authors reviewed and edited the content as needed and take full responsibility for the content of the published article. 
+
+References References 
+
+[1] L. Abou-Abbas, K. Henni, I. Jemal, and N. Mezghani, “Generative ai with wgan-gp for boosting seizure detection accuracy,” Frontiers in Artificial Intelligence , vol. 7, p. 1437315, 2024. [2] Y. Roy, H. Banville, I. Albuquerque, A. Gramfort, T. H. Falk, and J. Faubert, “Deep learning-based electroencephalography analysis: A systematic review,” Journal of Neural Engineering , vol. 16, no. 5, p. 051001, Aug. 2019. [3] R. T. Schirrmeister, J. T. Springenberg, L. D. J. Fiederer, M. Glasstetter, K. Eggensperger, M. Tangermann, F. Hutter, W. Burgard, and T. Ball, “Deep learning with convolutional neural networks for eeg decoding and visualization,” Human Brain Mapping , vol. 38, no. 11, pp. 5391–5420, Nov. 2017. [4] U. R. Acharya, S. L. Oh, Y. Hagiwara, J. H. Tan, and H. Adeli, “Deep convolutional neural network for the automated detection and diagnosis of seizure using eeg signals,” Computers in Biology and Medicine , vol. 100, pp. 270–278, Sep. 2018. [5] Y. Chen, K. Ren, K. Song, Y. Wang, Y. Wang, D. Li, and L. Qiu, “Eegformer: Towards transferable and interpretable large-scale eeg foundation model,” arXiv preprint arXiv:2401.10278 , 2024. 
+
+> Preprint — 14
+
+[6] X. Huang, H. Meng, and Z. Li, “Deep learning for epileptic seizure prediction from eeg signals: A review,” Biomedical Signal Processing and Control , vol. 117, p. 109518, 2026. [7] K. Henni, L. Abou-Abbas, I. Jmal, A. Mitiche, and N. Mezghani, “Imbalance-aware machine learning for epileptic seizure detection,” in 2024 IEEE 12th International Symposium on Signal, Image, Video and Communications (ISIVC) . IEEE, 2024, pp. 1–5. [8] L. Abou-Abbas, I. Jemal, K. Henni, A. Mitiche, and N. Mezghani, “Focal and generalized seizures distinction by rebalancing class data and random forest classification,” in 
+
+International Conference on Bioengineering and Biomedical Signal and Image Processing .Springer, 2021, pp. 63–70. [9] V. J. Lawhern, A. J. Solon, N. R. Waytowich, S. M. Gordon, C. P. Hung, and B. J. Lance, “Eegnet: a compact convolutional neural network for eeg-based brain–computer interfaces,” 
+
+Journal of neural engineering , vol. 15, no. 5, p. 056013, 2018. [10] L. Abou-Abbas, I. Jemal, K. Henni, Y. Ouakrim, A. Mitiche, and N. Mezghani, “Eeg oscillatory power and complexity for epileptic seizure detection,” Applied Sciences , vol. 12, no. 9, p. 4181, 2022. [11] P. Thuwajit, P. Rangpong, P. Sawangjai, P. Autthasan, R. Chaisaen, N. Banluesombatkul, P. Boonchit, N. Tatsaringkansakul, T. Sudhawiyangkul, and T. Wilaiprasitporn, “Eegwavenet: Multiscale cnn-based spatiotemporal feature extraction for eeg seizure detection,” IEEE transactions on industrial informatics , vol. 18, no. 8, pp. 5547–5557, 2021. [12] G. Wang, W. Liu, Y. He, C. Xu, L. Ma, and H. Li, “Eegpt: Pretrained transformer for universal and reliable representation of eeg signals,” Advances in Neural Information Processing Systems , vol. 37, pp. 39 249–39 280, 2024. [13] Y. Song, X. Jia, L. Yang, and L. Xie, “Transformer-based spatial-temporal feature learning for eeg decoding,” arXiv preprint arXiv:2106.11170 , 2021. [14] Y. Song, Q. Zheng, B. Liu, and X. Gao, “Eeg conformer: Convolutional transformer for eeg decoding and visualization,” IEEE Transactions on Neural Systems and Rehabilitation Engineering , vol. 31, pp. 710–719, 2022. [15] Y. Ma, C. Liu, M. S. Ma, Y. Yang, N. D. Truong, K. Kothur, A. Nikpour, and O. Kavehei, “Tsd: Transformers for seizure detection,” bioRxiv , pp. 2023–01, 2023. [16] H. El Amouri, L. Abou Abbas, H. Tfaily, and K. Henni, “Toward eeg-free seizure detection: Evidence of eeg-ecg synchronization,” in 2025 IEEE/ACS 22nd International Conference on Computer Systems and Applications (AICCSA) . IEEE, 2025, pp. 1–8. [17] I. Obeid and J. Picone, “The temple university hospital eeg data corpus,” Frontiers in neuroscience , vol. 10, p. 196, 2016. [18] Z. Wan, M. Li, S. Liu, J. Huang, H. Tan, and W. Duan, “Eegformer: A transformer–based brain activity classification method using eeg signal,” Frontiers in neuroscience , vol. 17, p. 1148855, 2023. [19] C. Yang, M. B. Westover, and J. Sun, “BIOT: Cross-data biosignal learning in the wild,” 
+
+arXiv preprint arXiv:2305.10351 , 2023. [20] W.-B. Jiang, L.-M. Zhao, and B.-L. Lu, “Large brain model for learning generic representations with tremendous EEG data in BCI,” in Proc. 12th Int. Conf. Learn. Representations (ICLR) , 2024. [21] C.-S. Chen, Y.-J. Chen, and A. H.-W. Tsai, “Large cognition model: Towards pretrained electroencephalography (EEG) foundation model,” arXiv preprint arXiv:2502.17464 , 2025. [22] R. G. Bettinardi, M. Rahmouni, and U. Gimenez, “Bioserenity-e1: a self-supervised eeg model for medical applications,” arXiv preprint arXiv:2503.10362 , 2025. [23] C. Wang, V. Subramaniam, A. U. Yaari, G. Kreiman, B. Katz, I. Cases, and A. Barbu, “Brainbert: Self-supervised representation learning for intracranial recordings,” arXiv preprint arXiv:2302.14367 , 2023. 
+
+> Preprint — 15
+
+[24] R. Peng, C. Zhao, Y. Xu, J. Jiang, G. Kuang, J. Shao, and D. Wu, “Wavelet2vec: A filter bank masked autoencoder for eeg-based seizure subtype classification,” in Proceedings of the IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , 2023, pp. 1–5. [25] R. Peng, C. Zhao, J. Jiang, G. Kuang, Y. Cui, Y. Xu, H. Du, J. Shao, and D. Wu, “Tie-eegnet: Temporal information enhanced eegnet for seizure subtype classification,” IEEE Transactions on Neural Systems and Rehabilitation Engineering , vol. 30, pp. 2567–2576, 2022. [26] G. Kuruppu, N. Wagh, V. Kremen, and Y. Varatharajah, “Eeg foundation models: A critical review of current progress and future directions,” Journal of Neural Engineering , vol. 23, no. 2, p. 021001, 2026. [27] J. Guttag, “CHB-MIT Scalp EEG Database,” PhysioNet , Jun. 2010, version 1.0.0. [Online]. Available: https://doi.org/10.13026/C2K01R [28] J. Ho, A. Jain, and P. Abbeel, “Denoising diffusion probabilistic models,” in Advances in Neural Information Processing Systems , vol. 33, 2020, pp. 6840–6851. [29] A. Q. Nichol and P. Dhariwal, “Improved denoising diffusion probabilistic models,” in 
+
+Proceedings of the International Conference on Machine Learning , 2021, pp. 8162–8171. [30] E. Perez, F. Strub, H. D. Vries, V. Dumoulin, and A. Courville, “Film: Visual reasoning with a general conditioning layer,” in Proceedings of the AAAI Conference on Artificial Intelligence ,vol. 32, no. 1, 2018. [31] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, L. Kaiser, and I. Polosukhin, “Attention is all you need,” in Advances in Neural Information Processing Systems , vol. 30, 2017. [32] T. He, Y. Zhang, K. Ren, M. Liu, C. Wang, W. Zhang, Y. Yang, and D. Li, “Reinforcement learning with automated auxiliary loss search,” Advances in neural information processing systems , vol. 35, pp. 1820–1834, 2022. [33] I. Loshchilov and F. Hutter, “Decoupled weight decay regularization,” arXiv preprint arXiv:1711.05101 , 2017. [34] H. Albaqami, G. M. Hassan, and A. Datta, “Wavelet-based multi-class seizure type classification system,” Applied Sciences , vol. 12, no. 11, p. 5702, 2022. [35] W. Zhao, W.-F. Wang, L. M. Patnaik, B.-C. Zhang, S.-J. Weng, S.-X. Xiao, D.-Z. Wei, and H.-F. Zhou, “Residual and bidirectional lstm for epileptic seizure detection,” Frontiers in Computational Neuroscience , vol. 18, 2024. [36] H. Huang, P. Chen, J. Wen, X. Lu, and N. Zhang, “Multiband seizure type classification based on 3d convolution with attention mechanisms,” Computers in Biology and Medicine , vol. 166, p. 107517, 2023. [37] U. Asif, S. Roy, J. Tang, and S. Harrer, “Seizurenet: Multi-spectral deep feature learning for seizure type classification,” in Machine Learning in Clinical Neuroimaging and Radiogenomics in Neuro-Oncology , 2020, pp. 77–87. [38] G. Jia, H. K. Lam, and K. Althoefer, “Variable weight algorithm for convolutional neural networks and its applications to classification of seizure phases and types,” Pattern Recognition , vol. 121, p. 108226, 2022. [39] Y. Li, Y. Liu, W.-G. Cui, Y.-Z. Guo, H. Huang, and Z.-Y. Hu, “Epileptic seizure detection in eeg signals using a unified temporal-spectral squeeze-and-excitation network,” IEEE Transactions on Neural Systems and Rehabilitation Engineering , vol. 28, no. 4, pp. 782–794, 2020. [40] S. Zhang, G. Liu, R. Xiao, W. Cui, J. Cai, and X. Hu, “A combination of statistical parameters for epileptic seizure detection and classification using vmd and nltwsvm,” 
+
+Biocybernetics and Biomedical Engineering , vol. 42, no. 1, pp. 258–272, 2022. [41] S. Roy, U. Asif, J. Tang, and S. Harrer, “Seizure type classification using eeg signals and machine learning: Setting a benchmark,” in Proceedings of the IEEE Signal Processing in Medicine and Biology Symposium , 2020, pp. 1–6. 
+
+> Preprint — 16
+
+[42] R. Peng, Z. Du, W. Liu, D. Wu, C. Zhao, J. Luo, and X. Chen, “Multi-branch mutual-distillation transformer for eeg-based seizure subtype classification,” IEEE Transactions on Neural Systems and Rehabilitation Engineering , 2024. [43] X. Zhang, L. Yao, M. Dong, Z. Liu, Y. Zhang, and Y. Li, “Adversarial representation learning for robust patient-independent epileptic seizure detection,” IEEE Journal of Biomedical and Health Informatics , vol. 24, no. 10, pp. 2852–2859, 2020. [44] K. Saab, J. Dunnmon, D. Rubin, and C. Lee-Messer, “Weak supervision of deep learning models for seizure onset detection,” npj Digital Medicine , 2020. 
+
+> Preprint — 17
+
+Time Embedding (512-d) 
+
+Time MLP SiLU + Linear γ, β 
+
+Input h
+
+InstanceNorm1d 
+
+SiLU 
+
+Conv1d (3 ×3) 
+
+FiLM Layer 
+
+h · (1 + γ) + β
+
+InstanceNorm1d 
+
+SiLU 
+
+Dropout (0.1) 
+
+Conv1d (3 ×3) 
+
+Multi-Head Attn* (8 heads) 
+
+Add 
+
+Residual Conv (1 ×1) 
+
+Add 
+
+Output hout 
+
+Skip Connection 
+
+Legend: 
+
+> [Norm] InstanceNorm1d
+> [SiLU] Activation Function
+> [Conv1d] Kernel 3 ×3
+> [FiLM] Linear Modulation
+
+Figure 2. Detailed structure of the residual block featuring Feature-wise Linear Modulation (FiLM) for timestep-based conditioning. 
+
+Preprint — 18 F1 F2 F3 F4 F5 
+
+## Iter 1 
+
+## Iter 2 
+
+## Iter 3 
+
+## Iter 4 
+
+## Iter 5 
+
+## Val 56 
+
+## Train 56 
+
+## Train 56 
+
+## Train 56 
+
+## Train 55 
+
+## Train 56 
+
+## Val 56 
+
+## Train 56 
+
+## Train 56 
+
+## Train 55 
+
+## Train 56 
+
+## Train 56 
+
+## Val 56 
+
+## Train 56 
+
+## Train 55 
+
+## Train 56 
+
+## Train 56 
+
+## Train 56 
+
+## Val 56 
+
+## Train 55 
+
+## Train 56 
+
+## Train 56 
+
+## Train 56 
+
+## Train 56 
+
+## Val 55 
+
+## 279 Patients Total 
+
+## Training (80%) Validation (20%) 
+
+## ✓No Patient Overlap (Train vs. Val) 
+
+## Training (4 folds) Validation (1 fold)   
+
+> Figure 3. Patient-wise 5-fold cross-validation for seizure subtype classification.
+> Figure 4. Few-Shot Seizure 5-Subtypes Classification Performance (Frozen vs. Unfrozen Backbone Strategies), 80/20 stratified split, segment-wise.
+
+Preprint — 19
