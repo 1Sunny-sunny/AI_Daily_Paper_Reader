@@ -1,0 +1,843 @@
+Title: Leveraging unlabelled data for generalizable neural population decoding
+
+URL Source: https://arxiv.org/pdf/2607.14086v1
+
+Published Time: Thu, 16 Jul 2026 01:32:57 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# Leveraging unlabelled data for generalizable neural population decoding 
+
+Ximeng Mao ∗,1,2,B Nanda H Krishna ∗,1,2,B
+
+Avery Hee-Woon Ryoo 1,2 Matthew G Perich †,1,2 Guillaume Lajoie †,1,2,3,B
+
+> 1
+
+Mila – Quebec AI Institute 2Université de Montréal 3Canada CIFAR AI Chair 
+
+> ∗
+
+Co-first authors †Co-senior authors 
+
+> B
+
+ximengmao@gmail.com ,{nanda.harishankar-krishna ,guillaume.lajoie}@mila.quebec 
+
+## Abstract 
+
+Robust and accurate neural decoders are integral to neurotechnologies such as brain-computer interfaces and closed-loop experiments. Recent work has shown that tokenizing neural data at the spike level facilitates multi-session pretraining and delivers state-of-the-art decoding performance. However, current spike-based models are restricted to supervised learning (SL), limiting training to datasets with paired behavioural labels. To address this limitation, we introduce MOJO (Masked aut Oencoder-based JO int training), a training framework for spike-tokenizing mod-els that jointly leverages self-supervised learning (SSL) via masked autoencoding and SL objectives. We evaluate MOJO on three spiking datasets spanning monkey motor cortex during reaching tasks and multi-regional mouse recordings during vision and decision making tasks, demonstrating superior performance over purely SL-trained models. This improvement is especially pronounced when training with limited labelled data, particularly in few-shot finetuning, where only a small amount of labelled data from a new session is available. Incorporating SSL also yields more interpretable neuronal representations, improving performance on brain region classification and spike-statistics prediction without explicit optimization for these tasks. We further show that MOJO generalizes beyond spiking data to hu-man electrocorticography during speech, where it continues to outperform purely SL-trained models and achieves performance comparable to neuro-foundation models (NFMs) designed specifically for continuous signals. Overall, augmenting spike-tokenizing models with SSL improves performance in label-impoverished settings and enables the use of unlabelled data across various tasks and species, while generalizing to other neural modalities. These results suggest a path towards more flexible and scalable data usage when training NFMs. 
+
+## 1 Introduction 
+
+Brain computer interfaces (BCIs) and other neurotechnologies are powered by neural decoders: models that map neural activity to some behavioural variable. Artificial neural networks (ANNs) are well-established in the literature as an effective candidate to learn these mappings, with earlier work achieving reasonable success using multilayer perceptrons (MLPs) [1] and recurrent networks (RNNs) [2–4]. However, Transformers [5] and State-Space Models (SSMs) [6, 7] have recently emerged as particularly adept architectures, primarily due to their scalability as well as their strong decoding performance across a diverse set of modalities and tasks [8–10]. These architectures are now widely applied to varied neural data modalities [11–13], notably on invasive neural spiking data where different ways to process and tokenize input signals are under rapid development. 
+
+> Preprint. arXiv:2607.14086v1 [cs.LG] 15 Jul 2026
+
+a bfcd e g  
+
+> units tsess. s 1units tsess. s 2TCTokenization Cross-Attention
+> mask learnable queries
+> I
+> Cross-Attention Cross-Attention
+> UnitEmb SessEmb QK,V K,V Q
+> o o o o oBackbone
+> spike counts behaviour Q
+> Random target (RT) Controller: Touchscreen Maze centre-out reach Controller: Touchscreen Centre-out reach (CO) Controller: Manipulandum Random target (RT) Controller: Manipulandum
+> Speech decoding Visual & decision tasks
+
+Figure 1: Model and task schematics. (a) Schematic showing a POYO -style model augmented with MOJO . Latent representations extracted from tokenized neural data are simultaneously used for supervised learning (SL) and self-supervised learning (SSL). The former is carried out by minimizing error in predicted behaviour while the latter is carried out by reconstructing spike counts from masked latents. (b-e) Schematics describing the monkey reaching tasks that MOJO is evaluated on. (f) Schematic of the mouse visual and decision tasks. (g) Schematic of the human speech decoding task. Among these approaches, the POYO model family [13, 14] – characterized by a tokenization scheme that operates at single-spike resolution – is particularly notable. This contrasts with the commonly-adopted approach that bins spike counts [15, 16], which imposes a rigid input formulation and requires additional stitching layers when training across different recording sessions. The flexibility of POYO -style spike tokens facilitates large-scale pretraining across multiple datasets, enabling efficient finetuning and high decoding accuracy across tasks. Despite several landmark results on spike datasets, the potential of these POYO models is still limited by a major inflexibility: their exclusive reliance on supervised learning (SL) [17]. This limits their pretraining to neural datasets with paired behavioural labels (e.g., common applications include motor tasks in monkeys with neuronal spikes mapped to 2D arm velocities). This approach remains starkly in contrast to the development of foundation models such as GPT [18] and BERT [19] in the language domain, which leverage vast amounts of unlabelled text data to learn rich representations via self-supervised learning (SSL) [20, 21]. There exists a plethora of diverse and unannotated neural data collected from multiple neuroscience laboratories, highlighting a promising avenue for 
+
+significantly expanding the size and diversity of pretraining data for models like POYO . Exploiting this requires a pretraining scheme that can (1) extract meaningful information about the inherent structure of this neural data and (2) accommodate heterogeneous data formats within a unified pipeline. Although recent works have explored forecasting or input-masking-based SSL objectives for POYO -based models, those methods are designed for continuous calcium traces [22, 23], and it remains unclear how to design an effective scheme for sequences of spike tokens. With these goals in mind, we introduce MOJO (Masked Aut Oencoder-based JO int Pretraining), a joint pretraining framework in which SSL and SL objectives are optimized simultaneously. MOJO 
+
+addresses the challenges of applying SSL on spike tokens by leveraging a masked autoencoder [24] on the encoded latents. Given the sparse and irregular nature of neural spikes, this avoids the need to distinguish between non-existent and masked spike tokens at the input level, and enables seamless integration with existing supervised POYO family backbones. A key feature of MOJO is its joint optimization of SSL and SL objectives, which encourages synergy between the representations learned from neural and behavioural data (yielding, for instance, task-informed neuron representations). We evaluated MOJO on both backbones (Transformers and SSMs) used in the POYO family and three intracortical spike datasets involving monkey reaching, mouse vision and decision tasks. MOJO 
+
+was further applied to a human electrocorticography (ECoG) dataset on speech articulation, to test its generalizability beyond spikes. In all these settings, MOJO consistently outperforms purely supervised methods. Incorporating SSL further enables more efficient learning in label-impoverished 2regimes and yields more interpretable neuronal representations. Moreover, we demonstrate MOJO ’s scaling behaviour with respect to heterogeneous data sources, showcasing positive transfer from joint cross-species training on both decoding and analysis tasks. Our contributions are as follows: • We propose MOJO , a joint SSL-SL framework that can leverage unlabelled data in spike-tokenizing models via masked autoencoding. • We evaluate MOJO on neural datasets with varying species, modalities, tasks, and brain regions, and achieve efficient finetuning and improved decoding performance over purely SL-trained models with significant improvements even if up to 90% of the data is unlabelled. • Our learned unit embeddings exhibit high discriminability to meta-features of neural units (e.g., source brain area and firing rate distributions), despite not being explicitly optimized for these tasks or having explicit access to such information during training. • MOJO scales across heterogeneous data sources and demonstrates cross-species transfer of learned representations, through a model pretrained on monkey reaching and subsequently trained on both monkey reaching and mouse vision datasets. 
+
+## 2 Methods 
+
+As shown in Figure 1, MOJO maintains different pathways for SSL and SL objectives. In this section, we describe the key components of MOJO along with its SSL and SL pathways. For brevity, we describe only the model components essential to MOJO and leave detailed descriptions to Appendix B. 
+
+2.1 Spike Tokenization and Input Cross-Attention 
+
+The spike tokenization scheme [13] assigns each individual spike a token, represented as a tuple consisting of two components: the neural unit it came from and the exact time it occurred. Note that no further meta-information regarding the neural unit is encoded beyond an arbitrary integer ID. 
+
+MOJO employs a POSSM -style encoder [14], where the cross-attention is computed separately on each contiguous time chunk in the data sample. Considering an input sequence Xt of all spike tokens from time chunk t and a latent query c(t) 
+
+> i
+
+from learnable vector i, the encoder output is calculated via scaled dot-product attention [5] to produce a latent token z(t) 
+
+> i
+
+.It is important to note that the POSSM -style encoder is different from that of POYO , where the input cross-attention is performed on the entire sequence (i.e., X rather than Xt). In principle, MOJO could simultaneously maintain both encoders to support separate pathways. However, this formulation may introduce unnecessary redundancy and is therefore not enabled by default throughout the paper. Please see Appendix D.3.1 for experiments comparing the two formulations. 
+
+2.2 Backbones 
+
+MOJO requires a sequence model to serve as its backbone. We consider the two main architectures from existing spike-tokenizing models: attention-based [13] and recurrence-based [14]. 
+
+Attention-based. The attention backbone is composed of stacked self-attention blocks operating over the entire latent sequence, where hidden state h(t) 
+
+> l,i
+
+, from latent query i at time t from layer l, is calculated as h(t) 
+
+> l,i
+
+= softmax( q(t) 
+
+> l
+
+K⊤/√D)V, where q(t) 
+
+> l
+
+is projected from h(t) 
+
+> l−1,i
+
+and h(t)0,i = z(t) 
+
+> i
+
+,
+
+Recurrence-based. The recurrent backbone is a stack of SSM blocks where the hidden state is updated following the transition function h(t) 
+
+> l
+
+= fSSM (h(t)
+
+> l−1
+
+, h(t−1)  
+
+> l
+
+), where h(t)0 is the concatenation of Nc latent tokens in the same time chunk, that is h(t)0 = [ z(t)1 , ..., z(t) 
+
+> Nc
+
+].
+
+2.3 Masked Autoencoder 
+
+In the SSL pathway, temporal masking is applied onto the latent outputs from the input cross-attention, inspired by the masking strategy in [25]. This is implemented using a mask indicator mt which is a 3Bernoulli variable with p = 0 .5, with which all the latents at t are transformed via: 
+
+z(t) 
+
+> i
+
+= (1 − mt)z(t) 
+
+> i
+
++ mtemask , ∀i ∈ [1 , ..., N c],
+
+where emask is a learnable mask token. The combination of temporal masking and local cross-attention within each time chunk ensures that all spiking information from the masked intervals is effectively removed from the SSL pathway. 
+
+2.4 Output Cross-Attention 
+
+For the SL pathway, we adopt the multi-task setting [26], where output queries for different tasks cross-attend to the same latent sequence. The outputs are then projected via separate linear readouts for each of the tasks. The SSL pathway predicts spike rates with a unit query u, similar to the input spike token. Note that the format of unit query is conceptually similar to that in Duan et al. [22] but for spikes. The unit query is then decoded via the same cross-attention operations as the SL pathway, but with the constraint that u can only attend to the latent tokens situated within the same time chunk. 
+
+2.5 Training Objectives 
+
+The MOJO training objective, LMOJO = αSSL LSSL + αSL LSL , is a weighted sum of the losses from the two pathways, with αSSL and αSL as coefficients. LSSL is the Poisson negative log-likelihood of the predicted spike-rates, and LSL is a weighted sum over individual supervised tasks in the multi-task setting. Empirically, we found that setting both pathway coefficients to 1 yields strong performance across all experiments, even if labelled and unlabelled training set sizes differ significantly. This joint objective encourages the model to learn the underlying neural population dynamics (SSL pathway), while simultaneously ensuring that the learned representations remain task-relevant (SL pathway), all achieved jointly through gradient-based learning. 
+
+2.6 Pathway Integration 
+
+While the SL and SSL pathways have unique advantages, maintaining completely separate sets of parameters is costly. We therefore integrate the two pathways by 1) sharing the output of the input cross-attention and 2) sharing the backbone parameters. This introduces only a modest increase in parameters for the SSL pathway, due to one additional output cross-attention module which accounts for approximately 10% and 2% of the total parameters, when using POSSM and POYO backbones, respectively. Overall, this pathway integration enables a parameter-efficient training process. 
+
+## 3 Experiments 
+
+3.1 Monkey Reaching Tasks 
+
+The first set of experiments focuses on reaching tasks performed by non-human primates, using a collection of five public monkey datasets from various labs. These datasets encompass center-out (CO), random target (RT), and maze navigation tasks. We decode two-dimensional hand velocities from neural spiking activity recorded by electrode arrays implanted in primary motor, dorsal premotor, and primary somatosensory cortices. Following this, we evaluate MOJO using the same pipeline and dataset splits described in Ryoo et al. [14]. We focused on MOJO with three backbones: POGRU (POSSM with GRU [2]), POMAMBA (POSSM with Mamba [6]) and POYO . We used 20 ms time bins for all SL pathways, consistent with SSL and a sequence length of 1 s for each training sample. Additionally, we adopted the causal evaluation strategy presented in Ryoo et al. [14], to emphasize the capability of real-time decoding. We employed the two finetuning strategies from Azabou et al. [13] when adapting the pretrained model to previously unseen data sessions: unit identification (UI) and full finetuning (FT), where UI updates only the unit and session embeddings (see Appendix B.6 for more details). 
+
+Results. In Table 1, we show the generalization performance of pretrained MOJO for decoding when transferred to new recording sessions and previously unseen animals. As baselines, we compare against purely supervised methods based on spike tokenization ( POGRU , POMAMBA and POYO ), as well as 4Table 1: Behavioural decoding results on monkey reaching tasks. Values are mean R2 ± SD over sessions. Best models are in boldface (1st) and underlined (2nd). *: p < 0.05 on a paired t-test over sessions vs. the best non-MOJO baseline. †Results reproduced from Ryoo et al. [14].                                                                                                                                                                          
+
+> Same animal, other days New animal
+> Method C – CO 2010 (5) T – CO (6) T – RT (6) MLP †0.5842 ±0.2052 0.7940 ±0.0341 0.6082 ±0.3014 GRU †0.7742 ±0.0964 0.8389 ±0.0248 0.7414 ±0.0426
+> POYO (UI) 0.7759 ±0.1003 0.8123 ±0.0419 0.7011 ±0.0975
+> POMAMBA (UI) 0.7283 ±0.1138 0.8574 ±0.0225 0.7283 ±0.0846
+> POGRU (UI) 0.7632 ±0.1013 0.8587 ±0.0216 0.7331 ±0.0775
+> MOJO -POYO (UI) 0.7846 ±0.0897 0.8387 ±0.0251 0.7470 ±0.0617
+> MOJO -POMAMBA (UI) 0.7937 ±0.0735* 0.8753 ±0.0160* 0.7591 ±0.0588*
+> MOJO -POGRU (UI) 0.7949 ±0.0892* 0.8772 ±0.0189* 0.7570 ±0.0693* NDT-2 †0.7846 ±0.1167 0.7173 ±0.0443 0.6323 ±0.1339 NDT-3 0.7524 ±0.1322 0.8576 ±0.0313 0.7066 ±0.0980 NEDS 0.5968 ±0.0760 0.7635 ±0.0758 0.6121 ±0.0918
+> POYO (FT) 0.8244 ±0.0753 0.8817 ±0.0352 0.7624 ±0.0815
+> POMAMBA (FT) 0.8142 ±0.0763 0.8949 ±0.0152 0.7580 ±0.0745
+> POGRU (FT) 0.8126 ±0.0892 0.8936 ±0.0212 0.7575 ±0.0875
+> MOJO -POYO (FT) 0.8438 ±0.0888* 0.9131 ±0.0177* 0.7964 ±0.0663*
+> MOJO -POMAMBA (FT) 0.8153 ±0.0925 0.9043 ±0.0182* 0.7675 ±0.0806
+> MOJO -POGRU (FT) 0.8222 ±0.0950 0.9103 ±0.0168* 0.7776 ±0.0710*
+
+other SSL-based decoders that use binning (NDT-2 [27], NDT-3 [28], and NEDS [16]). We find that 
+
+MOJO outperforms these state-of-the-art methods on all datasets considered. All models trained with 
+
+MOJO achieved improved decoding performance when finetuned on each held-out session, relative to their purely supervised counterparts under the same finetuning strategy (FT or UI). Notably, results from the more challenging sessions (unseen monkey T-RT) showed that performing UI alone with 
+
+MOJO -POSSM (< 18 K trainable parameters) was on par with fully finetuned (FT) supervised POSSM 
+
+(> 7.6M trainable parameters). Complete results on monkey reaching tasks are shown in Appendix Table 11 including other POSSM backbone variants and single-session results. 2 4 8 16 32 # sample trials 0.2 0.4 0.6 Validation  R 2   
+
+> POGRU (SL)
+> MOJO -POGRU MOJO -POGRU
+> + unlabelled
+> Monkey T RT (2013/08/20) Pretraining with fewer labels
+
+a b    
+
+> 10 20 30 40 50 % labelled data 0.75 0.80 0.85 0.90 Pretraining  R2
+> MOJO -POYO MOJO -POYO
+> + unlabelled
+
+Figure 2: Leveraging unlabelled data for fine-tuning and pretraining. (a) MOJO improves few-shot finetuning performance over standard SL and leverages additional unlabelled data to improve per-formance further. (b) MOJO can improve decoding performance by exploiting all available unlabelled data even when little labelled data is available. 
+
+Few-shot Finetuning. MOJO also enables ro-bust and efficient few-shot adaptation. Figure 2a shows decoding performance for MOJO -POGRU 
+
+and POGRU when finetuned on only a few trials of labelled data, including new sessions from an un-seen animal. MOJO consistently outperforms the supervised baseline in the low-data regime, with the largest gains observed when labelled data is scarce. Further, we show that MOJO can lever-age additional unlabelled data during finetuning: In the monkey T-RT session shown, incorporat-ing up to 32 trials of unlabelled data allows the model to achieve over 60% and 75% of the fully supervised performance using only two and four labelled calibration trials, respectively. 
+
+Finetuning with Random Behaviours. MOJO 
+
+was further evaluated on a more challenging finetuning setting in which all spiking data are retained, but behavioural labels are restricted to a sparse sub-phase ( RANDOM ) that lies outside the cued reaching periods in each CO session. Any movements in this period are self-initiated and likely akin to fidgeting. MOJO achieved an average R2 of 0.5237 when finetuned on new sessions of a seen animal, and exceeds 0.1598 R2 in 3 out of the 6 new sessions from an unseen animal. These results reveal that a pretrained MOJO can infer behaviours in structured tasks by extrapolating from the same 5behavioural variables observed during other time periods. Please see Appendix D.5 for detailed descriptions of the phases in CO sessions, and more results on transferring across phases. 
+
+Unlabelled Data During Pretraining. In addition to finetuning, MOJO can effectively leverage unlabelled data during pretraining. We conducted a series of experiments on the Perich et al. dataset when varying the percentage of labelled data available during pretraining from 10% to 50% (Figure 2b). In the limited label regime, MOJO ’s ability to exploit the full set of unlabelled data enables superior pretraining performance, while preserving discriminable unit embeddings. Please see Appendix D.6 for results on brain region classification with the pretrained embeddings and comparison when finetuning using these models. Table 2: Visual stimuli classification results on mouse vision tasks. Values are mean ac-curacy ± SD over sessions. Best performing models are in boldface (1st) and underlined (2nd).                                                                                                 
+
+> Stimulus Set 1
+> Method NS (4) Acc. (%) DG (4) Acc. (%) MLP 83.17 ±4.92 90.18 ±2.03
+> POGRU (UI) 88.87 ±2.55 99.17 ±0.76
+> POYO (UI) 88.17 ±3.17 93.54 ±2.06
+> MOJO -POGRU (UI) 92.54 ±3.41 99.53 ±0.20
+> MOJO -POYO (UI) 91.53 ±1.99 99.74 ±0.31
+> MOJO -POYO (J) (UI) 93.15 ±2.39 99.43 ±1.15
+> MOJO -POYO -L(J) (UI) 94.18 ±2.00 99.84 ±0.20 NEDS 93.96 ±2.38 99.20 ±0.57
+> POGRU (FT) 91.09 ±5.64 99.48 ±0.62
+> POYO (FT) 91.03 ±4.07 93.39 ±4.50
+> MOJO -POGRU (FT) 94.47 ±2.83 99.22 ±0.91
+> MOJO -POYO (FT) 94.12 ±2.79 100.00 ±0.00
+> MOJO -POYO (J) (FT) 94.62 ±2.74 99.69 ±0.64
+> MOJO -POYO -L(J) (FT) 95.48 ±2.05 99.74 ±0.52
+
+Unit Embedding Analyses. We analyzed the unit embeddings learned during pretraining using a lin-ear probe on their associated metadata (brain re-gions and subject ID) via logistic regression. The probing was conducted at both the single-dataset (using units from the same dataset) and multi-dataset (using units pooled across all datasets) level. As shown in Appendix Table 12, MOJO yields inter-pretable neuronal embeddings with high discrim-inability using only a linear classifier, despite hav-ing no access to electrode, region, or subject meta-data during pretraining. 
+
+3.2 Mouse Vision Tasks 
+
+In the second set of experiments, we evaluate the performance of MOJO on decoding visual stimuli from multi-region mouse recordings. We used the Allen visual coding dataset [29, 30], where mouse spiking activity was recorded by Neuropixels probes from a wide range of brain regions, including mul-tiple areas of the visual cortex, thalamus, and hip-pocampus. There are 58 data sessions in total, span-ning the four transgenic lines of the recorded animals and two stimulus sets. We held out eight sessions for evaluation (one per transgenic line and per stimulus set) and used the remaining 50 for pretraining. For this experiment, we focused on three visual decoding tasks spanning natural and artificial stimuli: natural scene (NS) classification, drifting grating (DG) orientations, and drifting grating temporal frequency (TF) classification. In this experiment, we considered MOJO -POYO and MOJO -POGRU . All models were allowed to look at the entire trial before making a prediction. For POSSM , we placed the behaviour timestamps at the end of each trial. As with the monkey experiment, we used 1 s sequence lengths and 20 ms time chunks. 
+
+Results. Decoding performance of MOJO and baseline methods are summarized in Table 2, including NS and DG accuracies from evaluation sessions in stimulus set 1. MOJO demonstrates improved accu-racies on both DG and NS over pretrained supervised counterparts, with nearly perfect performance on DG in both UI and FT. Complete results on the mouse vision tasks are shown in Appendix Table 21 including all the tasks as well as single-session results. 
+
+Joint Monkey-Mouse Pretraining. Next, we explore joint pretraining on both the monkey reaching and mouse vision datasets with MOJO , through a curriculum learning strategy in which MOJO is first pretrained on the aforementioned monkey datasets then jointly on both datasets. For the jointly trained model ( MOJO -POYO (J)), we were able to observe a positive transfer via faster convergence on the mouse NS tasks (see Appendix Table 23) while maintaining consistent performance on the monkey reaching. In addition, MOJO -POYO (J) was also found to produce more intepretable unit embeddings and achieve improved finetuning performance on NS (note that other tasks are already near perfect). Moreover, we note that the performance of joint pretraining can be further improved with a larger model ( MOJO -POYO -L(J)). Appendix E.4 includes more results on joint pretraining. 6a b cDG CA1 LP LGd VISp VISal VISam Predicted DG CA1 LP LGd VISp VISal VISam True 0.71 0.19 0.03 0.03 0.01 0.02 0.01 0.23 0.64 0.08 0.03 0.00 0.02 0.00 0.04 0.13 0.50 0.18 0.02 0.05 0.08 0.01 0.05 0.22 0.63 0.02 0.06 0.01 0.00 0.01 0.02 0.06 0.62 0.13 0.15 0.01 0.01 0.04 0.05 0.22 0.38 0.28 0.01 0.04 0.07 0.02 0.15 0.27 0.44                
+
+> 0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 Proportion
+> Hipp. Thal. Vis. Predicted Hipp. Thal. Vis. True 0.86 0.11 0.03 0.10 0.76 0.14 0.03 0.11 0.87
+> 0.0 0.2 0.4 0.6 0.8 Proportion Chance ICA+SVC EEGNet POYO SL MOJO POYO Du-IN
+> 0
+> 20
+> 40
+> 60
+> 80 Accuracy (%)  *** ** *** syllable ⋅consonant ⋅vowel
+
+Figure 3: Mouse brain region classification and human speech decoding results. (a-b) Confusion matrices for (a) 3-class and (b) 7-class brain region classification of neurons in mice from the Allen visual coding dataset. (c) Classification accuracy of syllables, consonants, and vowels for speech decoding from human electrocorticography. For (a-c), we report the mean accuracy over sessions averaged across 5 seeds. (**,***): p < 0.01 , 0.001 resp. for a paired t-test across all sessions. MOJO 
+
+vs. Du-IN is n.s. for the t-test. 
+
+Unit Embedding Analyses. Trained unit embeddings from all 50 pretraining sessions were used to linearly probe their associated brain regions. When training the linear classifier, we did not differentiate between brain regions from different animals; thus, the learned decision boundaries reflect population-level structure rather than subject-specific effects. We included 7 brain regions in the analyses: cornu ammonis 1 (CA1), dentate gyrus (DG), lateral posterior nucleus (LP), lateral geniculate nucleus (LGd), primary visual cortex (VISp), anterolateral visual area (VISal) and an-teromedial visual area (VISam). These regions were well represented among the spike-sorted units and overall covered the main brain areas included in the data set. Figure 3a-b shows the confusion matrices of the learned linear classifiers from MOJO -POYO -L(J) on the 3 broader brain areas – visual, hippocampus and thalamus – and the complete 7 brain regions. Despite inter-subject variability, the probability mass is primarily concentrated along the diagonal, and analysis of the errors suggested similarities among specific regions based on their location and function. Beyond categorical region identity, we further asked whether unit embeddings encode fine-grained single-neuron properties (Figure 6, Appendix E.3). On the same 50 pretraining sessions, we linearly regressed 18 spike-statistic features per neuron [31] – including moments of the inter-spike interval (ISI) distribution, firing rate, local-variability indices (CV, LV), gamma-distribution fits, and band-limited spike-train PSDs – from the unit embeddings of our models. MOJO unit embeddings predict every target substantially better than pure-SL POYO (e.g., R2 = 0 .61 vs. 0.33 for log median ISI, 0.88 
+
+vs. 0.54 for log mean firing rate, and 0.18 vs. 0.00 for CV). The embedding geometry also reflects probe topology: across 1.23M pairs of units recorded on the same Neuropixels shank, the cosine similarity of MOJO embeddings is more strongly anti-correlated with electrode distance than POYO 
+
+(Spearman r between −0.25 and −0.29 for MOJO variants vs. −0.12 for POYO , all pairwise differences highly significant via paired bootstrap, p < 10 −300 ). Notably, when restricted to cross-area pairs this relation is non-monotonic for MOJO – with a pronounced bump at ∼4 mm probe distance dominated by visual-cortex ↔ visual thalamic (LGd, LP) and midbrain (APN) pairs – indicating that MOJO brings functionally related but anatomically distant units close together in embedding space, a structure largely absent in pure-SL POYO .These analyses verify that MOJO can learn interpretable unit embeddings across multiple brain regions, and also verify that SSL allows unit embeddings to better encode neuronal firing properties, purely through end-to-end training. Note that this analysis is different from that of previous work [26], where such classification was done on session-averaged latent outputs of the input cross-attention. We found that this capability scales directly with the amount of neural data, with classification accuracy improving monotonically as more unlabelled data is added to the training pipeline of MOJO -POYO .Adding unlabelled data from the same visual coding dataset resulted in a 5.5% improvement on 7 region classification, and incorporating additional monkey data resulted in further improvements of 
+
+2.5% . Lastly, as with decoding performance, a larger joint model can further improve the accuracy by 3.5% . Please see Appendix E.2 and Table 22 for more details and baseline comparisons. 73.3 Mouse Decision Tasks 
+
+We conducted a third set of experiments on IBL Reproducible Electrophysiology datasets [32], where mouse multi-region Neuropixel recordings were collected in multiple labs from one repeated site, during visually-driven decision-making tasks. From a total of 84 sessions, we followed prior work [16] and performed four behavioural decoding tasks. We trained on 74 sessions and held-out 10 pre-determined sessions for finetuning. This dataset was previously evaluated in a non-causal fashion [16]; accordingly, we used the POYO backbone for MOJO . In contrast to Zhang et al. [16], for MOJO 
+
+and POYO we removed both the trial-alignment constraints and the neuron-exclusion steps based on firing rate from the training data, while ensuring that the labelled behaviour data were only from the pre-determined intervals. Each pre-determined interval was 2 s long, and MOJO was trained with a sequence length of 1.6 s and time chunk length of 20 ms. Table 3: Mouse decision tasks results. Val-ues for choice and block are mean balanced accuracy and for wheel and whisker R2, all with ± SD over sessions. *: p < 0.05 on a paired t-test over sessions vs POYO. Task NEDS POYO MOJO -POYO                                              
+
+> Choice 0.820 ±0.10 0.882 ±0.09 0.913 ±0.07* Block 0.779 ±0.10 0.848 ±0.05 0.864 ±0.04 Wheel 0.515 ±0.09 0.630 ±0.10 0.665 ±0.09* Whisker 0.475 ±0.11 0.550 ±0.11 0.581 ±0.09* Avg. 0.647 ±0.09 0.727 ±0.07 0.756 ±0.05*
+
+Results. As shown in Table 3, MOJO demonstrates ad-vantages over pure SL models in this task, showcasing the importance of joint SSL-SL training. Due to known split changes and re-sorting of the spiking data, the decoding results are not directly comparable with those reported in Zhang et al. [16]. Thus, we reran NEDS using the original implementation on the new sessions to report its results (see Appendix F). 
+
+3.4 Human Speech Tasks 
+
+Finally, we tested the viability of MOJO beyond spiking data using a human ECoG speech articulation dataset [33, 34] recorded from four participants (with 30 total sessions) speaking consonant-vowel syllables. ECoG signals were collected with a high-density 256-channel array implanted in ventral sensorimotor cortex during epilepsy treatment while participants read commonly-used syllables in American English. We extracted the high-gamma band and downsampled to 200 Hz following the original study. This dataset presents a multi-task classification problem, where neural decoders were trained to predict the corresponding vowel, consonant, and full syllable pairs from ECoG activity. For each syllable trial, we used a 1.2 s time window centered on the consonant-vowel transition time provided in the dataset, from 550 ms before to 650 ms after. Each training sample is a 1 s interval drawn from one trial, and we applied MOJO directly to each data sample by further dividing the interval into 20 ms patches, each with a patch size of 4. For these experiments, we used POYO backbone with value embeddings [26] to be compatible with the continuous signal format. 
+
+Results. MOJO was trained on all sessions across every participant, with test accuracies shown in Figure 3c. Compared to purely SL trained POYO , MOJO shows consistent improvements across all tasks, especially on more challenging one ( 47% improvement for classifying syllables). MOJO ’s performance is also comparable to a recent EEG foundation model Du-IN [35], showing that MOJO 
+
+remains competitive on this dataset despite being designed for spike data. Overall, these results suggest that MOJO can generalize across neural modalities beyond spikes, highlighting its potential for future multi-modal training. 
+
+## 4 Related Works 
+
+Traditional Neural Decoders. Historically, neural decoding for continuous tasks such as cursor velocity decoding in BCIs was accomplished using simple statistical methods such as the Kalman filter [36–39]. Subsequent works also leveraged simple artificial neural network models such as MLPs [1] and RNNs [40] for continuous decoding tasks with great success in single-session settings. With the advent of more sophisticated deep learning methods such as the variational RNNs and sequential VAEs [41], LFADS [42] was proposed to extract temporally-varying latent variables from high-dimensional neural spiking data. Such models have also been used to perform neural decoding tasks in real-time, as shown in recent work [3]. A key drawback of such approaches, however, is their limited ability to scale to large-scale multi-session datasets of neural recordings, and the difficulty in adapting single-session models to new recording sessions or subjects [4]. 8Pretraining for Neural Decoding. With instrumental advances in large-scale deep learning models for sequential data [5, 7, 43] and the availability of large-scale public datasets of neural recordings, a slew of recent works have proposed neural decoding models that leverage Transformers or State-Space Models combined with large-scale pretraining to achieve state-of-the-art decoding performance and generalizability to new sessions, tasks, subjects, and even species. State-of-the-art pretraining-based decoders for neural spikes can be largely classified into two categories based on the way they ingest neural data. The first category, i.e., NDT-style models such as NDT-2 [27], NDT-MtM [44], NDT-3 [28], and NEDS [16], process binned or patched spike counts to decode behaviour. A key feature of all these models is the incorporation of self-supervised learning objectives – NDT-2 and NDT-MtM carry out self-supervised pretraining followed by downstream finetuning, NEDS is jointly trained on neural encoding and decoding with several masking schemes, and NDT-3 autoregressively predicts neural data and behaviour in a flat sequence. The second category, i.e., POYO -style models, process each neural spike as a separate token, allowing these models to rely on fine-grained temporal information for prediction and naturally facilitating large-scale pretraining and efficient finetuning [13, 14]. These spike-based models have achieved state-of-the-art performance on several neural decoding tasks and demonstrated successful transfer of decoders to new sessions, tasks, subjects, and even species [14]. However, they have thus far been trained only with supervised learning objectives and cannot leverage unlabelled data to improve their performance – a gap that this work aims to fill. Beyond spikes, POYO -style architectures have been successfully applied to calcium traces for decoding [26] and forecasting [22], considering fine-grained temporal patches as tokens. Most closely related to our work, Willeke et al. [23] proposed OmniMouse for calcium traces using a POYO -style architecture with both SSL and SL. However, it uses meta-data–integrated tokenization and 1D convolutions (unsuitable for spikes), and focuses on learning across multiple modalities (calcium, behaviour, video) with a NEDS-like architecture. 
+
+## 5 Discussion 
+
+Our results demonstrate that our joint SSL-SL training framework, MOJO , enables improved decoding performance, more efficient finetuning, and tractable neuronal analyses across diverse datasets, compared to purely supervised POYO -family models. These gains are achieved with minimal parameter overhead (e.g., on an additional 231 K parameters in a 9.88 M parameter model with POYO ) since most of the parameters are shared between the SSL and SL objectives via the proposed pathway integration strategy. We see significant downstream improvement even if up to 90% of the pretraining data is unlabelled. This places MOJO in a unique position to harness vast amounts of unlabelled spiking data while maintaining the scalability and flexibility of POYO -style tokenization. Finally, we demonstrate that MOJO can perform cross-species joint pretraining, with positive transfer from monkey reaching to mouse visual processing, and applicable beyond spiking data, paving the way for training unified and scalable neuro-foundation models. Being a joint SSL-SL model, empirically we find MOJO to be data-hungry, as it needs a sufficient amount of data to learn proper neural dynamics. Otherwise, a weakly-learned SSL objective could even be detrimental to the SL performance. The latent masking scheme of MOJO , despite offering flexibility when integrating with SL pathway, is limited to temporal masking, and an explicit objec-tive to infer spatially (unseen neurons or brain regions) could further boost the SSL performance. Moreover, as highly structured and interpretable as the learned unit embeddings during pretraining (as evidenced by accurate brain-region classification), when finetuning to a new session, the unit embeddings need to be re-learned from scratch. This is a limitation inherited from the POYO family of models but becomes especially wasteful with SSL. Lastly, while MOJO is easily adaptable to ECoG, it still requires additional linear layer for value embeddings during tokenization. This modality-specific design constrains the diversity of datasets that can be jointly incorporated during pretraining. To address these limitations, future work will explore joint multi-modal training [16, 23, 28]. As datasets from different modalities could represent diverse neural functions, this is an effective direction to enrich the pretraining data, and prediction across modalities can encourage more comprehensive understandings of the underling neural dynamics. Amortized methods [45] and discrete codes [9] are promising future directions for encouraging reuse of the learned model for new unit embeddings. 9References 
+
+[1] J. I. Glaser, A. S. Benjamin, R. H. Chowdhury, M. G. Perich, L. E. Miller, and K. P. Kording. “Machine Learning for Neural Decoding”. eNeuro 7.4 (2020). [2] K. Cho, B. van Merriënboer, C. Gulcehre, D. Bahdanau, F. Bougares, H. Schwenk, and Y. Bengio. “Learning Phrase Representations using RNN Encoder–Decoder for Statistical Machine Translation”. 
+
+Proceedings of the 2014 Conference on Empirical Methods in Natural Language Processing (EMNLP) .Doha, Qatar, 2014, pp. 1724–1734. [3] Y. H. Ali, K. Bodkin, M. Rigotti-Thompson, K. Patel, N. S. Card, B. Bhaduri, S. R. Nason-Tomaszewski, D. M. Mifsud, X. Hou, C. Nicolas, et al. “BRAND: a platform for closed-loop experiments with deep network models”. Journal of Neural Engineering 21.2 (2024), p. 026046. [4] D. Sussillo, S. D. Stavisky, J. C. Kao, S. I. Ryu, and K. V. Shenoy. “Making brain–machine interfaces robust to future neural variability”. Nature Communications 7.1 (2016). [5] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, Ł. Kaiser, and I. Polosukhin. “Attention is All you Need”. Advances in Neural Information Processing Systems . Vol. 30. 2017. [6] A. Gu and T. Dao. “Mamba: Linear-Time Sequence Modeling with Selective State Spaces”. 2024. arXiv: 
+
+2312.00752 .[7] T. Dao and A. Gu. “Transformers are SSMs: Generalized Models and Efficient Algorithms Through Structured State Space Duality”. Proceedings of the 41st International Conference on Machine Learning .Vol. 235. 2024, pp. 10041–10071. [8] A. Dosovitskiy, L. Beyer, A. Kolesnikov, D. Weissenborn, X. Zhai, T. Unterthiner, M. Dehghani, M. Minderer, G. Heigold, S. Gelly, et al. “An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale”. International Conference on Learning Representations . 2021. [9] W. Jiang, L. Zhao, and B. - l. Lu. “Large Brain Model for Learning Generic Representations with Tremen-dous EEG Data in BCI”. The Twelfth International Conference on Learning Representations . 2024. [10] B. Lenz, O. Lieber, A. Arazi, A. Bergman, A. Manevich, B. Peleg, B. Aviram, C. Almagor, C. Fridman, D. Padnos, et al. “Jamba: Hybrid Transformer-Mamba Language Models”. The Thirteenth International Conference on Learning Representations . 2025. [11] D. Zhang, Z. Yuan, Y. Yang, J. Chen, J. Wang, and Y. Li. “Brant: Foundation Model for Intracranial Neural Signal”. Advances in Neural Information Processing Systems . 2023. [12] C. Wang, V. Subramaniam, A. U. Yaari, G. Kreiman, B. Katz, I. Cases, and A. Barbu. “BrainBERT: Self-supervised representation learning for intracranial recordings”. The Eleventh International Conference on Learning Representations . 2023. [13] M. Azabou, V. Arora, V. Ganesh, X. Mao, S. Nachimuthu, M. Mendelson, B. Richards, M. Perich, G. Lajoie, and E. Dyer. “A Unified, Scalable Framework for Neural Population Decoding”. Advances in Neural Information Processing Systems . Vol. 36. 2023, pp. 44937–44956. [14] A. H. - W. Ryoo, N. H. Krishna, X. Mao, M. Azabou, E. L. Dyer, M. G. Perich, and G. Lajoie. “Gener-alizable, real-time neural decoding with hybrid state-space models”. Advances in Neural Information Processing Systems . 2025. [15] J. Ye and C. Pandarinath. “Representation learning for neural population activity with Neural Data Transformers”. Neurons, Behavior, Data analysis, and Theory 5.3 (2021), pp. 1–18. [16] Y. Zhang, Y. Wang, M. Azabou, A. Andre, Z. Wang, H. Lyu, I. B. Laboratory, E. L. Dyer, L. Paninski, and C. L. Hurwitz. “Neural Encoding and Decoding at Scale”. Proceedings of the 42nd International Conference on Machine Learning . Vol. 267. Proceedings of Machine Learning Research. 2025, pp. 76175– 76192. [17] I. Goodfellow, Y. Bengio, and A. Courville. “Deep Learning”. http://www.deeplearningbook.org .MIT Press, 2016. [18] T. Brown, B. Mann, N. Ryder, M. Subbiah, J. D. Kaplan, P. Dhariwal, A. Neelakantan, P. Shyam, G. Sastry, A. Askell, et al. “Language Models are Few-Shot Learners”. Advances in Neural Information Processing Systems . Vol. 33. 2020, pp. 1877–1901. [19] J. Devlin, M. - W. Chang, K. Lee, and K. Toutanova. “BERT: Pre-training of Deep Bidirectional Transform-ers for Language Understanding”. Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1 (Long and Short Papers) . Minneapolis, Minnesota, June 2019, pp. 4171–4186. 
+
+10 [20] T. Chen, S. Kornblith, M. Norouzi, and G. Hinton. “A simple framework for contrastive learning of visual representations”. Proceedings of the 37th International Conference on Machine Learning . 2020. [21] M. Assran, Q. Duval, I. Misra, P. Bojanowski, P. Vincent, M. G. Rabbat, Y. LeCun, and N. Ballas. “Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture”. 2023, pp. 15619– 15629. [22] Y. Duan, H. T. Chaudhry, M. B. Ahrens, C. D. Harvey, M. G. Perich, K. Deisseroth, and K. Rajan. “POCO: Scalable Neural Forecasting through Population Conditioning”. The Thirty-ninth Annual Conference on Neural Information Processing Systems . 2026. [23] K. F. Willeke, P. Turishcheva, A. Gilbert, G. Chakrabarty, H. A. Bedel, P. G. Fahey, Y. Qiu, M. A. Weis, M. Vystrˇ cilová, T. Muhammad, et al. “OmniMouse: Scaling properties of multi-modal, multi-task Brain Models on 150B Neural Tokens”. The Fourteenth International Conference on Learning Representations .2026. [24] K. He, X. Chen, S. Xie, Y. Li, P. Dollár, and R. Girshick. “Masked Autoencoders Are Scalable Vision Learners”. 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) . 2022, pp. 15979–15988. [25] A. Baevski, H. Zhou, A. Mohamed, and M. Auli. “wav2vec 2.0: a framework for self-supervised learning of speech representations”. Proceedings of the 34th International Conference on Neural Information Processing Systems . Vancouver, BC, Canada, 2020. [26] M. Azabou, K. X. Pan, V. Arora, I. J. Knight, E. L. Dyer, and B. A. Richards. “Multi-session, multi-task neural decoding from distinct cell-types and brain regions”. The Thirteenth International Conference on Learning Representations . 2025. [27] J. Ye, J. Collinger, L. Wehbe, and R. Gaunt. “Neural Data Transformer 2: Multi-context Pretraining for Neural Spiking Activity”. Advances in Neural Information Processing Systems . Vol. 36. 2023, pp. 80352– 80374. [28] J. Ye, F. Rizzoglio, X. Ma, A. Smoulder, H. Mao, G. H. Blumenthal, W. Hockeimer, N. G. Kunigk, D. D. Moore, P. J. Marino, et al. “A Generalist Intracortical Motor Decoder”. Advances in Neural Information Processing Systems . 2025. [29] S. E. de Vries, J. H. Siegle, and C. Koch. “Sharing neurophysiology data from the Allen Brain Observa-tory”. eLife 12 (July 2023). Ed. by M. Meister, J. I. Gold, M. Meister, and J. L. Chen, e85550. [30] J. H. Siegle, X. Jia, S. Durand, S. Gale, C. Bennett, N. Graddis, G. Heller, T. K. Ramirez, H. Choi, J. A. Luviano, et al. “Survey of spiking in the mouse visual system reveals functional hierarchy”. Nature 
+
+592 (2021), pp. 86–92. [31] A. Schneider, M. Azabou, L. McDougall-Vigier, D. F. Parks, S. Ensley, K. Bhaskaran-Nair, T. Nowakowski, E. L. Dyer, and K. B. Hengen. “Transcriptomic cell type structures in vivo neuronal activity across multiple timescales”. Cell Reports 42.4 (2023), p. 112318. [32] I. B. L. IBL, K. Banga, J. Benson, J. Bhagat, D. Biderman, D. Birman, N. Bonacchi, S. A. Bruijns, K. Buchanan, R. A. Campbell, et al. “Reproducibility of in vivo electrophysiological measurements in mice”. eLife (Mar. 2025). [33] K. E. Bouchard, N. Mesgarani, K. Johnson, and E. F. Chang. “Functional organization of human sensori-motor cortex for speech articulation”. Nature . 7441. 2013, pp. 327–332. [34] K. E. Bouchard and E. F. Chang. “Human ECoG speaking consonant-vowel syllables”. 2019. [35] H. Zheng, H. Wang, W. Jiang, Z. Chen, L. He, P. Lin, P. Wei, G. Zhao, and Y. Liu. “Du-IN: Discrete units-guided mask modeling for decoding speech from Intracranial Neural signals”. The Thirty-eighth Annual Conference on Neural Information Processing Systems . 2024. [36] R. E. Kalman. “A New Approach to Linear Filtering and Prediction Problems”. Journal of Basic Engineering 82.1 (1960), pp. 35–45. [37] W. Wu, M. Black, Y. Gao, M. Serruya, A. Shaikhouni, J. Donoghue, and E. Bienenstock. “Neural Decoding of Cursor Motion Using a Kalman Filter”. Advances in Neural Information Processing Systems .Vol. 15. 2002. [38] S. Koyama, S. M. Chase, A. S. Whitford, M. Velliste, A. B. Schwartz, and R. E. Kass. “Comparison of brain–computer interface decoding algorithms in open-loop and closed-loop control”. Journal of Computational Neuroscience 29.1–2 (2010), pp. 73–87. 
+
+11 [39] F. R. Willett, D. R. Young, B. A. Murphy, W. D. Memberg, C. H. Blabe, C. Pandarinath, S. D. Stavisky, P. Rezaii, J. Saab, B. L. Walter, et al. “Principled BCI Decoder Design and Parameter Selection Using a Feedback Control Model”. Scientific Reports 9.1 (2019). [40] D. Sussillo, P. Nuyujukian, J. M. Fan, J. C. Kao, S. D. Stavisky, S. Ryu, and K. Shenoy. “A recurrent neural network for closed-loop intracortical brain–machine interface decoders”. Journal of Neural Engineering 
+
+9.2 (Mar. 2012), p. 026027. [41] J. Chung, K. Kastner, L. Dinh, K. Goel, A. Courville, and Y. Bengio. “A Recurrent Latent Variable Model for Sequential Data”. 2016. arXiv: 1506.02216 .[42] C. Pandarinath, D. J. O’Shea, J. Collins, R. Jozefowicz, S. D. Stavisky, J. C. Kao, E. M. Trautmann, M. T. Kaufman, S. I. Ryu, L. R. Hochberg, et al. “Inferring single-trial neural population dynamics using sequential auto-encoders”. Nature Methods 15.10 (2018), pp. 805–815. [43] A. Gu, K. Goel, and C. Re. “Efficiently Modeling Long Sequences with Structured State Spaces”. 
+
+International Conference on Learning Representations . 2022. [44] Y. Zhang, Y. Wang, D. M. Jiménez-Benetó, Z. Wang, M. Azabou, B. Richards, R. Tung, O. Winter, T. I. B. Laboratory, E. Dyer, et al. “Towards a "Universal Translator" for Neural Dynamics at Single-Cell, Single-Spike Resolution”. Advances in Neural Information Processing Systems . Vol. 37. 2024, pp. 80495– 80521. [45] V. Arora, D. Lachi, I. J. Knight, M. Azabou, B. A. Richards, C. L. Hurwitz, J. Siegle, and E. L. Dyer. “Know Thyself by Knowing Others: Learning Neuron Identity from Population Context”. Advances in Neural Information Processing Systems . 2025. [46] M. G. Perich, L. E. Miller, M. Azabou, and E. L. Dyer. “Long-term recordings of motor and premotor cortical spiking activity during reaching in monkeys”. 2025. [47] R. D. Flint, E. W. Lindberg, L. R. Jordan, L. E. Miller, and M. W. Slutzky. “Accurate decoding of reaching movements from field potentials in the absence of spikes”. Journal of Neural Engineering 9.4 (2012), p. 046006. [48] J. E. O’Doherty, M. M. B. Cardoso, J. G. Makin, and P. N. Sabes. “Nonhuman Primate Reaching with Multichannel Sensorimotor Cortex Electrophysiology”. Zenodo: 10.5281/zenodo.3854034 . 2020. [49] M. M. Churchland, J. P. Cunningham, M. T. Kaufman, J. D. Foster, P. Nuyujukian, S. I. Ryu, and K. V. Shenoy. “Neural population dynamics during reaching”. Nature 487.7405 (2012), pp. 51–56. [50] F. Pei, J. Ye, D. Zoltowski, A. Wu, R. Chowdhury, H. Sohn, J. O’Doherty, K. V. Shenoy, M. Kaufman, M. Churchland, et al. “Neural Latents Benchmark ‘21: Evaluating latent variable models of neural population activity”. Proceedings of the Neural Information Processing Systems Track on Datasets and Benchmarks .Vol. 1. 2021. [51] J. Su, M. Ahmed, Y. Lu, S. Pan, W. Bo, and Y. Liu. “RoFormer: Enhanced transformer with Rotary Position Embedding”. Neurocomputing 568 (2024), p. 127063. [52] A. Jaegle, S. Borgeaud, J. - B. Alayrac, C. Doersch, C. Ionescu, D. Ding, S. Koppula, D. Zoran, A. Brock, E. Shelhamer, et al. “Perceiver IO: A General Architecture for Structured Inputs & Outputs”. International Conference on Learning Representations . 2022. [53] Z. Zhang, S. -h. Zhong, and Y. Liu. “TorchEEGEMO: A deep learning toolbox towards EEG-based emotion recognition”. Expert Systems with Applications (2024), p. 123550. [54] Y. You, J. Li, S. Reddi, J. Hseu, S. Kumar, S. Bhojanapalli, X. Song, J. Demmel, K. Keutzer, and C. - J. Hsieh. “Large Batch Optimization for Deep Learning: Training BERT in 76 minutes”. 2020. arXiv: 
+
+1904.00962 .[55] I. Loshchilov and F. Hutter. “Decoupled Weight Decay Regularization”. International Conference on Learning Representations . 2019. [56] M. Beck, K. Pöppel, M. Spanring, A. Auer, O. Prudnikova, M. Kopp, G. Klambauer, J. Brandstetter, and S. Hochreiter. “xLSTM: Extended Long Short-Term Memory”. Advances in Neural Information Processing Systems . 2024. [57] A. van den Oord, Y. Li, and O. Vinyals. “Representation Learning with Contrastive Predictive Coding”. 
+
+CoRR abs/1807.03748 (2018). arXiv: 1807.03748 .[58] F. R. Willett, D. T. Avansino, L. R. Hochberg, J. M. Henderson, and K. V. Shenoy. “High-performance brain-to-text communication via handwriting”. Nature 593.7858 (2021), pp. 249–254. 
+
+12 Supplementary Material A Additional Details on Datasets 
+
+A.1 Monkey Reaching Tasks 
+
+For experiments on the monkey reaching tasks, we adopted the same pretraining datasets and splits as those described in Ryoo et al. [14]. For the sake of completeness, we list the details of these datasets in Table 4. During pretraining, 19 sessions were held-out from the model and served for evaluation, including 2 sessions from monkey C (20161013 & 20161021) and all 12 sessions from monkey T from the Perich et al. [46] dataset, and all 5 sessions from Flint et al. [47]. Table 4: Summary of datasets used on monkey motor tasks. Dataset statistics reproduced from Ryoo et al. [14]. Dataset Regions Tasks # Indiv. # Sess. # Units # Spikes # Bhvr. Perich et al. [46] M1, PMd CO, RT 3 107 10 245 104.6M 14.0M O’Doherty et al. [48] M1, S1 RT 2 44 14 899 87.8M 10.4M Churchland et al. [49] M1, PMd CO 2 10 1911 739M 85.0M NLB Maze [50] M1, PMd Maze 1 1 182 3.64M 6.81M Flint et al. [47] M1 CO 1 5 957 7.88M 318K 
+
+A.2 Mouse Vision Tasks 
+
+The Allen visual coding Neuropixel dataset [29, 30] includes 58 sessions of mouse recordings during vision tasks. Thirty sessions of the recordings were made in wildtype mice, with the rest of sessions recorded in 3 transgenic lines: Pvalb (8), Sst (12), and Vip (8). Animals in each session were shown one of two stimulus sets: “Brain Observatory 1.1” and “Functional Connectivity”. Drifting gratings stimuli were presented in both stimulus sets (2 s per trial), while natural scenes stimuli were presented only in stimulus set 1 (250 ms per trial) with no inter-trial gray period. A total of three multi-class stimulus classification tasks are possible with this data, namely, classifying drifting grating orientations (8-class), drifting grating temporal frequencies (5-class), and natural scenes (119-class). Note that the drifting gratings stimulus in stimulus set 2 only had 4 potential orientations and 1 temporal frequency. 
+
+A.3 Mouse Decision Tasks 
+
+IBL Reproducible Electrophysiology dataset [32] include 84 sessions of mouse recordings during decision-making tasks of head-fixed mice on location of visual gratings. The data sessions are from 10 labs but inserting probes targeting the same locations. Following existing work on this dataset [16], we include four behaviour tasks: classification tasks – decoding choice (2 classes on left or right) and block prior (3 classes on prior probability of visual gratings: 20/80 % on the right, 80/20 %
+
+on the left, and 50/50 %; and regression tasks – decoding wheel velocity and whisker motion energy. The objective is to decode the behaviour variables in each pre-determined trial-aligned 2s interval surrounding stimOn_time (500 ms before and 1500 ms after), and for continuous variables like wheel and whisker, they are resampled to 50 Hz. We use pre-determined splits across sessions provided in this dataset. We also would like to note that our dataset preparation was different from Zhang et al. [16] in the following three aspects: Firstly, we didn’t enforce trial-alignment during training, and the training intervals were extended to the union of 1) the pre-determined intervals and 2) the full trial durations including additional 200 ms before and after; Secondly, we do not perform neuron exclusion according to firing rate, and we included spikes from all the recorded neurons; Thirdly, for wheel and whisker, instead of normalization based on minimal and maximal values, we only normalized whisker based on a constant factor 2.5, and the value is selected so that signal amplitude is similar between the two. 13 A.4 Human Speech Tasks 
+
+Human ECoG speech dataset [33, 34] includes 30 session of ECoG activities across four participants, reading consonant-vowel syllable pair appearing on a screen. Among the four participants, in total 57 syllable types are present in the data sessions, each with similar amount of repetitions. These syllable pairs are constituted by 3 vowels and 19 consonants. However, there are several outliers existed in the datasets, mostly in sessions of participant EC9. During preprocessing, we gave each syllable type (including the outlier) an unique index, but only keep the non-outlier trials as targets. The data splitting in this dataset was done temporally, where the last 20% of the trials are used for testing. Note that overlapping in trials is present in this dataset, hence to prevent leaking in neural activity to testing set, we dropped any trials overlapping with any of the test trials. Then the remaining trials were applied a 1:9 ratio, for validation and training set, respectively. 
+
+## B Model Architectures 
+
+B.1 Spike Tokenization 
+
+The spike tokenization scheme [13] assigns each individual spike as a token, represented as a tuple consisting of two components: the neural unit it came from and the exact time it occurred. 
+
+x = (UnitEmb( Ispike ), T spike ) ,
+
+where UnitEmb( ·) is a look-up table mapping every neural unit ID to a D-dimensional embedding and Tspike is a rotary positional embedding (RoPE) [51] of the timestamp. In accordance with the literature, we adopt the term “neural unit” as a general descriptor based on the dataset, encompassing individual neurons, multi-unit activity from a single electrode, as well as individual channels. In the case of ECoG, the signals from each channel within each millisecond patch are embedded via an additional linear layer, and concatenated with the unit embedding [26]. 
+
+x =   UnitEmb( Ich .), Ws(Sch.,T patch ), T patch 
+
+ ,
+
+Note that no further meta information (like brain regions) regarding the neuron or recording channel beyond an arbitrary integer ID is encoded in this scheme. Following POYO , in addition to the spike tokens, we feed special tokens to the encoder indicating all the units being recorded within each data sequence. This is done with the intention of providing information on the units that did not fire. Unlike POYO , where two sets of special tokens are utilized as delimiters and given timestamps of either the start or the end of the sequence, we place one set of tokens in every time chunk and provide them a position embedding based on the timestamp in the middle of the chunk. 
+
+B.2 Input Cross-Attention 
+
+Like POYO and its variants, we use a cross-attention module to encode a variable-length input token sequence into a fixed-length latent token sequence of size Nz . Nz is a hyperparameter, commonly chosen to be Nz ≪ InputLength , thereby effectively compressing information. We can view latent token sequence as a concatenation of Tc groups of Nc tokens (hence Nz = Nc ∗ Tc), where the groups are distributed temporally within the training samples, and Tc denotes the number of time chunks .
+
+MOJO employ a POSSM -style [14] encoder, where the cross-attention is computed separately on each contiguous time chunk of the data sample. Considering an input sequence Xt of all spike tokens from time chunk t and a latent query c(t) 
+
+> i
+
+from learnable vector i, the encoder output is calculated via scaled dot-product attention [5]: 
+
+z(t) 
+
+> i
+
+= softmax 
+
+ q(t)K⊤
+
+> t
+
+√D
+
+
+
+Vt,
+
+where q(t) = c(t) 
+
+> i
+
+Wq , Kt = XtWk and Vt = XtWv are the projected queries, keys, and values, respectively. The process is repeated for Tc time chunks to obtain the latent token sequence 
+
+Z = [ z(1) 1 , ..., z(1)  
+
+> Nc
+
+, ..., z(Tc)1 , ..., z(Tc) 
+
+> Nc
+
+].14 B.3 Backbone Architecture Attention-based. The attention-based backbone is composed of stacked self-attention blocks operating over the entire latent sequence [13]. We denote h(t) 
+
+> l,i
+
+as the hidden state from latent query i
+
+at time t from layer l,
+
+h(t) 
+
+> l,i
+
+= softmax q(t) 
+
+> l
+
+K⊤
+
+√D
+
+!
+
+V,
+
+where q(t) 
+
+> l
+
+= h(t)
+
+> l−1,i
+
+Wq and h(t)0,i = z(t) 
+
+> i
+
+. The time complexity of this backbone is quadratic, but with respect to Nz which is independent of the number of spike tokens. Consequently, the computation remains constant and computationally tractable even when handling very long input sequences [52]. 
+
+Recurrence-based. The recurrent backbone is a stack of SSM blocks [14] where the hidden state is updated following the transition function 
+
+h(t) 
+
+> l
+
+= fSSM (h(t)
+
+> l−1
+
+, h(t−1)  
+
+> l
+
+).
+
+where h(t)0 = g([ z(t)1 , ..., z(t) 
+
+> Nc
+
+]) . Following Ryoo et al. [14], we set Nc = 1 and g(·) as an identity mapping. 
+
+B.4 Masked Autoencoding 
+
+The masked autoencoder uses a learnable mask token to mask out any of the latent tokens. After the masking step, we provide the latent tokens an additional learnable position embedding to encode the spatial relationships among latents, i.e., which latent query it originated from. We used a masking ratio of 50% , and as shown in Section D.3.2, our method is robust with respect to the specific value of the masking ratio. At the output, for each masked latent timestep, up to 10 neural units are randomly drawn uniformly without replacement, whose unit embeddings at that time are used as the queries for spike rate prediction. 
+
+B.5 Output Cross-Attention for SL Pathways 
+
+For the SL pathway, each output query oq attends to either all or the k most recent latents depending on whether the backbone is POYO or POSSM , respectively. qo is encoded by a learnable session embedding as well as the prediction timestamps. The output cross-attention facilitates flexible output predictions, enabling unaligned, irregular, and even “out-of-boundary queries” [14]. 
+
+Multi-task Supervised Learning. The multi-task setting for the SL pathway is designed to be dataset-specific, by initiating separate linear readout layers for each of the tasks present in the dataset. Note that this configuration can be employed with both POYO and POSSM backbones, with the former named as POYO+ [26] and latter as POSSM+ . Note that in this paper, we enable the multi-task setting by default, and we will abuse the notation and refer to them as POYO and POSSM for brevity. 
+
+B.6 Finetuning Strategy 
+
+We adopt the two finetuning strategies from Azabou et al. [13] when adapting the pretrained model to previously unseen data sessions: Unit Identification (UI) and Full Finetuning (FT). 
+
+Unit Identification. Under the UI strategy, we update only the unit and session embeddings during finetuning while keeping the rest of model frozen. This effectively transfers the pretrained model by mapping new unidentified units and sessions into the learned embedding space [13], providing an efficient strategy for rapid adaptation to new sessions. When transferring to sessions involving new tasks, UI additionally unfreezes task-specific embeddings and the linear readouts. 
+
+Full Finetuning. In contrast, FT unfreezes all model parameters during finetuning, therefore more closely resembling single-session end-to-end training. FT is typically performed in a staged manner: UI is applied first for a number of epochs, after which the remaining model parameters are unfrozen. Unless otherwise mentioned, UI was run for 100 epochs before unfreezing all parameters in our experiments. 15 B.7 Implemented Models on Monkey and Mouse Datasets 
+
+Model hyperparameters of MOJO for both monkey and mouse datasets are shown in Table 5, 7, 6, and 8, respectively. For MOJO -POGRU and MOJO -POMAMBA , we adopted exactly the same model architecture reported in Ryoo et al. [14] with 20 ms chunks. For MOJO -POYO , a slightly smaller model than POYO -1 in Azabou et al. [13] was chosen to more closely match the parameters of the other MOJO backbones. We also adopted pathway integration to share the encoder computation between SSL and SL pathways in MOJO -POYO , which resulted in 50 latent timesteps instead of the 8 used in POYO -1. MOJO -POYO -L is a larger model with parameter counts comparable to POYO -1. For mouse decision tasks, we used a smaller MOJO -POYO model. Table 5: Hyperparameters for MOJO -POYO .
+
+Number of parameters counted for encoder, backbone and decoder. Hyperparameters #Input Dim 128 Backbone Layers 20 Latents per Chunk 2Cross Heads 1Self Heads 8Params 9.88M Table 6: Hyperparameters for MOJO -POYO -L. 
+
+Number of parameters counted for encoder, backbone and decoder. Hyperparameters #Input Dim 128 Backbone Layers 24 Latents per Chunk 4Cross Heads 4Self Heads 8Params 12.06M Table 7: Hyperparameters for MOJO -POSSM 
+
+(Mamba). Number of parameters counted for encoder, backbone and decoder. Hyperparameters #Input Dim 256 Backbone Layers 4Latents per Chunk 1Cross Heads 1RNN Hidden Dim 512 Params 9.47M Table 8: Hyperparameters for MOJO -POYO 
+
+on Mouse Decision Tasks. Number of pa-rameters counted for encoder, backbone and decoder. Hyperparameters #Input Dim 128 Backbone Layers 12 Latents per Chunk 4Cross Heads 2Self Heads 8Params 6.27M Table 9: Hyperparameters for MOJO -POYO 
+
+on human ECoG dataset. Number of pa-rameters counted for encoder, backbone and decoder. Hyperparameters #Input Dim 128 Backbone Layers 12 Encoder Self-Attention Layers 2Latents per Chunk 8Cross Heads 4Self Heads 8Patch Size 4Params 7.44M Table 10: Hyperparameters for POYO on hu-man ECoG dataset. Number of parameters counted for encoder, backbone and decoder. Hyperparameters #Input Dim 128 Backbone Layers 6Encoder Self-Attention Layers 2Latents per Chunk 8Cross Heads 4Self Heads 8Patch Size 4Params 4.42M 16 B.8 Implemented Models on Human Datasets 
+
+We conducted hyperparameter tuning on MOJO and POYO . Model hyperparameters of MOJO for human datasets are shown in Table 9, and it needs a larger model mainly for better learning of SSL objectives. For POYO , we found a larger model would sometimes fail the optimization, hence we sticked to a smaller model. A statistical baseline was implemented on this dataset, where independent component analysis (ICA) with 150 components was first run on the neural data, following which a linear support vector classifier was fitted on the ICA-transformed data. We used fastICA and LinearSVC from 
+
+scikit-learn in our implementation. For EEGNet, we re-implemented the training loop with code and default hyperparameters from torcheeg packages [53]. 
+
+## C Training Details 
+
+C.1 Monkey Reaching Tasks 
+
+In each session from the monkey reaching datasets, the decoder is tasked with decoding 2-dimensional hand velocity from spiking data. For all experiments conducted on this task, we used mean squared error as the loss function. During training, behaviour signals up to 100 Hz were used as targets, and for sessions or datasets with a higher behaviour sampling rate, random subsampling was adopted to enforce the 100 Hz upper-bound. We trained single-session and multi-session POYO and POSSM with a learning rate of 0.004 and 0.002 respectively using the Lamb [54] optimizer. Batch sizes of 128 and 256 were used, respectively, an training was done for 500 epochs. Single-session training hyperparameters were adopted during UI and FT. Single-session MOJO were trained with a layer-wise learning rate of 0.01 on the unit embedding layer and 0.001 for the rest of the model using Lamb. Batch sizes were 128 and 64 for MOJO -POSSM and 
+
+MOJO -POYO . For multi-session training, we implemented different learning rates for MOJO -POSSM and 
+
+MOJO -POYO . For MOJO -POSSM , the same layer-wise learning rate as single-session models was adopted, while for MOJO -POYO , we used 2.5 e−4 for all parameters with AdamW [55]. Batch sizes were 128 and 64 for MOJO -POSSM and MOJO -POYO , respectively. Note that we found that empirically, training 
+
+MOJO -POSSM with AdamW led to unstable optimization, and for Lamb, a larger learning rate was necessary for better learning on SSL related unit embeddings. During UI and FT, 0.01/0.001 with Lamb was used for MOJO -POSSM and 5 e−4 with AdamW was used for MOJO -POYO . All models were trained for 500 epochs. Multi-session training was done on 4 H100 GPUs, while single-session and finetuning were done on 1 NVIDIA L40S. The NDT-2 [27], NDT-3 [28] and NEDS [16] baselines were trained using the original code released by the authors, with some modifications to ensure that the models were being trained and evaluated on the exact same data splits as MOJO . We followed the original authors’ suggestions and hyperparameter configurations for both training and finetuning these models on our datasets. 
+
+C.2 Mouse Vision Tasks 
+
+Each session of the mouse vision tasks presents a multi-task learning problem involving 2 or 3 (natural scenes only for sessions in stimulus set 1) multi-class classification tasks, and we used cross-entropy as the loss function for all of them. Separate baseline MLPs were trained for each individual task, where for drifting gratings orientation and temporal frequency (2 s per trial), we used 0.004 learning rate with AdamW, 128 batch size, 20 ms chunks, and a sequence length of 0.5 s. For natural scenes (250 ms per trial), a reduced learning rate of 0.0012 was used with sequence length of 250 ms. Learning rate reduction was necessary for stable training performance. For multi-session training, we adopted task-specific weighting on different tasks following Azabou et al. [26] for POYO , where natural scene was assigned a weight of 0.3. However, we found that POGRU 
+
+struggled to learn with the task weighting, and we instead adopted equal weights for all tasks. Note that the same applies to MOJO -POYO and MOJO -POGRU . All other hyperparameters were kept the same as monkey tasks. 17 For all single-session models, UI, and FT, equal weighting was adopted for all models. Hyperparam-eters were kept the same as monkey tasks for most models, except for single-session MOJO where larger learning rates were used (0.02/0.002), and for FT MOJO -POYO where a smaller learning rate was used (2.5 e−4) due to overfitting. The NEDS baseline was trained using the original code released by the authors, with several mod-ifications to support the Allen visual coding Neuropixels dataset, non-simultaneous classification tasks, and ensure consistent data splits. We trained NEDS for 500 epochs on the Allen data. All other hyperparameters for training and finetuning followed the suggestions of the original authors. 
+
+C.3 Mouse Decision Tasks 
+
+We used cross-entropy loss for choice and block and mean squared error for wheel and whisker, and we weighted the loss of choice and block by 0.2 since they were empirically found to be more prone to overfit. For pretraining, AdamW optimizer was used with learning rate of 0.001 and batch size of 64, while for finetuning learning rate of 1.25 e−4 and batch size of 64. Pretraining was done on 2 NVIDIA L40S, while finetuning were done on 1 NVIDIA L40S with no UI for better stability across the 4 tasks. POYO was pretrained and finetuned with Lamb optimizer with learning rate of 0.002 and batch size of 64. NEDS was trained using the original code released by the author for this dataset. 
+
+C.4 Human Speech Tasks 
+
+The tasks of classifying vowel, consonant, and consonant-vowel syllable from ECoG signals are each multi-class classification tasks with 3, 19, and 57 ground truth classes, and we used cross-entropy as the loss functions. ECoG is a new modality different from the original paper [13, 26], we used AdamW optimizer for both MOJO and POYO and found it to be empirically good. For POYO , the total number of syllables seen in the dataset was used as the output dimension of the readout layer across all three tasks. Hyperparameter tuning were run on POYO on learning rate { 2.5e−4,5e−4}, weight decay {1e−3,1e−4}, unit dropout (max/min/mode of units) {256/64/128,128/32/64,64/16/32,32/8/16}, and we also investigate different depth (6 or 12) and different output dimension (constant for all three tasks with total number of syllables or separate for each task based on its number of classes). As a result, POYO were trained in 1 NVIDIA L40S, with 5e−4 learning rate with AdamW, weight decay of 
+
+1e−4, and unit dropout of 128/32/64. For MOJO , we adopted curriculum learning where we trained only SSL for 1000 epochs then proceed with the joint SSL-SL training. We found that warm start from a purely SSL checkpoint improved the performance of subsequent joint SSL-SL learning. In addition for MOJO , we tune the SSL loss coefficient in the joint loss function. MOJO was trained in 1 NVIDIA L40S, with 2.5e−4 learning rate with AdamW, weight decay of 1e−4, unit dropout of 256/64/128, and SSL loss coefficient of 0.5. Statistical methods were applied separately for each session on CPU. Three seeds were run for fitting the statistical models with random start but the variance was found to be trivial. EEGNet was run separately for each session and each task, with AdamW optimizer with learning rate of 0.001 and batch size of 32. The Du-IN [35] baselines were trained using the original code released by the authors, with some modifications to ensure that the models were being trained and evaluated on the exact same data splits as MOJO .
+
+## D Additional Experiments on Monkey Reaching Datasets 
+
+In this section, we describe additional experiments conducted on monkey spiking datasets on various reaching tasks. 
+
+D.1 Full Results on Reaching Tasks 
+
+The complete results on the monkey reaching tasks are shown in Table 11, including single-session results as well as two additional POSSM backbones: Mamba2 [7] and xLSTM [56]. It can be seen from the table that certain backbones have better decoding performance across all evaluation sessions, namely transformer (as in MOJO -POYO ) and GRU (as in MOJO -POGRU ). Based on our experience, transformer backbones usually exhibited better SSL performance during pretraining, due to the noncausal operations in self-attention, which in turns contributes to better performance in even 18 an online evaluation strategy. Especially, transformer backbones demonstrated consistently better performance on the C-CO 2010 sessions, and this would relate to the fact that those sessions in general have more neural units. However, the inference speed of the transformer backbone still lag behind that of POSSM , consistent with what was shown in Ryoo et al. [14]. Among the recurrent backbone, GRU stands out as the best performing architecture, especially in UI and single-session. For example, the single-session performance of MOJO -POGRU was on par with many pretrained model. One backbone choice worth highlighting is xLSTM, as it showed good balanced performance overall on both pretraining and finetuning. Table 11: Behavioural decoding R2 on monkey reaching tasks with 20 ms time chunks. Values are mean R2 ± SD over sessions. Best performing models are in boldface (1st) and underlined (2nd). Results marked by † reproduced from Ryoo et al. [14] 
+
+Same Animal, Other days New animal 
+
+Method C – CO 2010 (5) T – CO (6) T – RT (6) 
+
+> FROM SCRATCH
+
+MLP † 0.5842 ± 0.2052 0.7940 ± 0.0341 0.6082 ± 0.3014 Mamba † 0.6840 ± 0.0936 0.7318 ± 0.0426 0.6653 ± 0.0978 GRU † 0.7742 ± 0.0964 0.8389 ± 0.0248 0.7414 ± 0.0426 
+
+POYO -SS 0.7465 ± 0.1119 0.8509 ± 0.0423 0.6929 ± 0.0978 
+
+POMAMBA -SS † 0.7691 ± 0.0786 0.8613 ± 0.0121 0.7300 ± 0.0719 
+
+POGRU -SS † 0.7780 ± 0.0980 0.8724 ± 0.0190 0.7429 ± 0.0708 
+
+MOJO -POYO -SS 0.8135 ± 0.0922 0.8803 ± 0.0191 0.7443 ± 0.0789 
+
+MOJO -POMAMBA -SS 0.7752 ± 0.0878 0.8753 ± 0.0171 0.7428 ± 0.0861 
+
+MOJO -POGRU -SS 0.7768 ± 0.1283 0.8834 ± 0.0167 0.7711 ± 0.0596 
+
+> PRETRAINED  (UI)
+
+POYO (UI) 0.7759 ± 0.1003 0.8123 ± 0.0419 0.7011 ± 0.0975 
+
+POMAMBA (UI) 0.7283 ± 0.1138 0.8574 ± 0.0225 0.7283 ± 0.0846 
+
+POGRU (UI) 0.7632 ± 0.1013 0.8587 ± 0.0216 0.7331 ± 0.0775 
+
+MOJO -POYO (UI) 0.7846 ± 0.0897 0.8387 ± 0.0251 0.7470 ± 0.0617 
+
+MOJO -POMAMBA (UI) 0.7937 ± 0.0735 0.8753 ± 0.0160 0.7591 ± 0.0588 
+
+MOJO -POGRU (UI) 0.7949 ± 0.0892 0.8772 ± 0.0189 0.7570 ± 0.0693 
+
+MOJO -POMAMBA2 (UI) 0.7720 ± 0.0872 0.8637 ± 0.0158 0.7565 ± 0.0582 
+
+MOJO -POXLSTM (UI) 0.7832 ± 0.1045 0.8671 ± 0.0255 0.7615 ± 0.0539 
+
+> PRETRAINED  (FT)
+
+NDT-2 † 0.7846 ± 0.1167 0.7173 ± 0.0443 0.6323 ± 0.1339 NDT-3 0.7524 ± 0.1322 0.8576 ± 0.0313 0.7066 ± 0.0980 NEDS 0.5968 ± 0.0760 0.7635 ± 0.0758 0.6121 ± 0.0918 
+
+POYO (FT) 0.8244 ± 0.0753 0.8817 ± 0.0352 0.7624 ± 0.0815 
+
+POMAMBA (FT) 0.8142 ± 0.0763 0.8949 ± 0.0152 0.7580 ± 0.0745 
+
+POGRU (FT) 0.8126 ± 0.0892 0.8936 ± 0.0212 0.7575 ± 0.0875 
+
+MOJO -POYO (FT) 0.8438 ± 0.0888 0.9131 ± 0.0177 0.7964 ± 0.0663 
+
+MOJO -POMAMBA (FT) 0.8153 ± 0.0925 0.9043 ± 0.0182 0.7675 ± 0.0806 
+
+MOJO -POGRU (FT) 0.8222 ± 0.0950 0.9103 ± 0.0168 0.7776 ± 0.0710 
+
+MOJO -POMAMBA 2 (FT) 0.8189 ± 0.0918 0.9045 ± 0.0162 0.7623 ± 0.0731 
+
+MOJO -POXLSTM (FT) 0.8207 ± 0.0928 0.9082 ± 0.0185 0.7712 ± 0.0670 
+
+D.2 Additional Results on Brain Region Classification 
+
+Table 12 includes the complete results on brain region classification with pretrained monkey em-bedding. LogisticRegressionCV from scikit-learn was adopted as the classifier, with 5-fold cross-validation. The process was repeated for 5 seeds on each classification task. 19 Table 12: Brain region classification accuracies on pretrained monkey reaching datasets. M1: primary motor, PMd: dorsal premotor, S1: primary somatosensory. Values are mean accuracies ±
+
+SD over 5 seeds. Best performing models are in boldface (1st) and underlined (2nd). Perich et al. [46] Churchland et al. [49] O’Doherty et al. [48] Joint Monkey                                                                                                                         
+
+> Method M1 vs. PMd M1 vs. PMd M1 vs. S1 Multi-region Multi-subject M1 in Multi-subject Chance 50.00 50.00 50.00 33.33 16.67 16.67
+> POYO 64.23 ±0.75 74.36 ±1.81 81.17 ±0.99 69.65 ±0.45 49.67 ±0.72 61.50 ±0.51
+> POMAMBA 64.06 ±0.64 74.78 ±2.09 82.15 ±0.83 69.54 ±0.37 46.36 ±0.24 60.74 ±0.43
+> POGRU 65.77 ±0.90 71.70 ±1.35 81.64 ±0.70 69.51 ±0.47 46.57 ±0.55 60.30 ±0.92
+> MOJO -POYO 81.08 ±0.49 98.17 ±0.47 89.34 ±0.46 78.24 ±0.42 72.69 ±0.87 84.51 ±0.63
+> MOJO -POMAMBA 77.32 ±0.51 95.30 ±1.08 87.72 ±0.60 73.91 ±0.52 68.18 ±0.55 78.91 ±0.33
+> MOJO -POGRU 80.43 ±0.40 98.54 ±0.54 88.40 ±0.17 76.88 ±0.40 75.74 ±0.43 85.28 ±0.36
+
+D.3 Ablation Study D.3.1 Pathway Integration 
+
+We compared the performance of MOJO -POYO with or without pathway integration. Note that without pathway integration, the input cross-attention of the SL pathway is exactly as POYO (with 8 set of latents and 125 ms apart) separated from the SSL pathway. In both cases, we used the same number of latents per time steps ( Nc = 2 ), so that all latent queries were shared between SSL and SL pathways. As shown in Table 13, pathway integration led to better FT performance and worse UI. The increases in FT performance is likely due to an unfied input cross-attention computation. Recall that even in the case of separate encoder computation, their parameters are still shared. Thus MOJO encoder would need to deal with discrepancy in latent time resolution, as latents in SSL pathway are 20 ms apart while the interval in SL pathway is 125 ms. On the other hand, separate encoder pathway could potentially ease the learning process for unit embeddings, since separate subsequent encoders can further process the unit embedding for SSL or SL with different focuses. The model with separate encoder also yields slightly worse inference speed, due to duplication in input cross-attention computations. Table 13: Ablation results on pathway integration for MOJO -POYO .
+
+Method C – CO 2010 (5) T – CO (6) T – RT (6) 
+
+MOJO -POYO (Shared Enc) (UI) 0.7846 ± 0.0897 0.8387 ± 0.0251 0.7470 ± 0.0617 
+
+MOJO -POYO (Sepa. Enc) (UI) 0.7902 ± 0.0916 0.8523 ± 0.0200 0.7432 ± 0.0876 
+
+MOJO -POYO (Shared Enc) (FT) 0.8438 ± 0.0888 0.9131 ± 0.0177 0.7964 ± 0.0663 
+
+MOJO -POYO (Sepa. Enc) (FT) 0.8324 ± 0.1030 0.9030 ± 0.0164 0.7810 ± 0.0926 
+
+D.3.2 Masking Strategy and Ratio 
+
+Varying masking ratio from 0.02 to 0.9 for temporal masking (masking out percentage of latent time bins randomly) and from 0.3 to 0.7 for forward masking (masking out percentage of latent time bins in the future), we pretrained MOJO -POGRU on the entire Perich et al. dataset excluding the evaluation sessions and reported their finetuning performance on held-out monkey T sessions (Table 14). The results show that although masking ratio affects SSL training performance, the SL scores remain robust, likely due to the joint SSL-SL training strategy balancing out the 2 objectives automatically. 
+
+D.3.3 Alternative SSL methods 
+
+Comparison with alternative SSL methods is shown in Table 15, where each model is pretrained on the entire Perich et al. dataset and finetuned on held-out monkey T sessions. Since MOJO performs masked autoencoder with temporal masking, as alternatives we consider joint SSL-SL training with 20 Table 14: Ablation results on latent masking strategy and ratio. Results are shown for temporal and forward latent mask strategy on test R2, SL test loss and SSL test loss for pretraining and test R2
+
+for finetuning. Mask Ratio Pretraining Finetuning 
+
+R2 MSE Poisson NLL R2
+
+> TEMPORAL
+
+0.02 0.9166 0.01333 0.3848 0.8453 0.05 0.9167 0.01303 0.3894 0.8447 0.1 0.9178 0.01307 0.3861 0.8449 0.3 0.9181 0.01295 0.3868 0.8442 0.5 0.9178 0.01299 0.3871 0.8449 0.7 0.9173 0.01324 0.3894 0.8430 0.9 0.9167 0.01325 0.3964 0.8420 
+
+> FORWARD
+
+0.3 0.9161 0.01326 0.3874 0.8423 0.5 0.9172 0.01303 0.3874 0.8467 0.7 0.9158 0.01327 0.3915 0.8449 three spatial masking schemes, where spikes from 1) randomly selected neurons in each bins; 2) randomly selected neuron across all bins; 3) randomly selected brain regions (M1 or PMd) are masked from input token sequences, as well as joint SSL-SL training with contrastive predictive coding (CPC) [57] with two ways to choose negative samples: from the same sequence or from the different sessions. Note that finetuning was not conducted for input region mask and CPC with mixed session, as the former significantly under-performed during the pretraining and the latter by definition can not have negative samples during single-session finetuning. MOJO demonstrates improved performance over all alternative SSL methods on this dataset. In addition, we note that CPC same sequence showed severely overfitting on the contrastive loss, suggesting poorly integrated SSL-SL objectives in that case. Table 15: Ablation results on alternative SSL methods. Results are shown for three input masking strategy and CPC with two negative samples range, on test R2, SL test loss and p-value vs. MOJO -
+
+POGRU for pretraining and test R2 for finetuning. Model Pretraining Finetuning 
+
+R2 MSE p vs. MOJO -POGRU R2
+
+POGRU 0.9107 0.01449 < 0.001 0.8319 
+
+MOJO -POGRU 0.9178 0.01299 N/A 0.8449 Input Random Mask 0.9080 0.01491 0.003 0.8318 Input Neuron Mask 0.9068 0.01502 < 0.001 0.8322 Input Region Mask 0.3419 0.12182 < 0.001 N/A CPC Same Sequence 0.9114 0.01441 < 0.001 0.8274 CPC Mixed Session 0.9060 0.01534 < 0.001 N/A 
+
+D.4 Transferring to Human Handwriting 
+
+We conducted a transfer learning experiment from a pretrained monkey model to a human handwriting task. The viability of such transfer was previously demonstrated in Ryoo et al. [14], and we wanted to verify that this results retained with MOJO . Briefly speaking, the human handwriting dataset from Willett et al. [58] includes 9 sessions of a human participant doing imagined single character writing. 21 Table 16: Human handwriting classification accuracies for MOJO -POGRU . Values are mean accuracy 
+
+± SD over 3 seeds. Method Acc. (%) ↑
+
+From scratch 95.34 ± 0.36 Pretrained 97.73 ± 0.41 Spike counts were recorded from two 96-channel microelectrode arrays implanted in motor cortex, pre-binned at 10 ms. We tested the performance of both pretrained and from-scratch MOJO -POGRU , on decoding the intended characters. As shown in Table 16, pretrained MOJO models outperformed the ones trained from scratch, even with the same number of parameters, verifying the transfer capability of MOJO from monkey motor task to human handwriting. 
+
+D.5 Additional Results on Reaching Phase Transfer in Finetuning 
+
+Following Azabou et al. [13], we defined 5 different sub-task phases in each of the CO sessions, where all 5 phases were included during training with different weights, but only REACH phase was considered during evaluation. • HOLD : in each valid trial, from “ target_on_time ” to “ go_cue_time ”• REACH : in each valid trial, from “ go_cue_time ” to “ stop_time ”• RETURN : in each valid trial, from “ stop_time ” to trial end • INVALID : duration of invalid trials • RANDOM : all others except for outliers Table 17: Finetuning to a new session from pretrained MOJO -POGRU , with only RANDOM phase labels. MOJO had access to all unlabelled data and only RANDOM labels. Values are mean R2 ± SD over 5 seeds. C-CO T-CO C-10/13 C-10/21 T-08/19 T-08/21 T-08/23 T-09/03 T-09/05 T-09/09 0.53 ± 0.06 0.52 ± 0.09 0.29 ± 0.12 -0.008 ± 0.03 -0.07 ± 0.22 0.09 ± 0.12 0.16 ± 0.13 0.17 ± 0.17 To evaluate if SSL on unlabelled data can help in deducing labelled behaviour, we conducted a series of phase transfer experiments, where MOJO had access to the labels of only a subset of phases, when finetuning to a new session. In the first experiments, only the RANDOM phase labels were accessible (Table 17). Note that since RANDOM only occupies a very small percentage of the total data (typically less than 1%), this experiment was not performed on purely supervised method. Subsequently, we conducted a second experiment where labels from both RANDOM and INVALID 
+
+phases were given to the models (Table 18), and a third one where both spikes and labels were only from INVALID phase (Table 19). 22 10 20 30 40 50 % labelled data 0.65 0.70 0.75 0.80 Brain region accuracy  
+
+> MOJO MOJO + unlabelled
+
+a b    
+
+> 10 20 30 40 50 % labelled data 0.80 0.82 0.84 Finetuning  R 2
+> FT UI
+
+Figure 4: Additional results on pretraining with unlabelled data. (a) Finetuning performance with additional unlabelled data during pretraining. (b) Brain region classification performance with additional unlabelled data during pretraining. Table 18: Comparison on phase transfer during finetuning with labels from two phases. All spikes and only the RANDOM and 
+
+INVALID phase labels are accessible by the models. Values are mean R2 ± SD among sessions. Method C-CO (2) T-CO (5) 
+
+POGRU 0.798 ± 0.03 0.653 ± 0.08 
+
+MOJO -POGRU 0.891 ± 0.01 0.811 ± 0.03 Table 19: Comparison on phase trans-fer during finetuning with only data from 
+
+INVALID phase. Spikes and labels of only 
+
+INVALID phase are accessible by the models. Values are mean R2 ± SD among sessions. Method C-CO (2) T-CO (6) 
+
+POGRU 0.752 ± 0.02 0.685 ± 0.07 
+
+MOJO -POGRU 0.752 ± 0.03 0.738 ± 0.06 The results show that MOJO can leverage additional unlabelled to improve the decoding performance of a phase never encountered during finetuning, especially when it is transferred to a new animal. Lastly, it is important to note that since the model have no access to important meta data such as monkey identity, session recoding date and lab during finetuning, the RANDOM phase labels, despite its small size, is still imperative to include that during training, as otherwise MOJO would struggle to decode beyond random even for the sessions of a seen animal. This is likely due to the fact that MOJO 
+
+has been exposed to many potential neural-to-behaviour mapping during pretraining on heterogeneous data source, and that MOJO (to certain extend POYO as well) keeps important information in session or unit embedding that bridges neural activity and behaviour variables in different sessions, which needs to be properly re-learned in a new session. 
+
+D.6 Additional Results on Pretraining with Unlabelled Data 
+
+For the models pretrained with varying ratio of unlabelled data, we tested their finetuning performance to new sessions (Figure 4a), and we found that having additional unlabelled data during pretraining does not lead to better finetuning performance, especially in UI. Note that unlike the few-shot experiments described in section 3.1, no additional unlabelled data was used here during the finetuning. A plausible explanation is that the additional unlabelled data forces the model to prioritize on SSL objectives, enabling a better set of unit embeddings for pretraining datasets (Figure 4b). But in the meanwhile, the SL performance becomes more dependent on the learned unit embedding, eventually harming the generalization performance. This result further validates the importance of labelled data during pretraining, as shown by upward trend in UI performance. 
+
+D.7 Comparison on Running Time 
+
+We compare running time for MOJO , POGRU and POYO on monkey reaching datasets in Table 20, where the reported numbers are obtained from running a full training epoch in 4 H100 GPUs. As shown in the first two rows on POSSM backbone, MOJO does not incur large compute overheads, likely due to pathway integration strategy (see Section 2.6) between SSL and SL pathways. Note that numbers on 
+
+POYO backbone are not directly comparable due to a smaller backbone ( MOJO -POYO ) and/or a shorter 23 Table 20: Per epoch running time comparison on monkey reaching datasets. 
+
+Models Epoch time (s) 
+
+POGRU 220 
+
+MOJO -POGRU 246 
+
+POYO 522 
+
+MOJO -POYO 320 
+
+MOJO -POYO -L 476 DG CA1 LP LGd VISp VISal VISam Predicted DG CA1 LP LGd VISp VISal VISam True 0.59 0.29 0.07 0.02 0.00 0.01 0.01 0.28 0.53 0.11 0.05 0.00 0.00 0.02 0.07 0.16 0.41 0.22 0.03 0.07 0.04 0.03 0.06 0.25 0.54 0.07 0.03 0.02 0.01 0.00 0.03 0.03 0.62 0.15 0.14 0.03 0.03 0.04 0.05 0.28 0.32 0.25 0.03 0.01 0.08 0.05 0.19 0.26 0.38                                                                                             
+
+> 0.0 0.1 0.2 0.3 0.4 0.5 0.6 Proportion
+> DG CA1 LP LGd VISp VISal VISam Predicted DG CA1 LP LGd VISp VISal VISam True 0.46 0.34 0.09 0.05 0.00 0.04 0.02 0.37 0.39 0.14 0.04 0.00 0.03 0.03 0.10 0.16 0.41 0.18 0.02 0.06 0.08 0.04 0.07 0.23 0.48 0.06 0.06 0.06 0.01 0.01 0.02 0.05 0.60 0.16 0.15 0.03 0.03 0.07 0.09 0.27 0.26 0.25 0.03 0.04 0.07 0.06 0.18 0.24 0.37
+> 0.0 0.1 0.2 0.3 0.4 0.5 0.6 Proportion
+> DG CA1 LP LGd VISp VISal VISam Predicted DG CA1 LP LGd VISp VISal VISam True 0.60 0.25 0.04 0.06 0.01 0.02 0.02 0.31 0.52 0.11 0.02 0.00 0.01 0.01 0.07 0.13 0.46 0.21 0.03 0.04 0.06 0.03 0.05 0.25 0.53 0.08 0.02 0.04 0.02 0.00 0.02 0.05 0.63 0.12 0.15 0.03 0.02 0.07 0.07 0.16 0.40 0.25 0.02 0.00 0.07 0.08 0.13 0.26 0.44
+> 0.0 0.1 0.2 0.3 0.4 0.5 0.6 Proportion
+
+a b c
+
+Figure 5: Confusion matrix for mouse brain region classifications across different models. Left: from model with paired data from Allen datasets; Middle: Left + additional unlabelled data from Allen datasets; Right: Middle + monkey dataset. latent sequence ( MOJO -POYO and MOJO -POYO -L). However, we choose to include it for the sake of completeness. 
+
+## E Additional Experiments on Mouse Vision Datasets 
+
+In this section, we describe additional experiments conducted on mouse spiking datasets on various vision tasks. 
+
+E.1 Full Results on Mouse Vision Tasks 
+
+The complete results on the mouse vision tasks are shown in Table 21, including single-session results as well as all the tasks in 2 stimulus sets, including natural scenes (NS) classification of 119 classes, drifting grating orientation (DG) classification of 8 classes, and drifting grating temporal frequency (TF) classification of 5 classes. Note that in stimulus set 2, both DG and TF have reduced number of classes, including 4 orientations and 1 temporal frequency, hence we skip the TF results in stimulus 2 as it is trivial. Unlike the monkey results, single-session performance of MOJO underperformed those of purely supervised model, except for MOJO -POGRU in DG. We hypothesize that this discrepancy across datasets can be largely caused by the sheer difference in the number of units per session. Note that while the average number of units in monkey sessions is 57 for T and 191 for C-CO 2010, mice session has an average number of 676 units among evaluation sessions. The greatly increased number of units, and the more diverse brain regions, could make SSL difficult to learn, as MOJO needs to learn individual unit embeddings from scratch. The poorer performance in single-session MOJO is in direct contrast to pretrained model, where MOJO consistently outperformed SL methods in every tasks, reaching almost 100 % accuracy on both DG and TF. 
+
+E.2 Additional Results on Brain Region Classification 
+
+We used logistic regression with 5-fold cross-validation as the classifier, repeated across 5 seeds. Notably, in this dataset the unit counts vary substantially across brain regions. Therefore to ensure 24 Table 21: Visual stimuli classification accuracies on mouse vision tasks with 20 ms time chunks. 
+
+NS: Natural Scenes; DG: Drifting Grating Orientation; TF: Drifting Grafting Temporal Frequency. (A): with additional unlabelled data from Allen datasets. (J): with joint monkey-mouse dataset. Values are mean accuracies ± SD over sessions. Best performing models are in boldface (1st) and underlined (2nd), except for DG of stimulus set 2. 
+
+Stimulus Set 1 Stimulus Set 2 
+
+Method NS (4) DG (4) TF (4) DG (4) 
+
+> FROM SCRATCH
+
+Chance 0.84 12.5 20 25 MLP 83.17 ± 4.92 90.18 ± 2.03 87.11 ± 2.61 99.09 ± 0.63 
+
+POYO -SS 90.04 ± 3.92 98.33 ± 2.10 97.29 ± 5.00 99.79 ± 0.24 
+
+POGRU -SS 91.11 ± 3.36 91.72 ± 3.29 97.60 ± 2.36 99.95 ± 0.10 
+
+MOJO -POYO -SS 89.08 ± 3.42 95.73 ± 3.40 94.27 ± 2.99 99.74 ± 0.10 
+
+MOJO -POGRU -SS 87.48 ± 5.26 98.39 ± 1.99 96.51 ± 5.61 99.69 ± 0.27 
+
+> PRETRAINED  (UI)
+
+POYO (UI) 88.17 ± 3.17 93.54 ± 2.06 98.70 ± 5.98 99.90 ± 0.12 
+
+POGRU (UI) 88.87 ± 2.55 99.17 ± 0.76 98.54 ± 0.85 99.95 ± 0.10 
+
+MOJO -POYO (UI) 91.53 ± 1.99 99.74 ± 0.31 99.69 ± 0.36 99.95 ± 0.10 
+
+MOJO -POGRU (UI) 92.54 ± 3.41 99.53 ± 0.20 99.01 ± 0.55 99.95 ± 0.10 
+
+MOJO -POYO (A) (UI) 92.06 ± 2.62 99.84 ± 0.31 99.64 ± 0.36 99.84 ± 0.20 
+
+MOJO -POYO (J) (UI) 93.15 ± 2.39 99.43 ± 1.15 99.43 ± 1.01 99.95 ± 0.10 
+
+MOJO -POYO -L(J) (UI) 94.18 ± 2.00 99.84 ± 0.20 99.79 ± 0.29 99.95 ± 0.10 
+
+> PRETRAINED  (FT)
+
+POYO (FT) 91.03 ± 4.07 93.39 ± 4.50 98.54 ± 0.66 99.69 ± 0.21 
+
+POGRU (FT) 91.09 ± 5.64 99.48 ± 0.62 98.85 ± 1.23 99.95 ± 0.10 
+
+MOJO -POYO (FT) 94.12 ± 2.79 100.00 ± 0.0 99.69 ± 0.40 99.95 ± 0.10 
+
+MOJO -POGRU (FT) 94.47 ± 2.83 99.22 ± 0.91 99.17 ± 1.01 99.74 ± 0.40 
+
+MOJO -POYO (A) (FT) 94.05 ± 2.51 100.00 ± 0.0 99.27 ± 0.52 99.95 ± 0.10 
+
+MOJO -POYO (J) (FT) 94.62 ± 2.74 99.69 ± 0.64 99.38 ± 0.66 99.79 ± 0.29 
+
+MOJO -POYO -L(J) (FT) 95.48 ± 2.05 99.74 ± 0.52 99.74 ± 0.31 99.95 ± 0.10 balanced classes, we performed region-wise sub-sampling on the neural units prior to fitting each classifier. Figure 5 plots confusion matrices on 7 region classification from several MOJO -POYO model with different pretraining datasets. This includes (a) only labelled data, (b) with additional unlabelled data from the same dataset ( MOJO -POYO (A)), and (c) with additional monkey data ( MOJO -POYO (J)). Visual inspection reflects that the diagonal elements display larger weights as more and more unlabelled data is brought into the training pipeline. This visual observation also coincides with the quantitative results (Table 22), where an increasing test accuracies on the 7 brain region classification can be observed with more unlabelled data. Note that we also compare with non-MOJO baselines, including pure SL POYO as well as an ISI feature-based baseline [31], which computes 18 hand-crafted features for each neuron (ISI distributions, gamma-shape fits, band-limited PSDs of binned spike trains) from the entire dataset (not just the training set). MOJO -POYO variants outperform all these baseline approaches. 
+
+E.3 Additional Results on Neuronal Feature Prediction 
+
+Given MOJO ’s strong performance in predicting metadata such as brain regions from unit embeddings, we wanted to test more thoroughly whether the SSL objective allows the unit embeddings to encode finer-grained, neuron-level properties. We evaluated this on 50 Allen visual coding Neuropixels sessions (34,606 single units across 7 target regions) along two complementary axes (Figure 6). 25 Table 22: Brain region classification accuracies on pretrained mouse vision datasets. Values are mean accuracies ± SD over 5 seeds. (A): with additional unlabelled data from Allen datasets. (J): with joint monkey-mouse dataset. Best performing models are in boldface (1st) and underlined (2nd). Method 3 merged-regions 7 regions Chance 33.33 14.29 ISI Baseline [31] 68.46 38.46 
+
+POGRU 56.66 ± 0.78 26.93 ± 0.85 
+
+POYO 58.45 ± 0.79 27.99 ± 0.39 
+
+MOJO -POGRU 70.09 ± 0.58 36.77 ± 0.86 
+
+MOJO -POYO 74.48 ± 0.64 43.17 ± 1.35 
+
+MOJO -POYO (A) 79.29 ± 0.65 48.67 ± 0.72 
+
+MOJO -POYO (J) 80.41 ± 0.83 51.16 ± 1.03 
+
+MOJO -POYO -L(J) 82.72 ± 0.40 54.78 ± 1.50 Table 23: Mouse Validation Decoding Accuracy at Epoch 199. Best performing models are in boldface (1st) and underlined (2nd). 
+
+Validation Acc. ( %)
+
+Method NS TF DG Avg. 
+
+> MOUSE
+
+POYO (Lamb) 71.33 98.36 94.55 88.08 
+
+POYO (Adam) 51.08 91.59 94.55 79.07 
+
+MOJO -POYO 73.01 99.23 98.02 90.09 
+
+MOJO -POYO (A) 74.47 99.49 98.82 90.93 
+
+> JOINT
+
+POYO (Lamb)(J) 65.72 97.01 95.29 86.00 
+
+POYO (Adam)(J) 77.04 98.52 96.25 90.91 
+
+MOJO -POYO (J) 78.06 99.00 98.20 91.76 
+
+MOJO -POYO -L(J) 79.50 99.21 97.86 92.19 
+
+First, we used the unit embeddings to regress 18 handcrafted single-neuron spike-statistic features including moments of the ISI distribution, gamma-shape fits, and band-limited PSD of the binned spike train [31]. MOJO embeddings predict these targets much better than pure-SL POYO models across every target and every region: e.g., for log(median ISI) R2=0.57–0.61 ( MOJO variants) vs 0.33 (POYO ); for log(mean firing rate) 0.88 vs 0.54; for the coefficient of variation, where supervised POYO 
+
+decoding fails entirely, ∼0.20 vs ∼0.00. Second, we asked whether the embedding geometry reflects probe topology by computing the cosine similarity between pairs of unit embeddings on the same probe (1.23M same-probe pairs). MOJO embeddings show a substantially stronger anti-correlation between embedding similarity and electrode distance than supervised POYO (Spearman r = -0.25 to -0.29 vs -0.12; all pairwise ∆r CIs exclude zero, bootstrap p < 1e − 300 ). Splitting these pairs by area-pair type further reveals that, beyond purely anatomical decay, MOJO embeddings cluster pairs of units across distant but functionally related regions (e.g., cortex-thalamus at ∼4 mm probe distance, or visual cortex and visual-recipient subcortical regions) – structure that is largely absent in the supervised baseline. 26 log med ISI log min ISI log max ISI mode ISI log mean FR log SD CV CV2 LV LVR shape scale log PSD 
+
+> log PSD
+> log PSD
+> log PSD log PSD log  /
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> R 2 (held-out, 5 reps)
+
+a POYO (sup.) MOJO-POYO (A) MOJO-POYO (J) MOJO-POYO-L (J)    
+
+> 02000 4000 6000 Probe distance ( m)
+> 0.20
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20 Cosine sim of unit emb. (median, 95% CI)
+
+b All same-probe pairs     
+
+> 01000 2000 3000 4000 Probe distance ( m)
+
+c Same-area pairs    
+
+> 02000 4000 6000 Probe distance ( m)
+
+d Cross-area pairs POYO (sup.) MOJO-POYO (A) MOJO-POYO (J) MOJO-POYO-L (J) Figure 6: Unit-level metadata is encoded better by MOJO than by pure-SL POYO . (a) Linear-probe regression of 18 single-neuron spike-statistic features (ISI moments, firing rate, variability indices, gamma-distribution fit parameters, and band-limited PSDs of the binned spike train) from each model’s unit embeddings on the Allen visual coding Neuropixels dataset. Bars show mean R2 over 5 folds; error bars indicate s.d. across splits. (b–d) Cosine similarity between unit-embedding pairs as a function of probe distance for (b) all same-probe pairs (1.23M pairs), (c) same-area pairs (470k pairs, capped at 4.5 mm where pair counts become sparse), and (d) cross-area pairs. Probe distance is measured along the Neuropixels shank as |∆channel | × 20 μm. Lines show the per-bin median cosine similarity (200 μm bins); shaded bands are 95% non-parametric CIs on the median. The mid-distance bump in cross-area pairs (panel d) is dominated by visual-cortex ↔ visual subcortical pairs – specifically thalamic (LGd, LP; ∼40% of cross-area pairs in the 3.5–4.5 mm range) and midbrain (APN; ∼14%) partners of visual-cortical units (VISp, VISal, VISam, VISpm, VISrl). This indicates that MOJO embeddings cluster functionally related neurons across large anatomical separations – a structure largely absent in the supervised baseline. All pairwise ∆ Spearman r differences between checkpoints are significant (paired bootstrap, B = 200 , nresample = 3 × 10 5, all 95% CIs exclude zero, p < 10 −300 ). 
+
+E.4 Additional Results on Joint Pretraining combining Monkey and Mouse Datasets 
+
+As shown in Table 23, for MOJO on mouse vision tasks, positive transfers via convergence speed can be observed on validation performance at early epochs, compared to mouse-only model. The joint model is also capable of retaining knowledge of the previously learned tasks, verified by its brain region classification and finetuning performance, which stayed consistent as the monkey-only model: 
+
+0.8551 decoding R2 averaged over monkey T sessions and 77 .51% multi-region classification from unit embeddings of pretrained monkey sessions, compared to 0.8548 and 78 .24% for monkey-only 27 Table 24: Decoding performance of NEDS on all behaviour tasks of mouse decision datasets. 
+
+Values are mean R2 or balanced accuracies ± SD over sessions. Method Choice Block Wheel Whisker NEDS 0.8200 ± 0.1206 0.8116 ± 0.0876 0.5629 ± 0.0786 0.5066 ± 0.0975 NEDS+bugfix 0.8202 ± 0.1045 0.7794 ± 0.1039 0.5152 ± 0.0902 0.4751 ± 0.1068 model, respectively. With a larger model and joint training, MOJO improved further on monkey brain region classification to 81 .02% , with similar finetuning performance of 0.8533 .The same curriculum learning experiment was also performed on POYO model, and its results differed according to the choice of optimizer: With Lamb optimizer, no clear transfer was observed on validation curve, whereas with AdamW optimizer, the mouse-only model learned much more slowly, but the joint model was able to learn the mouse tasks much faster. Empirically, we found that AdamW optimizer induces larger changes on POYO ’s unit embeddings, for example, the standard deviation of unit embedding at epoch 199 of the joint training is 0.093 for AdamW optimizer and 0.036 for Lamb, from 0.053 and 0.031 at epoch 0, respectively. This may be due to the additional per-layer rescaling introduced in Lamb optimizer [54]. We can speculate that for training on more homogeneous dataset, such small changes on unit embedding might not be problematic, as the rest of the model can be trained to capture the variations in the dataset, but when such a model is subsequently transferred to a highly heterogeneous dataset, like cross-species and cross-task data in our case, larger embedding updates may facilitate transferring. Nevertheless, more comprehensive experiments are required to fully understand the root cause. 
+
+## F Additional Experiments on Mouse Decision Datasets 
+
+In this section, we include results of NEDS [16], rerun on mouse decision datasets due to changes on split and spike-sorting. The dataset changes are confirmed by the original authors. We ran NEDS before and after the most recent fix on masking in the official repository, and the results are shown in Table 24. 
+
+## Broader Impact 
+
+The method proposed in this paper could contribute to the advancement of brain-computer interfaces to restore motor and speech functions. Datasets used to train the proposed approach originate from animal or human experiments involving surgical implanting, raising ethical concerns common to many medical technologies, including, but not limited to, privacy protection, harm reduction and animal welfare. It is therefore imperative to ensure all experimental protocols comply with IRB guidelines. In addition, the research described in this paper could potentially be deployed in real-world settings, which may lead to negative financial and social impacts. Therefore, rigorous testing and comprehensive evaluation are required before any practical deployment. 28

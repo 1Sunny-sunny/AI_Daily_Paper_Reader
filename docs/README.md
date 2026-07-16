@@ -1,63 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-07-16
-- 运行时间：2026-07-16 05:30:14 北京时间
+- 最新运行日期：2026-07-17
+- 运行时间：2026-07-17 05:21:23 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今天精读了针对稀缺脑电数据的尺度感知注意力模型，以及从非侵入脑记录中实现语义重建的交互式多特征融合方法，同时速读了可逆动力学、认知地图学习和脉冲网络增强等前沿工作。  
-最值得看的是：RG-Flow Transformer让睡眠EEG这类小样本数据也能被有效建模，而交互式多特征融合则把非侵入脑信号的语义重建推进到更鲁棒的层级。  
-下一步可以重点关注这两篇精读论文的代码或补充实验，它们很可能启发你在有限数据下的神经解码或脑机接口应用。
-- 详情：[/202607/16/README](/202607/16/README)
+今日精选15篇神经科学与计算交叉论文，聚焦神经编码策略与解码泛化性。
+高光精读《Evaluating Encoding Strategies for Closed-Loop Classification in Biological Neural Networks》与《Leveraging unlabelled data for generalizable neural population decoding》，分别提出闭环编码评估框架和利用无标签数据提升群体解码的通用性。
+速读推荐了解事件驱动仿生前端《A 32-channel event-based bio-signal analog front-end》、人类感知认知的状态空间模型《A modular state-space model of human perception, cognition, and decision dynamics》及神经网络偏见诊断工具《A layer-resolved diagnostic identifies bias-driven decisions in deep neural networks》。
+- 详情：[/202607/17/README](/202607/17/README)
 
 ### 精读区论文标签
-1. [Scale-Aware Attention for Scarce Neural Data: An RG-Flow Transformer on Sleep-EDF EEG](/202607/16/2607.11950v1-scale-aware-attention-for-scarce-neural-data-an-rg-flow-transformer-on-sleep-edf-eeg)  
+1. [Evaluating Encoding Strategies for Closed-Loop Classification in Biological Neural Networks](/202607/17/2607.13644v1-evaluating-encoding-strategies-for-closed-loop-classification-in-biological-neural-networks)  
    标签：评分：9.0/10、query:sr
-   evidence：用于稀缺EEG数据的RG-Flow transformer具有尺度感知注意力
-2. [Beyond Parallel Tracking: Interactive Multi-Feature Fusion Drives Semantic Reconstruction from Non-invasive Brain Recordings](/202607/16/2607.12071v1-beyond-parallel-tracking-interactive-multi-feature-fusion-drives-semantic-reconstruction-from-non-invasive-brain-recordings)  
+   evidence：在闭环生物神经网络分类中比较基于尖峰的编码策略
+2. [Leveraging unlabelled data for generalizable neural population decoding](/202607/17/2607.14086v1-leveraging-unlabelled-data-for-generalizable-neural-population-decoding)  
    标签：评分：9.0/10、query:sr
-   evidence：多特征融合框架，从非侵入性脑记录中重构语义
-3. [The Capacity of Thought: Benchmarking Llama 3.2 in Semantic fMRI Neural Language Decoding and Improving the Huth Encoding-Model Baseline](/202607/16/2607.12079v1-the-capacity-of-thought-benchmarking-llama-32-in-semantic-fmri-neural-language-decoding-and-improving-the-huth-encoding-model-baseline)  
+   evidence：使用SSL和尖峰令牌的神经群体解码
+3. [Generating whole-brain neural activity and behavior through unified latent dynamics](/202607/17/biorxiv-10-64898-2026-06-05-730482-v2-generating-whole-brain-neural-activity-and-behavior-through-unified-latent-dynamics)  
    标签：评分：9.0/10、query:sr
-   evidence：fMRI语言解码与编码模型改进，直接从神经记录重建刺激
-4. [Lost in Visual Translation: A VLM-Assisted Perceptual-Semantic Coherence Framework for EEG-to-Image Reconstruction](/202607/16/2607.12364v1-lost-in-visual-translation-a-vlm-assisted-perceptual-semantic-coherence-framework-for-eeg-to-image-reconstruction)  
+   evidence：从潜在动力学生成全脑神经活动和行为
+4. [Diffusion Latent Representations for Neural Decoding](/202607/17/biorxiv-10-64898-2026-07-08-737343-v1-diffusion-latent-representations-for-neural-decoding)  
    标签：评分：9.0/10、query:sr
-   evidence：使用视觉语言模型的脑电到图像重建评估框架，用于语义一致性
-5. [On the Optimal Temporal Resolution for Information Representation in Neural Activity: A Theoretical Analysis](/202607/16/biorxiv-10-64898-2026-05-19-726394-v2-on-the-optimal-temporal-resolution-for-information-representation-in-neural-activity-a-theoretical-analysis)  
+   evidence：用于神经语音解码的扩散潜在表示
+5. [Surprisal contributes little beyond contextual embeddings in high-gamma ECoG encoding](/202607/17/biorxiv-10-64898-2026-07-10-737662-v1-surprisal-contributes-little-beyond-contextual-embeddings-in-high-gamma-ecog-encoding)  
    标签：评分：9.0/10、query:sr
-   evidence：神经信息表征最优时间分辨率的理论分析
+   evidence：测试惊奇度是否在预测ECoG响应中对上下文嵌入有额外贡献，探究神经编码模型内部
 
 ### 速读区论文标签
-1. [Robustly Invertible Nonlinear Dynamics and the BiLipREN: From Inversion-Based Control to Generative Trajectory Modelling](/202607/16/2607.10026v1-robustly-invertible-nonlinear-dynamics-and-the-bilipren-from-inversion-based-control-to-generative-trajectory-modelling)  
+1. [A 32-channel event-based bio-signal analog front-end with adaptive delta and pulse frequency encoding](/202607/17/2607.12901v1-a-32-channel-event-based-bio-signal-analog-front-end-with-adaptive-delta-and-pulse-frequency-encoding)  
    标签：评分：8.0/10、query:sr
-   evidence：可逆动力学用于从信号稳健重建
-2. [Differentiable Clone-Structured Causal Graphs for End-to-End Cognitive Map Learning from Image Sequences](/202607/16/2607.12382v1-differentiable-clone-structured-causal-graphs-for-end-to-end-cognitive-map-learning-from-image-sequences)  
+   evidence：基于事件的模拟前端，用于生物医学信号采集与时序编码
+2. [A modular state-space model of human perception, cognition, and decision dynamics](/202607/17/2607.14078v1-a-modular-state-space-model-of-human-perception-cognition-and-decision-dynamics)  
    标签：评分：8.0/10、query:sr
-   evidence：可微克隆结构因果图用于可解释认知地图学习
-3. [Neuromodulation enhances the capability and efficiency of spiking neural networks](/202607/16/biorxiv-10-1101-2025-07-25-666748-v2-neuromodulation-enhances-the-capability-and-efficiency-of-spiking-neural-networks)  
+   evidence：数学框架通过潜在状态连接感觉输入与行为
+3. [A layer-resolved diagnostic identifies bias-driven decisions in deep neural networks](/202607/17/biorxiv-10-1101-2025-09-16-676625-v7-a-layer-resolved-diagnostic-identifies-bias-driven-decisions-in-deep-neural-networks)  
    标签：评分：8.0/10、query:sr
-   evidence：神经调控增强脉冲神经网络的效率和脉冲模式表示
-4. [Can we trust subthalamic local field potential? Geometrical and dynamical factors constraining the interpretability of extracellular recordings](/202607/16/biorxiv-10-64898-2026-07-08-737284-v1-can-we-trust-subthalamic-local-field-potential-geometrical-and-dynamical-factors-constraining-the-interpretability-of-extracellular-recordings)  
+   evidence：层分辨诊断解释神经网络决策
+4. [TRACR: an anterograde transneuronal tracing system for genetic access across synapses and longitudinal circuit analysis](/202607/17/biorxiv-10-64898-2026-02-08-704659-v2-tracr-an-anterograde-transneuronal-tracing-system-for-genetic-access-across-synapses-and-longitudinal-circuit-analysis)  
    标签：评分：8.0/10、query:sr
-   evidence：研究丘脑底核局部场电位的可解释性对神经编码模型的影响
-5. [Structure-Preserving Neural ODEs via Nonstandard Finite Difference Discretization](/202607/16/2607.10858v1-structure-preserving-neural-odes-via-nonstandard-finite-difference-discretization)  
+   evidence：跨突触示踪系统揭示神经元如何通过回路连接表示信息
+5. [Activity Regeneration from Silent States in Neuronal Networks with Transient Synaptic Memory](/202607/17/2607.14000v1-activity-regeneration-from-silent-states-in-neuronal-networks-with-transient-synaptic-memory)  
    标签：评分：7.0/10、query:sr
-   evidence：保结构神经ODE用于连续动力学建模
-6. [Constructed Reality, Contested Priors: Decoupling and the Architecture of Cognitive Relapse Under the Free Energy Principle](/202607/16/2607.11958v1-constructed-reality-contested-priors-decoupling-and-the-architecture-of-cognitive-relapse-under-the-free-energy-principle)  
+   evidence：具有短暂突触记忆的神经元网络模型用于活动再生
+6. [A cortical-hippocampal communication undergoes rebalancing after new learning](/202607/17/biorxiv-10-1101-2025-03-26-645547-v2-a-cortical-hippocampal-communication-undergoes-rebalancing-after-new-learning)  
    标签：评分：7.0/10、query:sr
-   evidence：自由能原理解释认知复发的生成模型
-7. [From Geometric Recovery to Causal Validation: A Reproducible Audit of Sparse Autoencoder Features, from Superposition Geometry to Causal Inertness](/202607/16/2607.12166v1-from-geometric-recovery-to-causal-validation-a-reproducible-audit-of-sparse-autoencoder-features-from-superposition-geometry-to-causal-inertness)  
+   evidence：研究记忆巩固过程中的尖波涟漪和CA1神经元亚层活动
+7. [Distinct electrophysiological signatures reveal neuronal heterogeneity in the mouse fasciola cinereum](/202607/17/biorxiv-10-1101-2025-08-13-670170-v2-distinct-electrophysiological-signatures-reveal-neuronal-heterogeneity-in-the-mouse-fasciola-cinereum)  
    标签：评分：7.0/10、query:sr
-   evidence：审计稀疏自编码器特征解释性，解释神经表征的方法
-8. [From Preimage Search To Source-Grounded Feature Inversion](/202607/16/2607.12526v1-from-preimage-search-to-source-grounded-feature-inversion)  
+   evidence：描述神经元放电起始和内在特性
+8. [Symmetry and nonlinear-readout criteria for orientation-tuning dynamics in a cortical neural field](/202607/17/biorxiv-10-64898-2025-12-29-696812-v3-symmetry-and-nonlinear-readout-criteria-for-orientation-tuning-dynamics-in-a-cortical-neural-field)  
    标签：评分：7.0/10、query:sr
-   evidence：源锚定特征反演用于可解释性
-9. [Semantic Sampling via Learnable Observation Front Ends](/202607/16/2607.11260v1-semantic-sampling-via-learnable-observation-front-ends)  
+   evidence：将朝向与神经活动关联的数学框架
+9. [Comparison of Dimension Reduction Methods for EEG Seizure Detection Using Autonomous AI-Driven Optimization](/202607/17/2607.12546v2-comparison-of-dimension-reduction-methods-for-eeg-seizure-detection-using-autonomous-ai-driven-optimization)  
    标签：评分：6.0/10、query:sr
-   evidence：可学习观测前端用于信号的语义采样
-10. [TSCA-Net: Temporal-Spatial Clique Attention for Interpretable Multimodal Pedestrian Trajectory Prediction](/202607/16/2607.11939v1-tsca-net-temporal-spatial-clique-attention-for-interpretable-multimodal-pedestrian-trajectory-prediction)  
+   evidence：比较EEG降维方法，与脑机接口时间解码相关
+10. [Optimal photostimulation selection for iterative activity maps](/202607/17/2607.12930v1-optimal-photostimulation-selection-for-iterative-activity-maps)  
    标签：评分：6.0/10、query:sr
-   evidence：可解释的时序注意力用于序列预测
+   evidence：用于选择光刺激以映射神经回路的贝叶斯框架
 
