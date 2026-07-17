@@ -1,63 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-07-17
-- 运行时间：2026-07-17 05:21:23 北京时间
+- 最新运行日期：2026-07-18
+- 运行时间：2026-07-18 05:01:09 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今日精选15篇神经科学与计算交叉论文，聚焦神经编码策略与解码泛化性。
-高光精读《Evaluating Encoding Strategies for Closed-Loop Classification in Biological Neural Networks》与《Leveraging unlabelled data for generalizable neural population decoding》，分别提出闭环编码评估框架和利用无标签数据提升群体解码的通用性。
-速读推荐了解事件驱动仿生前端《A 32-channel event-based bio-signal analog front-end》、人类感知认知的状态空间模型《A modular state-space model of human perception, cognition, and decision dynamics》及神经网络偏见诊断工具《A layer-resolved diagnostic identifies bias-driven decisions in deep neural networks》。
-- 详情：[/202607/17/README](/202607/17/README)
+今日精读脑机接口实时工具与海马体重映射机制，速读涵盖表征几何学与记忆重放。  
+最值得看：表征几何学同时衡量神经元多样性和网络连接保真度，记忆重放呈现节律性规律。  
+普通读者可重点关注“脑机接口+记忆解码”这一交叉方向，理解大脑如何编码和重放信息。
+- 详情：[/202607/18/README](/202607/18/README)
 
 ### 精读区论文标签
-1. [Evaluating Encoding Strategies for Closed-Loop Classification in Biological Neural Networks](/202607/17/2607.13644v1-evaluating-encoding-strategies-for-closed-loop-classification-in-biological-neural-networks)  
+1. [Dendrite: A Real-Time Python Application for Online Brain-Computer Interface Research and Development](/202607/18/2607.14655v1-dendrite-a-real-time-python-application-for-online-brain-computer-interface-research-and-development)  
    标签：评分：9.0/10、query:sr
-   evidence：在闭环生物神经网络分类中比较基于尖峰的编码策略
-2. [Leveraging unlabelled data for generalizable neural population decoding](/202607/17/2607.14086v1-leveraging-unlabelled-data-for-generalizable-neural-population-decoding)  
+   evidence：描述Dendrite，一个用于在线脑机接口研究和开发的实时Python应用
+2. [Dentate gyrus facilitates rate, but not global, remapping along the CA3 transverse axis](/202607/18/biorxiv-10-64898-2025-12-04-692471-v2-dentate-gyrus-facilitates-rate-but-not-global-remapping-along-the-ca3-transverse-axis)  
    标签：评分：9.0/10、query:sr
-   evidence：使用SSL和尖峰令牌的神经群体解码
-3. [Generating whole-brain neural activity and behavior through unified latent dynamics](/202607/17/biorxiv-10-64898-2026-06-05-730482-v2-generating-whole-brain-neural-activity-and-behavior-through-unified-latent-dynamics)  
+   evidence：海马体速率重映射和神经编码
+3. [Low-latency neuromorphic closed-loop control of hippocampal ripples in vivo](/202607/18/biorxiv-10-64898-2026-07-09-737518-v1-low-latency-neuromorphic-closed-loop-control-of-hippocampal-ripples-in-vivo)  
    标签：评分：9.0/10、query:sr
-   evidence：从潜在动力学生成全脑神经活动和行为
-4. [Diffusion Latent Representations for Neural Decoding](/202607/17/biorxiv-10-64898-2026-07-08-737343-v1-diffusion-latent-representations-for-neural-decoding)  
+   evidence：神经形态闭环系统实现海马尖波涟漪的实时检测与调控
+4. [Decoding and Characterizing the Intracranial Representation of Semantic Information](/202607/18/biorxiv-10-64898-2026-07-13-738249-v1-decoding-and-characterizing-the-intracranial-representation-of-semantic-information)  
    标签：评分：9.0/10、query:sr
-   evidence：用于神经语音解码的扩散潜在表示
-5. [Surprisal contributes little beyond contextual embeddings in high-gamma ECoG encoding](/202607/17/biorxiv-10-64898-2026-07-10-737662-v1-surprisal-contributes-little-beyond-contextual-embeddings-in-high-gamma-ecog-encoding)  
+   evidence：从颅内神经活动中解码语义信息
+5. [A Minimally Invasiveness Hybrid Brain-Computer Interface: A Distributed, Scalable and Evolvable Architecture for Whole Brain Access](/202607/18/biorxiv-10-64898-2026-07-14-738604-v1-a-minimally-invasiveness-hybrid-brain-computer-interface-a-distributed-scalable-and-evolvable-architecture-for-whole-brain-access)  
    标签：评分：9.0/10、query:sr
-   evidence：测试惊奇度是否在预测ECoG响应中对上下文嵌入有额外贡献，探究神经编码模型内部
+   evidence：微创混合脑机接口架构，实现全脑访问
 
 ### 速读区论文标签
-1. [A 32-channel event-based bio-signal analog front-end with adaptive delta and pulse frequency encoding](/202607/17/2607.12901v1-a-32-channel-event-based-bio-signal-analog-front-end-with-adaptive-delta-and-pulse-frequency-encoding)  
+1. [Representational geometry reveals how neuronal diversity supports perceptual performance](/202607/18/biorxiv-10-1101-2025-06-26-661754-v2-representational-geometry-reveals-how-neuronal-diversity-supports-perceptual-performance)  
    标签：评分：8.0/10、query:sr
-   evidence：基于事件的模拟前端，用于生物医学信号采集与时序编码
-2. [A modular state-space model of human perception, cognition, and decision dynamics](/202607/17/2607.14078v1-a-modular-state-space-model-of-human-perception-cognition-and-decision-dynamics)  
+   evidence：将神经元调谐多样性与群体表征几何及感知效率关联
+2. [Representational geometry as a fidelity metric for connectome-constrained networks: evidence from the Drosophila visual system](/202607/18/biorxiv-10-64898-2026-06-10-731214-v11-representational-geometry-as-a-fidelity-metric-for-connectome-constrained-networks-evidence-from-the-drosophila-visual-system)  
    标签：评分：8.0/10、query:sr
-   evidence：数学框架通过潜在状态连接感觉输入与行为
-3. [A layer-resolved diagnostic identifies bias-driven decisions in deep neural networks](/202607/17/biorxiv-10-1101-2025-09-16-676625-v7-a-layer-resolved-diagnostic-identifies-bias-driven-decisions-in-deep-neural-networks)  
+   evidence：表征几何作为内部表示生物保真度的度量
+3. [Rhythmic replay of short-term memory neural patterns revealed by time-resolved error prediction](/202607/18/biorxiv-10-64898-2026-06-22-733876-v2-rhythmic-replay-of-short-term-memory-neural-patterns-revealed-by-time-resolved-error-prediction)  
    标签：评分：8.0/10、query:sr
-   evidence：层分辨诊断解释神经网络决策
-4. [TRACR: an anterograde transneuronal tracing system for genetic access across synapses and longitudinal circuit analysis](/202607/17/biorxiv-10-64898-2026-02-08-704659-v2-tracr-an-anterograde-transneuronal-tracing-system-for-genetic-access-across-synapses-and-longitudinal-circuit-analysis)  
+   evidence：通过时间分辨误差预测揭示了EEG中短期记忆神经模式的节律性重放
+4. [A Unified Computational Framework for Deep Brain Stimulation at the Cellular and Network Levels](/202607/18/biorxiv-10-64898-2026-07-02-736102-v2-a-unified-computational-framework-for-deep-brain-stimulation-at-the-cellular-and-network-levels)  
    标签：评分：8.0/10、query:sr
-   evidence：跨突触示踪系统揭示神经元如何通过回路连接表示信息
-5. [Activity Regeneration from Silent States in Neuronal Networks with Transient Synaptic Memory](/202607/17/2607.14000v1-activity-regeneration-from-silent-states-in-neuronal-networks-with-transient-synaptic-memory)  
+   evidence：将DBS参数与尖峰活动联系的数学模型
+5. [NeuroGRIP: Retrieval-Augmented Graph Refinement for Knowledge-Grounded EEG Seizure Diagnosis](/202607/18/2607.14314v1-neurogrip-retrieval-augmented-graph-refinement-for-knowledge-grounded-eeg-seizure-diagnosis)  
    标签：评分：7.0/10、query:sr
-   evidence：具有短暂突触记忆的神经元网络模型用于活动再生
-6. [A cortical-hippocampal communication undergoes rebalancing after new learning](/202607/17/biorxiv-10-1101-2025-03-26-645547-v2-a-cortical-hippocampal-communication-undergoes-rebalancing-after-new-learning)  
+   evidence：可解释AI用于EEG解释
+6. [Scalable Training of Continuous-Time Spiking Neural Networks with Differentiable Spike-Time Discretization](/202607/18/2607.14672v1-scalable-training-of-continuous-time-spiking-neural-networks-with-differentiable-spike-time-discretization)  
    标签：评分：7.0/10、query:sr
-   evidence：研究记忆巩固过程中的尖波涟漪和CA1神经元亚层活动
-7. [Distinct electrophysiological signatures reveal neuronal heterogeneity in the mouse fasciola cinereum](/202607/17/biorxiv-10-1101-2025-08-13-670170-v2-distinct-electrophysiological-signatures-reveal-neuronal-heterogeneity-in-the-mouse-fasciola-cinereum)  
+   evidence：引入了可微脉冲时间离散化来训练连续时间脉冲神经网络
+7. [NeuronSoup: Evolving Asynchronous, Shared-Neuron Temporal Graphs without Backpropagation](/202607/18/2607.15217v1-neuronsoup-evolving-asynchronous-shared-neuron-temporal-graphs-without-backpropagation)  
    标签：评分：7.0/10、query:sr
-   evidence：描述神经元放电起始和内在特性
-8. [Symmetry and nonlinear-readout criteria for orientation-tuning dynamics in a cortical neural field](/202607/17/biorxiv-10-64898-2025-12-29-696812-v3-symmetry-and-nonlinear-readout-criteria-for-orientation-tuning-dynamics-in-a-cortical-neural-field)  
+   evidence：异步共享神经元时序图用于神经计算
+8. [Granule cells reorient cortical trajectories to separate contexts](/202607/18/biorxiv-10-64898-2026-03-03-709240-v2-granule-cells-reorient-cortical-trajectories-to-separate-contexts)  
    标签：评分：7.0/10、query:sr
-   evidence：将朝向与神经活动关联的数学框架
-9. [Comparison of Dimension Reduction Methods for EEG Seizure Detection Using Autonomous AI-Driven Optimization](/202607/17/2607.12546v2-comparison-of-dimension-reduction-methods-for-eeg-seizure-detection-using-autonomous-ai-driven-optimization)  
+   evidence：种群神经轨迹与时间动态用于情境分离
+9. [BraiNN: A Modern Simulator for Clinically Feasible Personalized Whole-Brain Network Modeling](/202607/18/biorxiv-10-64898-2026-07-08-737156-v1-brainn-a-modern-simulator-for-clinically-feasible-personalized-whole-brain-network-modeling)  
    标签：评分：6.0/10、query:sr
-   evidence：比较EEG降维方法，与脑机接口时间解码相关
-10. [Optimal photostimulation selection for iterative activity maps](/202607/17/2607.12930v1-optimal-photostimulation-selection-for-iterative-activity-maps)  
+   evidence：一个基于JAX的个性化全脑神经质量建模框架
+10. [Combining phase analysis and causal stimulation enables longitudinal mesoscale connectivity mapping](/202607/18/biorxiv-10-64898-2026-07-09-737556-v1-combining-phase-analysis-and-causal-stimulation-enables-longitudinal-mesoscale-connectivity-mapping)  
    标签：评分：6.0/10、query:sr
-   evidence：用于选择光刺激以映射神经回路的贝叶斯框架
+   evidence：因果连接映射方法用于纵向大规模网络
 

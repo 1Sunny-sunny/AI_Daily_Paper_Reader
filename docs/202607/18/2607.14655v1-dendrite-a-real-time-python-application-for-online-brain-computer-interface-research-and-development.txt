@@ -1,0 +1,257 @@
+Title: Dendrite: A Real-Time Python Application for Online Brain-Computer Interface Research and Development
+
+URL Source: https://arxiv.org/pdf/2607.14655v1
+
+Published Time: Fri, 17 Jul 2026 00:43:12 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# Dendrite: A Real-Time Python Application for Online Brain-Computer Interface Research and Development 
+
+Niko Kroflic 1 and Jan Babič 11Laboratory for Neuromechanics and Biorobotics, Department of Automatics, Biocybernetics, and Robotics, Jožef Stefan Institute, Ljubljana, Slovenia 
+
+Abstract 
+
+Online brain-computer interface research requires software that can acquire multimodal phys-iological data, train and update decoders, run live inference, and preserve the full experimental provenance in a reproducible workflow. We present Dendrite, a real-time brain-computer inter-face application in Python that brings signal acquisition, decoder training, and live inference together in a single, ready-to-run application that stays modifiable. Dendrite records several sig-nal streams at once, each at its native rate, and executes multiple processing modes concurrently against them. A decoder can start from a previously trained model or be fit mid-session while the pipeline keeps running, and the same recordings feed offline training in the same application. Each recording, decoder, and training run is tracked in a database, and every decoder records the configuration and the source recordings it was trained from, so a deployed decoder traces back to what produced it. The experimental paradigm stays external, an independent program in any language that reaches Dendrite over the network, rather than a module built inside the runtime. We validate the full system end-to-end on in-house and public BCI datasets, training and updating decoders online while the pipeline runs in real time. Dendrite is open-source under the GPL-3.0 license at https://github.com/dendrite-bci/dendrite . The result is a reproducible, open-source biomedical-computing system for developing and evaluating online BCI paradigms. 
+
+## 1 Introduction 
+
+Brain-computer interface (BCI) research is iterative. A study usually designs a task paradigm (the calibration routine, stimulus protocol, and trial structure that drive a session), acquires neural data under it, trains a decoder offline, deploys that decoder for online inference, and revises the paradigm for the next session. Supporting this loop asks several things of the software at once. It must acquire multiple signal streams, train and update decoders from those recordings, decode the streams in real time, and let the experimental paradigm evolve independently of the runtime. Compounding this, requirements may shift from one study to the next. Preprocessing, decoder choices, and output protocols should therefore be adjustable, so the runtime is expected to be modifiable by the researcher. 
+
+Preprint. This manuscript has not yet undergone peer review 
+
+1arXiv:2607.14655v1 [cs.HC] 16 Jul 2026 From a biomedical-computing perspective, this fragmentation has practical consequences. Decoder performance, latency, preprocessing choices, data provenance, and task timing are often distributed across separate scripts, acquisition programs, and offline analysis environments. This makes it diffi-cult to reproduce an online BCI session, compare configurations under identical runtime conditions, or trace a deployed decoder back to the exact data and parameters that produced it. A useful BCI software system should therefore run in real time and preserve the complete path from acquisition to training, deployment, replay, and post-hoc analysis. Existing tools trade off how much of a working system they supply against how tightly the exper-imental paradigm is bound to it. At one end, full platforms such as BCI2000 [Schalk et al., 2004], MEDUSA [Santamaría-Vázquez et al., 2023], MetaBCI [Mei et al., 2024], and OpenViBE [Renard et al., 2010] ship acquisition, processing, and a real-time runtime, and are usable the day they are installed. Most accept external stimulus software, integrated with the platform as an application module, a paradigm class, or a scenario. At the other end, the scientific-Python stack that BCI research already relies on supplies methods rather than a system: MNE [Gramfort et al., 2013] for preprocessing and analysis, scikit-learn [Pedregosa et al., 2011] for classical pipelines, Brainde-code [Schirrmeister et al., 2017] for neural decoders, and MOABB [Jayaram and Barachant, 2018] for reproducible benchmarking. These are offline-first and leave acquisition, the runtime, and the online loop for the researcher to assemble. Dendrite is a real-time Python BCI application built around three design goals. It performs multi-modal acquisition and decoding at native rates, unifies online and offline analysis in one launchable application, and keeps analysis and experiment setup low-friction, with the experimental paradigm kept external behind a Lab Streaming Layer (LSL) [Kothe et al., 2025] event contract. Because the data science and machine learning libraries BCI research already uses are Python, implementing the runtime in Python keeps the whole pipeline modifiable in the language researchers already work in, and lets the same processing and decoder code run against a recorded replay or a live amplifier. Internally the runtime divides into four layers, for data, processing, machine learning, and the web interface. Three processing modes run in the processing layer, each in its own subprocess and each reading one shared-memory ring buffer. The synchronous mode extracts event-locked epochs, the asynchronous mode classifies a continuous sliding window, and the neurofeedback mode estimates band power. Because these modes share state rather than a fixed pipeline graph, a decoder trained by one mode is available to another within the same session, with no break in output. Recordings are written to HDF5 with metadata inspired by the Brain Imaging Data Structure (BIDS) [Gorgolewski et al., 2016] and indexed in SQLite, so a completed session can be loaded directly into the training workbench and trained into a decoder that can be returned to the live pipeline. Training, live monitoring, data browsing, and offline replay all run in the same browser-served single-page application. Dendrite makes three contributions for reproducible online BCI research. 
+
+• Per-stream multimodal acquisition and decoding. Per-stream ring buffers record any LSL stream at its native rate, a mode binds to each stream, and decoders fuse at the prediction layer rather than through joint training. 
+
+• Online and offline analysis inside one application. A decoder trained mid-session by one processing mode is swapped into a second, independently running mode between inference steps, so live prediction continues without interruption while the model is replaced, and the same recordings feed offline training and Optuna hyperparameter search in the same applica-2tion, with no second tool to install. 
+
+• Low-friction analysis and experiment setup. The experimental paradigm is any program in any language and reaches Dendrite only through an LSL-event contract, and the same pipeline configuration drives a live amplifier or a recorded replay. Each session is written as a self-describing HDF5 recording with BIDS-inspired identifiers and indexed in SQLite, so a completed session loads directly into the training workbench with no conversion step, exports to MNE and FIF for offline analysis in the standard Python stack, and every trained decoder records, in the database, the training run and configuration that produced it together with the identifiers of its source recordings. Configuration, decoder training, and live monitoring all run from any browser on the local network. 
+
+## 2 System Architecture 
+
+2.1 Overview 
+
+The architecture was designed around the complete biomedical BCI workflow, from synchronised acquisition of heterogeneous physiological streams through real-time processing, decoder training, and online deployment to reproducible replay from stored sessions. Dendrite is organised as four layers plus an LSL-event contract for external task applications (Figure 1). The Data Layer handles acquisition and storage, the Processing Layer runs the signal processing modes, the Machine Learn-ing Layer provides the decoder infrastructure and training service, and the Web Interface Layer, served from the same backend process as the API, is the operator’s surface. The Task Application boundary is not a layer but a contract, over which external paradigm software interacts with Den-drite through LSL events and a prediction stream. Each layer exposes only a narrow interface to its neighbours. Hardware-agnostic streams reach the Data Layer, samples reach the Processing Layer over a shared ring buffer, standardised decoder objects reach the Machine Learning Layer, REST and WebSocket channels reach the Web Interface, and LSL events and a prediction stream cross the Task Application boundary. 
+
+2.2 Data layer 
+
+The Data Layer ingests multimodal streams and synchronises signals at different sampling rates. Hardware-agnostic stream discovery and network transport come from LSL, so Dendrite connects to any LSL-compatible amplifier (g.tec, Brain Products, OpenBCI, Muse, custom hardware) without device-specific code. Stream metadata (channel labels, types, sampling rates) comes from LSL headers. For development without hardware, an offline replay manager (Section 2.6) plays recorded files back as live LSL streams, so the same code path runs against a saved session or a live amplifier. The DAQ acquires each stream at its own native rate, from high-rate EEG and EMG down to irregularly timed event markers. Each stream runs in a dedicated acquisition thread that pulls samples at the native rate and writes them into a per-stream shared-memory ring buffer. The ring buffer is a zero-copy structure in Python shared memory that one writer fills and many readers drain. Acquisition is the sole writer, while the data saver, the visualisation bridge, and every active processing mode read independently without inter-process queues. A slow consumer cannot stall acquisition or its peers. Each sample carries three timestamps (LSL-synchronised, local clock, 3ML LAYER SIGNAL SOURCES DATA LAYER PROCESSING LAYER TASK APPLICATION WEB LAYER RUNTIME MODES         
+
+> Models
+> EEGNet, LDA, SVM, …
+> Decoders
+> sklearn-compatible
+> Training Service
+> online Optuna
+> Events
+> JSON
+> EEG
+> EMG
+> Other
+> Storage
+> HDF5, SQLite
+> Acquisition Shared Ring Buffer
+> shared-mem, SPMC
+> Data Saver
+> Metrics Saver
+> Synchronous
+> event-locked
+> Asynchronous
+> sliding-window
+> Neurofeedback
+> band-power
+> Output Streamers
+> Visualization Bridge
+> preproc + quality
+> Event Sender
+> EventOutlet
+> Receiver
+> LSL, ROS2, …
+> REST API
+> routers + services
+> WebSocket Bridge
+> QueueBridge fan-out
+> writes copy-on-read SWMR prediction_queue FanOutQueue mode_data wraps trains / saves SWMR reads uses requests training telemetry SWMR reads synchronous async
+
+Figure 1: Dendrite has four layers plus an LSL-event contract for external task applications. Multimodal inputs (EEG, EMG, events, kinematics) enter the Data Layer for acquisition and HDF5/SQLite storage, then reach the Processing Layer, where a shared ring buffer feeds composable runtime modes. The Machine Learning Layer wraps the decoder models, the sklearn-compatible decoders, and the online training service. The FastAPI Web Layer exposes a REST API and a WebSocket bridge (QueueBridge fan-out) that serve the Vue 3 single-page application. External applications receive predictions via configurable output protocols (LSL, ROS2, TCP/UDP, Ze-roMQ). wall-clock receive time) for latency tracking and offline alignment. LSL’s clock-synchronisation protocol corrects timing offsets between devices, enabling direct temporal comparison across streams from different hardware. Event markers arrive on a separate LSL stream and are injected into a markers channel aligned with all data streams, which supports event-locked epoch extraction across modalities. Raw data flows to HDF5 via a dedicated saver process. Each recording carries BIDS-inspired iden-tifiers (subject, session, run, task) [Gorgolewski et al., 2016] in its root attributes. The hierarchical layout stores per-modality datasets with structured arrays containing channel data and timestamps. After the first flush the saver enables HDF5 single-writer / multi-reader (SWMR) mode, so the ML Workbench, the Data Explorer, and external scripts can read up to the latest flushed sample while the recording is in progress, without copying or pausing acquisition. A SQLite backend tracks ex-periment lineage across four tables for studies, recordings, trained decoders, and training jobs. Each recording links to its acquisition configuration and any derived datasets or decoders. Trained de-coders carry versioning metadata (accuracy, training parameters, data sources). This design makes each online session auditable. Raw signals, event markers, acquisition parameters, trained decoders, and performance metadata remain linked after the session, so an online decision made by the system can be traced back to the recording and configuration that generated the corresponding decoder. 42.3 Processing layer and concurrency model 
+
+The Processing Layer reads from the shared ring buffer and runs each processing mode in its own subprocess. Modes manage their own working buffers and publish predictions through a unified output packet. Process isolation prevents a crash in one mode from affecting the others. This mat-ters in online BCI experiments, where acquisition should continue even if a decoder, visualisation, or experimental processing mode fails. The three current modes address complementary paradigms. The synchronous mode targets event-triggered epochs in cued tasks, the asynchronous mode continuous decoding in self-paced control, and the neurofeedback mode spectral features in volitional modulation training. Any combination runs against the same source streams. A typical configuration pairs synchronous training with asynchronous inference so a newly fitted decoder hot-swaps into live inference without interrupting output. Each mode owns its preprocessing chain rather than sharing a system-wide pipeline, so two modes can apply different bandpasses, references, or downsampling to the same source data. Modality processors maintain filter state across chunks for continuous real-time operation. EEG preprocessing supports configurable causal IIR bandpass and notch filtering, common-average re-referencing with bad-channel exclusion, and anti-aliased downsampling. Additional modality processors register through a common interface. Because all modes pull from the same shared ring buffer, sample distribution requires no per-mode queues and no fan-out logic on the producer side. Backpressure applies only at the visualisation output, where a slow browser client causes frames destined for the visualisation and mode-data channels to be dropped rather than buffered. The pipeline never blocks on the UI. 
+
+2.3.1 Synchronous mode 
+
+Synchronous mode handles event-locked decoding. It extracts a post-stimulus epoch on each marker, makes a per-trial prediction once a decoder is available, and triggers retraining as new epochs accu-mulate. When an event marker arrives, the mode schedules a window for extraction from its working buffer once enough post-stimulus data has arrived. The integer event code maps to a class label through the per-mode configuration. After every N completed epochs, the mode sends a training request to the ML service. The service reads epoch data directly from the live recording file via SWMR concurrent access and runs training in a subprocess. Epoch ingestion continues uninter-rupted. The new decoder is published into shared state, from which the synchronous mode reloads it for subsequent trials and any linked asynchronous mode picks it up for continuous inference. Each epoch yields a downsampled ERP for live visualisation, a per-trial prediction with confidence, and running performance metrics (accuracy, confidence, Cohen’s kappa) for the operator dashboard. 
+
+2.3.2 Asynchronous mode 
+
+Asynchronous mode provides continuous classification using sliding windows. At configurable inter-vals it extracts a fixed-duration window and runs inference, emitting a per-window class prediction with confidence. Pre-trained models load at startup. When linked to a synchronous mode, the asynchronous mode picks up newly trained decoders from shared state and hot-swaps them without interrupting inference. External applications consume this prediction stream to drive closed-loop 5actions, applying whatever decision logic their paradigm requires. 
+
+2.3.3 Neurofeedback mode 
+
+Neurofeedback mode estimates spectral power inside one or more configurable frequency bands. The mode emits per-channel or cluster-averaged power values at a configurable update rate (4 Hz in the sessions reported here), which downstream applications convert into visual, auditory, or haptic feedback for attention training, relaxation, and motor rehabilitation protocols. 
+
+2.4 Machine learning layer 
+
+The Machine Learning Layer exposes a uniform decoder interface over two families of models, neural architectures (both native and adapted from Braindecode [Schirrmeister et al., 2017], such as EEGNet [Lawhern et al., 2018]) and a classical decoder pipeline. Every decoder presents the same scikit-learn fit/predict interface, so cross-validation, MOABB [Jayaram and Barachant, 2018] benchmarking, and Optuna [Akiba et al., 2019] hyperparameter search apply uniformly across the registry. Neural and classical decoders share that interface but follow different training paths underneath. Neural pipelines delegate to a classifier that manages PyTorch [Paszke et al., 2019] training loops, batch construction, and device placement across CPU, CUDA, and MPS backends. Classical pipelines call scikit-learn’s fit directly. Both paths produce decoders that serialise to disk and load into real-time modes without modification. Decoders operate on single modalities. For multimodal experiments, users can run independent modes per signal type with predictions fused downstream. Dendrite does not require a specific decoder family and does not claim algorithmic novelty in the classifiers themselves. The contribution is the runtime integration, where the same decoder interface supports offline benchmarking, online retraining, live deployment, and storage of the trained model with the configuration and source recordings it was trained from. 
+
+2.5 Task-application contract 
+
+External applications (stimulus presentation software, game engines, custom scripts) handle paradigm logic such as stimulus timing and trial structure, and interact with Dendrite by creating an LSL outlet for event markers and subscribing to a prediction stream for closed-loop control. Each event is a JSON object carrying an integer event ID, a descriptive event type, and arbitrary contextual fields (trial, block, condition). The integer code triggers epoch extraction in synchronous mode and maps to a semantic class label through the mode configuration, and the full payload is persisted with the recording for offline analysis. Beyond discrete events, any numeric LSL stream at a fixed sampling rate can serve as a continuous input. Modes publish predictions through a unified packet that carries the mode type, the prediction payload, and a timestamp. Task applications subscribe to a prediction stream and receive JSON-formatted results that drive stimulus presentation, game mechanics, or downstream control loops. Beyond LSL, Dendrite supports ROS2 [Macenski et al., 2022] for robotics integration, TCP/UDP sockets, and ZeroMQ for distributed architectures. Multiple protocols can output simultaneously, so a single session can feed multiple consumers over different protocols at once from the same prediction stream. 62.6 Web interface 
+
+A FastAPI backend serves both the REST API for configuration and the built Vue 3 single-page application, so the entire system is reachable from one LAN address with no client-side installation. Singleton services manage configuration, pipeline lifecycle, stream discovery, mode instances, ML jobs, database access, preflight validation, and offline replay-stream lifecycle, and they aggregate this state into a single pipeline configuration that the processing subprocess consumes at start. 
+
+Figure 2: Dendrite Control view (v0.10) during a live recording. The centre panel shows live multi-channel EEG, decimated and preprocessed for visualisation, with channel-quality colouring. The modes panel on the left lists three concurrently active modes (Neurofeedback for band power, Asynchronous for continuous inference, Synchronous for event-triggered training), all reading from the same shared ring buffer. The bottom strip shows the LSL event timeline. The view is served from the FastAPI backend over WebSocket channels and accessible from any browser on the LAN. The frontend exposes three routed views (Figure 2). Control is the operator surface, a live dashboard for signal visualisation, channel quality, and mode outputs, alongside controls for stream selection and offline replay. Data Explorer browses studies, recordings, and trained decoders persisted in SQLite. ML Workbench drives offline training by loading recordings or MOABB datasets, configur-ing models, launching training jobs, and inspecting results. Real-time data reaches the browser over four WebSocket channels, namely telemetry (1 Hz JSON carrying system load, stream latency, mode metrics, and channel quality), visualisation ( ∼100 Hz msgpack carrying the decimated preprocessed signal), mode-data (event-driven msgpack carrying mode predictions and band-power outputs), and training (per-epoch JSON carrying training progress and completion). Model training and Optuna trials run in dedicated subprocesses, so a long job never blocks the API or the UI. 73 Evaluation 
+
+3.1 Setup 
+
+The evaluation asks three software-system questions. Can Dendrite run online training and inference end-to-end? Can public and in-house datasets be replayed through the same runtime? Do inference latency and output cadence satisfy online BCI constraints? We exercise the full pipeline end-to-end with a reproducible harness that drives the live backend the way an operator would. It spawns the FastAPI server, configures one or more synchronous/asynchronous mode pairs (each sharing a decoder), and replays a recorded session over LSL through the offline replay manager. The synchronous mode retrains every ten epochs, each time fitting a fresh decoder on all epochs accumulated so far. The asynchronous mode hot-swaps each new decoder mid-session. We score the synchronous mode by prequential accuracy , predicting every trial before its label is revealed and then folding it into the next retrain under a 0.95 exponential forgetting factor. The reported final value is therefore a trailing weighted average rather than lifetime accuracy. The asynchronous mode is the runtime’s online-deployment path, so we characterise it by the operational quantities a closed-loop application depends on, namely per-step inference latency and step cadence (Section 3.3), rather than by a separate accuracy score. Because the asynchronous mode runs the same decoder the synchronous mode trains, its decoding quality tracks the synchronous prequential accuracy, and we treat that correspondence as a fidelity check rather than an independent result. The same harness ran against four datasets. An in-house motor-imagery study (four sessions, single subject, 64 EEG channels at 500 Hz) provides two motor-imagery cue classes, and one replay fits an MI decoder (CSP+LDA). BNCI 2014-001 (the BCI Competition IV-2a dataset [Tangermann et al., 2012], with nine subjects, both sessions concatenated, 22 EEG channels at 250 Hz, 4-class MI, and an 8–30 Hz band-pass) is loaded through MOABB [Jayaram and Barachant, 2018]. BNCI 2014-009 [Riccio et al., 2013], a ten-subject P300 oddball dataset (256 Hz, 2-class target/non-target), is loaded the same way and decoded with xDAWN-covariance tangent-space logistic regression. An in-house exoskeleton study contributes a multimodal recording of an exoskeleton-driven motor task, with EEG, EMG, and exoskeleton kinematics captured together (64 EEG channels at 500 Hz). The first three datasets drive the online-learning panels that follow, while the exoskeleton recording drives the acquisition showcase below. Beyond these four datasets, a set of live neurofeedback sessions (five subjects, recorded on the acquisition hardware during α-band pretraining) supplies the closed-loop latency reported in Section 3.3, measured end-to-end through an external feedback application over the LSL contract. The harness reproduces end-to-end with one runner per dataset. Figure 3 shows multi-modal acquisition and the closed-loop neurofeedback path. Rather than establishing new decoding records, these datasets test whether the same runtime can support online learning, offline replay, multimodal acquisition, and closed-loop output across representative BCI paradigms. 
+
+3.2 Online learning across benchmarks 
+
+Figure 4 traces the synchronous decoder’s prequential accuracy across the panels. Every value is an online prequential score. Each trial is predicted before its label is seen and then folded into an incrementally retrained decoder under 0.95 forgetting, so the curves reflect live operation rather than a static fit. The point is that the system produces above-chance decoding while running online, each retrain taking 0.3–0.4 s before the new decoder hot-swaps into the asynchronous mode on its next step. 8FCz 
+
+> Cz
+> C3
+> C4
+> Pz
+
+EEG central-parietal cluster (500 Hz) 
+
+a
+
+> EMG 1
+> EMG 2
+> EMG 3
+
+EMG surface electrodes (2148 Hz)         
+
+> 2.5 2.0 1.5 1.0 0.5 0.0 0.5 1.0 1.5
+> time relative to movement onset (s)
+> 0.0
+> 0.5
+> 1.0
+> torque (N·m)
+
+Exoskeleton kinematics (100 Hz)        
+
+> 0200 400 600 800 1000 1200 1400
+> time from neurofeedback start (s)
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> relative  -power
+
+Streamed NF feature cluster -power b         
+
+> baseline (EC) baseline (EO) feedback block
+> 010 20 30 40 50 60 70
+> latency (ms)
+> 0
+> 500
+> 1000
+> count  p50 13 ms
+> p99 66 ms
+
+End-to-end round-trip latency (all live NF sessions) 
+
+> 60
+> 80
+> 100
+> position (deg)
+
+Figure 3: Acquisition and closed-loop output from one in-house exoskeleton recording. (a) Multi-modal signals on the shared LSL clock: 64-channel EEG (central-parietal cluster shown, 500 Hz), three-channel surface EMG (2148 Hz), and exoskeleton kinematics (joint torque and position, 100 Hz) around movement onset (dashed line). EEG and EMG are band-pass filtered for display in the band their benchmark decoders use (0.5–10 Hz and 20–200 Hz respectively). (b) Closed-loop neurofeedback from a study session. The streamed cluster α-band-power feature rises during the feedback blocks and relaxes between them, and the app’s self-reported end-to-end latency pooled across all live neurofeedback sessions ( p50 ≈ 13 ms, p99 ≈ 66 ms) sits below the asynchronous step interval. 0.0 0.2 0.4 0.6 0.8 1.0 
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 0.68
+> = 0.36
+
+In-house MI (CSP+LDA)      
+
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> 0.51
+> = 0.31
+
+BNCI 2014-001 MI (4-class)      
+
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> 0.92
+> = 0.46
+
+BNCI 2014-009 P300   
+
+> session progress
+> prequential accuracy (smoothed)
+> prequential accuracy (mean) ±1 SD across sessions / subjects dynamic no-information rate
+
+Figure 4: Online learning across three benchmark panels: in-house MI (CSP+LDA), BNCI 2014-001 MI, and BNCI 2014-009 P300. Each panel shows the synchronous decoder’s prequential accuracy (bold mean with a ±1 SD band across sessions or subjects; 15-sample rolling mean) over normalised session progress, with mean Cohen’s κ and a dynamic no-information rate (dashed; majority-class proportion under the same 0.95 forgetting as the accuracy). Series are defined in the figure key. 9Across the motor-imagery study’s four sessions the MI decoder reaches 0.59–0.82 prequential accu-racy ( κ 0.28–0.46, mean 0.36). On BNCI 2014-001 (4-class MI, nine subjects of BCI Competition IV-2a), the CSP+LDA pipeline reaches 0.51 mean prequential accuracy and mean κ 0.31 (per-subject range 0.08–0.50) against four-class chance of 0.25. The per-subject spread matches the between-subject variability this dataset is known for. On BNCI 2014-009 (P300), the xDAWN-covariance tangent-space pipeline reaches 0.92 mean prequential accuracy and mean κ 0.46 (per-subject range 0.14–0.69) across all ten subjects, online-retrained on the same ten-epoch schedule. Raw accuracy is inflated by the 1:5 target/non-target imbalance (no-information rate 0.83), so κ is the more honest summary. 
+
+3.3 Real-time performance: latency, cadence, and uninterrupted decoder up-dates 
+
+The asynchronous mode runs on a configurable step grid of 100 ms in the motor-imagery runs and a sample-aligned ∼97 .7 ms in the 256 Hz P300 runs. The wall-clock time of each inference step, recorded in the same telemetry, depends on the decoder. The lightweight CSP+LDA pipelines run at 1.0–1.7 ms at p50 and 1.8–2.6 ms at p99 , while the heavier xDAWN tangent-space P300 pipeline runs at 1.4–2.5 ms at p50 and 3.0–3.8 ms at p99 , with LSL acquisition contributing a further ∼0.15 ms at p50 . Online retraining and hot-swap run on a separate subprocess from the asynchronous loop, so cadence and inference latency are unaffected by training events. These figures are pipeline compute only. The closed-loop latency an external application actually observes, measured end-to-end on the live acquisition hardware and pooled across all neurofeedback sessions, is p50 ≈ 13 ms and 
+
+p99 ≈ 66 ms (Figure 3b), dominated by transport and the application’s own receive path rather than by inference. The application measures this as the difference between the LSL-synchronised acquisition time of the source EEG sample and its local clock when the derived band-power feature arrives, so the figure spans acquisition, backend compute, and transport rather than inference alone. Figure 5 decomposes it per subject and per stage. The internal decode path stays near 1 ms while the latency variability lives in transport, consistent across subjects. This latency stays below the 100 ms asynchronous step and well under the 4 Hz neurofeedback feature update, so end-to-end latency is not a bottleneck for either paradigm. 10 0 10 20 30 40 50 60 70 
+
+median latency (ms)        
+
+> sub-02
+> sub-03
+> sub-04
+> sub-05
+> sub-06
+> 12
+> e2e p50 13 p99 60 ms
+> 11
+> e2e p50 12 p99 67 ms
+> 12
+> e2e p50 13 p99 66 ms
+> 15
+> e2e p50 16 p99 66 ms
+> 12
+> e2e p50 14 p99 65 ms
+> 6 subjects · 1.0 1.9 ms internal · inference 0.7 0.9 ms
+> NF closed-loop round-trip
+> MI internal decode (all subjects, no closed-loop app)
+
+Per-subject stage breakdown a   
+
+> 0.1 110 100
+
+latency (ms, log scale)  
+
+> acquisition
+> compute · NF
+> transport · NF
+> compute · MI
+> inference · MI
+> p50 13 ms p99 65 ms
+
+Per-stage distribution bFigure 5: Closed-loop latency by stage and subject. (a) Per-subject median breakdown. Neu-rofeedback sessions (five subjects, live acquisition hardware) resolve the end-to-end latency into acquisition, backend compute, and transport plus application, with end-to-end p50 and p99 marked; the transport tail ( p99 ≈ 60 –67 ms) is consistent across subjects. Motor-imagery sessions ran with-out an external application and carry only the internal decode stages (acquisition and compute, near 1 ms). (b) Per-stage distributions pooled across all subjects, log scale. Acquisition and compute stay near or below 1 ms; the latency variability lives in transport. 11 4 Discussion 
+
+Dendrite addresses a practical biomedical-computing problem in online BCI research, the fragmen-tation of an online session across separate acquisition, training, and analysis tools. It provides a launchable runtime for acquisition, processing, decoder training, live inference, replay, and data ex-ploration, while keeping the experimental paradigm external through an LSL event contract. This separation is deliberate, and it has costs. Because the paradigm is external, Dendrite includes no stimulus presentation software, so a study must supply its own task application, and the initial setup is heavier than on a platform that bundles one. The same decoupling extends to the pipeline, where each stream is decoded independently and predictions are combined only at the end. This allows any LSL stream to join as a separate mode but prevents a decoder from learning features jointly across modalities. The evaluation tested end-to-end operation. Across the in-house motor-imagery, BNCI 2014-001, and BNCI 2014-009 P300 benchmarks, online-trained decoders stayed above chance on all three. Training inside the live pipeline yields sensible decoders instead of disrupting them. The policy refits the decoder from scratch every ten epochs and hot-swaps the result into the running asynchronous mode, and more sophisticated online-learning methods, from incremental and adaptive updates to cross-session transfer, can be built on top. The acquisition showcase captured EEG, EMG, and exoskeleton kinematics together on the shared LSL clock, each at its native rate (500, 2148, and 100 Hz), with per-stream ring buffers keeping them aligned (Figure 3a). The closed-loop neurofeed-back path, driving an external application over LSL with no platform-specific adapter, exercised the event-and-prediction contract end-to-end (Figure 3b). Throughout, the runtime met its real-time obligations. Per-step inference stayed between 1 and 4 ms, well inside the asynchronous step interval, and the closed-loop latency an external application observed was p50 ≈ 13 ms, with online retraining running off the inference path so a training event never perturbed cadence (Section 3.3). Extending the runtime means editing its source. A new decoder registers in the model registry as a local change; a new processing mode or output protocol is added by editing the layer that owns it. Dendrite exposes no plugin API, so a new capability is a modification in Python, the language the runtime is already written in, with the whole source open to change. The cost is that such extensions cannot be shipped as standalone plugin packages; they live in a fork or upstream. This runs in two directions. Inside the codebase, a researcher can assemble a custom paradigm or drop in an experimental decoder to probe a single stage of the pipeline in isolation. Because modes are composed declaratively rather than wired into a fixed pipeline, many decoder and channel configurations can run concurrently against the same acquisition stream, so experimental capacity is set by configuration rather than by new code. Outside the codebase, the FastAPI REST layer that drives the web interface is equally reachable by any programmatic client, so nothing about the system is exclusive to the browser UI. The same actions an operator performs there (discovering streams, configuring modes, launching the pipeline, reading back predictions) are available to a script or an autonomous agent. This makes the research loop itself automatable. A client can sweep configurations, launch replay runs, and collect results with no human in the loop, and because every run reproduces from its saved configuration and every trained decoder stores the configuration and training run that produced it together with the identifiers of its source recordings, the outcomes of such a sweep stay traceable to what produced them. The present evaluation has several limitations. The online-learning policy is intentionally simple and was used to exercise the runtime rather than to advance adaptive BCI algorithms. The in-house datasets are modest in size, and the closed-loop neurofeedback latency was measured with 12 one external feedback application rather than across many independent clients. Finally, multimodal fusion currently occurs downstream of independent per-modality decoders, and Dendrite does not yet train joint multimodal models inside the runtime. 
+
+## Conclusions 
+
+Dendrite is an open-source Python application for reproducible online BCI research. It integrates multimodal acquisition, real-time processing, online decoder training, live inference, offline re-play, browser-based monitoring, and traceable data storage in a single runtime while keeping task paradigms external through an LSL event contract. Across public and in-house datasets, Den-drite supported online decoder updates, concurrent processing modes, and closed-loop output with millisecond-scale inference latency. The application is intended to reduce the software burden of developing and evaluating online BCI paradigms while preserving the flexibility of the scientific Python ecosystem. 
+
+## Code availability 
+
+Dendrite is released as open-source software under the GPL-3.0 license at https://github.com/ dendrite-bci/dendrite . This paper describes release v0.10. 
+
+## References 
+
+Takuya Akiba, Shotaro Sano, Toshihiko Yanase, Takeru Ohta, and Masanori Koyama. Optuna: A next-generation hyperparameter optimization framework. In Proceedings of the 25th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining , pages 2623–2631, 2019. doi: 10.1145/3292500.3330701. Krzysztof J. Gorgolewski, Tibor Auer, Vince D. Calhoun, R. Cameron Craddock, Samir Das, Eu-gene P. Duff, Guillaume Flandin, Satrajit S. Ghosh, Tristan Glatard, Yaroslav O. Halchenko, Daniel A. Handwerker, Michael Hanke, David Keator, Xiangrui Li, Zachary Michael, Camille Maumet, B. Nolan Nichols, Thomas E. Nichols, John Pellman, Jean-Baptiste Poline, Ariel Rokem, Gunnar Schaefer, Vanessa Sochat, William Triplett, Jessica A. Turner, Gaël Varoquaux, and Russell A. Poldrack. The brain imaging data structure, a format for organizing and describing outputs of neuroimaging experiments. Scientific Data , 3:160044, 2016. ISSN 2052-4463. doi: 10.1038/sdata.2016.44. Alexandre Gramfort, Martin Luessi, Eric Larson, Denis A. Engemann, Daniel Strohmeier, Christian Brodbeck, Roman Goj, Mainak Jas, Teon Brooks, Lauri Parkkonen, and Matti S. Hämäläinen. MEG and EEG data analysis with MNE-Python. Frontiers in Neuroscience , 7:267, 2013. ISSN 1662-453X. doi: 10.3389/fnins.2013.00267. Vinay Jayaram and Alexandre Barachant. MOABB: Trustworthy algorithm benchmarking for BCIs. 
+
+Journal of Neural Engineering , 15(6):066011, 2018. ISSN 1741-2552. doi: 10.1088/1741-2552/ aadea0. 13 Christian Kothe, Seyed Yahya Shirazi, Tristan Stenner, David Medine, Chadwick Boulay, Matthew I. Grivich, Fiorenzo Artoni, Tim Mullen, Arnaud Delorme, and Scott Makeig. The lab streaming layer for synchronized multimodal recording. Imaging Neuroscience , 3:IMAG.a.136, 2025. ISSN 2837-6056. doi: 10.1162/IMAG.a.136. Vernon J. Lawhern, Amelia J. Solon, Nicholas R. Waytowich, Stephen M. Gordon, Chou P. Hung, and Brent J. Lance. EEGNet: A compact convolutional neural network for EEG-based brain-computer interfaces. Journal of Neural Engineering , 15(5):056013, 2018. doi: 10.1088/1741-2552/ aace8c. Steven Macenski, Tully Foote, Brian Gerkey, Chris Lalancette, and William Woodall. Robot op-erating system 2: Design, architecture, and uses in the wild. Science Robotics , 7(66):eabm6074, 2022. doi: 10.1126/scirobotics.abm6074. Jie Mei, Ruixin Luo, Lichao Xu, Wei Zhao, Shengfu Wen, Kun Wang, Xiaolin Xiao, Jiayuan Meng, Yongzhi Huang, Jiabei Tang, Longlong Cheng, Minpeng Xu, and Dong Ming. MetaBCI: An open-source platform for brain-computer interfaces. Computers in Biology and Medicine , 168: 107806, 2024. ISSN 0010-4825. doi: 10.1016/j.compbiomed.2023.107806. Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gregory Chanan, Trevor Killeen, Zeming Lin, Natalia Gimelshein, Luca Antiga, Alban Desmaison, Andreas Köpf, Edward Yang, Zachary DeVito, Martin Raison, Alykhan Tejani, Sasank Chilamkurthy, Benoit Steiner, Lu Fang, Junjie Bai, and Soumith Chintala. PyTorch: An imperative style, high-performance deep learning library. In Advances in Neural Information Processing Systems , volume 32, pages 8024–8035. Curran Associates, Inc., 2019. Fabian Pedregosa, Gaël Varoquaux, Alexandre Gramfort, Vincent Michel, Bertrand Thirion, Olivier Grisel, Mathieu Blondel, Peter Prettenhofer, Ron Weiss, Vincent Dubourg, Jake Vanderplas, Alexandre Passos, David Cournapeau, Matthieu Brucher, Matthieu Perrot, and Édouard Duch-esnay. Scikit-learn: Machine learning in Python. Journal of Machine Learning Research , 12: 2825–2830, 2011. ISSN 1533-7928. Yann Renard, Fabien Lotte, Guillaume Gibert, Marco Congedo, Emmanuel Maby, Vincent Delan-noy, Olivier Bertrand, and Anatole Lécuyer. OpenViBE: An open-source software platform to design, test, and use brain-computer interfaces in real and virtual environments. Presence: Teleop-erators and Virtual Environments , 19(1):35–53, 2010. ISSN 1054-7460. doi: 10.1162/pres.19.1.35. Angela Riccio, Luca Simione, Francesca Schettini, Alessia Pizzimenti, Maurizio Inghilleri, Marta Olivetti Belardinelli, Donatella Mattia, and Febo Cincotti. Attention and P300-based BCI performance in people with amyotrophic lateral sclerosis. Frontiers in Human Neuroscience ,7:732, 2013. ISSN 1662-5161. doi: 10.3389/fnhum.2013.00732. Eduardo Santamaría-Vázquez, Víctor Martínez-Cagigal, Diego Marcos-Martínez, Víctor Rodríguez-González, Sergio Pérez-Velasco, Selene Moreno-Calderón, and Roberto Hornero. MEDUSA: A novel Python-based software ecosystem to accelerate brain-computer interface and cognitive neu-roscience research. Computer Methods and Programs in Biomedicine , 230:107357, 2023. ISSN 0169-2607. doi: 10.1016/j.cmpb.2023.107357. Gerwin Schalk, Dennis J. McFarland, Thilo Hinterberger, Niels Birbaumer, and Jonathan R. Wol-paw. BCI2000: A general-purpose brain-computer interface (BCI) system. IEEE Transactions on Biomedical Engineering , 51(6):1034–1043, 2004. doi: 10.1109/TBME.2004.827072. 14 Robin Tibor Schirrmeister, Jost Tobias Springenberg, Lukas Dominique Josef Fiederer, Martin Glasstetter, Katharina Eggensperger, Michael Tangermann, Frank Hutter, Wolfram Burgard, and Tonio Ball. Deep learning with convolutional neural networks for EEG decoding and visualization. 
+
+Human Brain Mapping , 38(11):5391–5420, 2017. ISSN 1097-0193. doi: 10.1002/hbm.23730. Michael Tangermann, Klaus-Robert Müller, Ad Aertsen, Niels Birbaumer, Christoph Braun, Clemens Brunner, Robert Leeb, Carsten Mehring, Kai J. Miller, Gernot R. Müller-Putz, Guido Nolte, Gert Pfurtscheller, Hubert Preissl, Gerwin Schalk, Alois Schlögl, Carmen Vidaurre, Stephan Waldert, and Benjamin Blankertz. Review of the BCI competition IV. Frontiers in Neuroscience , 6:55, 2012. doi: 10.3389/fnins.2012.00055. 15

@@ -1,0 +1,2954 @@
+Title: Scalable Training of Continuous-Time Spiking Neural Networks with Differentiable Spike-Time Discretization
+
+URL Source: https://arxiv.org/pdf/2607.14672v1
+
+Published Time: Fri, 17 Jul 2026 01:07:16 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# Scalable Training of Continuous-Time Spiking Neural Networks with Differentiable Spike-Time Discretization 
+
+## Yusuke Sakemi 1,2 , Tomoya Takeuchi 1, Takeo Hosomi 3, and Kazuyuki Aihara 1,2 1Research Center for Mathematical Engineering, Chiba Institute of Technology, Narashino, Japan 
+
+> 2
+
+## International Research Center for Neurointelligence (WPI-IRCN), The University of Tokyo, Tokyo, Japan 
+
+> 3
+
+## NEC Corporation, Kawasaki, Japan July 17, 2026 
+
+Abstract 
+
+Continuous-time spiking neural networks (SNNs) provide an event-driven framework for temporal com-putation, computational neuroscience, and neuromorphic hardware. However, training deep continuous-time SNNs is severely constrained by the memory required for exact spike-time computation, which evaluates and retains candidate firing times over intervals determined by presynaptic spike ordering. Here we introduce a memory-efficient training framework based on differentiable spike-time discretiza-tion (DSTD) for leaky integrate-and-fire neurons with general membrane and synaptic time constants. DSTD maps irregular presynaptic spikes onto differentiable weighted events at fixed time points, replac-ing the input-dependent candidate dimension with M fixed time intervals while accurately approximating continuous-time membrane-potential dynamics. This reduces candidate-related activation memory from 
+
+O(Nout Nin ) to O(Nout M ) in the case of time-to-first-spike (TTFS) coding, where Nin and Nout denote the numbers of presynaptic and postsynaptic neurons, respectively. We further introduce synfire-chain-inspired temporal regularization that organizes layer-wise firing windows, mitigates dead-neuron failures, and enables pipeline-like processing. In dense LIF layers, DSTD reduced peak memory consumption by up to approximately 100-fold and training time by up to approximately 20-fold compared with exact spike-time computation. Together, these methods allowed us to train 9-layer convolutional SNNs on CIFAR-10 and 20-layer convolutional SNNs on Fashion-MNIST on a single GPU. 
+
+# 1 Introduction 
+
+Spiking neural networks provide a computational framework in which information is represented by discrete spike events and their timing [ 1]. This makes them relevant both for understanding temporal coding in biological neural systems [ 2] and for implementing event-driven, energy-efficient computation [ 3]. Continuous-time SNNs are particularly attractive because they treat spike times as explicit continuous variables, rather than as events constrained to discrete simulation steps. However, despite this conceptual appeal, training continuous-time SNNs at the scale of modern deep architectures remains challenging. Most scalable training methods for SNNs rely on surrogate gradients [ 4]. These methods have enabled deep SNNs by discretizing time and replacing the derivative of spike generation with a smooth or straight-through approximation. However, because they optimize time-discretized dynamics, they are not designed to directly control exact spike times in continuous time. This limitation is important when the objective is to study temporal coding or to map the learned dynamics to continuous-time analog neuromorphic hardware. A more direct approach is to train continuous-time SNNs using analytical spike-time gradients. In par-ticular, time-to-first-spike (TTFS) coding provides a simple framework in which each neuron emits at most one spike and information is represented by the first spike time [ 5, 6, 7, 8, 9, 10 , 11 ]. Such models allow exact or analytically tractable gradients and have been extended to several neuron and synapse models. However, their application to deep and wide networks remains limited. Three obstacles are central to this limitation. First, in LIF neurons, the postsynaptic spike time depends on the ordering between presynaptic spikes and the threshold-crossing time. Therefore, the number of 1arXiv:2607.14672v1 [cs.LG] 16 Jul 2026 candidate spike times grows with the number of input spikes. Second, in deep TTFS-SNNs, neurons in the hidden layers may fail to fire, which blocks temporal information propagation and stalls the gradient flow (the so-called dead-neuron problem) [ 7, 8, 10 ]. Third, because spike times propagate layer by layer, deeper SNNs suffer from reduced throughput, especially when implemented in neuromorphic hardware. Here we address these obstacles by extending differentiable spike-time discretization (DSTD) [ 12 ] to LIF neurons and combining it with temporal regularization inspired by synfire-chain dynamics [ 13 , 14 , 15 , 16 , 17 ]. DSTD maps irregular continuous-time spike trains to weighted spike events on fixed time points, reducing the number of candidate spike times from the number of presynaptic spikes to the number of DSTD steps. The temporal regularization encourages neurons in each layer to fire within prescribed temporal windows, producing temporally shifted spike distributions across layers and enabling pipeline-like processing. We refer to the resulting model as a synfire-chain SNN (Syn-SNN). We validate the proposed framework in both single-neuron and deep-network settings. For LIF neurons receiving spike inputs, DSTD accurately approximates membrane-potential trajectories and spike times while substantially reducing computation time and memory consumption. In our benchmarks, these improvements included nearly two orders of magnitude lower peak memory consumption for dense presynaptic spike inputs. We further demonstrate that DSTD enables the training of a 9-layer convolutional continuous-time SNN on CIFAR-10, where the learned models exhibit layer-wise spike-time propagation under constrained temporal windows. Finally, to demonstrate scalability to substantially deeper architectures, we train a 20-layer convo-lutional Syn-SNN on Fashion-MNIST and show that organized spike propagation and pipeline-like processing are maintained throughout the network. 
+
+# 2 Method 
+
+In this study, we consider multilayer models composed of leaky integrate-and-fire (LIF) neurons (Figs. 1 (a) and (b)). The LIF model is simple, yet it can reproduce the spiking behavior of biological neurons [ 18 ]: 
+
+dv (l)
+
+> i
+
+dt (t) = − 1
+
+τv
+
+v(l) 
+
+> i
+
+(t) + I(l) 
+
+> i
+
+(t),dI (l)
+
+> i
+
+dt (t) = − 1
+
+τI
+
+I(l) 
+
+> i
+
+(t) + u(l) 
+
+> i
+
+(t),u(l) 
+
+> i
+
+(t) =  
+
+> N(l−1)
+
+∑
+
+> j=1
+> F
+
+∑
+
+> q=1
+
+w(l) 
+
+> ij
+
+δ
+
+(
+
+t − t(l−1) 
+
+> j,q
+
+)
+
+.
+
+(1) Here, v(l) 
+
+> i
+
+and I(l) 
+
+> i
+
+denote the membrane potential and synaptic current of the ith neuron in the lth layer, respectively. The parameters τv and τI denote the time constants of the membrane potential and synaptic current, respectively. The term u(l) 
+
+> i
+
+represents the spike input to this neuron, and t(l−1)  
+
+> j,q
+
+denotes the qth firing time of neuron j in the ( l−1)th layer. In time-to-first-spike (TTFS) coding, each neuron is restricted to fire at most once, namely F = 1. In this study, we adopt TTFS coding for simplicity and computational efficiency. Therefore, hereafter, we omit the index for the spike count and use the simpler notation t(l−1)  
+
+> j
+
+. N (l) is the number of neurons in the lth layer, and w(l) 
+
+> ij
+
+is the connection weight from neuron j in the ( l − 1)th layer to neuron i in the lth layer. Note that the method proposed in this study is also formally applicable to the multiple-spike case (see B.4 for details). The firing time is defined as the first time at which the membrane potential v(l) 
+
+> i
+
+(t) reaches the firing threshold Vth , that is, v(l) 
+
+> i
+
+(t(l) 
+
+> i
+
+) = Vth .TTFS-SNNs have a unique mode of information processing, in which nonlinearity arises from the order of spikes [ 10 ]. This property is particularly clear when τv = τI = ∞. In this case, the firing time is given by [10 ]
+
+t(l) 
+
+> i
+
+= Vth + ∑ 
+
+> j∈S i
+
+w(l) 
+
+> ij
+
+t(l−1) 
+
+> j
+
+∑ 
+
+> j∈S i
+
+w(l)
+
+> ij
+
+. (2) Here, Si is the index set of presynaptic spikes that arrive before neuron i in the lth layer fires. In TTFS-SNNs, if the input spikes to the network are denoted by t(0) , information can be regarded as being transmitted through layers as t(0) −→ t(1) −→ · · · −→ t(L). Importantly, Eq. ( 2) is linear with respect to the input spike times t(l−1)  
+
+> j
+
+for a fixed index set Si, but nonlinearity is introduced when the index set Si changes [ 10 ]. An 2Time Time Time 
+
+> Input spikes Vmem Output spikes
+
+(a) TTFS-SNN model (b) Spiking neuron (c) Nonlinearity in TTFS-SNNs 
+
+> Time Time
+
+(d) Differentiable spike-time discretization 
+
+Original presynaptic spikes Presynaptic spikes with DSTD 
+
+> Time
+
+(e) Membrane potentials 
+
+Exact Vmem 
+
+Approx. Vmem 
+
+> 1st layer 2nd layer 3rd layer Output layer Inputs
+
+(f) Synfire-chain dynamics 
+
+> 1st layer 2nd layer 3rd layer Output layer Inputs
+
+(g) Pipeline inference 
+
+Figure 1: Overview of DSTD for continuous-time TTFS-SNNs. (a) For simplicity, this study considers TTFS coding, in which each neuron is restricted to fire at most once. Extension to multiple spikes is formally possible in the same framework. (b) Example dynamics of a LIF neuron. (c) Change in the firing time t(l)
+
+> i
+
+of a non-leaky LIF neuron ( τv = τI = ∞) when ten input spikes are provided and one of the input spike times, t(l−1) 1 , is varied. Here, w(l) 
+
+> i1
+
+= 1. (d) DSTD maps a spike train represented in continuous time to a spike train on discrete time points. For simplicity, the case in which all connection weights are one ( w(l) 
+
+> ij
+
+= 1) is shown. (e) Owing to the kernel, the approximated membrane potential (the orange line) interpolates the exact membrane potential (the blue line). (f) Learning synfire-chain dynamics. Neurons in each layer are allowed to operate only within a time window of width τwidth , and the window is shifted by τshift across layers. The firing times in each layer are trained to fall within a time region of width τwidth − τshift . This is achieved by imposing a temporal penalty on each layer. (g) After the operation time for a given input datum has ended in each layer, the membrane potentials and synaptic currents are reset. The layer then starts operating in response to the next input datum, or another spike train. This mechanism enables pipeline operation in multilayer SNNs. 3example of the change in the firing time when one input spike time t(l−1) 1 is varied among ten input spikes is shown in Fig. 1 (c). In this way, TTFS-SNNs realize nonlinearity through the temporal order of spikes and constitute a form of information processing that differs from artificial neural networks (ANNs) based on, for example, ReLU neurons [ 19 ]. Therefore, unlike models that assume firing after all inputs have been received [ 20 ] or models that separate the input and output phases [ 21 , 22 , 23 , 24 , 25 ], direct mapping from ANNs to SNNs is nontrivial. Thus, SNNs must be trained directly. To calculate the firing time of each layer in a TTFS-SNN (Eq. ( 2) for τv = τI = ∞; see Appendix A for other cases), the presynaptic spikes are first ordered according to their arrival times. A candidate firing time is then evaluated for each interval between successive presynaptic spikes, and the first candidate satisfying the corresponding interval condition is selected as the output spike time. The cumulative sums required to evaluate these candidates can be computed efficiently using parallel prefix-scan operations [ 26 , 27 , 28 , 29 , 30 ]. Nevertheless, the exact formulation produces N (l−1) candidate intervals for every neuron in layer l. During reverse-mode automatic differentiation, intermediate variables associated with these candidates must be retained, resulting in a candidate-related activation-memory re-quirement of 
+
+O
+
+(
+
+N (l)N (l−1) )
+
+.
+
+Moreover, the candidate dimension depends on the number and ordering of the presynaptic spikes, leading to input-dependent sorting and irregular tensor operations. To reduce this burden, we introduce differentiable spike-time discretization (DSTD). As shown in Fig. 1 (d), DSTD approximates the input spike train u(l) 
+
+> i
+
+(t) by a spike train with real-valued weights on predetermined discrete time points [ 12 ]: ˆu(l) 
+
+> i
+
+(t) = 
+
+> M
+
+∑
+
+> m=0
+
+ˆw(l)
+
+> im
+
+δ
+
+(
+
+t − T (l)
+
+> m
+
+)
+
+. (3) Here, M is the number of discrete time steps, and ˆ w(l) 
+
+> im
+
+∈ R denotes the spike weight at time T (l) 
+
+> m
+
+, which is given as follows: ˆw(l) 
+
+> im
+
+= 
+
+> N(l−1)
+
+∑
+
+> j=1
+
+w(l) 
+
+> ij
+
+s(l−1)  
+
+> jm
+
+(4) 
+
+s(l−1)  
+
+> jm
+
+=
+
+{KDSTD 
+
+(
+
+t(l−1)  
+
+> j
+
+− T (l)
+
+> m
+
+)
+
+, when T (l) 
+
+> m−1
+
+≤ t(l−1)  
+
+> j
+
+< T (l)
+
+> m+1
+
+,
+
+0 otherwise. (5) Here, KDSTD is a kernel function that maps a single spike with weight one to a spike train on discrete time points. By adopting a differentiable function for this kernel, standard training by error backpropagation can be applied. Previous work showed that, when the time constants of the LIF model satisfy τv = τI = ∞, the subthreshold membrane potential approximated by DSTD, ˆ v(l) 
+
+> i
+
+(t), exactly agrees with the exact membrane potential at the discrete time points, namely ˆ v(l) 
+
+> i
+
+(T (l) 
+
+> m
+
+) = v(l) 
+
+> i
+
+(T (l) 
+
+> m
+
+) [ 12 ]. We newly extend the function 
+
+KDSTD in Eq. (5) so that, for arbitrary finite time constants of LIF neurons ( τv < ∞, τ I < ∞), the approximated membrane potential agrees with the exact solution at the discrete time points (see Appendix 
+
+B for details). That is, as shown in Fig. 1 (e), the approximated membrane potential acts as an interpolation, enabling highly accurate approximation of both the membrane potential and the firing time. Furthermore, by increasing the number of DSTD steps M , the approximated membrane potential converges to the exact solution (see Appendix E for empirical results). Using DSTD, the number of candidate intervals is reduced from the number of presynaptic spikes, N (l−1) ,to the fixed number of DSTD intervals, M . Consequently, the candidate-related activation-memory require-ment is reduced from 
+
+O
+
+(
+
+N (l)N (l−1) )
+
+to 
+
+O
+
+(
+
+N (l)M
+
+)
+
+.
+
+4M=5 M=10 M=20 
+
+> (a) (b)
+
+Figure 2: Simulation of LIF models using DSTD. (a) Time evolution of 10 LIF neurons with time constants τv = 0 .4 and τI = 0 .2 when 1000 input spikes are randomly given in the interval [0 , 1]. The solid line shows the exact membrane-potential waveform, the points and the dashed line show the membrane potentials calculated using DSTD. (b) Improvement in computational efficiency when using DSTD. For LIF models with different time constants, input spikes were randomly given in the interval [0 , 1] to a single-layer model consisting of 1000 neurons, and the processing time and peak memory were measured while varying the number of input spikes. The batch size was set to 100, the number of data samples was 1000, and the time required for one epoch was measured. When M ≪ N (l−1) , this reduction is substantial. DSTD also eliminates spike-time sorting from the candidate evaluation and replaces input-dependent candidate intervals with regular, fixed-size tensor operations. Adetailed discussion of the computational and memory complexities is provided in Appendix B.3 .Next, we solve the remaining problems in training TTFS-SNNs, namely the instability of learning caused by the dead neuron problem and the decrease in processing efficiency when the network is made deeper, by introducing synfire-chain dynamics. As shown in Fig. 1 (f), this synfire-chain dynamics can be realized simply by applying a temporal penalty term [ 10 ] to each layer, which causes spikes in each layer to be distributed within a specific time window (see Appendix C.1 for details). Because the temporal penalty term encourages all neurons to fire, the dead neuron problem is suppressed. Furthermore, as shown in Fig. 1 (g), pipeline operation becomes possible, in which the next datum can be input before the neurons in the final layer fire. Thus, a decrease in data-processing throughput due to multilayering can be prevented. We refer to a continuous-time TTFS-SNN equipped with this synfire-chain temporal regularization as a synfire-chain SNN (Syn-SNN). Throughout this paper, Syn-SNN denotes the network model, whereas DSTD denotes the training method used to compute its spike times efficiently; the two are independent and are combined in our experiments. 
+
+# 3 Experiments 
+
+DSTD achieves both high approximation accuracy and computational efficiency. Figure 2 (a) shows the time evolution of the membrane potentials of 10 LIF neurons. These membrane potentials were obtained by applying 1000 random input spikes in the time interval [0 , 1] to LIF neurons with time constants ( τv , τ I ) = (0 .4, 0.2). The exact solutions are shown by solid lines, whereas the results obtained using DSTD are shown by dashed lines. The spike times obtained using DSTD are indicated by star markers. In the subthreshold 5regime, the membrane potentials approximated by DSTD at the discrete time points agree with the exact solutions. In contrast, deviations in the membrane-potential calculation arise between adjacent discrete time points, resulting in small errors in the spike times. However, these errors decrease as M increases. Indeed, when the number of DSTD steps is small, such as M = 5, visible errors are observed, whereas for M = 20, the errors are reduced to a negligible level. Figure 2 (b) shows the results of the runtime and peak memory evaluation for a single-layer model consisting of 1000 LIF neurons. In this experiment, random spikes with various input sizes were applied to the model in the interval [0 , 1]. The batch size was set to 100, the number of data samples was 1000, and the model was trained for 5 epochs; we measured the average computation time per epoch and the peak memory consumption. The computational-efficiency gains, measured as ratios relative to the exact spike-time computation method, are shown for M = 10 and M = 20. We also show the results for three LIF models with ( τv , τ I ) = ( ∞, ∞), (0 .2, ∞), (0 .4, 0.2). For all LIF models and all values of 
+
+M , the speedup and memory-efficiency gains increase as the number of input spikes increases. This behavior arises because the exact formulation evaluates and retains intermediate variables for a number of candidate intervals that grows with the number of presynaptic spikes, whereas DSTD uses a fixed number of intervals, 
+
+M . Consequently, when N (l−1) ≫ M , DSTD substantially reduces the candidate-related tensor size and memory consumption. In particular, the improvement in memory efficiency is substantial: even for M = 20, which accurately approximates spike times, the memory efficiency improves by a factor of 60 to 150 when the number of inputs reaches 6000. As a more practical network architecture, we trained a 9-layer convolutional Syn-SNN (Syn-SNN-9) using DSTD. We used the CIFAR-10 dataset [ 31 ]. CIFAR-10 consists of 50000 natural images for training and 10000 natural images for testing. The classification accuracy was evaluated on the test dataset, and in this evaluation we used a large number of DSTD steps ( M = 40) so that the continuous-time dynamics was accurately reproduced (see E.1 for the validity of this procedure). Details of the network architecture and training procedure are provided in Appendix C. First, Fig. 3 (a) shows the training time and peak memory consumption when using the exact solution and when using DSTD ( M = 10 , 20). All results in this paper were obtained using a single GPU (NVIDIA GH200 120GB). The horizontal axis of this graph, the channel width Nch , represents the width of the convolutional network; a larger value corresponds to a larger number of input spikes to each LIF model. The batch size was set to 50. When the exact solution was used, both the computation time and peak memory consumption increased nonlinearly as the channel width Nch increased. On the other hand, when DSTD is used, the computation time and peak memory consumption showed an approximately linear trend, resulting in substantially more efficient training when Nch is large. Figures 3 (b) and (c) show the spike-time distributions of each layer in the 9-layer network trained on the CIFAR-10 dataset. In each panel, the spike-time distributions are shown from the first layer at the top to the second layer and subsequent layers below, and the bottom panel corresponds to the output layer. The spike-time distributions were obtained by aggregating over all test samples and all neurons within each layer. The green masks indicate the time intervals during which neurons in each layer operate, and the width of each interval is τwidth . As described above, this operating interval is shifted by τshift each time the layer depth increases by one. Input spikes are projected within the time interval [0 , 1]. Figure 3 (b) shows the results when the time-window width in each layer is τwidth ≈ 1.36, whereas Fig. 3(c) shows the results for 
+
+τwidth = 1 .00. In both cases, neurons in each layer receive spikes from the preceding layer and fire within the operating time-window width τwidth . These results indicate that the temporal penalty term introduced into each layer successfully encourages neurons to fire within the prescribed time window. A smaller time-window width τwidth enables faster output generation; however, the time-window width 
+
+τwidth and the classification accuracy exhibit a tradeoff. To demonstrate this tradeoff, we performed multi-objective optimization with respect to accuracy and the interval width τwidth (see Appendix C.4 for details), and the results are shown in Fig. 3 (d). Multi-objective optimization was performed for three different LIF models, ( τv , τ I ) = ( ∞, ∞), (∞, τ ), (2 τ, τ ), and for different network widths Nch . In all cases, we observed a general tradeoff in which the accuracy improved as the time-window width τwidth increased. It should be noted that hyperparameter search is computationally intensive; therefore, the tradeoff curves obtained here should be regarded as empirical. Furthermore, to examine the validity of training with DSTD, Fig. 3 (e) shows the change in accuracy as the number of DSTD steps M was varied. Note that M = 40 was used during testing. For all LIF models and channel widths Nch , approximately M = 10 was sufficient to obtain high classification accuracy, and the accuracy was already saturated by around M = 20. Training was unstable for the model with (τv , τ I ) = ( ∞, τ ) when a small number of DSTD steps was used ( M < 15), but became stable for M ≥ 15. Finally, we tested whether the proposed method can stably train a substantially deeper SNN. We trained 6(a) (d) (e) (b) (c) 
+
+> Input spikes
+> Input spikes
+
+Figure 3: Training results for the 9-layer model (Syn-SNN-9). (a) Runtime and memory consumption as functions of the width Nch of the network consisting of the LIF models with τv = τI = ∞, comparing the cases with DSTD ( M = 10 and M = 20) and without DSTD (Exact). (b) Spike-time distributions of the trained Syn-SNN-9, shown from the first layer at the top to the second layer and subsequent layers below. The bottom panel corresponds to the output layer. The operating time-window width of each layer in this model is τwidth ≈ 1.36. (c) Spike-time distributions of the 9-layer network for τwidth = 1. (d) For three LIF models, Pareto fronts obtained by hyperparameter search based on Bayesian optimization are shown, where the optimization objectives are to maximize accuracy and minimize the time-window width τwidth . (e) Accuracy as a function of the number of DSTD steps M used during training for different models. Error bars indicate the standard deviation over five trials. For the model with Nch = 128, only one trial was conducted for each value of M .7Input spikes 
+
+(a) (b)    
+
+> Input spikes Input spikes Input spikes Input spikes Input spikes
+
+Figure 4: Training results for the 20-layer model (Syn-SNN-20). (a) Each panel shows the spike-time distribution of each layer, from the first layer at the top to the 20th layer at the bottom. The distributions were obtained by aggregating over all the test samples and all the neurons within each layer. Input spikes are projected in the interval [0 , 1]. The operating region of neurons in each layer, whose width is τwidth , is masked in green. (b) Examples of the temporal evolution of the membrane potentials in the first three layers and the last three layers. Pipeline operation is shown for the case in which four data samples are input sequentially. In this scenario, the next data sample is input after a margin time of 0.05 following the end of the processing time of the previous sample. The background is masked with the same color for processing corresponding to the same data sample. 8a 20-layer Syn-SNN (Syn-SNN-20) on Fashion-MNIST. To improve training efficiency, we introduced a skip-and-delay mechanism corresponding to residual connections [ 32 ] (see Appendix C.3 for details). The spike-time distribution of the trained model is shown in Fig. 4 (a). The time-window width was τwidth = 1 .01. Despite the depth of the network, spikes were propagated through the layers within the prescribed operating windows, indicating that the temporal penalty can organize spike propagation even in a 20-layer architecture. Figure 4 (b) further shows the temporal evolution of the membrane potentials in the first three layers and the last three layers. To make the pipeline operation intuitive, we show the case in which four data samples were sequentially input with an inter-data margin of 0.05. In this deep architecture, the benefit of pipeline processing becomes substantial: the first layer begins processing the ( k + 1) th data sample before the 20th layer finishes processing the k th data sample. Thus, the proposed synfire-chain-like dynamics not only stabilizes the training of deep continuous-time SNNs but also enables pipeline processing of successive input samples. 
+
+# 4 Discussion 
+
+Over the past decade, the application of error backpropagation has made it possible to train multilayer SNNs with relatively high performance and substantially greater ease [ 33 ]. Surrogate-gradient learning is the most widely used approach for training deep SNNs. In a typical implementation, SNNs are first discretized in time, spikes are regarded as binary activations, and their derivatives are replaced by either straight-through estimators [ 34 ] or other smooth surrogate functions [ 35 , 36 , 37 , 4]. The theoretical validity of this approach remains under active discussion [ 38 , 39 ]. However, the gradients obtained by SGM are inherently heuristic, and it is fundamentally difficult for this approach to exploit the precise timing of spikes for information processing. Continuous-time SNNs, in contrast, can realize ideal temporal coding because they allow precise control of spike timing and exact gradient computation. This line of research was pioneered by Bohte et al., who derived a simple learning rule for computing exact gradients in continuous-time SNNs by using SNNs based on time-to-first-spike (TTFS) coding, in which the number of spikes per neuron is constrained to at most one [5]. Subsequently, de Montigny and Mˆ asse derived analytical expressions for firing times, thereby deriving computationally efficient backpropagation rules for multilayer TTFS-SNN architectures [ 6]. Related analyti-cal TTFS formulations were subsequently developed and applied to more modern network architectures and benchmark datasets [ 7, 8, 9, 10 , 11 ]. Learning rules for TTFS-SNNs have also been extended to promote even sparser firing [ 28 ] and to incorporate models with delay pathways [ 40 ]. In addition to these TTFS-based approaches, the constraint on the number of spikes can be removed by similarly using analytical solutions for multiple-spike regimes [ 27 , 41 , 29 ]. Recently, quadratic integrate-and-fire models have been adopted to remove spike discontinuities [ 42 , 43 ]. Other methods have also been proposed, including approaches based on time discretization and approximate gradients [ 44 ], gradient computation based on rate coding [ 45 , 46 ], and extensions to stochastic processes [ 47 ]. Nevertheless, training continuous-time models is generally com-putationally demanding, and in the case of SNNs in particular, the presence of firing dynamics has made the training of large-scale models extremely difficult (see Appendix D for recent architectures). In this study, we showed that the efficient training of multilayer continuous-time SNNs can be achieved by extending the DSTD method, originally proposed as an efficient training method for linear time-varying systems [ 12 ], to LIF models. Our experiments demonstrated up to a 20-fold speedup and approximately 100-fold lower peak memory usage. Furthermore, we showed that synfire-chain dynamics can resolve both the dead neuron problem, a major source of training instability in multilayer SNNs, and the degradation of data-processing efficiency, or throughput, associated with network depth. We also demonstrated that synfire-chain dynamics can be readily acquired through training simply by specifying the firing time window for each layer. An alternative to the analytical-solution-based learning rules considered in this study is the direct opti-mization of ordinary differential equations, or more precisely hybrid systems, using adjoint methods. The adjoint method is known as a general framework for error backpropagation [ 48 ]. Its application to SNNs was reported by Kuroe et al. [ 49 , 50 , 51 ]. Huh et al. further proposed an adjoint-based learning rule for an SNN model with smoothed synaptic currents [ 52 ]. Wunderlich et al., similarly to Kuroe et al., formulated learning as event-driven error backpropagation while exactly handling discontinuous firing processes [ 53 ]. Lee et al. formulated exact gradient computation in the form of forward differentiation [ 54 ]. In addition, event-driven exact-gradient methods capable of learning delays have been proposed [ 55 ]. Although adjoint-based error backpropagation provides a general framework, it usually requires ordinary differential equations to be solved 9with fine time steps in both the forward and backward directions, resulting in poor computational efficiency. Consequently, reported studies have been limited to small network architectures (see Appendix D for recent architectures). The temporal coding considered in this study is also an important concept in neuroscience. Although there are multiple views on how spikes code information in the brain [ 56 ], two major perspectives are rate coding, which assumes that information is represented by spike frequency, and temporal coding, which assumes that information is also carried by spike timing [ 57 , 2, 58 ]. Recent advances in the measurement of spike signals have provided several experimental results supporting temporal coding [ 59 , 60 , 61 , 62 , 63 , 64 , 65 ]. Temporal coding is important both for understanding the brain and for engineering applications because it enables low-energy information processing with few spikes and fast signal transmission [ 1]. In biological brains, temporal coding is thought to be used at least in part. For example, indirect evidence has been reported in flies [61 ], salamanders [ 62 ], and, more recently, the human brain [ 64 ]. Moreover, recent large-scale measurement experiments are beginning to reveal more reliable mechanisms of temporal coding [ 63 ]. Synfire chains are also considered one possible form for realizing temporal coding [ 13 , 14 , 15 , 16 , 17 ]. Because the continuous-time SNNs used in this study can learn spike timing precisely, they provide an ideal mathematical model for investigating the mechanisms of temporal coding. Since DSTD now makes it possible to train large-scale models, future comparisons with neurophysiological experiments may become feasible. Because SNNs process information using spikes, as in the brain, they are expected to enable ultra-low-power AI through hardware implementation [ 3]. In particular, analog hardware implementations are expected to achieve high power efficiency through analog in-memory computing [ 66 ]. TTFS coding is especially important for energy-efficient hardware operation because it can process information with a small number of spikes [ 10 , 67 ]. Continuous-time SNNs enable natural mapping onto analog systems that operate in continuous time. This contrasts with discretized SNNs trained by SGM, for which mapping to continuous-time systems requires an additional conversion step. In addition, many implementations of continuous-time SNNs have been reported [ 68 , 69 , 70 , 71 , 72 ]. The synfire-chain dynamics developed in this study is expected to provide a mechanism that combines high throughput with high power efficiency, because it allows data to be input sequentially even in deep multilayer networks. As discussed above, the Syn-SNN model proposed in this study and the DSTD-based training method provide a useful approach across machine learning, neuroscience, and AI hardware. However, as is generally the case for multilayer SNNs, the theoretical understanding of their training mechanisms remains insufficient. For example, although the distribution of initial weights is an important parameter in deep learning models, the appropriate distribution for multilayer SNNs remains unclear, unlike in the case of ANNs [ 73 ]. In Syn-SNNs, it is also necessary to impose appropriate training conditions for realizing synfire-chain dynamics. For these reasons, SNNs, including Syn-SNNs, require extensive searches over many hyperparameter sets to achieve high learning performance. Developing more efficient search methods, or reducing the number of hyperparameters through theoretical understanding, will be important for training even larger-scale models. Moreover, we showed that DSTD can train a large-scale SNN with small step sizes M ; however, the theoretical understanding of this learning process with approximated gradient should be examined in future work. 
+
+# Acknowledgments 
+
+This work was partially supported by a project, JPNP14004, commissioned by the New Energy and In-dustrial Technology Development Organization (NEDO), JSPS KAKENHI Grant Number 25K00148, JST Research and Development Program for Next-generation Edge AI Semiconductors, Grant Number JPM-JES2511, Moonshot R&D Grant Number JPMJMS2021, and Cross-ministerial Strategic Innovation Promo-tion Program (SIP), the 3rd period of SIP, grant no. JPJ012207. 
+
+# LLM Usage 
+
+We used large language model-based tools to assist with language editing and code debugging. All outputs were reviewed and verified by the authors, who take full responsibility for the final manuscript, code, and results. 10 Table 1: Relationship between the time constants ( τv , τ I ) and the spike kernel K(t) in the analytical solution of v(t). Here, θ(t) denotes the Heaviside step function. 
+
+(τv , τ I ) K(t)
+
+τv 6 = τI
+
+τvτI
+
+τv − τI
+
+[
+
+e− t 
+
+> τv
+
+− e− t
+
+> τI
+
+]
+
+θ(t)(τ, τ ) t e − t 
+
+> τ
+
+θ(t)(2 τ, τ ) 2τ
+
+(
+
+e− t 
+
+> 2τ
+
+− e− t
+
+> τ
+
+)
+
+θ(t)(∞, τ ) τ
+
+(
+
+1 − e− t
+
+> τ
+
+)
+
+θ(t)(∞, ∞) tθ (t)
+
+Table 2: Expressions of the firing time candidate t(l) 
+
+> ik
+
+corresponding to each pair of time constants ( τv , τ I ). For simplicity, the input spikes are assumed to be sorted, and the weights are sorted accordingly, such that 
+
+t1 ≤ t2 ≤ · · · ≤ tN .
+
+(τv , τ I ) t(l) 
+
+> ik
+
+a(l) 
+
+> ik
+
+b(l)
+
+> ik
+
+(τ, τ ) τ
+
+ b(l)
+
+> ik
+
+a(l)
+
+> ik
+
+− W0
+
+(
+
+− Vth /τ 
+
+a(l)
+
+> ik
+
+e
+
+> b(l)
+> ik
+> a(l)
+> ik
+
+)
+
+> k
+
+∑
+
+> j=1
+
+w(l) 
+
+> ij
+
+e t(l−1) 
+
+> j
+> τ
+> k
+
+∑
+
+> j=1
+
+w(l)
+
+> ij
+
+t(l−1) 
+
+> j
+
+τ e t(l−1) 
+
+> j
+> τ
+
+(2 τ, τ ) 2τ ln 
+
+ 2a(l)
+
+> ik
+
+b(l) 
+
+> ik
+
++
+
+√
+
+(b(l) 
+
+> ik
+
+)2 − 2 a(l) 
+
+> ik
+
+Vth /τ 
+
+
+
+> k
+
+∑
+
+> j=1
+
+w(l) 
+
+> ij
+
+e t(l−1) 
+
+> j
+> τ
+> k
+
+∑
+
+> j=1
+
+w(l) 
+
+> ij
+
+e t(l−1) 
+
+> j
+> 2τ
+
+(∞, τ ) τ ln 
+
+[
+
+a(l)
+
+> ik
+
+b(l) 
+
+> ik
+
+− Vth /τ 
+
+] k∑
+
+> j=1
+
+w(l) 
+
+> ij
+
+e t(l−1) 
+
+> j
+> τ
+> k
+
+∑
+
+> j=1
+
+w(l)
+
+> ij
+
+(∞, ∞) Vth + a(l)
+
+> ik
+
+b(l)
+
+> ik k
+
+∑
+
+> j=1
+
+w(l) 
+
+> ij
+
+t(l−1) 
+
+> jk
+
+∑
+
+> j=1
+
+w(l)
+
+> ij
+
+# A Model 
+
+In this study, we consider multilayer SNNs in which each neuron is described by a LIF model. Under the constraint that each neuron fires at most once, namely time-to-first-spike (TTFS) coding, the LIF model is defined as follows: 
+
+dv (l)
+
+> i
+
+dt (t) = − 1
+
+τv
+
+v(l) 
+
+> i
+
+(t) + I(l) 
+
+> i
+
+(t),dI (l)
+
+> i
+
+dt (t) = − 1
+
+τI
+
+I(l) 
+
+> i
+
+(t) +  
+
+> N(l−1)
+
+∑
+
+> j=1
+
+w(l) 
+
+> ij
+
+δ
+
+(
+
+t − t(l−1) 
+
+> j
+
+)
+
+.
+
+(6) Here, v(l) 
+
+> i
+
+(t) denotes the membrane potential of neuron i in layer l, and I(l) 
+
+> i
+
+(t) denotes the synaptic current of the same neuron. The parameters τv and τI are the time constants of the membrane potential and synaptic current, respectively. The variable t(l−1)  
+
+> j
+
+represents the firing time of neuron j in layer l − 1. The analytical solution of the membrane potential is given by 
+
+v(l) 
+
+> i
+
+(t) =  
+
+> N(l−1)
+
+∑
+
+> j=1
+
+w(l) 
+
+> ij
+
+K
+
+(
+
+t − t(l−1) 
+
+> j
+
+)
+
+. (7) Here, K(·) is the spike kernel function, whose form depends on the values of τv and τI (Table 1). A LIF neuron fires and generates a spike when its membrane potential reaches the threshold Vth . Thus, the firing time t(l) 
+
+> i
+
+must satisfy 
+
+v(l) 
+
+> i
+
+(t(l) 
+
+> i
+
+) = Vth . (8) 11 Algorithm 1 TTFS-SNN  
+
+> 1:
+
+Obtain input spikes t(0)  
+
+> i
+
+from data  
+
+> 2:
+
+for all layers ( l = 1 , ..., L ) do  
+
+> 3:
+
+Obtain ˜ t(l−1)  
+
+> j
+
+by sorting t(l−1)  
+
+> j
+> 4:
+
+Calculate t(l) 
+
+> ik
+
+from Table 2 
+
+> 5:
+
+Obtain t(l) 
+
+> i
+
+with Eq. ( 11 ) 
+
+> 6:
+
+end for 
+
+In principle, the firing time can be computed using the analytical solution. However, in continuous-time LIF models, it is necessary to identify the index set of input spikes that arrive before the neuron fires, namely 
+
+S(l) 
+
+> i
+
+= {j|t(l−1)  
+
+> j
+
+≤ t(l) 
+
+> i
+
+}. This is typically done as follows [ 7, 26 ]. First, the indices j of the neurons in layer l − 1 are sorted in ascending order of their firing times: ˜t(l−1) 1 ≤ ˜t(l−1) 2 ≤ · · · ≤ ˜t(l−1)   
+
+> N(l−1)
+
+. (9) The corresponding weights, sorted in the same order, are denoted by ˜w(l) 
+
+> ij
+
+. Then, within the time interval [˜ t(l−1)  
+
+> k
+
+, ˜t(l−1)  
+
+> k+1
+
+], the membrane potential is given by 
+
+v(l) 
+
+> i
+
+(t) = 
+
+> k
+
+∑
+
+> j=1
+
+˜w(l) 
+
+> ij
+
+K
+
+(
+
+t − ˜t(l−1) 
+
+> j
+
+)
+
+. (10) We define the firing time within this interval as t(l) 
+
+> ik
+
+, whose explicit expressions are given in Table 2. Finally, the true firing time is obtained as 
+
+t(l) 
+
+> i
+
+= min  
+
+> k
+
+{t(l) 
+
+> ik
+
+|˜t(l−1)  
+
+> k
+
+≤ t(l) 
+
+> ik
+
+< ˜t(l−1)  
+
+> k+1
+
+}, (11) where ˜ t(l−1)    
+
+> N(l−1) +1
+
+= ∞. Note that t(l) 
+
+> ik
+
+can be computed in parallel for different k using a prefix scan [ 26 ,
+
+27 , 28 , 29 , 30 ]. Algorithm 1 shows the pseudocode of the TTFS-SNN. The learning properties of multilayer SNNs with TTFS coding have been investigated for ( τv , τ I ) = ( ∞, ∞) [ 10 , 11 , 28 ], ( τv , τ I ) = ( ∞, τ ) [ 7], (τv , τ I ) = (2 τ, τ ) [ 9], and ( τv , τ I ) = ( τ, τ ) [ 6, 8]. 
+
+# B Differentiable spike-time discretization for LIF models 
+
+The spike-time computation shown in Table 2 and Eq. (11 ) requires the evaluation of as many candidate spike times as the number of input spikes. As a result, the memory requirement of each layer becomes 
+
+O (N (l)N (l−1) ). Because of this computational cost, large-scale continuous-time TTFS-SNNs have remained relatively limited in size, except for previous work that relied on GPU clusters [ 26 ]. Differentiable spike-time discretization (DSTD) addresses this problem. 
+
+## B.1 Differentiable spike-time discretization 
+
+Differentiable spike-time discretization (DSTD) [ 12 ] is a method for improving computational efficiency by differentiably approximating input spike trains as spike trains on predefined discrete time points. We first define the discrete time points in each layer as follows: 
+
+T (l) 
+
+> m
+
+= T (l)first + m∆t − t(l)offset , (m = 0 , 1, . . . , M ), (12) 
+
+− ∆t
+
+2 < t (l)offset ≤ ∆t
+
+2 (13) DSTD transforms a spike at t(l−1)  
+
+> j
+
+into a real-valued spike train on these discrete time points: 
+
+> M
+
+∑
+
+> m=0
+
+s(l−1)  
+
+> jm
+
+δ
+
+(
+
+t − T (l)
+
+> m
+
+)
+
+= DSTD 
+
+(
+
+δ
+
+(
+
+t − t(l−1) 
+
+> j
+
+)) 
+
+. (14) 12 Table 3: Candidate spike times t(l) 
+
+> iq
+
+obtained with DSTD for different time-constant settings ( τv , τ I ). 
+
+(τv , τ I ) t(l) 
+
+> iq
+
+a(l) 
+
+> iq
+
+b(l)
+
+> iq
+
+(τ, τ ) τ
+
+ b(l)
+
+> iq
+
+a(l)
+
+> iq
+
+− W0
+
+(
+
+− Vth /τ 
+
+a(l)
+
+> iq
+
+e
+
+> b(l)
+> iq
+> a(l)
+> iq
+
+)
+
+> q
+
+∑
+
+> m=0
+
+ˆw(l) 
+
+> im
+
+e T (l)
+
+> m
+> τ
+> q
+
+∑
+
+> m=0
+
+ˆw(l)
+
+> im
+
+T (l)
+
+> m
+
+τ e T (l)
+
+> m
+> τ
+
+(2 τ, τ ) 2τ ln 
+
+ b(l) 
+
+> iq
+
+−
+
+√
+
+(b(l) 
+
+> iq
+
+)2 − 2 a(l) 
+
+> iq
+
+Vth /τ 
+
+Vth /τ 
+
+
+
+> q
+
+∑
+
+> m=0
+
+ˆw(l) 
+
+> im
+
+e T (l)
+
+> m
+> τ
+> q
+
+∑
+
+> m=0
+
+ˆw(l) 
+
+> im
+
+e T (l)
+
+> m
+> 2τ
+
+(∞, τ ) τ ln 
+
+[ a(l)
+
+> iq
+
+b(l) 
+
+> iq
+
+− Vth /τ 
+
+] q∑
+
+> m=0
+
+ˆw(l) 
+
+> im
+
+e T (l)
+
+> m
+> τ
+
+∑qm=0 ˆw(l)
+
+> im
+
+(∞, ∞) Vth + a(l)
+
+> iq
+
+b(l)
+
+> iq q
+
+∑
+
+> m=0
+
+ˆw(l)
+
+> im
+
+T (l)
+
+> mq
+
+∑
+
+> m=0
+
+ˆw(l)
+
+> im
+
+Here, s(l−1)  
+
+> jm
+
+∈ R represents the magnitude of the spike at the discrete time point T (l) 
+
+> m
+
+. When all input spike trains are transformed by DSTD, the approximated membrane potential ˆ v(l) 
+
+> i
+
+(t) in the time interval [T (l) 
+
+> q
+
+, T (l)
+
+> q+1
+
+] is given by ˆv(l) 
+
+> i
+
+(t) =  
+
+> N(l−1)
+
+∑
+
+> j=1
+
+w(l)
+
+> ij q
+
+∑
+
+> m=0
+
+s(l−1)  
+
+> jm
+
+K
+
+(
+
+t − T (l)
+
+> m
+
+)
+
+(15) =
+
+> q
+
+∑
+
+> m=0
+
+ 
+
+> N(l−1)
+
+∑
+
+> j=1
+
+w(l) 
+
+> ij
+
+s(l−1) 
+
+> jm
+
+ K
+
+(
+
+t − T (l)
+
+> m
+
+)
+
+(16) =
+
+> q
+
+∑
+
+> m=0
+
+ˆw(l)
+
+> im
+
+K
+
+(
+
+t − T (l)
+
+> m
+
+)
+
+. (17) Here, we define ˆw(l) 
+
+> im
+
+:=  
+
+> N(l−1)
+
+∑
+
+> j=1
+
+w(l) 
+
+> ij
+
+s(l−1)  
+
+> jm
+
+. (18) This quantity can be interpreted as the total weight of all spikes arriving at time T (l) 
+
+> m
+
+. The candidate spike time t(l) 
+
+> iq
+
+obtained from the firing condition of the membrane potential is derived by solving ˆ v(l) 
+
+> i
+
+(t(l) 
+
+> iq
+
+) = Vth ,as shown in Table 3. Using these candidate spike times, the spike time under DSTD is obtained as ˆt(l) 
+
+> i
+
+= min  
+
+> q
+
+{t(l) 
+
+> iq
+
+|T (l) 
+
+> q
+
+≤ t(l) 
+
+> iq
+
+< T (l)
+
+> q+1
+
+}. (19) DSTD reduces the number of candidate spike times from N (l−1) , corresponding to the presynaptic spike times in the exact formulation, to the fixed number of DSTD intervals, M . The coefficients for the candidate intervals are evaluated using parallel prefix-scan operations in both formulations. Thus, DSTD preserves the same basic candidate-evaluation procedure while reducing the length of the candidate dimension from N (l−1) 
+
+to M . In the next subsection, we describe the concrete transformation rule, that is, the values of s(l−1)  
+
+> jm
+
+.
+
+## B.2 Derivation of DSTD kernels for LIF models 
+
+Discretizing input spikes using DSTD reduces the memory requirement, but the membrane potential obtained in this way is an approximation. To make this approximation as accurate as possible, we derive the optimal transformation according to the time constants of the LIF model, ( τv , τ I ). In this paper, we define the optimal approximation as one that satisfies ˆv(l) 
+
+> i
+
+(Tm) = v(l) 
+
+> i
+
+(Tm) for m = 0 , 1, . . . , M. (20) 13 We then consider a transformation (sj0, s j1, . . . , s jM ) = DSTD( tj ) (21) that satisfies this condition. Since the membrane potential of the LIF model, Eq. 7, is expressed as a sum over input spikes, it is sufficient to consider the case of a single input spike ( N = 1). For notational simplicity, we omit the layer index l and the neuron index i.Let Tm−1 < t 1 < T m. In this case, 
+
+v(t) = w1K(t − t1) (22) = w1
+
+τv τI
+
+τv − τI
+
+[
+
+e− t−t1 
+
+> τv
+
+− e− t−t1
+
+> τI
+
+]
+
+(23) = w1
+
+τv τI
+
+τv − τI
+
+[
+
+e− Tm −t1 
+
+> τv
+
+e− t−Tm  
+
+> τv
+
+− e− Tm −t1 
+
+> τI
+
+e− t−Tm 
+
+> τI
+
+]
+
+, (24) and ˆv(t) = w1 [s1 m−1K (t − Tm−1) + s1 mK (t − Tm)] (25) = w1τv τI
+
+τv − τI
+
+[
+
+s1 m−1
+
+(
+
+e− t−Tm−1 
+
+> τv
+
+− e− t−Tm−1
+
+> τI
+
+)
+
++ s1 m
+
+(
+
+e− t−Tm  
+
+> τv
+
+− e− t−Tm 
+
+> τI
+
+)]
+
+(26) = w1τv τI
+
+τv − τI
+
+[( 
+
+e− Tm −Tm−1 
+
+> τv
+
+s1 m−1 + s1m
+
+)
+
+e− t−Tm  
+
+> τv
+
+−
+
+(
+
+e− Tm −Tm−1 
+
+> τI
+
+s1 m−1 + s1 m
+
+)
+
+e− t−Tm 
+
+> τI
+
+]
+
+(27) For ˆ v(t) = v(t) to hold for t ≥ Tm, it is sufficient that the following equation is satisfied: 
+
+(
+
+e− Tm −Tm−1 
+
+> τv
+
+1
+
+e− Tm −Tm−1 
+
+> τI
+
+1
+
+) (s1 m−1
+
+s1m
+
+)
+
+=
+
+(
+
+e− Tm −t1
+
+> τv
+
+e− Tm −t1
+
+> τI
+
+)
+
+. (28) When τv 6 = τI , the inverse matrix exists, yielding 
+
+s1 m−1 = e− Tm −t1 
+
+> τv
+
+− e− Tm −t1
+
+> τI
+
+e− Tm −Tm−1 
+
+> τv
+
+− e− Tm −Tm−1
+
+> τI
+
+(29) 
+
+s1m = −e− Tm −Tm−1 
+
+> τI
+
+e− Tm −t1 
+
+> τv
+
++ e− Tm −Tm−1 
+
+> τv
+
+e− Tm −t1
+
+> τI
+
+e− Tm −Tm−1 
+
+> τv
+
+− e− Tm −Tm−1
+
+> τI
+
+. (30) By setting Tm − Tm−1 = ∆ t (m = 1 , . . . , M ), this can be rewritten as 
+
+sjm =
+
+
+
+−e− ∆t 
+
+> τI
+
+e− Tm −tj 
+
+> τv
+
++e− ∆t 
+
+> τv
+
+e− Tm −tj
+
+> τI
+
+e− ∆t 
+
+> τv
+
+−e− ∆t
+
+> τI
+
+, when Tm−1 < t j ≤ Tme− Tm +∆ t−tj 
+
+> τv
+
+−e
+
+> Tm +∆ t−tj
+> τI
+
+e− ∆t 
+
+> τv
+
+−e− ∆t
+
+> τI
+
+, when Tm < t j ≤ Tm+1 
+
+0, otherwise, (31) When the membrane and synaptic time constants are equal, for t ≥ Tm, the exact membrane potential generated by this spike is 
+
+v(t) = w1(t − t1)e− t−t1 
+
+> τ
+
+(32) = w1
+
+[
+
+e t1 
+
+> τ
+
+· te − t 
+
+> τ
+
+− t1e t1 
+
+> τ
+
+· e− t
+
+> τ
+
+]
+
+(33) We approximate the original spike by two weighted spikes at Tm−1 and Tm:ˆv(t) = w1 [s1 m−1K(t − Tm−1) + s1mK(t − Tm)] (34) = w1
+
+[
+
+s1 m−1(t − Tm−1)e− t−Tm−1 
+
+> τ
+
++ s1m(t − Tm)e− t−Tm 
+
+> τ
+
+]
+
+(35) = w1
+
+[( 
+
+s1 m−1e Tm−1 
+
+> τ
+
++ s1me Tm 
+
+> τ
+
+)
+
+· te − t 
+
+> τ
+
+−
+
+(
+
+s1 m−1Tm−1e Tm−1 
+
+> τ
+
++ s1mTme Tm 
+
+> τ
+
+)
+
+· e− t
+
+> τ
+
+]
+
+. (36) 14 For ˆ v(t) = v(t) to hold for t ≥ Tm, it is sufficient that the following equation is satisfied: 
+
+s1 m−1e Tm−1 
+
+> τ
+
++ s1me Tm  
+
+> τ
+
+= e t1 
+
+> τ
+
+(37) 
+
+s1 m−1Tm−1e Tm−1 
+
+> τ
+
++ s1mTme Tm  
+
+> τ
+
+= t1e t1 
+
+> τ
+
+(38) 
+
+(
+
+e Tm−1 
+
+> τ
+
+e Tm 
+
+> τ
+
+Tm−1e Tm−1 
+
+> τ
+
+Tme Tm 
+
+> τ
+
+) (s1 m−1
+
+s1m
+
+)
+
+=
+
+(
+
+e t1
+
+> τ
+
+t1e t1
+
+> τ
+
+)
+
+. (39) Solving these equations gives 
+
+s1,m −1 = Tm − t1
+
+∆t e t1−Tm−1 
+
+> τ
+
+, (40) 
+
+s1m = t1 − Tm−1
+
+∆t e t1−Tm  
+
+> τ
+
+. (41) This can be rewritten as 
+
+sjm =
+
+
+
+tj −Tm−1
+
+∆t e tj −Tm  
+
+> τ
+
+, when Tm−1 < t j ≤ TmTm+1 −tj
+
+∆t e tj −Tm  
+
+> τ
+
+, when Tm < t j ≤ Tm+1 
+
+0, otherwise. (42) Solutions can also be obtained in the same manner for cases in which the time constants become infinite. When τv = ∞ and τI = τ (< ∞): 
+
+s1 m−1 = 1 − e− Tm −t1
+
+> τ
+
+1 − e− Tm −Tm−1
+
+> τ
+
+(43) 
+
+s1m = −e− Tm −Tm−1 
+
+> τ
+
++ e− Tm −t1
+
+> τ
+
+1 − e− Tm −Tm−1
+
+> τ
+
+(44) 
+
+sjm =
+
+
+
+−e− ∆t 
+
+> τI
+
++e− Tm −tj
+
+> τI
+
+1−e− ∆t
+
+> τI
+
+when Tm−1 < t j ≤ Tm,
+
+1−e− Tm −tj +∆ t
+
+> τI
+
+1−e− ∆t
+
+> τI
+
+when Tm < t j ≤ Tm+1 ,
+
+0, otherwise, (45) When τv = τI = ∞:
+
+s1 m−1 = Tm − t1
+
+Tm − Tm−1
+
+(46) 
+
+s1m = t1 − Tm−1
+
+Tm − Tm−1
+
+(47) 
+
+sjm =
+
+
+
+tj −Tm+∆ t
+
+∆t when Tm−1 < t j ≤ Tm,
+
+Tm+∆ t−tj
+
+∆t when Tm < t j ≤ Tm+1 ,
+
+0, otherwise, (48) = max 
+
+(
+
+1 − |Tm − tj |
+
+∆t , 0
+
+)
+
+(49) By expressing these transformations using the DSTD kernel function KDSTD as 
+
+sjm =
+
+{
+
+KDSTD (tj − Tm) , when Tm−1 ≤ tj < T m+1 ,
+
+0 otherwise. (50) 15 Table 4: DSTD kernels. We assume Tm+1 − Tm = ∆ t.
+
+(τv , τ I ) KDSTD (t<0) KDSTD (t≥0)
+
+τv 6 = τI
+
+−e− ∆t 
+
+> τI
+
+e t 
+
+> τv
+
++ e− ∆t 
+
+> τv
+
+e t
+
+> τI
+
+e− ∆t 
+
+> τv
+
+− e− ∆t
+
+> τI
+
+e t−∆t 
+
+> τv
+
+− e t−∆t
+
+> τI
+
+e− ∆t 
+
+> τv
+
+− e− ∆t
+
+> τI
+
+(τ, τ ) t + ∆ t
+
+∆t et/τ ∆t − t
+
+∆t et/τ 
+
+(2 τ, τ ) −e− ∆t 
+
+> τ
+
+e t 
+
+> 2τ
+
++ e− ∆t 
+
+> 2τ
+
+e t
+
+> τ
+
+e− ∆t 
+
+> 2τ
+
+− e− ∆t
+
+> τ
+
+e t−∆t 
+
+> 2τ
+
+− e t−∆t
+
+> τ
+
+e− ∆t 
+
+> 2τ
+
+− e− ∆t
+
+> τ
+
+(∞, τ ) −e− ∆t 
+
+> τ
+
++ e t
+
+> τ
+
+1 − e− ∆t
+
+> τ
+
+1 − e t−∆t
+
+> τ
+
+1 − e− ∆t
+
+> τ
+
+(∞, ∞) t + ∆ t
+
+∆t
+
+∆t − t
+
+∆t
+
+− − −     
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+> K  
+
+− − −     
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+> K  
+
+   
+
+   
+
+   
+
+− − −     
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+>   
+
+    
+
+    
+
+    
+
+    
+
+Figure 5: DSTD kernels. DSTD kernel functions KDSTD (t) for various choices of time constants when ∆ = 1. (Left) τv = τI = ∞, (middle) τv = ∞, τ I = τ , and (right) τv = 2 τI .they can be summarized as shown in Table 4. Note that the previous study [ 12 ] used the DSTD function corresponding to the case τv = τI = ∞.Figure 5 shows the DSTD kernel KDSTD for various choices of time constants in the LIF model. The pseudocode of the TTFS-SNN using DSTD is shown in Algorithm 2.
+
+Algorithm 2 TTFS-SNN with DSTD 
+
+1: Obtain input spikes t(0)  
+
+> i
+
+from data 
+
+2: Let ˆ t(0)  
+
+> i
+
+= t(0) 
+
+> i
+
+3: for all layers ( l = 1 , ..., L ) do 
+
+4: Draw t(l)offset from ( −∆t/ 2, ∆t/ 2] 
+
+5: Calculate s(l−1)  
+
+> jm
+
+with ˆ t(l−1)  
+
+> j
+
+using Eq. ( 50 ). 
+
+6: Calculate t(l) 
+
+> im
+
+from Table 3.
+
+7: Calculate ˆ t(l) 
+
+> i
+
+solving Eq. ( 19 ). 
+
+8: end for 
+
+## B.3 Computational complexity 
+
+Let 
+
+Nin = N (l−1) , Nout = N (l).
+
+For simplicity, we omit the batch dimension. Table 5 summarizes the computational and memory complexities of the exact spike-time formulation and DSTD. Here, the complexities are expressed in terms of total work. The parallel depth of the prefix-scan operations is shown separately. 16 Table 5: Computational and memory complexities of the exact spike-time formulation and DSTD for a single layer. The activation-memory complexity denotes the memory required to retain candidate-dependent intermediate variables for reverse-mode automatic differentiation. 
+
+Exact formulation DSTD 
+
+Candidate dimension Nin M
+
+Spike-time sorting O(Nin log Nin ) Not required Weight permutation O(Nout Nin ) Not required Input discretization Not required O(Nout Nin )Candidate-coefficient evaluation O(Nout Nin ) O(Nout M )Total computational work O(Nin log Nin + Nout Nin ) O(Nout (Nin + M )) Parallel scan depth O(log Nin ) O(log M )Candidate-related activation memory O(Nout Nin ) O(Nout M )
+
+In the exact formulation, the presynaptic spike times are first sorted, which requires 
+
+O(Nin log Nin )operations. Because the ordering of the presynaptic spike times is common to all postsynaptic neurons in the same layer, sorting is performed only once for each input sample. The same permutation is then applied to the synaptic weights, requiring 
+
+O(Nout Nin )operations. For each postsynaptic neuron, the cumulative coefficients required to evaluate the candidate firing times can be calculated using parallel prefix-scan operations. The total work required to calculate the coefficients and evaluate all candidate firing times is therefore 
+
+O(Nout Nin ) ,
+
+with a parallel depth of 
+
+O(log Nin ) .
+
+Consequently, the total computational complexity of the exact formulation is 
+
+O(Nin log Nin + Nout Nin ) .
+
+Although the total computational work is linear in the number of presynaptic connections, the exact formulation generates Nin candidate firing times for every postsynaptic neuron. When these candidate-dependent intermediate variables are retained for reverse-mode automatic differentiation, the corresponding activation-memory requirement is 
+
+O(Nout Nin ) .
+
+With DSTD, each presynaptic spike is mapped to at most two adjacent discrete time points because the DSTD kernel has compact support. By exploiting this sparsity, the discretized weighted inputs ˆ w(l) 
+
+> im
+
+can be accumulated in 
+
+O(Nout Nin )operations. The cumulative coefficients and candidate firing times are subsequently evaluated over the M
+
+DSTD intervals, requiring 
+
+O(Nout M )operations, with a parallel prefix-scan depth of 
+
+O(log M ).
+
+The total computational complexity of DSTD is therefore 
+
+O(Nout (Nin + M )) ,
+
+and its candidate-related activation-memory requirement is 
+
+O(Nout M ) .
+
+17 Thus, DSTD does not eliminate the linear cost associated with the synaptic connections. Instead, it replaces the input-dependent candidate dimension Nin with the fixed dimension M . When 
+
+M ≪ Nin ,
+
+this substantially reduces the memory required to retain candidate-dependent intermediate variables. It also removes spike-time sorting and converts the candidate evaluation into regular fixed-size tensor operations, which are well suited to parallel execution on GPUs. The resulting improvements in wall-clock time and peak memory consumption are evaluated empirically in Figs. 2 and 3.
+
+## B.4 Extension to multi-spike regime 
+
+When each neuron can fire multiple spikes, the LIF model is described as follows: 
+
+dv (l)
+
+> i
+
+dt (t) = − 1
+
+τv
+
+v(l) 
+
+> i
+
+(t) + I(l) 
+
+> i
+
+(t) (51) 
+
+dI (l)
+
+> i
+
+dt (t) = − 1
+
+τI
+
+I(l) 
+
+> i
+
+(t) +  
+
+> N(l−1)
+
+∑
+
+> j=1
+> F
+
+∑ 
+
+> f=1
+
+w(l) 
+
+> ij
+
+δ(t − t(l−1) ,f j ). (52) Here, τv(I) denotes the time constant of the membrane potential (synaptic current), t(l−1) ,f j is the timing of the f -th spike arriving from neuron j in layer l − 1, w(l) 
+
+> ij
+
+is the synaptic weight from neuron j to neuron i, and 
+
+δ(·) is the Dirac delta function. When the membrane potential reaches the firing threshold Vth , the neuron fires and generates a spike. The membrane potential is then reset to 0. In contrast, the synaptic current is assumed not to be reset at the firing time [ 27 ]. After this neuron emits its k-th spike at time t(l),k i , the membrane potential can be written analytically as 
+
+v(l) 
+
+> i
+
+(t) = 
+
+ 
+
+> N(l−1)
+
+∑
+
+> j=1
+> F
+
+∑ 
+
+> f=1
+
+w(l) 
+
+> ij
+
+e− t(l),k i −t(l−1) ,f j 
+
+> τI
+
+θ(t(l),k i − t(l−1) ,f j )
+
+ K(t − t(l),k i )+ 
+
+> N(l−1)
+
+∑
+
+> j=1
+> F
+
+∑ 
+
+> f=1
+
+w(l) 
+
+> ij
+
+θ(t(l−1) ,f j − t(l),k i )θ
+
+(
+
+t − t(l−1) ,f j
+
+)
+
+K
+
+(
+
+t − t(l−1) ,f j
+
+)
+
+. (53) Intuitively, the first term represents the contribution of all spikes that arrived before the k-th firing event, whereas the second term represents the contribution of the spikes that arrived after the k-th firing event. Equation ( 53 ) shows that the effect of each input spike is independently mediated through the correspond-ing kernel function. Therefore, DSTD can be applied straightforwardly as follows. First, DSTD is applied independently to each spike: 
+
+s(l−1) ,f jm := 
+
+{KDSTD 
+
+(
+
+t(l−1) ,f j − T (l)
+
+> m
+
+)
+
+, when T (l) 
+
+> m−1
+
+≤ t(l−1) ,f j < T (l)
+
+> m+1
+
+,
+
+0 otherwise. (54) 
+
+s(l−1)  
+
+> jm
+
+:= 
+
+> F
+
+∑ 
+
+> f=1
+
+s(l−1) ,f jm . (55) We then consider the computation of the ( k + 1)-th firing time after the k-th firing event occurs at time 
+
+t(l) 
+
+> ik
+
+. Under the assumption that the synaptic current is not reset at the firing time, the membrane potential 18 during the time interval [ Tm, T m+1 ] after firing can be computed as 
+
+v(l) 
+
+> i
+
+(t) = 
+
+ 
+
+> N(l−1)
+
+∑
+
+> j=1
+
+w(l)
+
+> ij m
+
+∑
+
+> q=0
+
+
+
+> F
+
+∑ 
+
+> f=1
+
+s(l−1) ,f jq 
+
+︸ ︷︷ ︸
+
+> s(l−1)
+> jq
+
+e− t(l),k i −T (l) 
+
+> q
+> τI
+
+θ(t(l),k i − T (l) 
+
+> q
+
+)
+
+
+
+K(t − t(l),k i )+ 
+
+> N(l−1)
+
+∑
+
+> j=1
+
+w(l)
+
+> ij m
+
+∑
+
+> q=0
+
+
+
+> F
+
+∑ 
+
+> f=1
+
+s(l−1) ,f jq 
+
+︸ ︷︷ ︸
+
+> s(l−1)
+> jq
+
+θ(t − T (l) 
+
+> q
+
+)θ
+
+(
+
+T (l) 
+
+> q
+
+− t(l),k i
+
+)
+
+K
+
+(
+
+t − T (l)
+
+> q
+
+)
+
+, (56) =
+
+
+
+> m
+
+∑
+
+> q=0
+
+ 
+
+> N(l−1)
+
+∑
+
+> j=1
+
+w(l) 
+
+> ij
+
+s(l−1) 
+
+> jq
+
+︸ ︷︷ ︸
+
+> ˆw(l)
+> iq
+
+e− t(l),k i −T (l) 
+
+> q
+> τI
+
+θ(t(l),k i − T (l) 
+
+> q
+
+)
+
+
+
+K(t − t(l),k i )+
+
+> m
+
+∑
+
+> q=0
+
+ 
+
+> N(l−1)
+
+∑
+
+> j=1
+
+w(l) 
+
+> ij
+
+s(l−1) 
+
+> jq
+
+︸ ︷︷ ︸
+
+> ˆw(l)
+> iq
+
+θ(t − T (l) 
+
+> q
+
+)θ
+
+(
+
+T (l) 
+
+> q
+
+− t(l),k i
+
+)
+
+K
+
+(
+
+t − T (l)
+
+> q
+
+)
+
+, (57) =
+
+( m∑
+
+> q=0
+
+ˆw(l) 
+
+> iq
+
+e− t(l),k i −T (l) 
+
+> q
+> τI
+
+θ(t(l),k i − T (l) 
+
+> q
+
+)
+
+)
+
+K
+
+(
+
+t − t(l),k i
+
+)
+
++
+
+> m
+
+∑
+
+> q=0
+
+ˆw(l) 
+
+> iq
+
+θ(T (l) 
+
+> q
+
+− t(l),k i )K
+
+(
+
+t − T (l)
+
+> q
+
+)
+
+(58) The subsequent computation can be performed in the same manner as in the TTFS case to obtain the firing time ˆ t(l),k +1 . However, because firing times corresponding to different spike counts cannot be computed in parallel, they must be computed sequentially for each firing event [ 27 ]. 
+
+# C Experimental details 
+
+## C.1 Learning algorithm 
+
+Training was performed by minimizing the following cost function. For simplicity, the loss for a single data sample is shown here, although the mini-batch average was used in the actual training: 
+
+C
+
+(
+
+{t(l)}l=1 ,2,...,L 
+
+∣∣∣ κ
+
+)
+
+= L
+
+(
+
+t(L)
+
+∣∣∣ κ
+
+)
+
++ T
+
+(
+
+{t(l)}l=1 ,2,...,L 
+
+)
+
++ γQQ. (59) Here, t(l) = ( t(l)1 , t (l)2 , . . . , t (l)  
+
+> N(l)
+
+), and κ denotes the target vector. The loss function L(·) was defined as the following cross-entropy loss [ 10 ]: 
+
+L
+
+(
+
+t(L)
+
+∣∣∣ κ
+
+)
+
+= − 
+
+> N(L)
+
+∑
+
+> i=1
+
+κi ln Si
+
+(
+
+t(L))
+
+(60) 
+
+Si
+
+(
+
+t(L))
+
+=exp 
+
+(
+
+− t(L)
+
+> i
+> τsoft
+
+)
+
+∑N (L) 
+
+> j=1
+
+exp 
+
+(
+
+− t(L)
+
+> j
+> τsoft
+
+) . (61) The parameter τsoft is a hyperparameter that scales the softmax function. The term T (·) is a temporal penalty term introduced to realize synfire-chain dynamics by restricting the firing times in each layer to a prescribed temporal window. In Ref. [ 10 ], this penalty was used only to control the output layer. Here, we 19 extended it so that the firing times in the hidden layers can also be controlled. In this study, it was defined as 
+
+T
+
+(
+
+{t(l)}l=1 ,2,...,L 
+
+)
+
+=
+
+> L
+
+∑ 
+
+> l=1
+> N(l)
+
+∑
+
+> i=1
+
+[
+
+γhead 
+
+(
+
+t(l) 
+
+> i
+
+− t(l)head 
+
+)2
+
+θ
+
+(
+
+t(l)head − t(l)
+
+> i
+
+)
+
++ γtail 
+
+(
+
+t(l) 
+
+> i
+
+− t(l)tail 
+
+)2
+
+θ
+
+(
+
+t(l) 
+
+> i
+
+− t(l)tail 
+
+)]
+
+(62) Here, t(l)head and t(l)tail were defined as 
+
+t(l)head = l · τshift + thead , t (l)tail = l · τshift + τwidth − ttail . (63) The parameters thead , ttail , τshift , and τwidth are hyperparameters. The term Q was introduced to promote firing of neurons that never fire, for which the temporal penalty T provides no gradient. When non-firing neurons exist, this term drives learning so that the corresponding weights are increased. It was defined as 
+
+Q = − ∑
+
+> i,l
+
+1{t(l) 
+
+> i=∞}
+
+∑
+
+> j
+
+w(l) 
+
+> ij
+
+. (64) For convolutional layers, the values of those penalties (Eqs. ( 62 ) and ( 64 )) were divided by the size of the spatial dimensions. Training was performed by minimizing the above cost function using a gradient-based method. The weights were updated using AdamW [ 74 ] with the learning rate η0 and the weight regularization coefficient 
+
+γw. We observed that training could fail at an early stage when the learning rate was too large. Therefore, we adopted a warm-up strategy in which the learning rate was set to a small value at the beginning of training and then gradually increased. This strategy enabled stable training even with a relatively high learning rate. Let η(p) denote the learning rate at epoch p ∈ 0, 1, . . . , N epoch − 1. The learning rate was updated as follows: 
+
+η(p + 1) = 
+
+{
+
+2η(p), for p < N warm ,η(p), otherwise, η(0) = η0
+
+2N warm , (65) where N warm ∈ Z≥0 denotes the number of warm-up epochs. When the warm-up strategy was not used, we set N warm = 0. In Syn-SNNs, the operation time of each layer is limited to a finite temporal window. Therefore, the firing dynamics can be accurately approximated with a small number of DSTD steps M by restricting the DSTD time points to the corresponding temporal window. Specifically, the DSTD parameters were set as 
+
+T (l)first = l · τshift − τmargin and T (l)end = l · τshift + τwidth + τmargin , and ∆ t = ( T (l)end − T (l)first )/M was defined accordingly. In the experiments, we set τmargin = 0 .1. 
+
+## C.2 Dataset 
+
+The Fashion-MNIST [ 75 ] and CIFAR-10 [ 31 ] datasets consist of two-dimensional image data. In the Fashion-MNIST dataset, each image has a single channel, whereas the CIFAR-10 dataset consists of three-channel images. To process these image data, we first normalized the pixel intensities to the range [0 , 1]. We then converted the normalized pixel intensities into input spike times as follows: 
+
+t(0)  
+
+> ijk
+
+= τin (1 − xijk ), (66) where xijk denotes the normalized pixel intensity, the first and second indices represent the spatial coordinates of the pixel, and the third index represents the channel index ( k ∈ { 0, 1, 2}, for the CIFAR-10 dataset). Here, 
+
+τin is a positive constant. In all experiments, we set τin = 1. When spikes were fed into a fully connected layer, the input tensor was reshaped into a one-dimensional tensor. For the CIFAR-10 dataset, to avoid the problem in which neurons in the first hidden layer fire too early and ignore subsequent inputs, we doubled the number of channels as follows [ 28 ]: 
+
+xi,j,k = 1 − xi,j,k −3 (k = 3 , 4, 5) . (67) Furthermore, following previous work [ 26 , 28 ], we used data augmentation, including horizontal flipping, rotation, and cropping. 20 Conv (N ch )
+
+> Conv (N ch )
+> Concatenate
+> Conv (2N ch , 1/2)
+> 2τshift
+> Conv (N ch )
+> Conv (N ch )
+> Concatenate
+> Conv (N ch )
+> 2τshift
+> layer l-1 layer l layer l+1
+> layer l+2
+
+(b) (c) (a) 
+
+Figure 6: Skip-and-delay block. (a) The skip-and-delay (SD) block provides a mechanism for directly projecting output spikes to deeper layers. Spikes projected from layer l − 1 are fed into layer l in the usual manner, while the same spikes are also fed into layer l + 2. (b) In the SD1 block, input spikes to the skip-and-delay block, with channel width Nch , height Nx, and width Ny, are projected to the neurons in the first and third layers of the block. The input to the third layer is delayed by 2 τshift . The input to the third layer consists of the spikes entering the block and the spikes from the second layer. The third layer is a convolutional layer with stride 2, which doubles the number of channels and halves the spatial dimensions of the data. (c) In the SD 2 block, all convolutional layers have stride 1. Therefore, the block outputs spikes with the same number of channels and the same spatial dimensions as the input to the block. Table 6: Network architecture. C(N,K,S): convolution layer with N output channels, kernel size K × K, and stride S. SD 1/2(N): SD 1/2 block with N channel size. Model Network 
+
+Syn-SNN-9 C(N,3,1)-C(N,3,1)-C(N,3,1)-C(N,3,2)-C(2N,3,1)-C(2N,3,1)-C(2N,3,2)-C(2N,5,1)-10 Syn-SNN-20 C(N,K,S)-SD 2(N)-SD 1(N)-SD 2(2N)-SD 1(2N)-SD 2(4N)-SD 1(4N)-10 
+
+## C.3 Network architecture 
+
+In the inference (test) phase of Syn-SNNs, an external reset signal is applied as 
+
+v(l) 
+
+> i
+
+(l · τshift + τwidth ) ← 0, (68) 
+
+I(l) 
+
+> i
+
+(l · τshift + τwidth ) ← 0. (69) After the reset signal is applied, the processing of the next data sample, represented by spikes, can start immediately. In other words, the network realizes pipeline operation, where the next input can be injected before the output of the current input is obtained. This enables the network to process multiple data samples without degrading the throughput, even when the number of layers is increased. In the experiments, we trained the two network architectures shown in Table 6. The Syn-SNN architec-tures are designed following the VGG architecture [ 76 ] and ResNet [ 32 ], which are standard architectures for image classification. Skip connections are known to be effective for efficiently training deep neural networks [ 32 ]. However, unlike skip connections in ANNs, such as ResNet [ 32 ], subtraction or addition of output values, namely spikes, is not straightforward for spiking neurons, at least in analog hardware. Therefore, in this study, we introduce the skip-and-delay block shown in Fig. 6. In the skip-and-delay block, the input from the previous layer is fed not only into the first layer of the block but also into the third layer of the block with a delay of 2τshift . Unlike in previous work [ 77 ], the delay is not learned. Instead, it is fixed to 2 τshift , corresponding to the delay of two layers in the synfire-chain dynamics. 21 Table 7: Search space for Pareto optimization. For convenience, fixed parameters are also listed. 
+
+parameter explanation range 
+
+η learning rate [10 −5, 10 −2]
+
+γw weight decay [10 −4, 10 −1]
+
+N warm warm-up {0, 1, 2, 3, 4}
+
+wp initial weight scale (positive) [1 ., 20] 
+
+wn initial weight scale (negative scale) [−0.9, −0.5] 
+
+τwidth time-window width [1 , 1.5] 
+
+τshift time shift of synfire chain [0 .0, 0.5] 
+
+τ time constant of LIF model [0 .1, 1000] 
+
+γhead temporal penalty on head [0 .01 , 0.1] 
+
+γtail temporal penalty on tail [0 .001 , 0.1] 
+
+γQ weight-sum penalty [10 −5, 10 −1]
+
+τsoft softmax scale [10 −3, 10 −1]
+
+thead temporal penalty’s head time [0 ., 0.8] 
+
+ttail temporal penalty’s tail time [0 ., 0.5] batch size batch size 50 
+
+N epoch number of epochs 300 
+
+τmargin DSTD margin 0.1 
+
+M test number of DSTD steps in test phase 40 
+
+## C.4 Pareto optimization 
+
+In this study, we examined the trade-off between the operating time of each layer, τwidth , and the classi-fication accuracy in Syn-SNNs. To perform this analysis, we applied Bayesian optimization to the model parameters and training parameters of Syn-SNNs. Bayesian optimization was performed using Optuna [ 78 ], and approximately 200 trials were conducted for each condition. The search space used in the optimization is summarized in Table 7.
+
+# D Benchmarking 
+
+Training multilayer continuous-time SNNs is generally challenging, and consequently, the number of reported studies remains much more limited than that for discrete-time SNNs [ 33 ]. Table 8 summarizes recently reported continuous-time SNN models. 
+
+# E Additional experiments 
+
+## E.1 Convergence of DSTD approximations 
+
+The approximation error of DSTD can be reduced by increasing the number of steps [ 12 ]. Here we empirically demonstrate its convergence. Figure 7 (a) shows the approximation error of the output-layer spike times in nine-layer convolutional SNNs. The approximation error is defined as follows: 
+
+ERMSE =
+
+√√√√ ∑Dd=1 
+
+∑N (L)
+
+> i=1
+
+(
+
+t(L),d i − ˆt(L),d i
+
+)2
+
+DN (L) , (70) where D is the number of data samples, N (L) is the number of neurons in the final layer, t(L),d i is the firing time of a final-layer neuron obtained from the exact solution in the dth data sample, and ˆ t(L),d i is the firing time approximated by DSTD in the dth data sample. We randomly sampled 100 examples from the CIFAR-10 test data ( D = 100) and evaluated the approximation error for the output layer with 10 neurons (N (L) = 10). When DSTD was used, the DSTD-based approximation was applied to all layers. The networks were evaluated at their initial-weight states, and the experiments were performed with τwidth = 2. The results show that the approximation error decreases monotonically when M becomes sufficiently large. 22 Table 8: Continuous-time SNN models. Method denotes the method used for gradient computation. ANN: two-phase systems are used to make the model equivalent to ANNs. Adjoint: adjoint equations are used. QIF: a quadratic integrate-and-fire model is used to avoid discontinuities. TTFS: analytical equations of spike timing are used under TTFS coding. Multi-spikes: analytical equations of spike timing are used without the TTFS restriction. F-MNIST: Fashion-MNIST; SHD: Spiking Heidelberg Digits dataset; YY: Yinyang dataset. 
+
+> 1
+
+: nonidealities represented as reversal potentials are included. 2: accuracies are obtained from figures, 3: A GPU cluster is used. 
+
+Model Method Architecture (τv , τI ) Pipeline Accuracy 
+
+Park et al. [ 22 ] ANN 17-layer CNN (∞, τ ) YES 91.43 % (CIFAR-10) Sakemi et al. [ 24 ] ANN 1 784-200-200-10 (∞, ∞) YES 98.46 % (MNIST) Stanojevic et al. [ 25 ] ANN 17-layer CNN (∞, ∞) YES 93.69 % (CIFAR-10) Sakemi et al. [ 12 ] ANN 1 8-layer CNN (∞, ∞) YES 88.5 % (CIFAR-10) 
+
+Wunderlich et al. [ 53 ] adjoint 784-200-10 (4 τ , τ ) NO 97.6 % (MNIST) Meszaros et al. [ 55 ] adjoint 700-1024-1024-20 (4 τ, τ ) NO 78.5 % (SHD) 2
+
+Konig et al. [ 79 ] adjoint 784-200-10 (4 τ, τ ) NO 97.5 % (MNIST) Klos et al. [ 42 ] QIF 784-100-100-10 N/A NO 97.3 % (MNIST) Wenig et al. [ 43 ] QIF 700-128-20 N/A NO 90.1 % (SHD) Goltz et al. [ 40 ] TTFS 4-30-3 (2 τ, 2τ ) NO 92.6 % (YY) Mostafa [ 7] TTFS 784-800-10 (∞, τ ) NO 97.55 % (MNIST) Comsa et al. [ 8] TTFS 786-340-10 (τ, τ ) NO 97.96 % (MNIST) Goltz et al. [ 9] TTFS 256-246-10 (2 τ , τ ) NO 97.4 % (MNIST) Sakemi et al. [ 10 ] TTFS 784-800-10 (∞, ∞) NO 98.34 % (MNIST) Zhang et al. [ 11 ] TTFS 6-layer CNN (∞, ∞) NO 99.4 % (MNIST) Zhou et al. [ 26 ] TTFS 16-layer CNN (∞, τ ) NO 92.68% (CIFAR-10) 3
+
+Sakemi et al. [ 28 ] TTFS 5-layer CNN (∞, ∞) NO 79.26% (CIFAR-10) Yamamoto et al. [ 27 ] multi-spikes 784-400-10 (2 τ, τ ) NO 98.43 % (MNIST) Bacho et al. [ 41 ] multi-spikes 784-800-10 (2 τ, τ ) NO 98.88 % (MNIST) Morrill et al. [ 29 ] multi-spikes 700-512-512-20 (4 τ, τ ) NO 94.96 % (SHD) Syn-SNN-20 (proposed) TTFS (DSTD) 20-layer CNN (∞, ∞) YES 92.33 % (F-MNIST) Syn-SNN-9 (proposed) TTFS (DSTD) 9-layer CNN (∞, ∞) YES 90.36 % (CIFAR-10) 
+
+(a) (b) 
+
+Figure 7: Convergence analysis. (a) Root mean squared errors between the exact spike times t(L) 
+
+> i
+
+in the output layer and the approximated spike times ˆ t(L) 
+
+> i
+
+when the number of DSTD steps M is increased in untrained nine-layer convolutional SNNs. Results are shown for networks with different widths Nch . (b) Classification accuracy on the CIFAR-10 test data for different numbers of DSTD steps M in a trained nine-layer convolutional SNN. The orange dashed line indicates the classification accuracy obtained using the exact-solution model. 23 Furthermore, Fig. 7 (b) shows the classification accuracy on the CIFAR-10 test dataset for a trained nine-layer convolutional SNN using different numbers of DSTD steps M . The accuracy obtained using the exact solution is also shown by the orange dashed line. These results indicate that M = 40 DSTD steps are sufficient to achieve accuracy close to that of the exact-solution model. 
+
+# References 
+
+[1] Kaushik Roy, Akhilesh Jaiswal, and Priyadarshini Panda. Towards spike-based machine intelligence with neuromorphic computing. Nature , 575:607–617, 2019. [2] Rafael Yuste, Rosa Cossart, and Emre Yaksi. Neuronal ensembles: Building blocks of neural circuits. 
+
+Neuron , 112(6):875–892, March 2024. [3] Dhireesha Kudithipudi, Catherine Schuman, Craig M. Vineyard, Tej Pandit, Cory Merkel, Rajkumar Kubendran, James B. Aimone, Garrick Orchard, Christian Mayr, Ryad Benosman, Joe Hays, Cliff Young, Chiara Bartolozzi, Amitava Majumdar, Suma George Cardwell, Melika Payvand, Sonia Buckley, Shruti Kulkarni, Hector A. Gonzalez, Gert Cauwenberghs, Chetan Singh Thakur, Anand Subramoney, and Steve Furber. Neuromorphic computing at scale. Nature , 637(8047):801–812, jan 2025. [4] Emre O. Neftci, Hesham Mostafa, and Friedemann Zenke. Surrogate gradient learning in spiking neural networks: Bringing the power of gradient-based optimization to spiking neural networks. IEEE Signal Processing Magazine , 36(6):51–63, 2019. [5] Sander M. Bohte, Joost N. Kok, and Han La Poutr´ e. Error-backpropagation in temporally encoded networks of spiking neurons. Neurocomputing , 48(1):17–37, 2002. [6] Simon de Montigny and Benoˆ ıt R. Mˆ asse. On the analytical solution of firing time for spikeprop. Neural Computation , 28(11):2461–2473, 11 2016. [7] H. Mostafa. Supervised learning based on temporal coding in spiking neural networks. IEEE Transactions on Neural Networks and Learning Systems , 29(7):3227–3235, 2018. [8] Iulia-Maria Com¸ sa, Krzysztof Potempa, Luca Versari, Thomas Fischbacher, Andrea Gesmundo, and Jyrki Alakuijala. Temporal coding in spiking neural networks with alpha synaptic function: Learning with backpropagation. IEEE Transactions on Neural Networks and Learning Systems , 33(10):5939–5952, 2022. [9] J G¨ oltz et al. Fast and energy-efficient neuromorphic deep learning with first-spike times. Nature Machine Intelligence , 3:823–835, 2021. [10] Yusuke Sakemi, Kai Morino, Takashi Morie, and Kazuyuki Aihara. A supervised learning algorithm for multilayer spiking neural networks based on temporal coding toward energy-efficient VLSI processor design. IEEE Transactions on Neural Networks and Learning Systems , 34(1):394–408, 2023. [11] Malu Zhang, Jiadong Wang, Jibin Wu, Ammar Belatreche, Burin Amornpaisannon, Zhixuan Zhang, Venkata Pavan Kumar Miriyala, Hong Qu, Yansong Chua, Trevor E. Carlson, and Haizhou Li. Recti-fied linear postsynaptic potential function for backpropagation in deep spiking neural networks. IEEE Transactions on Neural Networks and Learning Systems , 33(5):1947–1958, 2022. [12] Yusuke Sakemi, Yuji Okamoto, Takashi Morie, Sou Nobukawa, Takeo Hosomi, and Kazuyuki Aihara. Harnessing nonidealities in analog in-memory computing circuits: A physical modeling approach for neuromorphic systems. Advanced Intelligent Systems , 8(1):2500351, 2026. [13] Moshe Abeles. Corticonics: Neural circuits of the cerebral cortex . Cambridge University Press, 1991. [14] Markus Diesmann, Marc-Oliver Gewaltig, and Ad Aertsen. Stable propagation of synchronous spiking in cortical neural networks. Nature , 402(6761):529–533, dec 1999. [15] Yuji Ikegaya, Gloster Aaron, Rosa Cossart, Dmitriy Aronov, Ilan Lampl, David Ferster, and Rafael Yuste. Synfire chains and cortical songs: Temporal modules of cortical activity. Science , 304(5670):559– 564, 2004. 24 [16] Pengsheng Zheng and Jochen Triesch. Robust development of synfire chains from multiple plasticity mechanisms. Frontiers in Computational Neuroscience , 8, 2014. [17] Samat Moldakarimov, Maxim Bazhenov, and Terrence J. Sejnowski. Feedback stabilizes propagation of synchronous spiking in cortical neural networks. Proceedings of the National Academy of Sciences ,112(8):2545–2550, 2015. [18] Wulfram Gerstner, Werner M Kistler, Richard Naud, and Liam Paninski. Neuronal dynamics: From single neurons to networks and models of cognition . Cambridge University Press, 2014. [19] Vinod Nair and Geoffrey E. Hinton. Rectified linear units improve restricted boltzmann machines. In 
+
+Proceedings of the 27th International Conference on Machine Learning , pages 807–814, 2010. [20] Bodo Rueckauer and Shih-Chii Liu. Conversion of analog to spiking neural networks using sparse temporal coding. In 2018 IEEE International Symposium on Circuits and Systems (ISCAS) , pages 1–5, 2018. [21] Lei Zhang, Shengyuan Zhou, Tian Zhi, Zidong Du, and Yunji Chen. TDSNN: From deep neural networks to deep spike neural networks with temporal-coding. Proceedings of the AAAI Conference on Artificial Intelligence , 33(01):1319–1326, 2019. [22] Seongsik Park, Seijoon Kim, Byunggook Na, and Sungroh Yoon. T2FSNN: Deep spiking neural networks with time-to-first-spike coding. In 2020 57th ACM/IEEE Design Automation Conference (DAC) , pages 1–6, 2020. [23] Christoph St¨ ockl and Wolfgang Maass. Optimized spiking neurons can classify images with high accuracy through temporal coding with two spikes. Nature Machine Intelligence , 3(3):230–238, 2021. [24] Yusuke Sakemi, Kai Morino, Takashi Morie, Takeo Hosomi, and Kazuyuki Aihara. A spiking neural network with resistively coupled synapses using time-to-first-spike coding towards efficient charge-domain computing. In 2022 IEEE International Symposium on Circuits and Systems (ISCAS) , pages 2152–2156, 2022. [25] Ana Stanojevic, Stanislaw Wo´ zniak, Guillaume Bellec, Giovanni Cherubini, Angeliki Pantazi, and Wul-fram Gerstner. High-performance deep spiking neural networks with 0.3 spikes per neuron. Nature Communications , 15(1):6793, 2024. [26] Shibo Zhou, Xiaohua Li, Ying Chen, Sanjeev T. Chandrasekaran, and Arindam Sanyal. Temporal-coded deep spiking neural network with easy training and robust performance. Proceedings of the AAAI Conference on Artificial Intelligence , 35(12):11143–11151, May 2021. [27] Kakei Yamamoto, Yusuke Sakemi, and Kazuyuki Aihara. Can timing-based backpropagation overcome single-spike restrictions in spiking neural networks? In 2024 International Joint Conference on Neural Networks (IJCNN) , pages 1–9, 2024. [28] Yusuke Sakemi, Kakei Yamamoto, Takeo Hosomi, and Kazuyuki Aihara. Sparse-firing regularization methods for spiking neural networks with time-to-first-spike coding. Scientific Reports , 13(1):22897, 2023. [29] Todd Morrill, Christian Pehle, and Anthony Zador. Bullet trains: Parallelizing training of temporally precise spiking neural networks. arXiv preprint arXiv:2603.13283 , 2026. [30] Kaiwei Che, Wei Fang, Peng Xue, Yifan Huang, Zhengyu Ma, and Yonghong Tian. Parallel training time-to-first-spike spiking neural networks. Proceedings of the AAAI Conference on Artificial Intelligence ,40(3):1712–1720, Mar. 2026. [31] Alex Krizhevsky. Learning multiple layers of features from tiny images, 2009. [32] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image recognition. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , June 2016. 25 [33] Manon Dampfhoffer, Thomas Mesquida, Alexandre Valentian, and Lorena Anghel. Backpropagation-based learning techniques for deep spiking neural networks: A survey. IEEE Transactions on Neural Networks and Learning Systems , 35(9):11906–11921, 2024. [34] Yoshua Bengio, Nicholas L´ eonard, and Aaron Courville. Estimating or propagating gradients through stochastic neurons for conditional computation. arXiv preprint arXiv:1308.3432 , 2013. [35] Friedemann Zenke and Surya Ganguli. SuperSpike: Supervised Learning in Multilayer Spiking Neural Networks. Neural Computation , 30(6):1514–1541, 06 2018. [36] Emre O. Neftci, Charles Augustine, Somnath Paul, and Georgios Detorakis. Event-driven random back-propagation: Enabling neuromorphic deep learning machines. Frontiers in Neuroscience , 11, 2017. [37] Yujie Wu, Lei Deng, Guoqi Li, Jun Zhu, and Luping Shi. Spatio-temporal backpropagation for training high-performance spiking neural networks. Frontiers in Neuroscience , 12, 2018. [38] Gaurav Arya, Moritz Schauer, Frank Sch¨ afer, and Christopher Rackauckas. Automatic differentiation of programs with discrete randomness. In S. Koyejo, S. Mohamed, A. Agarwal, D. Belgrave, K. Cho, and A. Oh, editors, Advances in Neural Information Processing Systems , volume 35, pages 10435–10447. Curran Associates, Inc., 2022. [39] Julia Gygax and Friedemann Zenke. Elucidating the theoretical underpinnings of surrogate gradient learning in spiking neural networks. Neural Computation , 37(5):886–925, 04 2025. [40] Julian G¨ oltz, Jimmy Weber, Laura Kriener, Sebastian Billaudelle, Peter Lake, Johannes Schemmel, Melika Payvand, and Mihai A. Petrovici. DelGrad: exact event-based gradients for training delays and weights on spiking neuromorphic hardware. Nature Communications , 16(1):8245, September 2025. [41] Florian Bacho and Dominique Chu. Exploring trade-offs in spiking neural networks. Neural Computation ,35(10):1627–1656, 09 2023. [42] Christian Klos and Raoul-Martin Memmesheimer. Smooth exact gradient descent learning in spiking neural networks. Phys. Rev. Lett. , 134:027301, Jan 2025. [43] Carlo Wenig, Raoul-Martin Memmesheimer, and Christian Klos. Quadratic integrate-and-fire neurons exhibit less fragmented loss landscapes and outperform leaky integrate-and-fire neurons in spike-based gradient descent. arXiv preprint arXiv:2606.03935 , 2026. [44] S. R. Kheradpisheh and Timoth´ ee Masquelier. Temporal backpropagation for spiking neural networks with one spike per neuron. International Journal of Neural Systems , 30(06):2050027, 2020. [45] Jinseok Kim, Kyungsu Kim, and Jae-Joon Kim. Unifying activation- and timing-based learning rules for spiking neural networks. Advances in Neural Information Processing Systems , 33:19534–19544, 2020. [46] Yingyezhe Jin, Wenrui Zhang, and Peng Li. Hybrid macro/micro level backpropagation for training deep spiking neural networks. In S. Bengio, H. Wallach, H. Larochelle, K. Grauman, N. Cesa-Bianchi, and R. Garnett, editors, Advances in Neural Information Processing Systems , volume 31. Curran Associates, Inc., 2018. [47] Christian Holberg and Cristopher Salvi. Exact gradients for stochastic spiking neural networks driven by rough signals. In Advances in Neural Information Processing Systems , volume 37, 2024. [48] Yann LeCun. A theoretical framework for back-propagation. In Proceedings of the 1988 connectionist models summer school , volume 1, pages 21–28, 1988. [49] Y. Kuroe and H. Iima. A learning method for synthesizing spiking neural oscillators. In The 2006 IEEE International Joint Conference on Neural Network Proceedings , pages 3882–3886, 2006. [50] Yasuaki Kuroe and Tomokazu Ueyama. Learning methods of recurrent spiking neural networks based on adjoint equations approach. In The 2010 International Joint Conference on Neural Networks (IJCNN) ,pages 1–8, 2010. 26 [51] Kukan Selvaratnam, Yasuaki Kuroe, and Takehiro Mori. Learning methods of recurrent spiking neural networks. Transactions of the Institute of Systems, Control and Information Engineers , 13(3):95–104, 2000. [52] Dongsung Huh and Terrence J. Sejnowski. Gradient descent for spiking neural networks. In Proceedings of the 32nd International Conference on Neural Information Processing Systems , pages 1440–1450, 2018. [53] Timo C. Wunderlich and Christian Pehle. Event-based backpropagation can compute exact gradients for spiking neural networks. Scientific Reports , 11(1):12829, June 2021. [54] Jane H. Lee, Saeid Haghighatshoar, and Amin Karbasi. Exact gradient computation for spiking neural networks via forward propagation. In Francisco Ruiz, Jennifer Dy, and Jan-Willem van de Meent, editors, 
+
+Proceedings of The 26th International Conference on Artificial Intelligence and Statistics , volume 206 of 
+
+Proceedings of Machine Learning Research , pages 1812–1831. PMLR, 25–27 Apr 2023. [55] Bal´ azs M´ esz´ aros, James C. Knight, and Thomas Nowotny. Efficient event-based delay learning in spiking neural networks. Nature Communications , 16(1):10422, 2025. [56] Hiroshi Fujii, Hiroyuki Ito, Kazuyuki Aihara, Natsuhiro Ichinose, and Minoru Tsukada. Dynamical cell assembly hypothesis—theoretical possibility of spatio-temporal coding in the cortex. Neural Networks ,9(8):1303–1350, 1996. [57] Stefano Panzeri, Nicolas Brunel, Nikos K. Logothetis, and Christoph Kayser. Sensory neural codes using multiplexed temporal scales. Trends in Neurosciences , 33(3):111–120, 2010. [58] Daniel Senkowski and Andreas K. Engel. Multi-timescale neural dynamics for multisensory integration. 
+
+Nature Reviews Neuroscience , 25(9):625–642, 2024. [59] M. Abeles, H. Bergman, E. Margalit, and E. Vaadia. Spatiotemporal firing patterns in the frontal cortex of behaving monkeys. Journal of Neurophysiology , 70(4):1629–1638, 1993. [60] Zachary F. Mainen and Terrence J. Sejnowski. Reliability of spike timing in neocortical neurons. Science ,268(5216):1503–1506, 1995. [61] R´ emy Lestienne. Spike timing, synchronization and information processing on the sensory side of the central nervous system. Progress in Neurobiology , 65(6):545–591, 2001. [62] Tim Gollisch and Markus Meister. Rapid neural coding in the retina with relative spike latencies. 
+
+Science , 319(5866):1108–1111, 2008. [63] Boris Sotomayor-G´ omez, Francesco P. Battaglia, and Martin Vinck. Firing rates in visual cortex show representational drift, while temporal spike sequences remain stable. Cell Reports , 44(4), 2025. [64] Weizhen Xie, John H. Wittig, Julio I. Chapeton, Mostafa El-Kalliny, Samantha N. Jackson, Sara K. Inati, and Kareem A. Zaghloul. Neuronal sequences in population bursts encode information in human cortex. Nature , 635(8040):935–942, November 2024. [65] Hanlin Zhu, Fei He, Pavlo Zolotavin, Saumil Patel, Andreas S. Tolias, Lan Luan, and Chong Xie. Temporal coding carries more stable cortical visual representations than firing rate over time. Nature Communications , 16(1):7162, 2025. [66] Yusuke Sakemi, Hiromitsu Awano, and Takashi Morie. Analog in-memory computing from a memory-agnostic perspective: Theory, nonidealities, and hardware-aware training. IEICE Transactions on Fun-damentals of Electronics, Communications and Computer Sciences , E109.A(5):840–859, 2026. [67] Seongbin Oh, Dongseok Kwon, Gyuho Yeom, Won-Mook Kang, Soochang Lee, Sung Yun Woo, Jaehyeon Kim, and Jong-Ho Lee. Neuron circuits for low-power spiking neural networks using time-to-first-spike encoding. IEEE Access , 10:24444–24455, 2022. [68] Christian Pehle, Sebastian Billaudelle, Benjamin Cramer, Jakob Kaiser, Korbinian Schreiber, Yannik Stradmann, Johannes Weis, Aron Leibfried, Eric M¨ uller, and Johannes Schemmel. The brainscales-2 accelerated neuromorphic system with hybrid plasticity. Frontiers in Neuroscience , 16, 2022. 27 [69] Seiji Uenohara and Kazuyuki Aihara. A 18.7 tops/w mixed-signal spiking neural network processor with 8-bit synaptic weight on-chip learning that operates in the continuous-time domain. IEEE Access ,10:48338–48348, 2022. [70] Ole Richter, Chenxi Wu, Adrian M Whatley, German K¨ ostinger, Carsten Nielsen, Ning Qiao, and Giacomo Indiveri. Dynap-se2: a scalable multi-core dynamic neuromorphic asynchronous spiking neural network processor. Neuromorphic Computing and Engineering , 4(1):014003, jan 2024. [71] Satoshi Moriya, Masaya Ishikawa, Satoshi Ono, Hideaki Yamamoto, Yasushi Yuminaka, Yoshihiko Horio, Jordi Madrenas, and Shigeo Sato. Analog VLSI implementation of subthreshold spiking neural networks and its application to reservoir computing. IEEE Transactions on Circuits and Systems I: Regular Papers , 72(10):5571–5582, 2025. [72] Ckristian Duran, Nanako Kimura, Zolboo Byambadorj, and Tetsuya Iizuka. CMOS implementation of field programmable spiking neural network for hardware reservoir computing. Neuromorphic Computing and Engineering , 6(2):024011, may 2026. [73] Xavier Glorot and Yoshua Bengio. Understanding the difficulty of training deep feedforward neural networks. In Yee Whye Teh and Mike Titterington, editors, Proceedings of the Thirteenth Interna-tional Conference on Artificial Intelligence and Statistics , volume 9 of Proceedings of Machine Learning Research , pages 249–256, Chia Laguna Resort, Sardinia, Italy, 13–15 May 2010. PMLR. [74] Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. In International Conference on Learning Representations , 2019. [75] H. Xiao, Kashif Rasul, and Roland Vollgraf. Fashion-MNIST: a novel image dataset for benchmarking machine learning algorithms. arXiv:1708.07747 , 2017. [76] Karen Simonyan and Andrew Zisserman. Very deep convolutional networks for large-scale image recog-nition. In International Conference on Learning Representations , 2015. [77] Youngeun Kim, Adar Kahana, Ruokai Yin, Yuhang Li, Panos Stinis, George Em Karniadakis, and Priyadarshini Panda. Rethinking skip connections in spiking neural networks with time-to-first-spike coding. Frontiers in Neuroscience , 18, 2024. [78] Takuya Akiba, Shotaro Sano, Toshihiko Yanase, Takeru Ohta, and Masanori Koyama. Optuna: Anext-generation hyperparameter optimization framework. In Proceedings of the 25th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining , KDD ’19, page 2623–2631, New York, NY, USA, 2019. Association for Computing Machinery. [79] Lukas K¨ onig, Manuel Kuhn, David Kappel, and Anand Subramoney. Training event-based neural net-works with exact gradients via differentiable ode solving in JAX. In 2026 Neuro Inspired Computational Elements (NICE) , pages 1–8, 2026. 28

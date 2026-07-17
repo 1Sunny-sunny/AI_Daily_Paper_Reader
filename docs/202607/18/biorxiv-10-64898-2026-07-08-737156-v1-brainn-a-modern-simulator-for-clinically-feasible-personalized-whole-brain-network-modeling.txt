@@ -1,0 +1,514 @@
+Title: BraiNN: A Modern Simulator for Clinically Feasible Personalized Whole-Brain Network Modeling
+
+URL Source: https://www.biorxiv.org/content/10.64898/2026.07.08.737156v1.full.pdf
+
+Number of Pages: 13
+
+Markdown Content:
+# BraiNN: A Modern Simulator for Clinically Feasible Personalized Whole-Brain Network Modeling 
+
+Alessandro Fasse 1, 2 , Chiara Billi 2, 3 , Victor Garvalov 2, 4 , Matthew Morvan 2, 3 , Taylor Newton 1, 2 , Niels Kuster 1, 2 , and Esra Neufeld 2
+
+> 1Department of Information Technology and Electrical Engineering, Swiss Federal Institute of Technology (ETH), Zurich, Switzerland
+> 2Foundation for Research on Information Technologies in Society (IT’IS), Zurich, Switzerland
+> 3Neuro-X, École Polytechnique Fédérale de Lausanne (EPFL), Lausanne, Switzerland
+> 4School of Computer and Communication Sciences, École Polytechnique Fédérale de Lausanne (EPFL), Lausanne, Switzerland
+
+Personalized whole-brain modeling aims to transform treat-ment planning for neurological disorders by enabling patient-specific simulations of brain network dynamics. Neural mass models (NMMs) offer a tractable compromise between biophys-ical detail and computational cost and can be directly linked to macroscopic observables such as EEG. However, scaling NMMs to whole-brain networks with realistic connectivity, conduction delays, and cortical surface resolution—and fitting them to in-dividual patient data—imposes computational demands that ex-isting frameworks cannot meet at clinically relevant timescales. Here we introduce BraiNN , a JAX-based Python framework for large-scale neural mass modeling that achieves speedups of up to two to three orders of magnitude over existing tools by leveraging GPU/TPU-accelerated, XLA-compiled array compu-tation. BraiNN combines a region-level Jansen–Rit network with a subject-specific cortical surface mesh of coupled neural mass models and biophysically grounded EEG forward mod-eling via reciprocity-based lead fields. Its fully differentiable computational graph enables a hybrid personalization pipeline that pairs Bayesian optimization for global parameter explo-ration with gradient-based refinement, completing EEG-driven spectral fitting of an eight-dimensional parameter space in ap-proximately 2–3 hours on a single consumer GPU—compared to multiple days with conventional neural mass modeling soft-ware. Numerical verification against established benchmarks confirms that BraiNN faithfully reproduces canonical synchro-nization and bifurcation dynamics of Jansen–Rit networks. By reducing the time requirements for personalizing a high-detail whole-brain surface model from days to a few hours on consumer-grade hardware, BraiNN brings personalized brain network modeling closer to practical use in clinical contexts. We anticipate that BraiNN will serve as a foundation for patient-specific digital twins and EEG-guided neuromodulation plan-ning.  
+
+> neural mass models, personalized whole-brain modeling, EEG-driven neuro-modulation, JAX, Bayesian Optimization, computational Neuroscience Correspondence: fasse@itis.swiss
+
+Introduction 
+
+Over the last decade, noninvasive neuromodulation and ad-vanced neuroimaging have started to move from population-based protocols toward individualized interventions. Tech-niques such as navigated transcranial magnetic stimulation increasingly rely on subject-specific structural and functional maps to define stimulation targets and to interpret down-stream effects. Recent work on individualized brain mapping and parcellation demonstrates that inter-individual variability in cortical organization is substantial and clinically relevant, and that group-level atlases may obscure precise differences that matter for neuromodulation planning (1, 2). This creates a demand for modeling frameworks that can exploit personal-ized anatomical and functional data while remaining practical within clinical and translational workflows. At the same time, it is well recognized that brain dynamics operate across multiple spatial and temporal scales, and that no single modeling level can fully capture this complexity. Large-scale neuron and synapse–based simulations provide a principled route to modeling and have been proposed as tools to understand both normal and pathological network states (3). However, even with modern high-performance com-puting, such bottom-up simulations remain technically de-manding and computationally expensive, particularly when repeated simulations are required for parameter exploration, model fitting, or patient-specific scenario testing. Conceptual and methodological issues further complicate their straight-forward application to individualized, time-constrained clini-cal decision-making, given the limited data available per sub-ject (4). NMMs address part of this challenge by coarse-graining (e.g., mean-field approximation) the activity of neuronal sub-populations (e.g., pyramidal cells, excitatory/inhibitory in-terneurons of a cortical column) into a small number of state variables, typically interpreted as average membrane poten-tials or firing rates. Classical NMMs of coupled cortical columns and thalamo-cortical circuits have shown that such mesoscopic descriptions can reproduce a wide range of spon-taneous and evoked electrophysiological phenomena, includ-ing rhythmic activity and visual evoked potentials (5, 6). In the context of epilepsy, NMMs form the basis of the Virtual Epileptic Patient framework, where they have demonstrated clinical value in localizing the epileptogenic zone (7, 8) and in comparing candidate surgical resection strategies in sil-ico (9, 10). Model-derived estimates have been shown to cor-relate with post-surgical seizure outcomes (8, 11) and are cur-rently undergoing prospective clinical evaluation (EPINOV, NCT03643016). Because they can be directly linked to        
+
+> Fasse et al. |bioR χiv |July 8, 2026 |1–13
+
+.CC-BY-NC 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted July 13, 2026. ;https://doi.org/10.64898/2026.07.08.737156 doi: bioRxiv preprint macroscopic observables such as electro- and magnetoen-cephalography (EEG, MEG), NMMs offer an attractive com-promise between biophysical interpretability and computa-tional tractability. In principle, they provide a natural re-lationship between structural connectivity (e.g., from diffu-sion MRI), functional constraints (e.g., from EEG/MEG), and neuromodulation protocols. Potential applications in-clude the optimization of brain stimulation approaches and parameters, as well as personalized treatment planning. However, when NMMs are scaled to (surface-based) whole-brain networks with realistic connectivity, delays, and region-specific parameters, the computational demands again be-come substantial. Typical workflows include fitting model parameters to patient data for personalization, performing sensitivity analyses, and evaluating alternative stimulation strategies, and optimizing stimulation configurations. These tasks involve large numbers of simulations, for example for gradient-based or sampling-based parameter inference or op-timization. Many existing NMM libraries were not designed with such use cases in mind: they often rely on CPU-based numerical integration, limited vectorization, and bespoke im-plementations that are difficult to differentiate through or to integrate into modern machine learning pipelines. As a con-sequence, the community lacks frameworks that are simulta-neously biophysically grounded, scalable to large networks, and natively compatible with differentiable programming. In parallel, the field of artificial intelligence (AI) has ad-vanced rapidly through a tight coupling of model design, nu-merical libraries, and specialized hardware. The success of deep neural networks on large-scale perception tasks was en-abled not only by architectural innovations but also by the availability of GPU-accelerated, tensor-centric frameworks that made it straightforward to express models and automat-ically compute gradients at scale (12, 13). Libraries such as JAX extend this paradigm by combining a NumPy-like in-terface with just-in-time compilation, automatic vectoriza-tion, and automatic differentiation, targeting CPUs, GPUs, and TPUs from a single high-level code base (14). Neural mass whole-brain models share key mathematical structures with recurrent and convolutional neural networks, including recurrence, convolution-like spatial coupling, time-series dy-namics, delays, and nonlinear activation functions. More-over, AI model training and NMM parameter inference share related optimization requirements, including the need for au-tomatic differentiation, backpropagation, and efficient large-scale parameter exploration. These parallels suggest that de-sign principles and technologies developed for modern AI can be leveraged to build the next generation of large-scale brain modeling tools. In this work, we introduce BraiNN , a NumPy-like, Python-based framework for neural mass modeling built on top of JAX (14). BraiNN is designed to express whole-brain NMMs in a concise, array-oriented syntax while transparently ex-ploiting XLA-based compilation and accelerator backends, achieving runtimes competitive with or superior to exist-ing frameworks across both region- and surface-level sim-ulations, including configurations with biologically realistic conduction delays. BraiNN delivers two primary capabil-ities: first, it enables fast, GPU-accelerated simulations of large-scale brain networks through a two-scale architecture— combining a region-level NMM network (Jansen–Rit (5) in this study) with a subject-specific cortical surface mesh— and biophysically grounded EEG forward modeling via reciprocity-based, personalizable lead fields; second, it pro-vides a fully differentiable modeling stack integrated with a hybrid personalization pipeline that combines Bayesian optimization (BO) for global parameter exploration with gradient-based refinement for local convergence. We start by introducing the equations of the Jansen–Rit NMM and of region- and surface-based whole-brain mod-els, before describing the implementation of BraiNN and the personalization pipeline. Subsequently, we report how verifi-cation (including reproducing and refining a prior study (15) on the canonical synchronization and bifurcation dynamics of Jansen–Rit networks) and benchmarking against reference and state-of-the-art libraries were performed. We quantify the achieved acceleration and demonstrate, using demand-ing application examples, that BraiNN enables successful model parameter inference and the exploration of large pa-rameter spaces with clinically acceptable computational re-sources and wall-clock time. We discuss the use of gradient-based and Bayesian optimization for personalized modeling. The goal is to introduce a modern, accelerator-aware library for whole-brain dynamics and EEG signal modeling that is both efficient at scale and directly usable for subject-specific personalization, and is planned for open-source release in the near future. 
+
+Methods 
+
+Neural mass model. For the present study, each network node is described by a Jansen–Rit NMM, which captures the mean-field dynamics of a cortical column comprising a pop-ulation of pyramidal projection neurons receiving feedback from excitatory and inhibitory interneuron populations (5). The model combines a linear second-order synaptic operator that maps mean incoming firing rates to postsynaptic poten-tials (PSPs), and a static nonlinear sigmoid that maps mem-brane potentials back to firing rates. She(t)he(t)hi(t)p(t)SSC1C3C4C2y0(t)y1(t)y2(t)−+++       
+
+> Fig. 1. Schematic of voltage interactions in the Jansen–Rit model, showing how ex-citatory and inhibitory interneuron populations interact with the pyramidal cell pop-ulation through feedback loops that shape the net membrane potential. 2|bioR χiv Fasse et al. |BraiNN: Fast Whole-Brain Modeling
+> .CC-BY-NC 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted July 13, 2026. ;https://doi.org/10.64898/2026.07.08.737156 doi: bioRxiv preprint
+
+For each node, the local state is described by a six-dimensional vector y = ( y0, y 1, y 2, y 3, y 4, y 5)⊤ ∈ R6, where 
+
+y0, y1, and y2 are the average membrane potentials of the pyramidal projection, excitatory interneuron, and inhibitory interneuron populations, respectively, and y3 = ˙ y0, y4 = ˙ y1,
+
+y5 = ˙ y2 are their corresponding time derivatives. This aug-mented state formulation reduces the second-order synaptic dynamics to a first-order ODE system. Using the standard Jansen–Rit parameterization (5, 16), the local dynamics may be described as 
+
+˙y0 = y3,
+
+˙y1 = y4,
+
+˙y2 = y5,
+
+˙y3 = A · a · S(y1 − y2
+
+) − 2 a · y3 − a2y0,
+
+˙y4 = A · a
+
+(
+
+p(t) + C2 · S(C1y0
+
+))
+
+− 2 a · y4 − a2y1,
+
+˙y5 = B · b · C4 · S(C3y0
+
+) − 2 b · y5 − b2y2.
+
+(1) 
+
+Here A and B are the average excitatory and inhibitory synaptic gains, a and b are inverse synaptic time constants, and C1, . . . , C 4 are intra-column connectivity constants. The term p(t) represents the total excitatory input to the pyrami-dal population (external drive plus long-range coupling; see below). The firing-rate nonlinearity is given by 
+
+S(v) = 2e0
+
+1 + exp (r(v0 − v)) ,
+
+with e0 the maximum firing rate, v0 the firing threshold, and r
+
+the sigmoid slope. ‘Table 1 lists the default values and ranges. For the Jansen–Rit variant with stochastic noise, see Eq. (6). Parameter Default value Range (17–19) 
+
+A 3.25 mV 2.6 mV to 9.75 mV 
+
+B 22 mV 12 mV to 110 mV 
+
+a 100 s −1 16 .7 s −1 to 500 s −1
+
+b 50 s −1 16 .7 s −1 to 500 s −1
+
+C1 135 32 .5 to 2025 
+
+C2 108 26 to 1620 
+
+C3 33 .75 8.125 to 506 .25 
+
+C4 33 .75 8.125 to 506 .25 
+
+e0 2.5 s −1 1.25 s −1 to 3.75 s −1
+
+v0 5.56 mV 3.12 mV to 6 mV 
+
+r 0.56 mV −1 0.28 mV −1 to 0.84 mV −1  
+
+> Table 1. Parameter set for the Jansen–Rit neural mass model as originally pro-posed in (5) and widely adopted in subsequent studies (e.g., (16, 20)). The Range
+> column consolidates bounds used in parameter-estimation studies (17) with broader simulator/model domains as implemented in The Virtual Brain (18, 19).
+
+In the present study, the simulated local output voltage of a node is taken as the pyramidal PSP difference 
+
+vpyr (t) = y1(t) − y2(t),
+
+which is known to exhibit alpha-like oscillations and realistic evoked-response behavior for appropriate choices of p(t) and coupling parameters (5, 21). 
+
+State representation and vectorization. Rather than imple-menting each node as an independent object, BraiNN aggre-gates all node states into joint tensors. For a network with N
+
+nodes we store the full state as a tuple of six arrays of size N .Furthermore, the right-hand side of Eq. (1) and all derived quantities are implemented as pure functions acting on these arrays. This design allows extensive use of JAX transforma-tions such as vmap and jit , and enables compilation of the full network integration loop into a single accelerator kernel. 
+
+Whole-brain region-level networks from structural connec-tivity. Whole-brain networks are constructed on a region-of-interest (ROI) parcellation. For each individual, we derive a structural connectivity matrix Wregion ∈ RN ×N and corre-sponding delay matrix D ∈ RN ×N from diffusion-weighted MRI and T1-weighted MRI, following the image-based, per-sonalized pipeline described by Karimi et al. (22). Briefly, a convolutional neural network-based segmentation algorithm jointly reconstructs MR images and segments up to 40 tissue classes from k-space data (23). The segmentation, together with diffusion tractography, is imported into Sim4Life (24) to generate subject-specific head models and white-matter con-nectivity matrices suitable for both electromagnetic and net-work simulations. At the network level, each ROI is a Jansen–Rit node. Long-range coupling enters the pyramidal input term pi(t) of node i
+
+as 
+
+pi(t) = p0,i + G
+
+> N
+
+∑
+
+> j=1
+
+[Wregion ]ij ypyr 
+
+> j
+
+(t − Dij 
+
+), (2) 
+
+where p0,i is the mean external drive, G is a scalar global coupling strength, and Dij is the conduction delay between regions j and i. The delays are defined as the ratio of the inter-regional tract length–derived from diffusion ten-sor imaging–to a user-definable conduction speed, set to 
+
+3.9 mm ms −1 in the present work. For nonzero σξ, this cor-responds to a system of stochastic delay differential equations with distributed delays arising from the connectome (22, 25). 
+
+Cortical surface representation and multi-scale mapping. 
+
+BraiNN supports two simulation modes. In region-level sim-ulations, each ROI corresponds to a single Jansen–Rit node coupled through Wregion as described above. In surface-level simulations, the subject-specific cortical surface mesh (22–24) is used to assign a full Jansen–Rit node to each of its 
+
+M vertices, providing within-region spatial detail that region-level simulations do not capture. Each surface node m ∈ { 1, . . . , M } is assigned to exactly one ROI π(m) ∈ { 1, . . . , N } via nearest-neighbor mapping based on geodesic distance on the cortical surface. We denote by 
+
+Si = { m ∈ { 1, . . . , M } | π(m) = i } the set of surface nodes belonging to ROI i.In surface-level mode, each vertex m is governed by the full Jansen–Rit model Eq. (1), but its pyramidal input term re-ceives contributions from two spatial scales. Short-range 
+
+interactions between nearby surface nodes are mediated by a sparse geometric connectivity matrix Wsurf ∈ RM ×M ,      
+
+> Fasse et al. |BraiNN: Fast Whole-Brain Modeling bioR χiv |3
+> .CC-BY-NC 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted July 13, 2026. ;https://doi.org/10.64898/2026.07.08.737156 doi: bioRxiv preprint
+
+## DTI / T1 
+
+## Connectome Brain Graph Optimized Comput. Graph Personalization EEG 
+
+# Digital Twin Patient 
+
+Fitting Lead Fields Fig. 2. Conceptual overview of the patient-specific digital twin workflow implemented in BraiNN . Diffusion MRI/DTI data are used to construct a subject-specific structural brain graph based on its connectome, which is translated in BraiNN into an optimized, differentiable computational graph using JAX. Forward simulation of the resulting whole-brain model yields predicted EEG for the subject’s digital twin; model parameters are then fit by matching simulated EEG to the recorded EEG, enabling data-driven personalization of the digital twin. 
+
+which captures local lateral coupling on the cortical surface. 
+
+Long-range coupling is inherited from the ROI-level struc-tural connectivity: the outgoing signal of ROI i is defined as the average pyramidal PSP over its constituent surface nodes, 
+
+ˆyi(t) = 1
+
+|Si|
+
+∑
+
+> m∈Si
+
+vpyr  
+
+> m
+
+(t), (3) 
+
+and all surface nodes within a receiving ROI share the same incoming long-range input. The full pyramidal input at ver-tex m, with i = π(m), is then 
+
+pm(t) = p0,m + Gsurf 
+
+> M
+
+∑
+
+> n=1
+
+[Wsurf ]mn vpyr  
+
+> n
+
+(t)+ G
+
+> N
+
+∑
+
+> j=1
+
+[Wregion ]ij ˆyj
+
+(t − Dij 
+
+),
+
+(4) 
+
+which parallels the region-level coupling (Eq. (2)) but adds the local surface term and replaces the region-level output 
+
+vpyr  
+
+> j
+
+with the ROI-averaged surface signal ˆyj . The global coupling strength Gsurf may differ from the region-level value G, reflecting the change in effective source density. This two-scale architecture allows both classical region-level simulations (still widely used because of computational con-straints), and surface-level simulations, which provide the spatial resolution needed for biophysically grounded EEG forward modeling via the lead-field projection described be-low. Spiegler and Jirsa (26) showed that, for parcellations whose inter-node spacing falls within the spatial resolution of scalp EEG, a network of neural masses retains the spatial frequency content relevant to EEG-band signals with low attenuation. Surface-level simulations in BraiNN operate in this regime, offering a computationally efficient approximation that is ap-propriate when microscopic within-column detail is not re-quired. 
+
+EEG forward modeling via lead fields. To map simulated cortical activity to scalp EEG, we precompute a lead-field matrix L ∈ RNeeg ×M that linearly projects M cortical source strengths to Neeg electrode voltages. Each cortical source is modelled as an equivalent current dipole oriented normal to the local cortical surface, so L is a scalar-per-vertex matrix obtained by projecting the full vector lead field onto the ver-tex normals. The lead field is computed using a reciprocity-based procedure (27–29): for each EEG electrode, a unit current is applied between that electrode and a common ref-erence electrode and simulated using the electro-quasistatic finite-element solver (ohmic-current-dominated variant) with an image-based anatomical head model in Sim4Life. Accord-ing to the Helmholtz reciprocity theorem, the normal com-ponents of the resulting electric field at the cortical vertices give the weights with which dipolar sources d located at these vertices and oriented normal to the surface contribute to the potential difference between that electrode and the reference. By assembling these weights in a matrix L (with rows cor-responding to electrodes and columns to vertices), the simu-lated EEG is obtained as (27): 
+
+vEEG (t) = L d (t) = g L s (t), (5) 
+
+where s(t) is the vector of pyramidal-cell PSPs at each sur-face node (i.e., vpyr ,m (t) in surface-level mode, or the ROI-broadcast values vpyr ,π (m)(t) in region-level mode) and g      
+
+> 4|bioR χiv Fasse et al. |BraiNN: Fast Whole-Brain Modeling
+
+.CC-BY-NC 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted July 13, 2026. ;https://doi.org/10.64898/2026.07.08.737156 doi: bioRxiv preprint is a factor that converts vpyr (mV) to an equivalent current dipole moment ( A m ). This factor aggregates cortical column density, effective dipole length, and neuronal membrane sur-face area into a single scalar. Following standard practice in whole-brain network simulators (18), g is treated as a free pa-rameter estimated during model personalization; when only relative EEG topography and spectral shape are of interest, g
+
+can be set to unity without loss of generality. 
+
+Numerical implementation and acceleration.  
+
+> JAX/XLA-based implementation.
+
+BraiNN is implemented entirely in JAX, a NumPy-like array programming library that combines automatic differentiation with just-in-time compilation via XLA (14). All core components — the vec-tor field, used to update the states of NMMs, network cou-pling, stochastic forcing, monitors, and objective functions — are expressed as pure functions over JAX arrays. This allows users to construct models using familiar NumPy-like code while seamlessly targeting CPUs, GPUs, or TPUs, ab-stracting away the burden of developing custom GPU kernels. Data interchange with existing scientific Python ecosystems is straightforward: NumPy arrays can be converted to JAX arrays and back with negligible overhead for typical problem sizes. Crucially, the full trajectory integration is written as a sin-gle JAX lax.scan loop over time, wrapped in jit , so that the entire simulation (including monitors) is compiled into a single accelerator kernel. This ensures that all oper-ations are vectorized over nodes. Furthermore, vmap can be used to further vectorize computation of trajectories on the same data, so that, for example, simulating multiple pa-rameter sets or noise realizations can be simulated with only modest marginal cost.    
+
+> Deterministic ODE solvers.
+
+For deterministic dynamics (noise switched off), BraiNN provides several explicit, non-stiff ODE solvers: forward Euler, Heun’s method (explicit trapezoidal rule), classical fourth-order Runge–Kutta, and adaptive embedded Runge–Kutta schemes of orders 5(4) 
+
+such as Tsitouras’ TSIT5 and Dormand–Prince (Dopri5) (30, 31). All solvers are implemented in a solver-agnostic fashion, so that the same NMM/network definition can be in-tegrated with different schemes without code duplication. The Jansen–Rit equations normally have synaptic time con-stants on the order of at least 10 ms to 20 ms and moderate feedback gains for the parameter ranges considered in this work, providing a natural testbed for multi-scale integration schemes.     
+
+> Stochastic differential equation solvers.
+
+To model en-dogenous fluctuations and measurement noise, BraiNN sup-ports additive stochastic forcing of the form 
+
+dy = f (y, t ) d t + Σ d Wt, (6) 
+
+where f denotes the deterministic NMM/network right-hand side, Σ is a constant diffusion matrix, and Wt is a vector of independent Wiener processes. Since the noise is additive (i.e., independent of the state), the Itô and Stratonovich in-terpretations are equivalent (32). Therefore, we implement solvers for the additive-noise case, avoiding the additional complications of multiplicative or state-dependent noise. Available SDE solvers include Euler–Maruyama and stochas-tic Heun schemes, as well as higher-order splitting Runge– Kutta methods for additive noise (32–34). These methods are again implemented in a fully vectorized and JIT-compiled fashion, allowing us to efficiently propagate large ensembles of stochastic trajectories for parameter exploration or uncer-tainty quantification.  
+
+> Monitors and memory-efficient recording.
+
+BraiNN decou-ples the integration time step ∆t from the sampling interval 
+
+∆tmon via a flexible monitoring interface. A monitor is a user-defined function that maps the full network state (and optionally derived quantities) at selected time points to a re-duced set of observables (e.g., pyramidal PSPs, regional fir-ing rates, surface-source activity, or EEG sensor voltages). Internally, monitors are evaluated within the lax.scan 
+
+loop only at multiples of ∆tmon /∆t (∆tmon is enforced to be a multiple of ∆t) and the resulting values are stored in preallocated arrays. This design provides two benefits. First, it drastically re-duces memory usage compared to storing the full state tra-jectory, which is particularly important for long simulations, large networks, or batched optimization runs. Second, it al-lows different observables to be recorded at problem-specific sampling rates without altering the underlying integration scheme. EEG time series, for example, can be sampled at 
+
+250 Hz to 1000 Hz , while internal fast variables are integrated at a much smaller ∆t. 
+
+> Precision and parallelism.
+
+By default, simulations are ex-ecuted in single-precision (32-bit) floating point to maximize throughput on modern GPUs. For verification and sensitivity analyses, BraiNN can be switched to 64-bit precision using JAX’s jax_enable_x64 flag. All core components are compatible with vmap and jit , enabling parallel execution over batches of parameter sets, initial conditions, or noise re-alizations.  
+
+> Implementation of delayed coupling.
+
+Conduction delays are implemented directly inside the compiled integration loop by storing the coupling variables in a fixed-size circular his-tory buffer. At initialization, tract lengths are converted to integer delay indices according to 
+
+τ ∆tij = round 
+
+( ℓij 
+
+vcond ∆t
+
+)
+
+,
+
+where ℓij is the tract length from source region j to target region i, vcond is the conduction speed, and ∆t is the integra-tion step size. The buffer length is set by the largest result-ing delay index, so memory scales with the maximum phys-iologically relevant delay rather than with the total simula-tion duration. During simulation, the current coupling output of each node, e.g., the pyramidal PSP, is written to the cur-rent buffer position and the write index is advanced modulo       
+
+> Fasse et al. |BraiNN: Fast Whole-Brain Modeling bioR χiv |5
+> .CC-BY-NC 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted July 13, 2026. ;https://doi.org/10.64898/2026.07.08.737156 doi: bioRxiv preprint
+
+the buffer length. Whenever long-range input is evaluated, BraiNN gathers for all source–target pairs the entries at in-dices h − 1 − τ ∆tij , again modulo the buffer length, producing a tensor of delayed source activity that can be contracted with the structural connectivity matrix. This avoids explicit shift-ing of time-series arrays, keeps delayed coupling compatible with jit , vmap , and lax.scan , and allows delay-based network simulations to remain fully accelerator-executable. 
+
+Personalization pipeline.  
+
+> EEG-based objective functions.
+
+To personalize model pa-rameters for an individual subject, we define loss functions on EEG-derived features. Let ϕ(·) denote a feature-extraction operator that maps a multi-channel EEG time series to a sum-mary feature vector, and let ϕ⋆ denote the corresponding tar-get features computed from recorded data. Given simulated features ϕ(θ) from a model with parameters θ, we define the objective 
+
+L(θ) = d(ϕ(θ), ϕ ⋆),
+
+where d is an application-specific distance measure. In the present work, ϕ extracts the power spectral density (PSD) over 6 Hz to 30 Hz from each channel (35), and d is the Wasserstein distance between the target and simulated PSDs, providing a transport-based spectral mismatch metric that is robust to small frequency shifts between otherwise similar spectral profiles.     
+
+> Gradient-based optimization in JAX/Optax.
+
+Because BraiNN is implemented in JAX, L(θ) is, in principle, dif-ferentiable with respect to model parameters via automatic differentiation. We therefore expose the objective and its gradients to gradient-based optimizers from the Optax library — a JAX-native collection of gradient-processing and optimization routines (14, 36). In particular, we make use of the Adam optimizer (37) and variants thereof for fine-tuning parameters once a promising region of parameter space has been identified. However, the combination of delayed recurrent coupling through the connectome and stochastic dynamics yields an effective recurrent neural network (RNN) with long temporal dependencies. It is well known that gradient descent in such systems is hampered by vanishing and exploding gradients and highly non-convex loss landscapes (38, 39). Moreover, the Jansen–Rit model exhibits rich bifurcation structure, in-cluding Hopf and saddle-node bifurcations, so that small pa-rameter changes can induce transitions between qualitatively different dynamical regimes (16, 21). Together, these factors produce noisy, multi-modal optimization landscapes in which purely gradient-based methods readily become trapped in lo-cal minima or suffer from unstable gradient estimates, espe-cially for long simulation windows. 
+
+> Bayesian optimization with Gaussian process surrogates.
+
+To mitigate these issues and enable robust global exploration, BraiNN implements a complementary optimizer based on Bayesian optimization (BO) with Gaussian process (GP) sur-rogates (40, 41). In this setting, the unknown objective L(θ)
+
+is modeled as a GP with mean function μ(θ) and covariance kernel k(θ, θ ′). In particular, we use a Matérn-5/2 kernel to-gether with a homoskedastic white-noise observation model to account for stochasticity in the simulation-based evalua-tions. Noisy evaluations of L obtained from stochastic sim-ulations update the GP posterior, which explicitly represents both the current best estimate and its associated uncertainty. In practice, this BO module is used for parameter spaces of moderate dimensionality, with θ typically having dimension 
+
+≤ 15 . Initial kernel hyperparameters are inferred from vari-ogram estimates and subsequently refined by maximizing the GP marginal likelihood using our own JAX implementation of the bounded L-BFGS-B optimizer. We employ acquisition functions from a family of classical and numerically stabilized BO criteria, including expected improvement (EI) (42), probability of improvement (PI) (43), lower confidence bound (LCB), corresponding to the min-imization form of GP-UCB (44), logarithmic expected im-provement (LogEI) (45), corrected expected improvement (CEI) for noisy observations (46), and a logarithmic cor-rected expected improvement variant (CLogEI) combining the CEI correction with a LogEI-style reformulation for im-proved numerical stability (45, 46). In the EI case, new pa-rameter candidates are selected by maximizing 
+
+αEI (θ) = EL(θ)|D n [max (0 , Linc − ξ − L (θ))] = σn(θ) [ u(θ)Φ( u(θ)) + ϕ(u(θ))] ,u(θ) = Linc − μn(θ) − ξσn(θ) .
+
+Here, Dn denotes the set of evaluations collected so far, and the expectation is taken with respect to the GP posterior pre-dictive distribution of the latent objective, 
+
+L(θ) | D n ∼ N (μn(θ), σ 2
+
+> n
+
+(θ)) .
+
+The functions Φ and ϕ denote the standard normal cumu-lative distribution function and probability density function, respectively. The parameter ξ ≥ 0 specifies the required im-provement margin. In our implementation, the acquisition function returns the negative EI value because acquisition op-timization is formulated as a minimization problem. In noisy settings, we take this incumbent to be the best current pos-terior estimate of the latent loss, rather than a single noisy simulation outcome. At each BO iteration, we first perform a global search over the parameter domain using Sobol sam-pling to identify promising candidate regions, and then re-fine the best candidate by locally optimizing the acquisition function with Adam. The selected parameter vector is sub-sequently evaluated by running a set of BraiNN simulations, often batched in parallel, and the resulting observations are used to update the GP posterior. All GP computations, marginal-likelihood optimization, and acquisition optimization are implemented in JAX, allowing the entire BO loop — including forward simulations, feature extraction, surrogate updates, and hyperparameter fitting — to run on the GPU without having to return control to the host between iterations.       
+
+> 6|bioR χiv Fasse et al. |BraiNN: Fast Whole-Brain Modeling
+> .CC-BY-NC 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted July 13, 2026. ;https://doi.org/10.64898/2026.07.08.737156 doi: bioRxiv preprint
+
+In practice, we use BO to perform global exploration and coarse localization of promising parameter regions, followed by local refinement using gradient-based optimizers from Optax. After BO identifies a promising basin, we refine the candidate by optimizing the GP posterior mean, and then, continue with global optimization of the original ob-jective. This hybrid strategy leverages the strengths of both approaches: BO is robust to non-convexity and noisy objec-tives, while gradient-based methods efficiently exploit local curvature when gradients are reliable. 
+
+Verification and benchmarking. 
+
+Numerical verification and qualitative behavior. We veri-fied the correctness of BraiNN’s neural mass and network implementation in several steps. First, we compared single-node and small-network trajectories against an indepen-dent CPU-based reference implementation of the Jansen–Rit model in TVB (18), using identical local parameters, in-puts, and integration time steps. For each configuration, we compared simulated time series, power spectra, and basic summary statistics, including the mean and variance of the pyramidal-population output. Second, we assessed whether BraiNN reproduced established qualitative network dynamics reported by Kazemi and Ja-mali (15). For this validation experiment, we replicated their parameter-sweep protocol for a network of stochasti-cally driven Jansen–Rit nodes. We used the same nominal lo-cal parameters and coupling scheme as in the reference study and simulated a two-dimensional grid of configurations com-prising a 256 × 256 ensemble, with 128 independent repeti-tions per grid point. This resulted in approximately 8.4 mil-lion simulations. The sweep covered coupling strengths from 
+
+0 to 19 .5 and stochastic input levels from 0 Hz to 330 Hz .Each configuration was simulated for 40 s of equilibration followed by 40 s of analysis time, using a fixed integration step size of 0.5 ms and a monitoring step size of 10 ms , fol-lowing the protocol reported by Kazemi and Jamali (15). For each parameter combination, we computed the long-time average network synchronization and the dominant peak frequency of the node-wise average pyramidal-population power spectral density (PSD). To assess sensitivity to stochastic fluctuations, we additionally computed the across-realization standard deviation of the synchronization order parameter at each point in parameter space. These quanti-ties were then compared qualitatively and quantitatively with the synchronization and peak-frequency profiles reported in the reference study. 
+
+Performance benchmarking. We benchmarked BraiNN with respect to runtime and scalability as a function of (i) the number of regions of interest (ROIs), N , (ii) the number of surface nodes assigned to each ROI, (iii) the conduction speed, which directly modulates propagation delays, and (iv) the number of trajectories evaluated in parallel. The struc-tural connectome, delay structure, and the region- and sur-face level coupling matrices were taken from (22), while the corresponding benchmark variables were modified accord-                                                              
+
+> Acceleration Biological plausibility Model fitting & observability Library GPU TPU Region Delays Surface EEG-LF Optim. Sparse mon. BraiNN ✓✓✓✓✓✓✓✓
+> TVB (18) ✗a✗✓✓✓✓∼✓
+> vbjax (47) ✓✓✓✓✗✗✓∼
+> cuBNM (48) ✓✗✓✓✗✗✓✗
+> brainmass (49) ✓✓✓✗✗✗✓∼
+> Table 2. Feature summary of whole-brain simulation libraries considered in the benchmarking comparison. Surface refers to cortical-mesh simulations with within-region spatial detail. EEG-LF denotes built-in lead-field-based EEG prediction, Op-tim. denotes support for parameter fitting or optimization, and Sparse mon. denotes support for spatially and/or temporally sparse monitoring.
+> Notes. ∼indicates partial support, typically through custom code, external workflows, or framework-level functionality rather than a dedicated built-in whole-brain feature.
+> aTVB itself is primarily CPU-based; GPU acceleration has been explored in separate TVB-HPC extensions rather than being part of the standard TVB simulator. Although TVB-inspired alternatives with hardware acceleration exist, including vbjax, VBI (50), and Fast_TVB (51), these tools do not support surface-based simulations. We therefore selected vbjax as a representative example of this class of TVB alternatives.
+
+ing to the respective experiment. All benchmarks were per-formed with fixed numerical integration settings, using a sim-ulation time step of ∆t = 0 .5 ms and a monitoring interval of 
+
+∆tmonitor = 10 ms . Each simulation comprised an equilibra-tion phase of 2 min followed by a recorded simulation phase of 2 min .Benchmarks were executed on both multi-core CPUs and GPU. The test system consisted of an AMD Ryzen Thread-ripper 3970X 32-core processor with 256 GB DDR4 memory and an NVIDIA GeForce RTX 3090 GPU. For each bench-mark condition, we generated 15 random problem instances and repeated each experiment 5 times in order to obtain more robust runtime statistics. In the surface-resolution bench-mark, the maximum number of surface nodes was set to 
+
+∼ 19 ,000 for GPU experiments, whereas CPU experiments were restricted to at most 4,500 surface nodes due to perfor-mance limitations (Fig. 5). Runtime measurements include the full end-to-end cost of simulation execution, including XLA compilation of the sim-ulation kernel for the respective model configuration and de-vice backend. Thus, the reported timings reflect the actual wall-clock cost encountered in practice rather than separating one-time compilation overhead from execution of the com-piled kernel. This is a conservative accounting, since compi-lation is a one-time cost that is amortized when many simu-lations are run, e.g. , during optimization. Finally, we profiled the computational cost of personalization by measuring the runtime per optimization iteration. Note on nomenclature. Throughout this manuscript, refer-ences to TVB denote the official open-source simulator The Virtual Brain (TVB) framework (18). Performance bench-marks were performed using the current reference implemen-tation available through the TVB software repository (com-monly referred to as tvb-root). When possible, we compared BraiNN’s performance with four other libraries which per-form forward simulations at the whole-brain level. A com-parison of their supported features can be found in table 2, where: • Acceleration refers to what type of hardware accelera-      
+
+> Fasse et al. |BraiNN: Fast Whole-Brain Modeling bioR χiv |7
+
+.CC-BY-NC 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted July 13, 2026. ;https://doi.org/10.64898/2026.07.08.737156 doi: bioRxiv preprint tion the particular library supports; • Region refers to simulations where only region-to-region (structural) connectivity is considered; • Delays refers to simulations where inter-regional com-munication includes conduction delays (yielding bio-logically realistic propagation delays); • Surface refers to simulations where a cortical mesh is used to provide finer-grained spatial detail of regional cortical topography. In particular, surface-based sim-ulations are required for spatially detailed EEG/MEG topographies. 
+
+Model optimization and personalization. We evaluated BraiNN’s model personalization capabilities via parameter-recovery experiments on synthetic data. In each experiment, a ground-truth parameter set was constructed from the default model ranges by randomizing the fitted parameter vector 
+
+θ = ( A, a, B, b, p 0, G, G surf , λ diff ),
+
+yielding an 8-dimensional optimization problem. The first four parameters correspond to Jansen–Rit model parameters listed in Table 1, while p0 denotes the mean external drive, G
+
+denotes the regional coupling scale, Gsurf the scaling of sur-face coupling, and λdiff the amplitude scaling of stochastic noise injected into the model. For each ground-truth parame-ter set, simulated EEG was generated from the corresponding network using a stochastic Heun simulator with an integra-tion time step of 0.5 ms , a monitor sampling interval of 5 ms ,and a 30 s recording window preceded by a 30 s equilibration period. To recover the ground-truth parameters, we combined a PSD-based objective function, evaluated on 100 linearly spaced frequencies between 6 Hz to 30 Hz , with optimization of the parameter vector. For each ground-truth target, we generated 10 independent runs, each initialized with randomly sam-pled values for all eight fitted parameters and distinct random seeds for the injected stochastic noise. Both optimizers— global Bayesian optimization (BO) and standalone Adam optimization—were then applied to this same set of 10 runs under matched settings, enabling a controlled comparison be-tween the two methods. We fixed the sequential optimization budget at 250 iterations for both fitting approaches to pro-vide a fair, matched compute budget across methods while empirically ensuring convergence of the best-so-far loss. For each run, we quantified fit quality in terms of PSD similar-ity between simulated and target data (Wasserstein distance). Across the 10 runs, we further tracked the best-so-far loss over the course of optimization and computed its mean and standard deviation, characterizing both the typical fit quality and its variability across independent initializations. We ad-ditionally recorded the number of forward simulations and the wall-clock time for each optimization strategy. 
+
+Results 
+
+Numerical verification and qualitative behavior. 
+
+BraiNN reproduced established Jansen–Rit dynamics at both 1.000 0.000 0.500      
+
+> Synchronization Power Spectral Density
+> BraiNN - Mean BraiNN - Standard Deviation Kazemi et al. - Mean
+> Fig. 3. Coupling-dependent synchronization statistics for the parameter sweep used to reproduce the results of Kazemi and Jamali (15). From left to right, the columns show the reference synchronization values reported by Kazemi and Ja-mali, the mean phase synchronization obtained with BraiNN , and the correspond-ing standard deviation across realizations and conditions. Elevated synchroniza-tion variability highlights parameter regions with increased sensitivity and stronger bifurcation-related effects.
+
+the single-node and network levels. After validating single-node trajectories and small-network simulations against an independent reference implementation, we evaluated whether BraiNN could reproduce the qualitative synchro-nization behavior previously reported for stochastically driven Jansen–Rit networks by Kazemi and Jamali (15). The synchronization maps obtained with BraiNN repro-duce the qualitative structure reported by Kazemi and Ja-mali (15). In particular, the simulations show a clear coupling-dependent transition from weakly synchronized ac-tivity at low coupling strengths to strongly synchronized net-work dynamics at higher coupling strengths. This agreement supports the correctness of the implemented Jansen–Rit node dynamics and of the network coupling scheme. The peak-frequency profiles also follow the expected qualita-tive behavior across the explored parameter space. Together with the synchronization maps, these results indicate that 
+
+BraiNN captures the main dynamical regimes of stochas-tically driven Jansen–Rit networks. Small quantitative dif-ferences with respect to the reference results are consistent with the methodological limitation noted above, namely that the original study does not fully specify all stochastic-input implementation details. Importantly, these differences do not alter the main qualitative agreement between the reproduced and reference dynamical regimes. In addition to the mean synchronization and peak-frequency maps, we quantified the across-realization variability of the synchronization order parameter. The resulting variabil-ity maps reveal a band of elevated fluctuations that are characteristic of the transition from weakly synchronized to highly synchronized dynamics. This pattern is consis-tent with increased sensitivity close to bifurcation-related regimes and with the complex dynamical behavior reported by Kazemi and Jamali (15). Overall, the replication demon-strates that BraiNN reproduces the expected qualitative net-work dynamics while additionally identifying the parameter regions in which the simulated dynamics are most sensitive to stochastic fluctuations.       
+
+> 8|bioR χiv Fasse et al. |BraiNN: Fast Whole-Brain Modeling
+> .CC-BY-NC 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted July 13, 2026. ;https://doi.org/10.64898/2026.07.08.737156 doi: bioRxiv preprint
+
+Performance and scalability. We benchmarked BraiNN across region-level, surface-level, delay-coupled, and batched simulation configurations, comparing GPU-accelerated runs on an NVIDIA RTX 3090 to CPU baselines on a 32-core AMD Ryzen Threadripper 3970X. For region-level simulations (Fig. 4), BraiNN on GPU achieved runtimes of approximately 5.5 s across the full range of N = 10 to N = 250 regions, representing a speedup of roughly 10 .7× over BraiNN on CPU and 215 × over TVB at N = 250 . Notably, GPU runtimes for BraiNN remained approximately constant with increasing N , indicating that the network sizes considered here remain well within the paral-lelism budget of the GPU. For surface-level simulations (Fig. 5), BraiNN showed sub-stantially better scaling than TVB. At the highest resolu-tion benchmarked for both implementations, 4 392 surface vertices, TVB on CPU required approximately 1025 .1 s ,whereas BraiNN on GPU completed the simulation in ap-proximately 12 .9 s , yielding a speedup of approximately 
+
+79 .5×. BraiNN also supported substantially larger sur-face simulations, reaching 20 000 vertices in approximately 
+
+31 .6 s . This corresponds to more than 4.5× the largest avail-able TVB surface benchmark while still running over 32 ×
+
+faster than TVB at 4 392 vertices. Among the libraries eval-uated, only BraiNN and TVB support surface-level simula-tions (Table 2). Increasing the maximum conduction delay (Fig. 6) increased runtimes for all libraries, as larger delays require longer his-tory buffers. BraiNN on GPU showed only a small runtime increase, from approximately 5.0 s without delays to approx-imately 5.4 s at a maximum delay of 12 .4 s , remaining com-petitive with or faster than the other GPU-accelerated im-plementations across the full delay range. BraiNN on CPU showed a similar delay-dependent trend and remained com-parable to the CPU implementation of cuBNM across all tested maximum delays. This indicates that BraiNN’s delay handling introduces only modest overhead on both GPU and CPU, while preserving competitive performance relative to specialized GPU- and CPU-based simulators. Finally, batch evaluation (Fig. 7) demonstrated that GPU run-times for BraiNN scaled sublinearly with the number of par-allel trajectories, reaching only 6.0 s for 32 simultaneous sim-ulations compared to 4.6 s for a single run. This near-constant marginal cost per additional trajectory is a direct consequence of the vmap -based vectorization strategy described above, and is particularly relevant for the batched evaluations re-quired during BO. 
+
+Parameter inference. We assessed BraiNN’s personal-ization performance by comparing the PSD of synthetic data from a known reference configuration (ground truth) to the mean best-fitting PSD obtained by optimizing the eight-dimensional parameter vector. For each target, both optimizers—global Bayesian optimization (BO) and Adam-based gradient optimization—were applied to the same set of 10 independent runs, each initialized with randomly sampled values for all eight fitted parameters and a distinct seed for the stochastic noise. Over the course of optimization, we tracked 0 50 100 150 200 250                   
+
+> Number of Regions
+> 10 1
+> 10 2
+> 10 3
+> Region-Level Performance
+> braiNN CPU
+> braiNN GPU
+> tvb-root CPU
+> vbjax GPU
+> cubnm CPU
+> cubnm GPU
+> brainmass CPU
+> brainmass GPU
+> Fig. 4. Runtime benchmarking for region-level simulations. Performance is reported as a function of the number of ROIs and compared across simulation libraries and execution backends as indicated in the legend. 02k 5k 7k 10k 12k 15k 17k 20k
+> Number of Surface Points
+> 10 1
+> 10 2
+> 10 3
+> Surface-Level Performance
+> braiNN CPU
+> braiNN GPU
+> tvb-root CPU
+> Fig. 5. Runtime benchmarking for surface-level simulations. Performance is re-ported as a function of the number of surface points, and compared against TVB. 0.0 2.0 4.0 6.0 8.0 10.0 12.0
+> Maximum Delay (s)
+> 10 1
+> 10 2
+> Transmission Delay Performance
+> braiNN CPU
+> braiNN GPU
+> tvb-root CPU
+> vbjax GPU
+> cubnm CPU
+> cubnm GPU
+> Fig. 6. Runtime benchmarking as a function of the maximum conduction delay used in delayed coupling. Performance is compared across simulation libraries and execution backends as indicated in the legend.
+
+the best-so-far loss and computed its mean and standard de-viation across the 10 runs, characterizing both fit quality and run-to-run variability. 
+
+PSD recovery. The optimization trajectories and the result-ing spectral agreement are shown in Fig. 8. From an initial spectral mismatch metric of ∼ 0.08 , BO reached a best-so-far loss of 0.029 ± 0.002 , and its average fitted PSD closely tracks the ground truth across the 6 Hz to 30 Hz band with lit-tle run-to-run spread. Stand-alone Adam optimization stag-nated at 0.055 ± 0.027 —roughly double the Wasserstein dis-tance and more than an order of magnitude more variable—       
+
+> Fasse et al. |BraiNN: Fast Whole-Brain Modeling bioR χiv |9
+
+.CC-BY-NC 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted July 13, 2026. ;https://doi.org/10.64898/2026.07.08.737156 doi: bioRxiv preprint 0 5 10 15 20 25 30  
+
+> Number of Batch Elements
+> 10 1
+> 10 2
+> Batch Performance
+> braiNN CPU
+> braiNN GPU
+> tvb-root CPU
+> vbjax GPU
+> cubnm GPU Fig. 7. Total runtime benchmarking as a function of batch size (number of simu-lations evaluated in parallel). Performance is compared across simulation libraries and execution backends as indicated in the legend.
+
+and its fitted PSD remained visibly mismatched to the target. This is consistent with the noisy, non-convex loss landscape and the vanishing and exploding gradients expected for long, delayed, stochastic simulations, thus confirming the rationale for using BO for global exploration rather than gradient de-scent alone.  
+
+> Optimizer performance.
+
+On the RTX 3090, a complete BO fit required 140 min ± 1.7 min versus 266 min ± 45 min 
+
+for gradient descent— 1.9× faster. Each BO evaluation cost 28 .9 s —essentially one forward simulation ( 96 % of the 
+
+30 .2 s a stand-alone run takes)—confirming that cost is dom-inated by the number of simulations rather than the BO machinery. Each gradient step cost 63 .9 s —2.25 × a for-ward run and 2.2× the BO per-evaluation cost—due to the automatic-differentiation forward pass through the long, de-layed stochastic trajectory. 
+
+Discussion 
+
+This work set out to develop a modern, accelerator-aware library for neural mass modeling that is both efficient at scale and directly usable for subject-specific personalization. BraiNN is implemented entirely in JAX and treats whole-brain simulations, feature extraction, and optimization as parts of a single, differentiable computational graph. The results show that this design yields a simulator that repro-duces established Jansen–Rit dynamics, outperforms existing libraries in runtime, and offers a richer feature set (surface-level, delays, stochastic noise, EEG signal mapping with subject-specific lead fields, gradient and Bayesian optimiza-tion, spatio-temporally sparse monitoring among other fea-tures) for personalized whole-brain modeling. On the modeling side, BraiNN follows the standard Jansen– Rit formulation, ensuring compatibility with prior work on mesoscopic cortical dynamics (5, 16, 20). By replicating the stochastic network experiments of Kazemi and Jamali (15), including the onset of synchronization and the elevated vari-ability around critical coupling, we confirmed that the im-plementation captures the expected bifurcation structure in networks of Jansen–Rit oscillators (Fig. 3). Because the ref-erence study did not fully specify the noise model, the mi-nor discrepancies observed in low-coupling regimes were ex-pected. This benchmark gives confidence that researchers can use BraiNN as a alternative for established NMM sim-ulators while benefiting from substantially improved perfor-mance. At the whole-brain level, BraiNN combines a region-level Jansen–Rit network with a subject-specific cortical surface and a reciprocity-based EEG forward model. This two-scale architecture is aligned with current trends toward individual-ized structural and functional mapping (1, 2, 22–24). Map-ping ROI activity onto a cortical mesh and projecting it to EEG sensors via precomputed lead fields (24, 27, 28) enables simulations that are both computationally tractable and bio-physically grounded at a level suitable for clinical workflows.  
+
+> Performance.
+
+Within the landscape of existing whole-brain libraries, BraiNN complements and extends tools such as TVB and its high-performance variants (18, 50–52) as well as newer GPU-focused frameworks like cuBNM, vbjax, and brainmass (47–49). Benchmarking results indicate that BraiNN achieves competitive or superior runtimes on CPUs and GPUs while supporting region-level, delay-based, and surface-based simulations in a single JAX/XLA stack (Ta-ble 2). Notably, none of the other GPU-accelerated brain simulators we evaluated currently support surface-based sim-ulations. Recent TVB-derived efforts such as vbjax (47), Virtual Brain Inference (VBI) (50), and Fast TVB (51, 52) exploit GPUs or HPC resources for region-level models but do not incorporate cortical surface coupling and thus cannot natively produce spatially detailed EEG/MEG signals. This combination of performance and feature richness is central to enabling rapid experimentation and large parameter sweeps in both research and translational contexts. The personalization experiments illustrate the benefits and limitations of exploiting automatic differentiation in large-scale brain models. Expressing EEG-based objectives in JAX allows the use of gradient-based optimizers from Op-tax (36, 37), but delayed recurrent coupling, stochastic dy-namics, and long simulations lead to highly non-convex, noisy loss landscapes with vanishing and exploding gradients (16, 21, 38, 39). The hybrid strategy adopted here—global exploration with GP-based BO followed by local gradient-based refinement—yields accurate spectral recovery on syn-thetic data at reasonable computational cost (35, 40, 41). Thanks to accelerator-enabled batch evaluations, personal-ization required only a few hours for a whole-brain model of nearly 19 ,000 nodes, a speed that, to our knowledge, has not previously been reported for this scale of biophysically grounded modeling.  
+
+> Clinical acceptability.
+
+For personalized brain modeling to inform clinical decision-making, the computational cost of model fitting must be compatible with clinical workflow timescales. In practice, neuromodulation treatment planning unfolds over days to weeks: imaging acquisition, head-model construction, electrode planning or coil positioning, and mul-tidisciplinary clinical review typically span multiple sessions before stimulation begins (22, 53). Within this timeline,                           
+
+> 10 |bioR χiv Fasse et al. |BraiNN: Fast Whole-Brain Modeling
+> .CC-BY-NC 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted July 13, 2026. ;https://doi.org/10.64898/2026.07.08.737156 doi: bioRxiv preprint Fig. 8. Parameter-recovery experiment comparing the two optimization methods in BraiNN’s personalization pipeline—global Bayesian optimization (BO) and stand-alone gradient descent (Adam)—on an eight-dimensional spectral-fitting problem by fitting the mean of 10 random initializations per method to a synthetic reference. Left: power spectral densities (PSDs) before fitting (reference and average over the initializations). Middle: best-so-far (running-minimum) spectral loss during fitting for both methods.
+> Right, top/bottom: mean fitted PSD for Adam and for BO, overlaid on the reference. Shaded bands denote ±1standard deviation across the 10 fits; power uses a shared logarithmic scale. BO recovers the target spectrum closely and consistently (best-so-far Wasserstein distance of 0.029 ±0.002 ), whereas gradient descent alone stagnates at double that distance with ∼10-fold higher variability ( 0.055 ±0.027 ) and requires 1.9×the wall-clock time.
+
+the rate-limiting computational step has traditionally been model personalization. Early TVB-based fitting efforts re-ported approximately one hour of CPU time to fit a single 
+
+1 s EEG epoch at the region level using random Monte Carlo search (54); scaling such approaches to longer recording win-dows, surface-level models, or gradient-free global optimiz-ers compounds the cost further. More recent simulation-based inference (SBI) approaches, such as VBI (50), reduce the repeated computational burden by training a neural den-sity estimator up-front, after which per-subject inference re-quires only seconds. However, this strategy entails a substan-tial one-time training cost tied to a fixed model class and pa-rameter prior, requires repetition, for example, when the con-nectome changes, and has so far been applied only to region-level models. BraiNN’s hybrid BO/gradient pipeline occupies a differ-ent point in this trade-off space: it requires no offline pre-training, operates on surface-level models with ∼19000 
+
+nodes and biophysically grounded EEG forward modeling, and completes a full spectral-target fit in approximately 2.3 hours on a single consumer GPU (NVIDIA RTX 3090). This runtime is well within the multi-day clinical planning win-dow described above and, crucially, does not require high-performance computing infrastructure. In the context of a re-alistic clinical pipeline (22, 55)—where upstream steps such as image acquisition, segmentation, and connectome extrac-tion themselves require on the order of hours—a model per-sonalization step of this duration does not represent a bottle-neck. We therefore argue that the combination of surface-level fidelity, consumer-grade hardware requirements, and fitting times on the order of a few hours places BraiNN within the practical envelope for integration into clinical neuromod-ulation workflows. These results open a path toward clinical applications. For example, in neuromodulation therapy planning, BraiNN could be used to compare patient-specific predictions of network responses across different stimulation strategies to guide treatment decisions. However, a crucial next step is systematic validation on real-world EEG and multimodal datasets. All personalization results reported here are based on synthetic data generated by the same model class, and on PSD fitting alone. While this is appropriate for controlled identifiability studies, real data introduce additional noise, ar-tifacts, and potential model mismatch. Evaluating BraiNN on empirical datasets, including patient cohorts, will be essen-tial to validate robustness, refine modeling assumptions, and quantify performance relative to established workflows such as TVB- and VBI-based pipelines (18, 50). 
+
+Limitations. Despite its benefits, BraiNN also has limita-tions that point toward important directions for future work. Currently, the library implements the Jansen–Rit cortical column model, though extension to other NMMs is trivial. Extending BraiNN to support additional neural mass mod-els (e.g., thalamic relay populations, meso-circuit models of basal ganglia, or more detailed cortical field models (26)) will increase its versatility. The hybrid Bayesian optimization and gradient-based pipeline presented here provides an ini-tial framework for parameter estimation; further development could incorporate more expressive surrogate models, amor-tized inference strategies, or tighter integration with proba-      
+
+> Fasse et al. |BraiNN: Fast Whole-Brain Modeling bioR χiv |11
+
+.CC-BY-NC 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted July 13, 2026. ;https://doi.org/10.64898/2026.07.08.737156 doi: bioRxiv preprint bilistic programming to improve scalability and uncertainty quantification. On the feature-extraction side, the current objective relies on static power spectral densities (PSDs), but alternative feature choices may be more informative for predicting stimulation-induced changes in brain dynamics. Identifying objective functions better suited for fitting neural mass models remains a major area of ongoing research and offers substantial po-tential for future improvement. In particular, incorporat-ing time-resolved or connectivity-based features such as dy-namic functional connectivity (56) could improve sensitivity to transient network states and richer dynamical structure. Finally, while BraiNN’s current focus is on forward mod-eling and open-loop optimization, an exciting future direc-tion will be closed-loop simulations for neuromodulation— embedding BraiNN into feedback control frameworks where stimulation parameters are adjusted online based on simu-lated neural responses. 
+
+Conclusion 
+
+BraiNN provides a modern, JAX-based framework for neu-ral mass modeling that bridges biophysically interpretable whole-brain models and the practical requirements of effi-cient simulation and personalization. By integrating subject-specific connectivity and head models, region- and surface-level dynamics, reciprocity-based EEG forward modeling, and hardware-accelerated integration in a single differen-tiable stack, it offers both high performance and a rich feature set. Numerical verification experiments confirm the correct reproduction of canonical Jansen–Rit dynamics, and bench-marking shows favorable scaling with network size, surface resolution, and delays. Across region-level, surface-level, and delay-coupled configurations, BraiNN achieves speedups of up to three orders of magnitude over established CPU-based frameworks such as TVB. The tight integration with the JAX ecosystem enables flex-ible, differentiable EEG-based objectives and advanced op-timization, including BO and gradient-based refinement. This combination supports efficient exploration of high-dimensional parameter spaces and opens a path toward in-dividualized digital twins that can be tuned within clinically relevant time frames (22, 35, 40, 41). In synthetic parameter-recovery experiments, the full spectral-target personalization of an eight-dimensional parameter set for a surface-level model with approximately ∼ 19 ,000 coupled nodes com-pletes in a few hours on a single consumer GPU (NVIDIA RTX 3090), compared to multiple days with conventional neural mass modeling software. By drastically lowering the computational barrier, BraiNN enables more iterative and ex-ploratory research on brain network dynamics—researchers can now perform expansive parameter sweeps or optimiza-tion studies that were previously prohibitive due to run-time constraints, placing whole-brain model personalization within the practical envelope of clinical neuromodulation workflows (22, 55). Future work will focus on two main fronts: first, applying BraiNN to real-world clinical and research datasets to val-idate its robustness under realistic conditions and to assess its added value in practical personalization tasks; second, extending the framework to additional neural mass models, richer stochastic dynamics, more expressive EEG-derived features (including connectivity and dynamic functional con-nectivity (56)), and tighter integration with probabilistic in-ference and control toolkits (22, 50). As an open-source li-brary, BraiNN invites the community to build upon it, ex-tending its model library, improving its algorithms, and ulti-mately advancing the state-of-the-art in personalized whole-brain network modeling. By unifying biophysically interpretable NMMs with mod-ern accelerator-aware, differentiable computing, BraiNN will help to bridge the gap between detailed computational neu-roscience models and the practical requirements of individu-alized neuromodulation. 
+
+Acknowledgments 
+
+This research was funded in part by the Swiss National Science Foundation (SNSF) grant no. 10003470 (project TIME), and by Auden Techno Corp.    
+
+> 1. Chaohong Gao, Xia Wu, Xinle Cheng, Kristoffer Hougaard Madsen, Congying Chu, Zhengyi Yang, and Lingzhong Fan. Individualized brain mapping for navigated neuromodulation.
+> Chinese Medical Journal , 137(5):508–523, 2024. doi:
+
+10.1097/CM9.0000000000002979 .2. Chengyi Li, Shan Yu, and Yue Cui. Parcellation of individual brains: From group level atlas to precise mapping. Neuroscience & Biobehavioral Reviews , 174:106172, 2025. doi: 
+
+10.1016/j.neubiorev.2025.106172 .3. Michele Farisco, Jeanette H. Kotaleski, and Kathinka Evers. Large-scale brain simulation and disorders of consciousness: Mapping technical and conceptual issues. Frontiers in Psychology , 9:585, 2018. doi: 10.3389/fpsyg.2018.00585 .4. Egidio D’Angelo and Viktor Jirsa. The quest for multiscale brain modeling. Trends in Neu-rosciences , 45(10):777–790, 2022. doi: 10.1016/j.tins.2022.06.007 .5. Ben H. Jansen and Vincent G. Rit. Electroencephalogram and visual evoked potential gen-eration in a mathematical model of coupled cortical columns. Biological Cybernetics , 73(4): 357–366, 1995. doi: 10.1007/BF00199471 .6. Olivier David and Karl J. Friston. A neural mass model for meg/eeg: Coupling and neuronal dynamics. NeuroImage , 20(3):1743–1755, 2003. doi: 10.1016/j.neuroimage.2003.07.015 .7. V. K. Jirsa, T. Proix, D. Perdikis, M. M. Woodman, H. Wang, J. Gonzalez-Martinez, C. Bernard, C. Bénar, M. Guye, P. Chauvel, and F. Bartolomei. The Virtual Epileptic Pa-tient: Individualized whole-brain models of epilepsy spread. NeuroImage , 145:377–388, January 2017. ISSN 1053-8119. doi: 10.1016/j.neuroimage.2016.04.049 .8. Huifang E. Wang, Marmaduke Woodman, Paul Triebkorn, Jean-Didier Lemarechal, Jayant Jha, Borana Dollomaja, Anirudh Nihalani Vattikonda, Viktor Sip, Samuel Medina Villalon, Meysam Hashemi, Maxime Guye, Julia Makhalova, Fabrice Bartolomei, and Viktor Jirsa. Delineating epileptogenic networks using brain imaging data and personalized modeling in drug-resistant epilepsy. Science Translational Medicine , 15(680):eabp8982, January 2023. doi: 10.1126/scitranslmed.abp8982 .9. Sora An, Fabrice Bartolomei, Maxime Guye, and Viktor Jirsa. Optimization of surgical inter-vention outside the epileptogenic zone in the Virtual Epileptic Patient (VEP). PLOS Compu-tational Biology , 15(6):e1007051, June 2019. ISSN 1553-7358. doi: 10.1371/journal.pcbi. 1007051 .10. Simona Olmi, Spase Petkoski, Maxime Guye, Fabrice Bartolomei, and Viktor Jirsa. Con-trolling seizure propagation in large-scale brain networks. PLOS Computational Biology , 15 (2):e1006805, February 2019. ISSN 1553-7358. doi: 10.1371/journal.pcbi.1006805 .11. Julia Makhalova, Samuel Medina Villalon, Huifang Wang, Bernard Giusiano, Marmaduke Woodman, Christian Bénar, Maxime Guye, Viktor Jirsa, and Fabrice Bartolomei. Virtual epileptic patient brain modeling: Relationships with seizure onset and surgical outcome.  
+
+> Epilepsia , 63(8):1942–1955, August 2022. ISSN 1528-1167. doi:
+
+10.1111/epi.17310 .12. Alex Krizhevsky, Ilya Sutskever, and Geoffrey E. Hinton. Imagenet classification with deep convolutional neural networks. In Advances in Neural Information Processing Systems 25 ,pages 1097–1105, 2012. 13. Yoshua Bengio, Yann LeCun, and Geoffrey Hinton. Deep learning for AI. Communications of the ACM , 64(7):58–65, 2021. doi: 10.1145/3448250 .14. James Bradbury, Roy Frostig, Peter Hawkins, Matthew James Johnson, Chris Leary, Dougal Maclaurin, George Necula, Adam Paszke, Jake VanderPlas, Skye Wanderman-Milne, and Qiao Zhang. JAX: Composable transformations of Python+NumPy programs, 2018. 15. Saeedeh Kazemi and Yousef Jamali. On the influence of input triggering on the dynamics of the jansen–rit oscillators network. arXiv preprint , arXiv:2202.06634, 2022. 16. François Grimbert and Olivier Faugeras. Bifurcation analysis of jansen’s neural mass model.  
+
+> Neural Computation , 18(12):3052–3068, 2006. doi:
+
+10.1162/neco.2006.18.12.3052 .17. Adam Łysiak and Szczepan Paszkiel. A method to obtain parameters of one-column jansen–rit model using genetic algorithm and spectral characteristics. Applied Sciences ,11(2):677, 2021. doi: 10.3390/app11020677 .
+
+12 | bioR χiv Fasse et al. | BraiNN: Fast Whole-Brain Modeling 
+
+.CC-BY-NC 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted July 13, 2026. ;https://doi.org/10.64898/2026.07.08.737156 doi: bioRxiv preprint 18. Paula Sanz Leon, Stuart A. Knock, M. Marmaduke Woodman, Lia Domide, Jochen Mers-mann, Anthony R. McIntosh, and Viktor Jirsa. The Virtual Brain: a simulator of primate brain network dynamics. Frontiers in Neuroinformatics , 7, June 2013. ISSN 1662-5196. doi: 10.3389/fninf.2013.00010 . Publisher: Frontiers. 19. TVB Jansen–Rit model source (parameter domains). https://docs. thevirtualbrain.org/_modules/tvb/simulator/models/jansen_rit. html . Accessed: 2026-01-12. 20. Andreas Spiegler, Stefan J. Kiebel, Fatihcan M. Atay, and Thomas R. Knösche. Bifurcation analysis of neural mass models: Impact of extrinsic inputs and dendritic time constants. 
+
+NeuroImage , 52(3):1041–1058, 2010. doi: 10.1016/j.neuroimage.2009.12.081 .21. Andreas Spiegler, Thomas R. Knösche, Jens Haueisen, and Fatihcan M. Atay. Complex behavior in a modified jansen and rit neural mass model. BMC Neuroscience , 12(Suppl 1): P5, 2011. doi: 10.1186/1471-2202-12-S1-P5 .22. Fariba Karimi, Melanie Steiner, Taylor Newton, Niels Hummel, Niels Kuster, Viktor Jirsa, and Esra Neufeld. Precision non-invasive brain stimulation: an in silico pipeline for personalized control of brain dynamics. Journal of Neural Engineering , 22(2):026061, 2025. doi: 10. 1088/1741-2552/adb88f .23. Francesco Calivá, Andrew P. Leynes, Rutwik Shah, Upasana Upadhyay Bharadwaj, Sharmila Majumdar, Peder E. Z. Larson, and Valentina Pedoia. Breaking speed limits with simultaneous ultra-fast MRI reconstruction and tissue segmentation. In Proceedings of the Third Conference on Medical Imaging with Deep Learning (MIDL) , volume 121 of Proceed-ings of Machine Learning Research , pages 94–110, 2020. 24. ZMT Zurich MedTech AG. Sim4life – computational life sciences platform. https://zmt. swiss/sim4life/ , 2025. Accessed: 2025-11-30. 25. Markus Ableidinger, Evelyn Buckwar, and Harald Hinterleitner. A stochastic version of the jansen and rit neural mass model: Analysis and numerics. The Journal of Mathematical Neuroscience , 7(1):8, 2017. ISSN 2190-8567. doi: 10.1186/s13408-017-0046-4 .26. A. Spiegler and V. Jirsa. Systematic approximations of neural fields through networks of neural masses in the virtual brain. NeuroImage , 83:704–725, December 2013. ISSN 1053-8119. doi: 10.1016/j.neuroimage.2013.06.018 .27. Giulio Ruffini. Application of the reciprocity theorem to EEG inversion and optimization of EEG-driven transcranial current stimulation (tCS, including tDCS, tACS, tRNS). arXiv preprint , arXiv:1506.04835, 2015. 28. Stewart Rush and David A. Driscoll. EEG electrode sensitivity – an application of reciprocity. 
+
+IEEE Transactions on Biomedical Engineering , 16(1):15–22, 1969. doi: 10.1109/TBME. 1969.4502598 .29. Robert Plonsey. Reciprocity Applied to Volume Conductors and the ECG. IEEE Trans-actions on Bio-medical Electronics , 10(1):9–12, January 1963. ISSN 2168-1600. doi: 
+
+10.1109/TBMEL.1963.4322775 .30. Ernst Hairer, Syvert P. Nørsett, and Gerhard Wanner. Solving Ordinary Differential Equa-tions I: Nonstiff Problems , volume 8 of Springer Series in Computational Mathematics .Springer, Berlin, 2 edition, 2008. doi: 10.1007/978-3-540-78862-1 .31. Ch. Tsitouras. Runge–kutta pairs of orders 5(4) using the minimal number of stages. Com-puters & Mathematics with Applications , 62(2):770–775, 2011. doi: 10.1016/j.camwa.2011. 06.002 .32. Simo Särkkä and Arno Solin. Applied Stochastic Differential Equations . Cambridge Univer-sity Press, Cambridge, 2019. doi: 10.1017/9781108186735 .33. Peter E. Kloeden and Eckhard Platen. Numerical Solution of Stochastic Differential Equa-tions , volume 23 of Stochastic Modelling and Applied Probability . Springer, Berlin, 1992. doi: 10.1007/978-3-662-12616-5 .34. James M. Foster, Gonçalo dos Reis, and Calum Strange. High order splitting methods for SDEs satisfying a commutativity condition. SIAM Journal on Numerical Analysis , 62(1): 500–532, 2024. doi: 10.1137/23M155147X .35. Katherine F. Walters, Rohit Shukla, Vivek Kumar, Shannon Schueren, Hariom Yadav, Nathan D. Schilaty, and Shalini Jain. Resting-state EEG power spectral density analysis between healthy and cognitively impaired subjects. Brain Sciences , 15(2):173, 2025. doi: 
+
+10.3390/brainsci15020173 .36. DeepMind. Optax: Gradient processing and optimization library for JAX. https:// github.com/google-deepmind/optax , 2020. Version 0.2.6 or later. 37. Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization. Interna-tional Conference on Learning Representations (ICLR) , 2015. arXiv:1412.6980. 38. Yoshua Bengio, Patrice Simard, and Paolo Frasconi. Learning long-term dependencies with gradient descent is difficult. IEEE Transactions on Neural Networks , 5(2):157–166, 1994. doi: 10.1109/72.279181 .39. Sepp Hochreiter, Yoshua Bengio, Paolo Frasconi, and Jürgen Schmidhuber. Gradient flow in recurrent nets: The difficulty of learning long-term dependencies. In John F. Kolen and Stefan C. Kremer, editors, A Field Guide to Dynamical Recurrent Neural Networks , pages 237–243. IEEE Press, 2001. 40. Jasper Snoek, Hugo Larochelle, and Ryan P. Adams. Practical Bayesian optimization of machine learning algorithms. In Advances in Neural Information Processing Systems (NeurIPS) , volume 25, pages 2951–2959, 2012. 41. Roman Garnett. Bayesian Optimization . Cambridge Texts in Applied Mathematics. Cam-bridge University Press, Cambridge, 2023. doi: 10.1017/9781108348973 .42. Donald R. Jones, Matthias Schonlau, and William J. Welch. Efficient global optimization of expensive black-box functions. Journal of Global Optimization , 13(4):455–492, 1998. doi: 
+
+10.1023/A:1008306431147 .43. Harold J. Kushner. A New Method of Locating the Maximum Point of an Arbitrary Multipeak Curve in the Presence of Noise . American Society of Mechanical Engineers, 1964. 44. Niranjan Srinivas, Andreas Krause, Sham M. Kakade, and Matthias Seeger. Gaussian pro-cess optimization in the bandit setting: No regret and experimental design. In Proceedings of the 27th International Conference on Machine Learning , pages 1015–1022, 2010. 45. Sebastian Ament, Samuel Daulton, David Eriksson, Maximilian Balandat, and Eytan Bak-shy. Unexpected improvements to expected improvement for bayesian optimization. In 
+
+Advances in Neural Information Processing Systems , volume 36, 2023. 46. Han Zhou, Xingchen Ma, and Matthew B. Blaschko. A corrected expected improvement acquisition function under noisy observations. In Proceedings of The 27th International Conference on Artificial Intelligence and Statistics , volume 222 of Proceedings of Machine Learning Research , pages 3932–3940, 2024. 47. Marmaduke Woodman and Abolfazl Ziaeemehr. ins-amu/vbjax, November 2025. original-date: 2022-12-13T16:18:59Z. 48. Amin Saberi, Bin Wan, Kevin J. Wischnewski, Kyesam Jung, Leonard Sasse, Felix Hoffs-taedter, Boris C. Bernhardt, Simon B. Eickhoff, Oleksandr V. Popovych, and Sofie L. Valk. cuBNM: GPU-Accelerated Brain Network Modeling, November 2025. ISSN: 2692-8205 Pages: 2025.11.13.688224 Section: New Results. 49. Chaoming Wang, Muyang Lyu, Tianqiu Zhang, Sichao He, and Si Wu. A differentiable approach to multi-scale brain modeling. In ICML 2024 workshop on differentiable almost everything: Differentiable relaxations, algorithms, operators, and simulators , 2024. 50. Abolfazl Ziaeemehr, Marmaduke Woodman, Lia Domide, Spase Petkoski, Viktor Jirsa, and Meysam Hashemi. Virtual Brain Inference (VBI): A flexible and integrative toolkit for efficient probabilistic inference on virtual brain models. eLife , 14, October 2025. doi: 10.7554/eLife. 106194.3 . Publisher: eLife Sciences Publications Limited. 51. BrainModes Research. BrainModes/fast_tvb, November 2025. original-date: 2020-02-11T09:16:13Z. 52. The Virtual Brain. LEARN: Fast TVB for HPC on EBRAINS, 2022. 53. Hesham Abboud, Raja Mehanna, Andre Machado, Anwar Ahmed, Michal Gostkowski, Scott Cooper, Ilia Itin, Patrick Sweeney, Mayur Pandya, Cynthia Kubu, Darlene Floden, Paul J. Ford, and Hubert H. Fernandez. Comprehensive, multidisciplinary deep brain stimulation screening for parkinson patients: No room for “short cuts”. Movement Disorders Clinical Practice , 1(4):336–341, 2014. doi: 10.1002/mdc3.12090 .54. Petra Ritter, Michael Schirner, Anthony R. McIntosh, and Viktor K. Jirsa. The Virtual Brain Integrates Computational Modeling and Multimodal Neuroimaging. Brain Connectivity , 3(2): 121–145, April 2013. ISSN 2158-0014. doi: 10.1089/brain.2012.0120 .55. Robin F. H. Cash and Andrew Zalesky. Personalized and circuit-based transcranial magnetic stimulation: Evidence, controversies, and opportunities. Biological Psychiatry , 95(6):510– 522, 2024. doi: 10.1016/j.biopsych.2023.11.013 .56. Ute Gschwandtner, Guy Bogaarts, Menorca Chaturvedi, Florian Hatz, Antonia Meyer, Peter Fuhr, and Volker Roth. Dynamic functional connectivity of EEG: From identifying fingerprints to gender differences to a general blueprint for the brain’s functional organization. Frontiers in Neuroscience , 15:683633, 2021. doi: 10.3389/fnins.2021.683633 .
+
+Fasse et al. | BraiNN: Fast Whole-Brain Modeling bioR χiv | 13 
+
+.CC-BY-NC 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted July 13, 2026. ;https://doi.org/10.64898/2026.07.08.737156 doi: bioRxiv preprint
