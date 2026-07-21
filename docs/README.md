@@ -1,63 +1,63 @@
 ## 最新日报
-- 最新运行日期：2026-07-21
-- 运行时间：2026-07-21 04:47:49 北京时间
+- 最新运行日期：2026-07-22
+- 运行时间：2026-07-22 05:32:09 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今日精读 5 篇、速读 10 篇，聚焦脑机接口与情感计算，两篇 9.0 高分论文领衔。  
-最值得深挖的是基于脑电‑肌电‑眼动多信号融合的共享自主操控，以及用生理先验提升跨被试情绪识别的标签增强思路。  
-想上手的话，优先读《NeuroCommitSSM》看决策级融合如何实现安全辅助，再读《Physiological Prior》掌握跨被试解码的迁移技巧。
-- 详情：[/202607/21/README](/202607/21/README)
+今日神经解码突破：从视觉背侧流大规模神经数据集到海马体正负视网膜拓扑编码。  
+值得关注的是《STSBench》为灵长类视觉背侧流提供了首个大规模神经元活动建模基准，而《海马体研究》揭示了人类海马体中并存的正、负逆视网膜拓扑编码，颠覆了传统空间映射认知。  
+想入门脑科学前沿？不妨从背侧流的“运动视觉”通路入手，再对比海马体如何重塑空间记忆地图。
+- 详情：[/202607/22/README](/202607/22/README)
 
 ### 精读区论文标签
-1. [NeuroCommitSSM: Decision-Centric Shared Autonomy for Safe Assistive Manipulation via EEG-EMG-ET Commit Readiness](/202607/21/2607.15395v1-neurocommitssm-decision-centric-shared-autonomy-for-safe-assistive-manipulation-via-eeg-emg-et-commit-readiness)  
+1. [STSBench: A Large-Scale Dataset for Modeling Neuronal Activity in the Dorsal Stream of Primate Visual Cortex](/202607/22/2607.15631v1-stsbench-a-large-scale-dataset-for-modeling-neuronal-activity-in-the-dorsal-stream-of-primate-visual-cortex)  
    标签：评分：9.0/10、query:sr
-   evidence：基于EEG的承诺准备预测用于辅助操作
-2. [Physiological Prior-Driven Label Enhancement for Cross-Subject EEG Emotion Recognition](/202607/21/2607.15566v1-physiological-prior-driven-label-enhancement-for-cross-subject-eeg-emotion-recognition)  
+   evidence：用于背侧流编码模型开发的大规模神经元数据集
+2. [Positive and Negative Retinotopic Codes in the Human Hippocampus](/202607/22/biorxiv-10-1101-2024-09-27-615397-v4-positive-and-negative-retinotopic-codes-in-the-human-hippocampus)  
    标签：评分：9.0/10、query:sr
-   evidence：利用生理先验的脑电情绪识别进行标签去噪
-3. [Toward a mechanistic understanding of inference in visual cortex and diffusion models](/202607/21/2607.15693v1-toward-a-mechanistic-understanding-of-inference-in-visual-cortex-and-diffusion-models)  
+   evidence：发现海马中的视网膜定位编码
+3. [Topological decoding of grid cell activity via path lifting to covering spaces](/202607/22/biorxiv-10-1101-2025-10-17-683158-v2-topological-decoding-of-grid-cell-activity-via-path-lifting-to-covering-spaces)  
    标签：评分：9.0/10、query:sr
-   evidence：将V1推理建模为扩散模型，提供神经编码的机制理解
-4. [Quantifying the information about uncertainty in neural population codes](/202607/21/biorxiv-10-64898-2026-07-13-738167-v1-quantifying-the-information-about-uncertainty-in-neural-population-codes)  
+   evidence：拓扑解码网格细胞群体活动以重建空间轨迹
+4. [Sensory origin of oculomotor variability revealed by MT population activity](/202607/22/biorxiv-10-64898-2026-07-14-738423-v1-sensory-origin-of-oculomotor-variability-revealed-by-mt-population-activity)  
    标签：评分：9.0/10、query:sr
-   evidence：量化神经群体编码中的不确定性信息
-5. [Closed-loop control of in vitro neuronal activity using reinforcement learning after in silico pre-training](/202607/21/biorxiv-10-64898-2026-07-13-738298-v1-closed-loop-control-of-in-vitro-neuronal-activity-using-reinforcement-learning-after-in-silico-pre-training)  
+   evidence：使用PLS从MT群体活动解码眼动变异性
+5. [Deep learning framework for kinematic event detection and stimulation decoding in primate reaching behavior](/202607/22/biorxiv-10-64898-2026-07-14-738537-v1-deep-learning-framework-for-kinematic-event-detection-and-stimulation-decoding-in-primate-reaching-behavior)  
    标签：评分：9.0/10、query:sr
-   evidence：通过硅上预训练强化学习闭环控制神经元爆发活动
+   evidence：BiLSTM框架从到达轨迹解码运动学事件
 
 ### 速读区论文标签
-1. [On large networks of integrate-and-fire neurons with short-term synaptic plasticity](/202607/21/2607.16017v1-on-large-networks-of-integrate-and-fire-neurons-with-short-term-synaptic-plasticity)  
+1. [Encoding EEG Signals to Examine Human-Like Next-Word Prediction Behaviour in Language Models](/202607/22/2607.16549v1-encoding-eeg-signals-to-examine-human-like-next-word-prediction-behaviour-in-language-models)  
    标签：评分：8.0/10、query:sr
-   evidence：LIF网络与突触可塑性的平均场分析
-2. [Neural drift during rest drives walking direction and memory consolidation in Drosophila](/202607/21/biorxiv-10-1101-2025-03-20-644317-v2-neural-drift-during-rest-drives-walking-direction-and-memory-consolidation-in-drosophila)  
+   evidence：编码EEG以检查语言模型神经编码可解释性
+2. [Complementary stable and dynamic prelimbic ensembles encode learned threat value underlying generalization and discrimination](/202607/22/biorxiv-10-64898-2026-03-08-710406-v2-complementary-stable-and-dynamic-prelimbic-ensembles-encode-learned-threat-value-underlying-generalization-and-discrimination)  
    标签：评分：8.0/10、query:sr
-   evidence：果蝇扇形体的神经漂移编码行走方向和记忆巩固
-3. [From Hodgkin-Huxley to Pretrained Neural Inference AI](/202607/21/biorxiv-10-64898-2026-07-13-738120-v1-from-hodgkin-huxley-to-pretrained-neural-inference-ai)  
+   evidence：前边缘皮层神经元群随时间对威胁值的群体编码
+3. [Normalization accounts for temporal dynamics in human somatosensory cortex](/202607/22/biorxiv-10-64898-2026-05-10-724117-v2-normalization-accounts-for-temporal-dynamics-in-human-somatosensory-cortex)  
    标签：评分：8.0/10、query:sr
-   evidence：预训练神经网络从群体记录推断单神经元活动
-4. [A neural circuit for olfactory motion detection](/202607/21/biorxiv-10-64898-2026-07-13-738327-v1-a-neural-circuit-for-olfactory-motion-detection)  
+   evidence：归一化模型解释体感皮层时间动态
+4. [In silico framework for benchmarking optogenetic hearing restoration](/202607/22/biorxiv-10-64898-2026-07-13-737798-v1-in-silico-framework-for-benchmarking-optogenetic-hearing-restoration)  
    标签：评分：8.0/10、query:sr
-   evidence：在嗅觉系统中识别出用于运动检测的方向选择性回路
-5. [BrainPilot: Automating Brain Discovery with Agentic Research](/202607/21/2607.15079v2-brainpilot-automating-brain-discovery-with-agentic-research)  
+   evidence：光遗传耳蜗植入的计算机模型用于听力恢复
+5. [Emergent topological structure in spontaneous brain-organoid activity](/202607/22/2607.16517v1-emergent-topological-structure-in-spontaneous-brain-organoid-activity)  
    标签：评分：7.0/10、query:sr
-   evidence：脑研究自动化代理
-6. [RTS Smoother-Guided Learning of Physics-Based Neural Differential Models](/202607/21/2607.15180v1-rts-smoother-guided-learning-of-physics-based-neural-differential-models)  
+   evidence：神经群体活动模式的拓扑分析
+6. [TVGL-CFM:Generating and Forecasting Time-Varying Trajectories of Dynamic Networks with Conditional Flow Matching](/202607/22/2607.16894v1-tvgl-cfmgenerating-and-forecasting-time-varying-trajectories-of-dynamic-networks-with-conditional-flow-matching)  
    标签：评分：7.0/10、query:sr
-   evidence：用于动态系统状态估计的混合神经物理ODE框架
-7. [Deep Learning Approaches for Sleep Apnea Classification from Polysomnographic EEG Signals](/202607/21/2607.15477v1-deep-learning-approaches-for-sleep-apnea-classification-from-polysomnographic-eeg-signals)  
+   evidence：生成时变脑网络轨迹
+7. [Decoder-Preserving Sparse Autoencoders: Which Readouts Survive Sparse Compression?](/202607/22/2607.17425v1-decoder-preserving-sparse-autoencoders-which-readouts-survive-sparse-compression)  
    标签：评分：7.0/10、query:sr
-   evidence：利用EEG解码睡眠呼吸暂停分类
-8. [Multisensory coding of audiovisual movies in the human hippocampus](/202607/21/biorxiv-10-64898-2026-03-01-708855-v4-multisensory-coding-of-audiovisual-movies-in-the-human-hippocampus)  
+   evidence：保持稀疏码中可解码信号的方法，解释内部工作
+8. [Exploring Brain Networks Using Noninvasive Electrophysiological Measurements: Methods and Applications](/202607/22/2607.17602v1-exploring-brain-networks-using-noninvasive-electrophysiological-measurements-methods-and-applications)  
    标签：评分：7.0/10、query:sr
-   evidence：使用fMRI解码海马体多感官表征
-9. [Inferring Non-Normal Amplification Geometry from Multivariate Time Series](/202607/21/2607.14786v1-inferring-non-normal-amplification-geometry-from-multivariate-time-series)  
+   evidence：使用EEG/MEG进行毫秒级脑网络分析的方法
+9. [Toward a Stable and Deployable Adaptive Chirplet Transform: Residual Projection, Hybrid GPU Acceleration, and Multi-Channel Scalability](/202607/22/2607.16629v1-toward-a-stable-and-deployable-adaptive-chirplet-transform-residual-projection-hybrid-gpu-acceleration-and-multi-channel-scalability)  
    标签：评分：6.0/10、query:sr
-   evidence：从多元时间序列推断放大几何的数据驱动方法，适用于神经动态
-10. [Cauchy-Paul wavelet transforms revisited: A framework for intermittent non-sinusoidal oscillations](/202607/21/2607.15953v1-cauchy-paul-wavelet-transforms-revisited-a-framework-for-intermittent-non-sinusoidal-oscillations)  
+   evidence：自适应Chirplet变换用于非平稳信号分解，适用于EEG/EMG
+10. [Online learning of neural state-space models](/202607/22/2607.17614v1-online-learning-of-neural-state-space-models)  
    标签：评分：6.0/10、query:sr
-   evidence：用于电生理振荡的小波框架
+   evidence：神经状态空间模型的在线学习方法可用于解码
 

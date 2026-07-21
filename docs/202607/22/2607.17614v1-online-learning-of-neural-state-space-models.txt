@@ -1,0 +1,556 @@
+Title: Online learning of neural state-space models
+
+URL Source: https://arxiv.org/pdf/2607.17614v1
+
+Published Time: Tue, 21 Jul 2026 01:32:53 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# Online learning of neural state-space models 
+
+Bendeg´ uz Gy¨ or¨ ok, Tam´ as P´ eni, Maarten Schoukens, and Roland T´ oth 
+
+Abstract — Recent advances in deep-learning-based nonlinear system identification have led to encoder-based estimation of 
+
+neural state-space (ANN-SS) models that achieve state-of-the-art performance in offline settings by estimating initial model states from past input-output data. These methods are typically used in multiple-shooting-based offline identification, and online learning of these models remains largely unexplored. This paper presents a batch-wise learning pipeline and a direct recursive identification algorithm for subspace encoder-based ANN-SS models. We provide convergence analysis of the recursive formulation and validate its performance through extensive simulation studies. The results demonstrate that the proposed approach enables computationally efficient online adaptation with high model accuracy. 
+
+I. I NTRODUCTION 
+
+Continuously rising performance requirements and the growing complexity of engineering systems have resulted in a high demand for accurate nonlinear models. For example, reliable path planning and motion control of autonomous vehicles require accurate personalized dynamic models. However, first-principles models often only provide an ap-proximate system description, typically neglecting complex physical phenomena such as aerodynamic effects, friction characteristics, etc. Therefore, it is attractive to use system identification approaches to obtain accurate models directly from measurement data. Recent data-driven modeling meth-ods applying artificial neural networks (ANNs), in partic-ular ANN-SS methods, offer superior model performance over conventional nonlinear identification approaches [1]. These models can be estimated with single-shooting [2] and multiple-shooting strategies [3]. In the latter setting, state-of-the-art approaches, such as [4], utilize a so-called encoder network to learn the reconstructability map of the model and estimate the initial states from past input-output (IO) data. While offline learning of ANN-SS models often yields accurate and reliable identification of the underlying sys-tem, their predictive performance may degrade over time. Variations in operating conditions due to, e.g., component wear, changing loads, or environmental influences can in-troduce discrepancies between the identified model and the 
+
+> This work was funded by the Air Force Office of Scientific Research under award number FA8655-23-1-7061 and by the European Union (ERC, COMPLETE, 101075836). Views and opinions expressed are however those of the authors only and do not necessarily reflect those of the European Union or the European Research Council Executive Agency. Neither the European Union nor the granting authority can be held responsible for them. B. Gy¨ or¨ ok, T. P´ eni, and R. T´ oth are with the Systems and Control Laboratory, HUN-REN Institute for Computer Science and Control, 1111 Budapest, Hungary (e-mail: gyorokbende@sztaki.hu; peni@sztaki.hu). M. Schoukens and R. T´ oth are with the Control Systems Group, Eind-hoven University of Technology, 5612 Eindhoven, The Netherlands (e-mail: m.schoukens@tue.nl; r.toth@tue.nl).
+
+actual system. Furthermore, in many practical applications, system identification is performed using data from a single representative system, while the resulting model is expected to generalize across an entire class of related systems that might significantly vary due to manufacturing tolerances. In addition, acquiring sufficiently informative datasets through dedicated experimental campaigns can be infeasible in prac-tice. In these scenarios, online learning of system dynamics is particularly attractive, as it enables model adaptation using measurement data collected during system operation. Despite the success of ANN-SS models, online learning and recursive formulations for these architectures remain largely underexplored. Available recursive state-space esti-mation techniques mostly apply linear model structures [5] or linear-in-the-parameters formulations [6], while existing recursive ANN-SS identification methods typically rely on nonlinear extensions of the Kalman filter, such as the Ex-tended Kalman Filter (EKF), to jointly estimate model states and parameters [7]. However, due to its large computational burden, EKF-based approaches are typically not feasible for large-scale ANN parametrizations. In [8], a Jacobian-based parameter adaptation scheme is combined with a state ini-tialization method that uses past IO data. While conceptually similar to encoder-based methods, this approach assumes that the predicted output is included in the model state and does not provide an explicit characterization of the learned state reconstruction map, such as an encoder network. More recently, meta-learning architectures developed for system identification have shown strong adaptation capabilities [9], [10]. However, the substantial training overhead associated with meta-models limits their applicability in scenarios re-quiring rapid adaptation to changing operating conditions. Motivated by these limitations, this paper extends classical recursive identification concepts [11] for ANN-SS models, utilizing an encoder network for state estimation. The result-ing approach is similar in terms of model structure to the offline SUBNET method [4], which uses a state-of-the-art encoder-based ANN-SS model. To enable efficient recursive learning in the nonlinear setting, we build upon the recently proposed identification pipeline of [2], which leverages JAX ,a highly efficient automatic differentiation library. The main contributions of this paper are: 1) An online recursive identification scheme for ANN-SS models utilizing an encoder for initial state estimation. 2) Convergence proof of the estimated parameters using the proposed recursive scheme. 3) An alternative batch-wise online learning pipeline that combines a JAX -based identification approach with the encoder-based ANN-SS model formulation. arXiv:2607.17614v1 [eess.SY] 20 Jul 2026 4) Demonstration of the effectiveness of the proposed method through simulation studies. This paper is organized as follows: Sect. II introduces the problem formulation with the data-generating system and data-collection methods. Then, Sect. III provides abatch-wise learning pipeline for ANN-SS models that is suitable for online learning of the system dynamics. In Sect. IV, a recursive identification approach is presented for the considered model class with theoretical analysis regarding the convergence of the method. Then, Sect. V demonstrates the efficiency of the proposed approach with an extensive simulation study. Finally, Sect. VI gives the overall conclusions on the proposed method. II. P ROBLEM SETTING 
+
+A. System description 
+
+Consider that the dynamics of the data-generating system are represented by the following discrete-time (DT) nonlinear 
+
+state-space (SS) form: 
+
+xk+1 = f (xk, u k) , yk = h (xk, u k) + ek, (1) where k ∈ Z is the discrete time index, xk ∈ Rnx is the state, 
+
+uk ∈ Rnu is the control input, yk ∈ Rny is the measured output of the system, while f : Rnx × Rnu → Rnx and 
+
+h : Rnx → Rny are possibly nonlinear functions. In (1), 
+
+ek represents the measurement noise generated by an i.i.d. white noise process with finite variance. 
+
+B. Data collection 
+
+We consider that measured input-output (IO) data arrives in batches of fixed length N ≥ 1 with no overlap between the batches. The ith batch arriving at time instance k = kend is defined as Bi = {(uk, y k)}kend  
+
+> k=kstart
+
+for an arbitrary start index 
+
+kstart ∈ Z such that kend = kstart + N − 1. The complete dataset accumulated up to batch i is Di = Bi ∪ B i−1 ∪ · · · ∪ B0. In practice, retraining on the full Di is computationally expensive. We therefore introduce a replay buffer Mi of fixed capacity m ∈ Z>0, defined as the sliding window of the m most recent batches. More formally, Mi = Di for all 
+
+i < m , i.e., the buffer coincides with the full dataset until it reaches capacity. For i ≥ m, batch Bi−m is deleted and the buffer size is fixed at mN samples. Note that this setting also involves the special cases when only the recent batch is available, i.e., m = 1 ; furthermore, when only one sample arrives at a time, i.e., N = 1 . In the latter scenario, the predictor maps the past IO data to the current model output. To also include a state propagation step, N ≥ 2 is needed. 
+
+C. Learning problem 
+
+Using the available data set Mi, we aim to identify models that characterize (1) in the form of 
+
+ˆxk+1 = fθ (ˆ xk, u k), ˆyk = hθ (ˆ xk, u k), (2a) where ˆxk ∈ Rnˆx is the model state, ˆyk ∈ Rny is the model output, while fθ : Rnˆx × Rnu → Rnˆx and hθ :
+
+Rnˆx ×Rnu → Rny are the state transition function and output map of the model, respectively. Both of these functions are parametrized as simple, feedforward neural networks. Under these conditions, (2a) is referred to as a neural state-space 
+
+model. We also consider that an encoder network, capable of estimating the initial states from past IO data, is co-estimated with the model parameters in the form of 
+
+ˆxk = Ψ θ (uk−1
+
+> k−n
+
+, y k−1
+
+> k−n
+
+), (2b) where uk−1 
+
+> k−n
+
+= [u⊤
+
+> k−n
+
+, . . . , u ⊤
+
+> k−1
+
+]⊤, and yk−1 
+
+> k−n
+
+is defined similarly, with n ∈ Z+ being the encoder lag, i.e., the length of the state initialization window. The existence of this encoder function relates to the concept of reconstructability, compare [4] for the full derivation. Similarly to fθ and hθ ,the encoder Ψθ is also parametrized as a simple feedforward ANN (with a residual layer), with θ ∈ Rnθ collecting the parameters (i.e., the weights and biases) of all three networks. The objective of this work is to develop an online learning method that estimates and continuously updates the model parameters of (2) based on available data sequence Mi.III. B ATCH -WISE MODEL LEARNING 
+
+A. Objective function 
+
+Offline ANN-SS identification methods, under the output error (OE) noise structure, typically estimate θ by minimiz-ing the simulation loss. In the current setting, this could be achieved by forward simulating (2) on the concatenated sequences from the replay buffer Mi. However, this becomes computationally demanding for mN ≫ 1 and limits opportu-nities for parallelization. Instead, we evaluate the model inde-pendently on each batch. With this modification, the resulting objective function resembles the truncated simulation error loss, see, e.g., [3], and improves computational efficiency while yielding a more favorable optimization landscape [4]. An important aspect of this formulation is that the initial state corresponding to each batch in the replay buffer has to be estimated. For this reason, we use the encoder network in (2b) to estimate the initial states from the last n IO samples of the preceding batch. The resulting cost function is 
+
+VMi (θ) = 1
+
+|M i|
+
+X 
+
+> j∈I i
+> j+N−1
+
+X
+
+> k=j
+
+∥yk − ˆyk|j ∥22, (3a) 
+
+ˆxk+1 |j = fθ (ˆ xk|j , u k), ˆyk|j = hθ (ˆ xk|j , u k), (3b) 
+
+ˆxj|j = Ψ θ (uj−1
+
+> j−n
+
+, y j−1
+
+> j−n
+
+), (3c) where |M i| = min {i+1 , m }N , while Ii collects the starting times of the batches in the replay buffer. Furthermore, the pipe notation ( |) is introduced such that ˆxk|j and ˆyk|j (with 
+
+k ≥ j) denote the simulated state and output at time k from the initial state ˆxj|j . Under model structure (2) and objective function (3), the proposed formulation can be viewed as the SUBNET method (see [4]) modified for online learning. Furthermore, even though the current paper considers only ANN-SS models, the proposed learning pipeline can be extended to the entire SUBNET-based model family, e.g., for linear parameter-varying (LPV) models [12], Koopman models [13], model augmentation structures [14], etc. Fig. 1. Illustration of the training phases for batch-wise learning. 
+
+B. Parameter estimation 
+
+The model estimate ˆθi is obtained based on the dataset 
+
+Mi by minimizing (3) with a gradient-based optimizer, using 
+
+ˆθi−1 to initialize the model parameters. The data collection and training processes are illustrated in Fig. 1. Due to time constraints posed by the online learning problem, iterations cannot be continued until convergence, but only for a fixed number of iterations. Hence, the selection of an efficient optimizer is essential. For this purpose, we adopt a similar identification pipeline of [2], utilizing JAX , a highly efficient automatic differentiation library. We perform a fixed number of Adam steps [15] followed by a few L-BFGS [16] itera-tions. Adam, an enhanced variant of the classical gradient-descent algorithm, offers a computationally efficient algo-rithm, used for warm-starting the L-BFGS method. On the other hand, the L-BFGS optimizer, as a quasi-Newton approach, is computationally more demanding, but offers rapid convergence compared to simple gradient descent-based methods. A careful combination of these approaches has recently emerged as a promising direction in offline system identification, resulting in rapid model learning across a variety of applications, see [2], [17], [18]. Several implementation choices were introduced to meet the runtime requirements of online identification. The pipeline in [2] employs the L-BFGS-B optimizer; instead, we opted for the L-BFGS algorithm, as the absence of box constraints enables a more efficient implementation. Second, before the replay buffer is fully populated ( i < m ), unused entries are filled with zeros and excluded from the cost function via masking. This keeps the optimization variables and computational graph fixed throughout operation, en-abling efficient batched simulations using JAX vectorization. Finally, the entire learning pipeline, including model evalu-ation, gradient computation, and optimization, is compiled offline using just-in-time (JIT) compilation before the first data batch arrives. Since the computational graph remains unchanged, no recompilation is required during operation, allowing model updates to be performed with minimal overhead. These design choices ensure the computational efficiency required for real-time deployment. Another characteristic of the current formulation is that, under mild assumptions, the convergence and consistency properties of the SUBNET approach are inherited as m →∞, corresponding to the case where all data batches are retained. In practice, however, storing all previously collected data is generally infeasible, making these asymptotic guar-antees unrealistic. The recursive estimation approach intro-duced in the next section addresses this limitation without requiring infinite data storage. IV. R ECURSIVE PARAMETER UPDATES 
+
+A. Recursive estimator 
+
+While the batch-based optimization in Sect. III is highly effective for moderate-sized buffers, it remains computation-ally demanding for online applications with low-latency re-quirements. In this section, we derive a recursive scheme that provides a computationally cheaper alternative by updating parameters in a single step upon the arrival of each batch. In contrast to the batch-wise learning approach, the proposed recursive formulation requires storing only the current batch, i.e., m = 1 . The memory is now only represented by the pa-rameter estimates θi. With each incoming batch, parameters are updated using the recursive Gauss–Newton rule: 
+
+θi = θi−1 + μi R−1 
+
+> i
+
+ψ⊤ 
+
+> i
+
+(θi−1) ϵi(θi−1), (4a) 
+
+Ri = (1 − μi)Ri−1 + μi ψ⊤ 
+
+> i
+
+(θi−1)ψi(θi−1), (4b) where θi is the estimate of θ after batch i, μi is the step size (including a forgetting factor), ψi(θ) = ∂ ˆYi/∂θ and ϵi(θ) = 
+
+Yi − ˆYi(θ) are, respectively, the gradient of the predictor and the prediction error associated with batch Bi. Details about efficient computation of (4a) and selection of the step-size μi
+
+will be given in Sect. IV-D. Let the starting time of batch Bi
+
+be denoted by k0,i . Then, the batched output and predictor vectors are 
+
+Yi = [ y⊤ 
+
+> k0,i
+
+y⊤ 
+
+> k0,i +1
+
+. . . y ⊤ 
+
+> k0,i +N−1
+
+]⊤, (5a) 
+
+ˆYi(θ) = [ h⊤ 
+
+> θ
+
+(ˆ xk0,i , u k0,i ) . . . h ⊤ 
+
+> θ
+
+(ˆ xk0,i +N −1, u k0,i +N −1)] ⊤,
+
+(5b) 
+
+ˆxk0,i = Ψ θ (uk0,i −1
+
+> k0,i −n
+
+, y k0,i −1
+
+> k0,i −n
+
+), (5c) where the initial state ˆxk0,i is computed by the encoder net-work using past data, and the remaining states are obtained by forward propagation through fθ .The algorithm (4) minimizes the running average criterion 
+
+VT (θ) = 1
+
+T 
+
+> T−1
+
+X
+
+> i=0
+
+∥ϵi(θ)∥22, (6) where T denotes the number of batches observed so far. Note that introducing a forgetting factor (see Sect. IV-D) replaces the uniform weighting of the batches in (6) with an exponentially decaying one. Similar to the batch-wise learning approach in Sect. III, we assume that at least n
+
+extra samples are available before the first batch arrives to enable state estimation using the encoder. Furthermore, the recursive formulation also supports having a batch size of 
+
+N = 1 , which corresponds to a one-sample-based adaptation. 
+
+B. Gradient computation 
+
+The gradient ψi ∈ RN n y ×nθ is computed by propagating state sensitivities sk = ∂ ˆxk/∂θ ∈ Rˆnx×nθ alongside the sim-ulation, following [8]. Let the index set Ii = {k0,i , . . . , k 0,i +
+
+N −1} denote the time indices associated with batch Bi. With the encoder providing the initial sensitivity, the sk values can be expressed as 
+
+sk0,i = ∂Ψ( uk0,i −1
+
+> k0,i −n
+
+, y k0,i −1
+
+> k0,i −n
+
+)/∂θ, (7a) 
+
+sk+1 = Fx,k sk + Fθ,k , k ∈ Ii, (7b) where Fx,k ∈ Rˆnx×ˆnx and Fθ,k ∈ Rˆnx×nθ are the Jacobians of fθ (ˆ xk, u k) w.r.t. ˆxk and θ, respectively. The rows of ψi
+
+are then ∂ ˆyk
+
+∂θ = Hx,k sk + Hθ,k , k ∈ Ii, (8) with Hx,k ∈ Rny ×ˆnx and Hθ,k ∈ Rny ×nθ being the Jacobians of hθ (ˆ xk, u k) w.r.t. ˆxk and θ, respectively. In practice, the required Jacobians are computed via automatic differentiation using the JAX library, similar to Sect. III. 
+
+C. Convergence analysis 
+
+Recursion (4) is an instance of the general stochastic-approximation scheme analyzed in [19], [11], [20]. We fol-low the structure of [11, Ch. 4] to establish that, under mild conditions on the data-generating system and the predictor, 
+
+θi converges almost surely to a set of stationary points. Let us denote the batch predictor of the model structure (2), associated with batch Bi as ˆγ, expressed as 
+
+ˆYi(θ) = ˆ γ(θ, u k0,i +N −1 
+
+> k0,i −n
+
+, y k0,i −1
+
+> k0,i −n
+
+). (9) Note that the predictor uses measured outputs only over the state initialization window k ∈ [k0,i − n, k 0,i − 1] . Over the simulation window k ∈ [k0,i , k 0,i + N − 1] , the predictor only uses the available input signals. We make the general assumption that ˆγ is differentiable w.r.t. θ everywhere on 
+
+Θ. As parameter estimation is implemented using automatic differentiation in practice, this is only a technical condition. To prove the convergence of the recursive scheme (4), we require the data-generating system to satisfy the following: 
+
+Condition 1: For any δ > 0, there exist a C(δ) ∈ [0 , ∞)
+
+and a λ ∈ [0 , 1) , such that 
+
+Ee{∥ yk − ˜yk∥42} < C (δ)λk−k0 , ∀k ≥ k0 (10) for all k0 ≥ 0 and all xk0 , ˜xk0 ∈ Rnx with ∥xk0 −
+
+˜xk0 ∥2 < δ , and {(uk, e k)}∞ 
+
+> k=k0
+
+∈ W [k0,∞], where W[k0,∞]
+
+denotes the σ-algebra associated with the random variables 
+
+{(uk, e k)}∞ 
+
+> k=k0
+
+; moreover, yk and ˜yk satisfy (1) with the same (uk, e k) but with different initial conditions. Note that Condition 1 is conventional for classical conver-gence proofs (and even consistency analysis) of parametric identification approaches. For our analysis, we also require that the applied model satisfies the following stability con-dition w.r.t. perturbations of the dataset: 
+
+Condition 2: There exist C ∈ [0 , ∞), such that for all 
+
+θ ∈ Θ and k0 ≥ n, the predictor ˆγ satisfies 
+
+∥ˆγ(θ, u k0+N −1 
+
+> k0−n
+
+, y k0−1
+
+> k0−n
+
+) − ˆγ(θ, ˜uk0+N −1 
+
+> k0−n
+
+, ˜yk0−1
+
+> k0−n
+
+)∥2
+
+≤ C 
+
+> k0+N−1
+
+X
+
+> ℓ=k0−n
+
+∥uℓ − ˜uℓ∥2 + C
+
+> k0−1
+
+X
+
+> ℓ=k0−n
+
+∥yℓ − ˜yℓ∥2, (11) for any (uk0+N −1 
+
+> k0−n
+
+, y k0−1
+
+> k0−n
+
+) and (˜ uk0+N −1 
+
+> k0−n
+
+, ˜yk0−1
+
+> k0−n
+
+). Further-more, ∥ˆγ(θ, 0k0+N −1 
+
+> k0−n
+
+, 0k0−1
+
+> k0−n
+
+)∥ ≤ C, and (11) is also satis-fied by ∂∂θ ˆγ.Because each batch has a fixed finite length N , Condi-tion 2 is met if the encoder Ψθ , state transition fθ , and output map hθ are Lipschitz continuous in their arguments uniformly over the compact set Θ. Due to the applied ANN parametrization, this holds automatically, as compositions of affine maps and Lipschitz activations (e.g., tanh, ReLU) are inherently Lipschitz continuous. To prove the convergence of (4), we first show that in the limit I → ∞ , the cost function VI (θ) converges to a deterministic criterion, based on classical results [21]. 
+
+Theorem 1: Let Conditions 1–2 hold with a quasi-stationary input process u independent of the white-noise process e. Then, 
+
+sup 
+
+> θ∈Θ
+
+|VT (θ) − ¯V (θ)| → 0, (12) with probability 1 as T → ∞, where ¯V (θ) =lim T →∞ 1
+
+> T
+
+PT −1 
+
+> i=0
+
+E{∥ ϵi(θ)∥22}. Moreover, ¯V is continu-ously differentiable, and the limits 
+
+g(θ) := lim  
+
+> T→∞
+
+1
+
+T 
+
+> T−1
+
+X
+
+> i=0
+
+E{ψ⊤ 
+
+> i
+
+(θ)ϵi(θ)}, (13) 
+
+¯R(θ) := lim  
+
+> T→∞
+
+1
+
+T 
+
+> T−1
+
+X
+
+> i=0
+
+E{ψ⊤ 
+
+> i
+
+(θ)ψi(θ)}, (14) exist and are continuous on Θ, giving ddθ ¯V (θ) = −2g(θ).
+
+Proof: The batch loss ℓi(θ) = ∥ϵi(θ)∥22 satisfies Condi-tion C1 in [21] and Condition 2 makes ℓi uniformly Lipschitz in θ on the compact set Θ. Since the encoder network and the batch formulation ensure that the prediction ˆYi depends on only a finite window of past IO data, ˆγ has finite memory, which is a special case of the fading-memory assumption in [21]. Together with the quasi-stationarity of the data and Condition 1, the loss sequence is quasi-stationary with ge-ometrically summable covariances. Consequently, the proof of [21, Lemma 3.1] applies, giving (12). Under Condition 2, [21, Lemma 3.1] also applies to ddθ ℓi, yielding (13) and (14), which are both continuous on Θ. Uniform convergence of the gradients together with convergence of VT then gives  
+
+> ddθ
+
+¯V (θ) = −2g(θ).Theorem 1 implies that the (local) minima of VT (θ) and the limit function ¯V (θ) will be arbitrarily close as the number of batches increases. We now state the convergence result for the parameter estimates θi.
+
+Theorem 2: Consider the recursion (4) applied to data generated by (1). Assume that the conditions of Theorem 1 hold; together with (a) step size μi > 0 satisfies iμ i → ¯μ ∈ R+ as i → ∞ ;(b) Ri ≻ 0 for all i;(c) (4a) includes a projection keeping θi ∈ Θ.Then, either lim i→∞ θi ∈ { θ | ddθ ¯V (θ) = 0 }, or θi converges to the boundary of Θ, with probability 1. 
+
+Proof: Under the considered conditions, the proof of [19, Theorem 2] applies (see also [11, Ch. 4]). The proof uses the ODE associated with recursion (4). Chang-ing the time-scale from i to τ such that θD (τi) ↔ θi,
+
+τi = Piℓ=0 μℓ, the iterates (θi, R i) track the solution of  
+
+> ddτ
+
+θD (τ ) = R−1 
+
+> D
+
+(τ )g(θD (τ )) with ddτ RD (τ ) = ¯R(θD (τ )) −
+
+RD (τ ). Then, based on [19, Theorem 2], ¯V is a Lya-punov function for this ODE system with ddτ ¯V (θD (τ )) = −2g⊤(θD (τ )) R−1 
+
+> D
+
+(τ )( θD )g(θD (τ )) ≤ 0. As R−1 
+
+> D
+
+(τ ) ≻ 0,convergence of the recursive algorithm (4) follows. 
+
+D. Practical guide 
+
+Theorem 2 shows that (4) is convergent under the specified conditions. Thus, we have constructed a recursive identifica-tion scheme for ANN-SS models with encoder-based state initialization that can also be straightforwardly extended to other approaches in the SUBNET model family. There are, however, a few conditions of Theorem 2 that require further discussion. First, the step size μi needs to satisfy (a). For time-invariant systems, the optimal choice is 
+
+μi = 1 /i as it provides parameter estimates with minimal achievable variance [11]. However, at the beginning of the recursion, the gradient computations might be rather inaccu-rate due to the (possible) inaccuracy of the initial parameter estimates. This necessitates introducing a forgetting factor 
+
+λi, then, a possible formulation is to use 
+
+μi = μi−1/(μi−1 + λi), (15) where μ0 is a user-specific constant that influences transient adaptation. As the forgetting factor λi is already applied, 
+
+μ0 = 1 is suggested. To satisfy (a) in Theorem 2 and recover the optimal asymptotic law of μi ∼ 1/i , the forgetting factor should converge to 1 as i → ∞ . Hence, a suggested choice is 
+
+λi = ¯λλ i−1 +(1 − ¯λ), where λ0 and ¯λ are design parameters, with recommended values of ¯λ = 0 .99 and λ0 ∈ [0 .75 , 0.95] .For time-varying systems, a common choice is to select a constant forgetting factor λi ≡ ¯λ < 1, and, instead of (15), apply a step-size, as 
+
+μi = (1 − ¯λ)/(1 − ¯λi). (16) With ¯λ close to 1, (16) ensures that ”old” batches contribute marginally to the parameter updates, which is practical for fast-changing dynamics. For a detailed discussion about the step-size selection, see [11, Ch. 5.6]. Another important aspect of Theorem 2 is condition (b), which requires Ri to be positive definite for all i ≥ 0. This is required both for the convergence proof and because the inverse R−1 
+
+> i
+
+needs to be computed at each step. However, due to the typical over-parametrization of ANN-based mod-els, Ri can be ill-posed or singular. Hence, in practice, R−1
+
+> i
+
+is computed by R−1 
+
+> i
+
+≈ (Ri + δI nθ )−1 with a small positive regularization constant, e.g., δ = 10 −3. Naive computation of this matrix inverse is computationally expensive. Since 
+
+Ri is symmetric and the regularization guarantees that it is positive definite, we propose to directly compute the product 
+
+R−1 
+
+> i
+
+ψ⊤ 
+
+> i
+
+ϵi via Cholesky factorization, analogously to com-mon implementations of Gaussian process inference [22]. Hence, the parameter update in (4a) simplifies to 
+
+θi = θi−1 + μiL⊤ 
+
+> i
+
+\(Li\ψ⊤ 
+
+> i
+
+(θi−1)ϵ⊤ 
+
+> i
+
+(θi−1)) , (17a) 
+
+Li = chol( Ri + δI nθ ), (17b) where A\b denotes the vector z which solves Az = b. Since 
+
+Ri intuitively represents the covariance, i.e., uncertainty, of the estimated parameters, it is advised to be initialized as                       
+
+> TABLE I PHYSICAL PARAMETERS .Parameter Value Mass m1500 kg Yaw inertia Iz2250 kgm 2
+> Front axle dist. lf1.2 m Rear axle dist. lr1.4 m Gravity g9.81 N/kg Long. speed vx20 m/s TABLE II PACEJKA TIRE PARAMETERS .Front Rear
+> B10 .011 .0
+> C1.91.9
+> D1.01.0
+> E0.97 0.97
+
+an identity matrix multiplied by a large constant, e.g., R0 =10 4Inθ .Finally, we note that convergence to the boundary of 
+
+Θ is only technical. With particular projection schemes, convergence to local minima of ¯V (θ) can be proven [19]. V. S IMULATION EXAMPLE 
+
+To demonstrate the capabilities of the proposed online learning methods, we identify the nonlinear lateral dynamics of a ground vehicle 1, expressed as 
+
+˙vy = ( Fy,f cos δ + Fy,r)/m − vxω, (18a) 
+
+˙ω = ( lf Fy,f cos δ − lrFy,r)/I z, (18b) where vx is the longitudinal, vy is the lateral velocity, ω is the yaw rate, δ is the steering angle, and the parameters are given in Table I. The lateral tire forces Fy,f and Fy,r are expressed by the Pacejka Magic Formula [23, Ch. 4.3], as 
+
+Fy,p = mgl p
+
+lr + lf
+
+Dp sin( Cp arctan( Bpαp)−
+
+Ep(Bpαp − arctan( Bpαp))) , p ∈ { r, f}, (19) with Bp, . . . , Ep parameters given in Table II, denoting the Pacejka coefficients, and αf , αr being the slip angles: 
+
+αf = δ − arctan( vy + lf ωvx
+
+), αr = − arctan( vy − lrωvx
+
+).
+
+(20) Model (18) is discretized with the RK4 scheme under a zero-order hold assumption and a sampling time of ∆t = 0 .01 s .We consider a constant longitudinal velocity throughout the simulations. The state is then xk = [ vy,k ωk]⊤ ∈ R2, the control input is uk = δk ∈ R, and the measured output is 
+
+yk = ωk + ek with ek being an i.i.d. white noise process representing measurement noise and resulting in 30 dB 
+
+signal-to-noise ratio (SNR) level. Data is generated by using a multisine input signal with 6 frequency components loga-rithmically spaced in the range [0 .1, 2] Hz, with Schroeder phases and an overall amplitude of 0.07 rad. A batch size of N = 25 and memory length m = 20 are used. Training continues until 3 · 10 4 samples (5 minutes of simulation time). The model order is set to ˆnx = 2 with fθ
+
+parametrized as a feedforward ANN with a linear bypass, 2 hidden layers with 4 nodes, using the hyperbolic tangent 
+
+(tanh) activation function. The encoder is implemented as a feedforward ANN with 1 hidden layer of 16 nodes tanh units. The output map hθ is chosen to match the true output structure, i.e., ˆyk = [1 0]ˆ xk. To illustrate convergence, model         
+
+> 1Implementation: https://github.com/AIMotionLab-SZTAKI/online-sysid 050 100 150 200 250 300 Time [s]
+> 10 −2
+> 10 −1
+> Test RMSE  Batch-wise (Adam) Batch-wise (Adam + L-BFGS) Recursive Fig. 2. Test errors after each training phase with three online learning methods. The dashed black line corresponds to the noise floor. Batch-wise (Adam)
+> Batch-wise (Adam + L-BFGS)
+> Recursive
+> 1
+> 3
+> 5
+> 7
+> 9Wall time [ms]
+> Fig. 3. Average wall time of each training phase with three online learning methods. The dashed black line corresponds to the sampling time.
+
+parameters are saved after each training step, and each model is evaluated on a separate test dataset of length Ntest = 600 ,generated using the same input distribution. First, we demonstrate the efficiency of the batch-wise learning approach outlined in Sect. III. To showcase the im-portance of the L-BFGS optimizer, we first use only 20 Adam iterations per training phase, then repeat the experiment by appending 2 L-BFGS optimization steps to each training phase. Fig. 2 shows the convergence of the methods, while Fig. 3 shows the wall time 2 (CPU time) that was required for each training phase and the resulting test errors after each model update. As visible, including the extra L-BFGS steps increases the computational load; however, it results in rapid convergence compared to when only Adam is used. Next, we investigate the recursive learning approach out-lined in Sect. IV. The step size is selected according to (15) with ¯λ = 0 .99 , λ0 = 0 .75 , μ0 = 1 . For the matrix inverse computation, δ = 10 −3 is applied, and Ri is initialized with 
+
+R0 = 10 4Inθ . As shown in Fig. 2, the convergence speed is somewhat slower than with the batch-wise learning approach; however, this is expected due to taking fewer iterations in each training phase and applying only a single batch for model updates. On the other hand, as Fig. 3 shows, the computations take only about 1 ms per iteration. Finally, we present a sensitivity analysis of the proposed learning methods with respect to the batch length N and, in the case of the batch-wise approach, the memory m.To compactly characterize convergence speed and accuracy, we adopt the area under the convergence curve (AUCC) metric, obtained by numerically integrating the convergence curves of Fig. 2. Lower AUCC values thus indicate faster and more accurate convergence. The results are summarized in Table III. Three key observations emerge. First, the computational cost of the batch-wise method scales with the effective replay-buffer length m · N , whereas the recursive scheme remains substantially cheaper and nearly constant across all settings. Second, choosing the right batch length is                               
+
+> 2Achieved with an Intel Core i7-13700HX CPU and 16 GB of RAM. TABLE III AVG .COMPUTATION TIME AND AUCC WITH VARYING BATCH SETTINGS .Batch-wise Recursive
+> NmTime [ms] AUCC Time [ms] AUCC 510.4 ∞
+> 0.6 3.45 10 0.8 17.47 100 2.5 ∞
+> 25 10.8 ∞
+> 0.9 5.16 10 2.0 3.16 100 9.3 2.44 50 11.4 46.04 1.4 7.66 10 3.7 4.62 100 17.8 3.37
+
+crucial for the batch-wise method: training on short horizons yields inaccurate (and in some cases unstable) models, as seen at N = 5, where both m = 1 and m = 100 
+
+scenarios lead to divergence (denoted by ∞ AUCC). For sufficiently long horizons, however, the batch-wise method attains the lowest AUCC values overall, outperforming the recursive scheme. Third, the recursive scheme shows robust convergence across all batch lengths. The increase in AUCC as N increases is only due to convergence being measured against the physical time axis; hence, having longer batches inherently increases convergence time. The results highlight a trade-off: the recursive scheme offers low computational cost and reliable convergence, while the batch-wise method can achieve superior convergence at the expense of higher computational demand and sensitivity to hyperparameters. VI. C ONCLUSION 
+
+This paper investigated the online learning of system dy-namics with ANN-SS models, applying an encoder network for initial state estimation. We formulated and analyzed a recursive identification approach extending conventional results from the system identification literature. We also adapted a recently proposed, computationally efficient iden-tification pipeline in a batch-wise learning setting. Finally, we demonstrated the efficiency of the proposed methods in a comprehensive simulation study, proving that the presented approaches can be successfully employed in practice. REFERENCES [1] L. Ljung, C. Andersson, K. Tiels, and T. B. Sch¨ on, “Deep Learning and System Identification,” in Proc. of the 21st IFAC World Congress ,2020, pp. 1175–1181. [2] A. Bemporad, “An L-BFGS-B Approach for Linear and Nonlinear System Identification Under ℓ1 and Group-Lasso Regularization,”        
+
+> IEEE Transactions on Automatic Control , vol. 70, no. 7, pp. 4857– 4864, 2025. [3] M. Forgione and D. Piga, “Continuous-time system identification with neural networks: Model structures and fitting criteria,” European Journal of Control , vol. 59, pp. 69–81, 2021. [4] G. I. Beintema, M. Schoukens, and R. T´ oth, “Deep subspace encoders for nonlinear system identification,” Automatica , vol. 156, p. 111210, 2023. [5] Y. M. Cho, G. Xu, and T. Kailath, “Fast Recursive Identification of State Space Models via Exploitation of Displacement Structure,”
+> Automatica , vol. 30, no. 1, pp. 45–59, 1994. [6] T. Wigren, “Recursive identification of a nonlinear state space model,”
+> International Journal of Adaptive Control and Signal Processing ,vol. 37, no. 2, pp. 447–473, 2023. [7] L. Frascati and A. Bemporad, “Online learning of nonlinear parametric models under non-smooth regularization using EKF and ADMM,”
+> Automatica , vol. 185, p. 112787, 2026.
+
+[8] M. Forgione, A. Muni, D. Piga, and M. Gallieri, “On the adaptation of recurrent neural networks for system identification,” Automatica , vol. 155, p. 111092, 2023. [9] A. Chakrabarty, G. Wichern, and C. R. Laughman, “Meta-Learning of Neural State-Space Models Using Data From Similar Systems,” in 
+
+Proc. of the 22nd IFAC World Congress , 2023, pp. 1490–1495. [10] D. Piga, F. Pura, and M. Forgione, “On the adaptation of in-context learners for system identification,” in Proc. of the 20th IFAC Sympo-sium on System Identification , 2024, pp. 277–282. [11] L. Ljung and T. S¨ oderstr¨ om, Theory and Practice of Recursive Identifi-cation , ser. Signal Processing, Optimization, and Control. Cambridge, MA, USA: MIT Press, 1987. [12] C. Verhoek, G. I. Beintema, S. Haesaert, M. Schoukens, and R. T´ oth, “Deep-Learning-Based Identification of LPV Models for Nonlinear Systems,” in Proc. of the 61st IEEE Conference on Decision and Control , 2022, pp. 3274–3280. [13] L. C. Iacob, G. I. Beintema, M. Schoukens, and R. T´ oth, “Deep Identification of Nonlinear Systems in Koopman Form,” in Proc. of the 60th IEEE Conference on Decision and Control , 2021, pp. 2288–2293. [14] J. H. Hoekstra, B. M. Gy¨ or¨ ok, R. T´ oth, and M. Schoukens, “Learning-based augmentation of first-principle models: A linear fractional representation-based approach,” arXiv preprint arXiv:2602.17297 ,2026. [15] D. P. Kingma and J. Ba, “Adam: A Method for Stochastic Opti-mization,” in Proc. of the 3rd International Conference on Learning Representations , 2015, pp. 1–15. [16] D. C. Liu and J. Nocedal, “On the limited memory BFGS method for large scale optimization,” Mathematical Programming , vol. 45, pp. 503–528, 1989. [17] A. Bemporad and R. T´ oth, “Efficient identification of linear, parameter-varying, and nonlinear systems with noise models,” 
+
+arXiv:2504.11982 , 2025. [18] B. Gy¨ or¨ ok, R. Drenth, C. Verhoek, T. P´ eni, M. Schoukens, and R. T´ oth, “Data-driven augmentation of first-principles models under constraint-free well-posedness and stability guarantees,” arXiv preprint arXiv:2604.11421 , 2026. [19] L. Ljung, “Analysis of a general recursive prediction error identifica-tion algorithm,” Automatica , vol. 17, no. 1, pp. 89–99, 1981. [20] ——, System Identification: Theory for the User , 2nd ed. Pearson Education, 1998. [21] ——, “Convergence analysis of parametric identification methods,” 
+
+IEEE Transactions on Automatic Control , vol. 23, no. 5, pp. 770–783, 1978. [22] C. E. Rasmussen and C. K. I. Williams, Gaussian Processes for Machine Learning . MIT Press, 2005. [23] H. B. Pacejka, Tyre and Vehicle Dynamics , 3rd ed. Butterworth-Heinemann, 2012.
