@@ -1,63 +1,64 @@
 ## 最新日报
-- 最新运行日期：2026-07-24
-- 运行时间：2026-07-24 05:26:56 北京时间
+- 最新运行日期：2026-07-25
+- 运行时间：2026-07-25 05:33:07 北京时间
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：5
 - 速读区：10
 
 ### 今日简报（AI）
-今日重点解析听觉注意力解码与情绪动态预测两项突破性工作，并速览可解释EEG诊断等前沿进展。  
-最值得关注：端到端马尔可夫状态学习显著提升听觉注意力解码精度，PeakFlow以峰值引导的粗到精建模实现高精度情感轨迹预测。  
-下步建议：可将马尔可夫状态序列与峰值驱动策略结合，用于更鲁棒的实时脑电情感监测。
-- 详情：[/202607/24/README](/202607/24/README)
+- 今日共生成 15 篇推荐（精读 5 篇，速读 10 篇）
+- 精读：《Spectral theory for population density dynamics of spiking neurons with refractoriness》（9.0/10）, 《Quantifying Event-Related (De)Synchronization Variability for Brain-Computer Interface: A Unified and Interpretable Framework》（9.0/10）
+- 速读：《Transition-Related Potentials as Markers of Narrative Comprehension in Continuous EEG》（8.0/10）, 《Toward Mechanistic Interpretability of an AI Foundation Model Fine-Tuned for Atmospheric Chemistry》（8.0/10）, 《Improved inference of latent neural states from calcium imaging data》（8.0/10）
+- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
+- 详情：[/202607/25/README](/202607/25/README)
 
 ### 精读区论文标签
-1. [End-to-End Markov State Sequence Learning for Auditory Attention Decoding](/202607/24/2607.18614v1-end-to-end-markov-state-sequence-learning-for-auditory-attention-decoding)  
-   标签：评分：10.0/10、query:sr
-   evidence：用于EEG听觉注意力解码的端到端马尔可夫模型
-2. [PeakFlow: Peak-Guided Coarse-to-Refined Modeling for EEG-Based Dynamic Affective Trajectory Prediction](/202607/24/2607.18671v1-peakflow-peak-guided-coarse-to-refined-modeling-for-eeg-based-dynamic-affective-trajectory-prediction)  
+1. [Spectral theory for population density dynamics of spiking neurons with refractoriness](/202607/25/2607.20699v1-spectral-theory-for-population-density-dynamics-of-spiking-neurons-with-refractoriness)  
    标签：评分：9.0/10、query:sr
-   evidence：基于EEG的动态情感轨迹预测，使用峰值引导的粗到精建模
-3. [Is EEG-to-Text Feasible in Real-World Scenarios? An In-Depth Analysis Using a Neuropsychology-Inspired Benchmark](/202607/24/2607.18749v1-is-eeg-to-text-feasible-in-real-world-scenarios-an-in-depth-analysis-using-a-neuropsychology-inspired-benchmark)  
+   evidence：带有不应期的脉冲神经元群体动力学数学框架
+2. [Quantifying Event-Related (De)Synchronization Variability for Brain-Computer Interface: A Unified and Interpretable Framework](/202607/25/2607.21119v1-quantifying-event-related-desynchronization-variability-for-brain-computer-interface-a-unified-and-interpretable-framework)  
    标签：评分：9.0/10、query:sr
-   evidence：评估脑机接口可行性的脑电解码文本基准
-4. [Spiking Neural Networks for fMRI-Based Visual Semantic Decoding](/202607/24/2607.19170v1-spiking-neural-networks-for-fmri-based-visual-semantic-decoding)  
+   evidence：在时空频域量化脑机接口变异性可解释框架
+3. [Multimodal Pretraining for Generalizable EEG Representation Learning](/202607/25/2607.21384v1-multimodal-pretraining-for-generalizable-eeg-representation-learning)  
    标签：评分：9.0/10、query:sr
-   evidence：基于SNN的fMRI视觉语义解码
-5. [Enabling Rapid Calibration of BCI Systems that Detect Movement-Related Cortical Potentials in Children with Cerebral Palsy](/202607/24/2607.19417v1-enabling-rapid-calibration-of-bci-systems-that-detect-movement-related-cortical-potentials-in-children-with-cerebral-palsy)  
+   evidence：多模态EEG基础模型用于解码，直接相关
+4. [MSBraM: A Multi-scale Self-supervised Brain Foundation Model for Hierarchical EEG Dynamics Learning](/202607/25/2607.21402v1-msbram-a-multi-scale-self-supervised-brain-foundation-model-for-hierarchical-eeg-dynamics-learning)  
    标签：评分：9.0/10、query:sr
-   evidence：基于Bi-LSTM的MRCP运动意图检测在儿科BCI中
+   evidence：多尺度自监督脑电图动力学学习模型
+5. [Single-neuron and population contributions of hippocampal LFPs to spike prediction](/202607/25/biorxiv-10-64898-2026-07-14-738489-v1-single-neuron-and-population-contributions-of-hippocampal-lfps-to-spike-prediction)  
+   标签：评分：9.0/10、query:sr
+   evidence：从局部场电位特征预测单神经元放电
 
 ### 速读区论文标签
-1. [Learnable Sequential Memory in Coupled Oscillator Networks](/202607/24/2607.18439v1-learnable-sequential-memory-in-coupled-oscillator-networks)  
+1. [Transition-Related Potentials as Markers of Narrative Comprehension in Continuous EEG](/202607/25/2607.20720v1-transition-related-potentials-as-markers-of-narrative-comprehension-in-continuous-eeg)  
    标签：评分：8.0/10、query:sr
-   evidence：受生物多时间尺度组织启发的可学习序列记忆
-2. [Adaptive Multi-Expert Graph Transformer for Interpretable EEG-Based Diagnostics](/202607/24/2607.19429v1-adaptive-multi-expert-graph-transformer-for-interpretable-eeg-based-diagnostics)  
+   evidence：连续脑电图中的转换相关电位作为自然神经标记
+2. [Toward Mechanistic Interpretability of an AI Foundation Model Fine-Tuned for Atmospheric Chemistry](/202607/25/2607.20778v1-toward-mechanistic-interpretability-of-an-ai-foundation-model-fine-tuned-for-atmospheric-chemistry)  
    标签：评分：8.0/10、query:sr
-   evidence：通过动态连接图进行时间EEG解码以预测异常
-3. [The Quadrilateral Loss: Additivity as a Measurable Behavior of Dense Neural Networks](/202607/24/2607.20201v1-the-quadrilateral-loss-additivity-as-a-measurable-behavior-of-dense-neural-networks)  
+   evidence：通过控制扰动解释神经网络模型内部机制
+3. [Improved inference of latent neural states from calcium imaging data](/202607/25/biorxiv-10-1101-2025-10-17-682993-v2-improved-inference-of-latent-neural-states-from-calcium-imaging-data)  
    标签：评分：8.0/10、query:sr
-   evidence：四边形损失量化加法性，一种新的可解释性技术
-4. [Exploring Neural Signatures of Self-Initiated Saccadic and Blink Events in the Real World](/202607/24/biorxiv-10-64898-2026-07-13-737665-v1-exploring-neural-signatures-of-self-initiated-saccadic-and-blink-events-in-the-real-world)  
+   evidence：从钙成像数据推断潜在神经状态
+4. [Neural Representations of Ensemble Mean and Variance Across Visual Features](/202607/25/biorxiv-10-64898-2026-07-14-738506-v1-neural-representations-of-ensemble-mean-and-variance-across-visual-features)  
    标签：评分：8.0/10、query:sr
-   evidence：从移动EEG解码眼跳和眨眼事件的神经特征
-5. [Measuring Monosemanticity in Sparse Autoencoders via Latent Activation Coherence](/202607/24/2607.17770v1-measuring-monosemanticity-in-sparse-autoencoders-via-latent-activation-coherence)  
+   evidence：fMRI多变量模式分析揭示群体编码
+5. [Hilbert Operator for Progressive Encoding (HOPE): A Mathematical Framework for Deconstructing Learned Representations in Deep Networks](/202607/25/2607.21366v1-hilbert-operator-for-progressive-encoding-hope-a-mathematical-framework-for-deconstructing-learned-representations-in-deep-networks)  
    标签：评分：7.0/10、query:sr
-   evidence：提出一种免标签的单义性度量方法，适用于神经网络编码的可解释AI分析。
-6. [Free energy landscape of Dense Associative Memory](/202607/24/2607.19195v1-free-energy-landscape-of-dense-associative-memory)  
+   evidence：分解学习表示的数学框架
+6. [A scalable mesh microelectrode array platform for longitudinal electrophysiology in neural spheroids](/202607/25/biorxiv-10-64898-2026-07-15-738387-v1-a-scalable-mesh-microelectrode-array-platform-for-longitudinal-electrophysiology-in-neural-spheroids)  
    标签：评分：7.0/10、query:sr
-   evidence：稠密联想记忆的自由能景观
-7. [In-Context Time Series Classification with Random Convolutional Features](/202607/24/2607.19234v1-in-context-time-series-classification-with-random-convolutional-features)  
+   evidence：用于神经球体纵向电生理的网格微电极阵列
+7. [Fixation-evoked potentials reveal neural signatures of hierarchical belief-updating during decision-making](/202607/25/biorxiv-10-64898-2026-07-15-738682-v1-fixation-evoked-potentials-reveal-neural-signatures-of-hierarchical-belief-updating-during-decision-making)  
    标签：评分：7.0/10、query:sr
-   evidence：基于随机卷积特征的时间序列分类方法，可应用于神经解码
-8. [Real-Time EEG Cap Electrode Detection for Guided Point-of-Care Placement](/202607/24/2607.20142v1-real-time-eeg-cap-electrode-detection-for-guided-point-of-care-placement)  
+   evidence：决策过程中层级信念更新的脑电信号特征
+8. [A metric for comparing complex systems by their dynamics](/202607/25/biorxiv-10-64898-2026-07-16-738953-v1-a-metric-for-comparing-complex-systems-by-their-dynamics)  
    标签：评分：7.0/10、query:sr
-   evidence：实时计算机视觉系统，验证EEG电极放置，支持脑机接口设置。
-9. [Causal Discovery on Irregular Time Series](/202607/24/2607.18226v1-causal-discovery-on-irregular-time-series)  
+   evidence：基于Koopman的动力相似性分析用于比较神经动态
+9. [Smooth Neural Point Processes via B-Splines](/202607/25/2607.21098v1-smooth-neural-point-processes-via-b-splines)  
    标签：评分：6.0/10、query:sr
-   evidence：适用于脑机接口的不规则时间序列因果发现方法
-10. [Learning sufficient low-dimensional structures through conditional optimal transport](/202607/24/2607.18861v1-learning-sufficient-low-dimensional-structures-through-conditional-optimal-transport)  
+   evidence：用于时间事件序列的平滑神经点过程
+10. [Condition-Dependent Noise Correlations without Condition-Dependent Spike Counts](/202607/25/biorxiv-10-64898-2026-05-08-723078-v4-condition-dependent-noise-correlations-without-condition-dependent-spike-counts)  
    标签：评分：6.0/10、query:sr
-   evidence：条件最优传输用于充分降维，可应用于神经编码模型
+   evidence：探索尖峰活动中噪声相关性如何编码条件依赖信息
 
