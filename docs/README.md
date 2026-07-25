@@ -1,64 +1,60 @@
 ## 最新日报
-- 最新运行日期：2026-07-25
-- 运行时间：2026-07-25 05:33:07 北京时间
+- 最新运行日期：2026-07-26
+- 运行时间：2026-07-26 05:04:48 北京时间
 - 运行状态：成功
-- 本次总论文数：15
-- 精读区：5
+- 本次总论文数：14
+- 精读区：4
 - 速读区：10
 
 ### 今日简报（AI）
-- 今日共生成 15 篇推荐（精读 5 篇，速读 10 篇）
-- 精读：《Spectral theory for population density dynamics of spiking neurons with refractoriness》（9.0/10）, 《Quantifying Event-Related (De)Synchronization Variability for Brain-Computer Interface: A Unified and Interpretable Framework》（9.0/10）
-- 速读：《Transition-Related Potentials as Markers of Narrative Comprehension in Continuous EEG》（8.0/10）, 《Toward Mechanistic Interpretability of an AI Foundation Model Fine-Tuned for Atmospheric Chemistry》（8.0/10）, 《Improved inference of latent neural states from calcium imaging data》（8.0/10）
-- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202607/25/README](/202607/25/README)
+今日聚焦灵长类海马体分离的位置与视角编码，以及人脑高伽马活动如何同时承载语言结构与概率信息。  
+最值得关注：海马体可能用两套独立机制处理“在哪里”和“看哪里”，而语言加工时结构与概率在大脑皮层交织编码。  
+建议追踪这类双编码模式是否普遍存在于其他认知域，或对比运动优化知觉的跨物种机制。
+- 详情：[/202607/26/README](/202607/26/README)
 
 ### 精读区论文标签
-1. [Spectral theory for population density dynamics of spiking neurons with refractoriness](/202607/25/2607.20699v1-spectral-theory-for-population-density-dynamics-of-spiking-neurons-with-refractoriness)  
+1. [Coexisting but dissociable place and spatial view codes in the primate hippocampus](/202607/26/biorxiv-10-64898-2026-07-20-739519-v1-coexisting-but-dissociable-place-and-spatial-view-codes-in-the-primate-hippocampus)  
    标签：评分：9.0/10、query:sr
-   evidence：带有不应期的脉冲神经元群体动力学数学框架
-2. [Quantifying Event-Related (De)Synchronization Variability for Brain-Computer Interface: A Unified and Interpretable Framework](/202607/25/2607.21119v1-quantifying-event-related-desynchronization-variability-for-brain-computer-interface-a-unified-and-interpretable-framework)  
+   evidence：通过广义线性模型分离灵长类海马体的位置与视角编码
+2. [Linguistic structure and probability are jointly encoded in high gamma power](/202607/26/biorxiv-10-64898-2026-07-21-739808-v1-linguistic-structure-and-probability-are-jointly-encoded-in-high-gamma-power)  
    标签：评分：9.0/10、query:sr
-   evidence：在时空频域量化脑机接口变异性可解释框架
-3. [Multimodal Pretraining for Generalizable EEG Representation Learning](/202607/25/2607.21384v1-multimodal-pretraining-for-generalizable-eeg-representation-learning)  
-   标签：评分：9.0/10、query:sr
-   evidence：多模态EEG基础模型用于解码，直接相关
-4. [MSBraM: A Multi-scale Self-supervised Brain Foundation Model for Hierarchical EEG Dynamics Learning](/202607/25/2607.21402v1-msbram-a-multi-scale-self-supervised-brain-foundation-model-for-hierarchical-eeg-dynamics-learning)  
-   标签：评分：9.0/10、query:sr
-   evidence：多尺度自监督脑电图动力学学习模型
-5. [Single-neuron and population contributions of hippocampal LFPs to spike prediction](/202607/25/biorxiv-10-64898-2026-07-14-738489-v1-single-neuron-and-population-contributions-of-hippocampal-lfps-to-spike-prediction)  
-   标签：评分：9.0/10、query:sr
-   evidence：从局部场电位特征预测单神经元放电
+   evidence：高伽马功率中语言结构和概率的联合编码
+3. [Eccentricity-Constrained CNN Training Reveals Adaptive Information Coding Around the Visual Field](/202607/26/2607.19316v1-eccentricity-constrained-cnn-training-reveals-adaptive-information-coding-around-the-visual-field)  
+   标签：评分：8.0/10、query:sr
+   evidence：CNN揭示基于自然经验的视觉场自适应信息编码
+4. [Neural-vocal phase coupling reveals structured timing in birdsong production](/202607/26/biorxiv-10-64898-2026-07-21-739824-v1-neural-vocal-phase-coupling-reveals-structured-timing-in-birdsong-production)  
+   标签：评分：8.0/10、query:sr
+   evidence：神经-发声相位耦合揭示鸟类鸣唱的结构化时序
 
 ### 速读区论文标签
-1. [Transition-Related Potentials as Markers of Narrative Comprehension in Continuous EEG](/202607/25/2607.20720v1-transition-related-potentials-as-markers-of-narrative-comprehension-in-continuous-eeg)  
-   标签：评分：8.0/10、query:sr
-   evidence：连续脑电图中的转换相关电位作为自然神经标记
-2. [Toward Mechanistic Interpretability of an AI Foundation Model Fine-Tuned for Atmospheric Chemistry](/202607/25/2607.20778v1-toward-mechanistic-interpretability-of-an-ai-foundation-model-fine-tuned-for-atmospheric-chemistry)  
-   标签：评分：8.0/10、query:sr
-   evidence：通过控制扰动解释神经网络模型内部机制
-3. [Improved inference of latent neural states from calcium imaging data](/202607/25/biorxiv-10-1101-2025-10-17-682993-v2-improved-inference-of-latent-neural-states-from-calcium-imaging-data)  
-   标签：评分：8.0/10、query:sr
-   evidence：从钙成像数据推断潜在神经状态
-4. [Neural Representations of Ensemble Mean and Variance Across Visual Features](/202607/25/biorxiv-10-64898-2026-07-14-738506-v1-neural-representations-of-ensemble-mean-and-variance-across-visual-features)  
-   标签：评分：8.0/10、query:sr
-   evidence：fMRI多变量模式分析揭示群体编码
-5. [Hilbert Operator for Progressive Encoding (HOPE): A Mathematical Framework for Deconstructing Learned Representations in Deep Networks](/202607/25/2607.21366v1-hilbert-operator-for-progressive-encoding-hope-a-mathematical-framework-for-deconstructing-learned-representations-in-deep-networks)  
+1. [Locomotion optimizes sensory representations through a computational principle shared by rodents and primates](/202607/26/biorxiv-10-1101-2025-06-29-662230-v5-locomotion-optimizes-sensory-representations-through-a-computational-principle-shared-by-rodents-and-primates)  
    标签：评分：7.0/10、query:sr
-   evidence：分解学习表示的数学框架
-6. [A scalable mesh microelectrode array platform for longitudinal electrophysiology in neural spheroids](/202607/25/biorxiv-10-64898-2026-07-15-738387-v1-a-scalable-mesh-microelectrode-array-platform-for-longitudinal-electrophysiology-in-neural-spheroids)  
+   evidence：运动优化感觉表征以实现高效编码
+2. [Parvalbumin and somatostatin inhibitory microcircuits perform distinct roles in stereo matching](/202607/26/biorxiv-10-64898-2026-07-15-738526-v1-parvalbumin-and-somatostatin-inhibitory-microcircuits-perform-distinct-roles-in-stereo-matching)  
    标签：评分：7.0/10、query:sr
-   evidence：用于神经球体纵向电生理的网格微电极阵列
-7. [Fixation-evoked potentials reveal neural signatures of hierarchical belief-updating during decision-making](/202607/25/biorxiv-10-64898-2026-07-15-738682-v1-fixation-evoked-potentials-reveal-neural-signatures-of-hierarchical-belief-updating-during-decision-making)  
+   evidence：抑制性电路在视差选择性中的作用
+3. [Synaptic Development of Fine Spatial Scale Organization of Neuronal Orientation Tuning in Mouse Primary Visual Cortex](/202607/26/biorxiv-10-64898-2026-07-16-738755-v1-synaptic-development-of-fine-spatial-scale-organization-of-neuronal-orientation-tuning-in-mouse-primary-visual-cortex)  
    标签：评分：7.0/10、query:sr
-   evidence：决策过程中层级信念更新的脑电信号特征
-8. [A metric for comparing complex systems by their dynamics](/202607/25/biorxiv-10-64898-2026-07-16-738953-v1-a-metric-for-comparing-complex-systems-by-their-dynamics)  
+   evidence：视觉皮层神经元朝向调谐与微团簇组织
+4. [Hippocampal theta distinguishes between memory-guided and exploratory saccades in humans](/202607/26/biorxiv-10-64898-2026-07-20-739696-v1-hippocampal-theta-distinguishes-between-memory-guided-and-exploratory-saccades-in-humans)  
    标签：评分：7.0/10、query:sr
-   evidence：基于Koopman的动力相似性分析用于比较神经动态
-9. [Smooth Neural Point Processes via B-Splines](/202607/25/2607.21098v1-smooth-neural-point-processes-via-b-splines)  
+   evidence：解码神经活动：海马theta区分记忆引导与探索性眼动
+5. [AMICA-Python: Adaptive Mixture Independent Component Analysis with Anderson Acceleration](/202607/26/2607.18568v1-amica-python-adaptive-mixture-independent-component-analysis-with-anderson-acceleration)  
    标签：评分：6.0/10、query:sr
-   evidence：用于时间事件序列的平滑神经点过程
-10. [Condition-Dependent Noise Correlations without Condition-Dependent Spike Counts](/202607/25/biorxiv-10-64898-2026-05-08-723078-v4-condition-dependent-noise-correlations-without-condition-dependent-spike-counts)  
+   evidence：自适应混合ICA用于EEG源分离
+6. [Neural Kolmogorov Equations: Parallelizable Learning of Stochastic Dynamics under General Noise](/202607/26/2607.19173v1-neural-kolmogorov-equations-parallelizable-learning-of-stochastic-dynamics-under-general-noise)  
    标签：评分：6.0/10、query:sr
-   evidence：探索尖峰活动中噪声相关性如何编码条件依赖信息
+   evidence：通过神经Kolmogorov方程并行学习随机动力学
+7. [Train the Model, Not the Reader: Decodability Supervision for Verifiable Activation Explanations](/202607/26/2607.20379v1-train-the-model-not-the-reader-decodability-supervision-for-verifiable-activation-explanations)  
+   标签：评分：6.0/10、query:sr
+   evidence：通过重构解释隐藏激活
+8. [Naju: A Native Discrete State-Space Model with Independent Retention and Writing for Long-Sequence Memory](/202607/26/2607.21000v1-naju-a-native-discrete-state-space-model-with-independent-retention-and-writing-for-long-sequence-memory)  
+   标签：评分：6.0/10、query:sr
+   evidence：用于长序列时序建模的离散状态空间模型
+9. [Beyond Sufficiency: Time Series Explanation with Counterfactual Necessity](/202607/26/2607.21573v1-beyond-sufficiency-time-series-explanation-with-counterfactual-necessity)  
+   标签：评分：6.0/10、query:sr
+   evidence：基于反事实必要性的时间序列解释框架
+10. [A somatic afterhyperpolarization is driven by ion channel nodes expressed across a polygonal spectrin cytoskeleton](/202607/26/biorxiv-10-1101-2024-08-08-607230-v4-a-somatic-afterhyperpolarization-is-driven-by-ion-channel-nodes-expressed-across-a-polygonal-spectrin-cytoskeleton)  
+   标签：评分：6.0/10、query:sr
+   evidence：研究控制尖峰输出模式的离子通道组织
 

@@ -1,0 +1,576 @@
+Title: AMICA-Python: Adaptive Mixture Independent Component Analysis with Anderson Acceleration
+
+URL Source: https://arxiv.org/pdf/2607.18568v1
+
+Published Time: Wed, 22 Jul 2026 00:18:18 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# AMICA-Python: Adaptive Mixture Independent Component Analysis with Anderson Acceleration 
+
+Scott Huberty 1 and Christian O’Reilly 2
+
+> 1
+
+University of Southern California, Los Angeles, CA, USA 
+
+> 2
+
+University of South Carolina, Columbia, SC, USA 
+
+Abstract. Adaptive Mixture Independent Component Analysis (AM-ICA) is widely used in EEG research and has long been associated with strong empirical performance for blind source separation. De-spite its impact, practical use has historically depended on a single Fortran implementation, accessed via the EEGLAB toolbox for MAT-LAB, limiting its accessibility for analytical pipelines not designed within the MATLAB ecosystem. Here we present AMICA-Python, a Python implementation of the AMICA algorithm, with a scikit-learn-conformant API designed for integration with existing scientific Python pipelines. The implementation follows the reference algorithm closely while adopting modern software engineering practices and an inter-face familiar to Python users. Additionally, we introduce an optional Anderson acceleration scheme that can dramatically reduce the time to convergence for this relatively slow algorithm [1, 2]. To evalu-ate numerical agreement and practical performance, we benchmarked AMICA-Python against the reference Fortran implementation on 14 open EEG recordings. After averaging 3 runs of each implementation on all 14 recordings, AMICA-Python closely matched the reference, with a median final normalized log-likelihoods of 11.572 for both the Fortran and Python implementations, and a negligible median rela-tive absolute difference of only 1.07 × 10 −8 when normalized by the absolute Fortran value. Runtime was also competitive. Relative to the reference implementation, AMICA-Python was 17.7% faster, while the Anderson-accelerated variant was 34.1% faster. AMICA-Python reproduces the reference implementation to high numerical precision with competitive runtime, while making AMICA available through a more accessible and extensible Python interface. 
+
+Keywords. independent component analysis | EEG | AMICA | Python | blind source separation 
+
+Correspondence. seh33@uw.edu 
+
+## Introduction 
+
+Independent component analysis (ICA) is a widely used tool for addressing the blind source separation problem. Its applica-tions are many; ranging from neuroscience, genetics, biology, chemistry, astronomy, seismology, stock analysis, text analy-sis, and more [3–11]. Linear ICA algorithms (which are cur-rently more widely used than the non-linear variants [12]), as-sume that the observed multivariate data can be modeled as a linear mixture of latent components. In other words, the observed data and the aforementioned latent components are linked via a linear transform: 
+
+X = AS 
+
+where the observed data X ∈ RN ×T contain N features (i.e. ”channels” in the literature related to electroencephalography, or EEG) and T observations (i.e. ”samples” or ”time points” in the EEG literature). The N × N mixing matrix A is un-known, and the matrix S of latent components (henceforth re-ferred to as ’sources’, not to be confused in the EEG literature with cortical/sub-cortical sources of the scalp EEG) contains rows that are maximally statistically independent. In EEG, in particular, ICA is routinely used to separate neural activity from ocular, muscular, and other artifact sources [13, 14]. Among available ICA methods, Adaptive Mixture Inde-pendent Component Analysis (AMICA) [15] is particularly fa-vored within the EEG research community, primarily because of its empirical performance on several benchmarks [4, 16]. For example, in a systematic comparison of 22 ICA and blind source separation algorithms, AMICA produced both the largest reduction in pairwise mutual information between recovered components and the largest percentage of “near-dipolar” com-ponents, a property associated with physiologically plausible cortical brain activity [4]. AMICA is a maximum-likelihood ICA method in the Infomax lineage [17, 18]. Extended Infomax can identify sources with sub-Gaussian (lighter tail) and super-Gaussian (heavier tail) distributions, via nonlinear functions that are derived from pre-specified source probability density functions (or in other words, fixed score functions; see Ille (2024) for a description [19]). In contrast, AMICA treats the source distributions themselves as parameters to be learned, by modeling each source as a mixture of generalized-Gaussian densities (Fig. 1), where the generalized-Gaussian shape parameter ρ controls tail heavi-ness and peakedness: 
+
+p(x; μ, β, ρ ) = ρβ 
+
+2Γ(1/ ρ) exp [− (β|x − μ|)ρ] . (1) Here, ρ = 2 corresponds to the Gaussian case, ρ < 2 gives super-Gaussian, more heavy-tailed densities (e.g., ρ = 1 is the Laplace density), and ρ > 2 gives sub-Gaussian, more light-tailed densities. The Fortran and Python implementations by default bound 1 ≤ ρ ≤ 2, so the component family interpo-lates between Laplace-like and Gaussian densities. In this adaptive approach, the estimates of the source distribu-tions are updated alongside the unmixing matrix during opti-mization. As a result, AMICA can match a broader class of source distributions, rather than committing in advance to a predefined set of distributions (e.g. sub- and super-Gaussian). While AMICA was not the first ICA algorithm to propose such an approach [20], this is the central conceptual difference be-tween AMICA and ICA methods such as Infomax and extended Infomax.          
+
+> Huberty | AMICA-Python 1/13 arXiv:2607.18568v1 [cs.LG] 20 Jul 2026 0246810 12 14 16
+> Source activation
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> Probability Density Function (PDF)
+> Generalized Gaussian Mixture (Three Densities)
+> Generalized Gaussian 1
+> Generalized Gaussian 2
+> Generalized Gaussian 3
+> Source
+
+Figure 1. Illustration of mixture of a generalized Gaussians. 
+
+The flexibility of AMICA comes at a cost. Generally speak-ing, ICA methods with gradient-based optimization (including Infomax) are already known to converge slowly, at least com-pared to fixed-point algorithms such as FastICA [21, 22]. A number of accelerations have been proposed to improve con-vergence speed of these algorithms [19, 23], and AMICA itself adopts a Newton step along the lines of Amari (1997) to speed up convergence [24, 25]. Still, the combined cost of jointly es-timating the source densities and the unmixing matrix at each iteration make AMICA much more computationally expensive than algorithms like Extended Infomax, both in terms of con-vergence behavior and per-iteration computation time [23, 26]. These considerations have shaped AMICA’s software history. The reference implementation is a Fortran program that was originally published in 2011 [27]. As Lulkin and colleagues point out, a pure MATLAB version of the AMICA algorithm was also created by the algorithm author [28], however this version has no official publication or distribution, and Lulkin and colleagues further demonstrated that it can be about 8x slower than the Fortran implementation [28]. For this reason, the Fortran program remains the canonical reference imple-mentation. Further, it is accessed almost exclusively through the EEGLAB MATLAB toolbox [29]. While this continues to serve the MATLAB-based EEG community well, it places AMICA outside the ecosystem in which much modern ICA work is now done. In contrast, ICA algorithms such as FastICA and Extended-Infomax are available as pure-Python libraries that integrate with scikit-learn, MNE-Python, and related tools [23, 30]. Sim-ilarly, spectral matching ICA, which is preferred by astrophysics researchers, has been ported to Python for use in adjacent com-munities [31]. For most of its history, AMICA has lacked a comparable and competitive implementation, which compli-cates its inclusion in analytical pipelines, and raises the bar-rier to studying or modifying the algorithm itself. Advances in both hardware and software have made carrying out pre-viously burdensome scientific computations feasible in more user-friendly, interpreted programming languages such as Python. For example, Lulkin (2023) present a re-implementation of AMICA in the Julia programming language [28]. However, the Python ecosystem would benefit from a robust and actively maintained version of the AMICA algorithm, as Python is an extremely popular programming language for both machine learning and EEG research [30, 32]. While pure Python is known to be relatively slow for scientific programming, much of this limitation is mitigated by its most widely used packages for numerical processing (e.g., Numpy, Scipy, Pandas, Polars), which utilize compiled extensions to low-level languages such as C, Fortran, or Rust to carry out computationally heavy oper-ations [33–36]. This is one reason Python remains so popular for scientific computing and machine learning analyses. The present work describes AMICA-Python, a Python imple-mentation of the AMICA algorithm that (i) exposes a scikit-learn-compatible estimator interface that can be used within scikit-learn pipelines, (ii) is validated numerically against the reference Fortran implementation on matched inputs, and (iii) is profile-optimized to remain tractable on realistic datasets (e.g. long EEG recordings that may be 1GB or more on disk). We show that we can produce an even more performant imple-mentation of AMICA via careful algorithmic implementation and the use of modern numerical libraries. However, we also optionally allow AMICA-Python users to further improve con-vergence time by utilizing Anderson Acceleration of AMICA, as we will describe below. The sections that follow summa-rize the AMICA model and the Damped Anderson Accelera-tion Method for fixed-point iteration algorithms, describe the design of AMICA-Python, and report correctness and perfor-mance comparisons against the Fortran reference. 
+
+The AMICA model 
+
+Comprehensive descriptions and notation of the AMICA al-gorithm have been presented in multiple publications. First, Palmer and colleagues described the method in a series of pa-pers [15, 25, 37], followed by expositions by Hsu (2018) and Lulkin (2023) [28, 38]. The following sections give a brief summary of the AMICA approach in an attempt to provide in-tuition and facilitate readers’ understanding. Our discription differs from previous publications in two ways: First, the no-tation here is aligned with the Fortran and Python implemen-tations. We present several equations in log space, because it matches more closely the numerical implementation in For-tran and AMICA-Python, which operate in log-space for the purpose of numerical stability. Thus, our notation is aligned with the implementation, even though previous descriptions of AMICA typically presented the generalized-Gaussian mixture model without the inclusion of logarithmic transforms. Sec-ond, we describe the steps for performing a single decomposi-tion with AMICA (i.e., a single-model AMICA), whereas the Fortran program optionally allowed for simultaneously fitting multiple decompositions at a time. Doing so requires addi-tional operations across a ”model” axis, however, we will not describe these steps in the notation in order to simplify the de-scription and facilitate the readers understanding of the core algorithm.           
+
+> Huberty | AMICA-Python 2/13 Table 1. Key symbols used in the AMICA description. Indices
+> i,j, and trun over components, mixture terms, and samples, respectively. The sphering matrix Qis returned as Sby the implementation; see text.
+
+Symbol Meaning 
+
+Xraw observed data in sensor or feature space 
+
+Q sphering matrix 
+
+X mean-centered, sphered data used by AMICA 
+
+A mixing matrix in sphered data space 
+
+W unmixing matrix in sphered data space, W = A−1
+
+c fitted AMICA bias in sphered data space 
+
+Y recovered source estimates 
+
+uijt scaled, centered mixture argument 
+
+βij scale parameter 
+
+Mixture Densities 
+
+Let Xraw ∈ RN ×T denote the observed data matrix with N
+
+channels and T samples. AMICA first mean-centers and whitens the data (i.e., applies sphering). In the full-rank setting consid-ered here, applying the sphering matrix Q ∈ RN ×N gives 
+
+X = Q · (Xraw − ¯x1 ⊤) ∈ RN ×T , (2) where ¯x ∈ RN is the channel-wise mean and 1 ∈ RT is a vector of ones. Optionally, AMICA-Python can retain only 
+
+K ≤ N sphered components, but the notation below assumes the full-rank case. AMICA then estimates a nonsingular mixing matrix A ∈ RN ×N
+
+in sphered data space, together with W = A−1 and a fitted bias vector c ∈ RN . The recovered sources are 
+
+yt = W xt − W c, t = 1 , . . . , T, (3) or, equivalently, Y = W (X − c1 ⊤). Here, c is a center in sphered data coordinates, so W c is the corresponding source-space offset. The vector yt ∈ RN denotes the current estimates of all N sources at sample t.As in other ICA methods, the decomposition is only defined up to a permutation and scaling of the recovered sources. AM-ICA fixes part of this ambiguity by normalizing columns of the sphered-space mixing matrix A during optimization and absorbing the associated scale changes into the source-density parameters [15, 38]. As previously mentioned, the key idea in AMICA is that the source densities are learned rather than fixed in advance. In AMICA, each recovered source is modeled by a mixture of one-dimensional generalized-Gaussian densities [15, 25, 37, 38]. In plain terms, the density of each recovered source is modeled as a weighted sum of one-dimensional mixture components, each parameterized by its own weighted mixture of generalized Gaussians with their own location, inverse scale, and shape parameters, as defined in eq. (1). The per-source mixture-density parameters are gathered into matrices α, μ, β, ρ ∈ RN ×M , where M is the number of den-sity mixtures per source. Here αij is a mixture weight, μij is a location, βij is an inverse scale parameter, and ρij is a shape parameter. With these in hand, we can define the per-mixture log-density matrix Z ∈ RN ×M ×T . Let: 
+
+q(u; ρ) = ρ
+
+2Γ(1/ ρ) exp (−| u|ρ) (4) denote the unit-scale generalized-Gaussian density evaluated at the standardized source value u. Then the scaled component density in Eq. (1) can be written as βij q(βij (yit − μij ); ρij ):
+
+Zijt = log αij + log βij + log q(βij (yit − μij ); ρij 
+
+), (5) We further derive uijt , the source value after centering by mix-ture component (i, j ) and multiplying by that component’s in-verse scale as 
+
+uijt = βij 
+
+(yit − μij 
+
+). (6) This standardized value is the argument fed to the component density q.In the AMICA-Python source code, the function compute_ source_densities populates Z in a single vectorized call. The mixture weights of each source satisfy 
+
+> M
+
+∑
+
+> j=1
+
+αij = 1 . (7) 
+
+Source densities and mixture responsibilities 
+
+Once Z has been populated, AMICA uses it in two operations along the mixture axis (axis j). First, the log-density of each recovered source at each sample is obtained by collapsing the mixture dimension with a logsumexp (LSE) operation. Let log P ∈ RN ×T denote the resulting matrix of source log-densities after summing over mixture densities: log P = LSE j
+
+(Z). (8) where the index j to the operator LSE indicates that the LSE operation is performed along the dimension of the index j. Sec-ond, normalizing Z along the same mixture axis with softmax yields the responsibility tensor R ∈ RN ×M ×T :
+
+R = softmax j
+
+(Z),
+
+> M
+
+∑
+
+> j=1
+
+Rijt = 1 ∀ i, t. (9) Each entry Rijt is the posterior probability that mixture com-ponent j generated sample t of source i. The two operations consume the same per-mixture log terms but serve different purposes: LSE j produces the per-source log-density used in the likelihood, whereas softmax j produces the responsibilities used to reweight the source-density parameter updates.  
+
+> Huberty | AMICA-Python 3/13
+
+Likelihood and parameter updates 
+
+The model parameters updated on each iteration are 
+
+Θ = {W, c, α, μ, β, ρ}. (10) The log-likelihood of one sample t is the sum of the spher-ing Jacobian, the unmixing Jacobian, and the per-source log-densities from Eq. (8). The final term measures how well the recovered sources fit their current density models: 
+
+ℓt = log | det Q| + log | det W | +
+
+> N
+
+∑
+
+> i=1
+
+log pi(yit ), (11) and the full log-likelihood is the sum over samples, 
+
+L(Θ) = 
+
+> T
+
+∑
+
+> t=1
+
+ℓt. (12) Note that the Fortran implementation and AMICA-Python re-port the normalized log-likelihood, 
+
+¯L(Θ) = 1
+
+N T 
+
+> T
+
+∑
+
+> t=1
+
+ℓt, (13) which is the quantity used for convergence monitoring and the benchmark comparisons below. 
+
+Convergence criteria. By default, both the Fortran imple-mentation and AMICA-Python monitor convergence using two criteria: the normalized log-likelihood and a weight-gradient norm. Let r index optimization iterations and define 
+
+∆ ¯L(r) = ¯L(Θ (r)) − ¯L(Θ (r−1) ). (14) AMICA also computes the root-mean-square norm of the cur-rent weight-update matrix. In the single-model, full-rank case described here, if ∆A(r) ∈ RN ×N denotes the update direc-tion formed for the mixing matrix at iteration r, this quantity is 
+
+η(r) = ∥∆A(r)∥F
+
+N , (15) where ∥ · ∥ F denotes the Frobenius norm. With thresholds εL
+
+and εg , AMICA terminates when either the normalized log-likelihood improves by less than εL for the configured number of consecutive iterations, or when the mixing-matrix update norm falls to or below εg :
+
+∆ ¯L(r) < ε L or η(r) ≤ εg . (16) 
+
+Density parameter updates. The responsibility matrix R
+
+from Eq. (9) drives updates for the mixture weights, locations, and scales. For each source, mixture component, and sample, define the density penalty 
+
+fij (uijt ) = − log q(uijt ; ρij ) (17) as the negative log-density assigned by component (i, j ) to the standardized source value uijt . With this convention, the derivative of the density penalty used in the source-density and unmixing updates is given by 
+
+f ′ 
+
+> ij
+
+(uijt ) = ρij sign (uijt ) |uijt |ρij −1. (18) The updates for mixture weights, locations, and scales (given 
+
+ρij ≤ 2) are 
+
+α+ 
+
+> ij
+
+= 1
+
+T
+
+> T
+
+∑
+
+> t=1
+
+Rijt , (19) 
+
+μ+ 
+
+> ij
+
+= μij +
+
+∑ 
+
+> t
+
+Rijt f ′ 
+
+> ij
+
+(uijt )
+
+βij 
+
+∑ 
+
+> t
+
+Rijt f ′ 
+
+> ij
+
+(uijt )/ uijt 
+
+, (20) 
+
+β+ 
+
+> ij
+
+= βij 
+
+( ∑ 
+
+> t
+
+Rijt 
+
+∑ 
+
+> t
+
+Rijt f ′ 
+
+> ij
+
+(uijt ) uijt 
+
+)1/2 
+
+. (21) Conceptually, samples with larger responsibility for mixture component (i, j ) contribute more strongly to that component’s next location and inverse scale, which is how the source-density model adapts to the data on every iteration. Finally, the shape parameters ρij have no closed-form and are updated by a scaled gradient step [37]: 
+
+ρ+ 
+
+> ij
+
+= ρij + ηρ
+
+[
+
+1 − ρij 
+
+ψ
+
+(
+
+1 + 1
+
+> ρij
+
+)
+
+×
+
+∑ 
+
+> t
+
+Rijt |uijt |ρij log |uijt |ρij 
+
+∑ 
+
+> t
+
+Rijt 
+
+]
+
+.
+
+(22) where ψ denotes the digamma function (i.e., the derivative of the log of the gamma function) and ηρ is the shape-parameter learning rate. 
+
+Unmixing-matrix update. For each recovered source i and sample t, AMICA combines the mixture-component density penalty derivatives into one derivative gi(yit ). Each mixture component j contributes according to its responsibility Rijt :
+
+gi(yit ) = 
+
+> M
+
+∑
+
+> j=1
+
+Rijt βij f ′ 
+
+> ij
+
+(uijt ), (23) so that G ∈ RN ×T collects gi(yit ) entry by entry; in AMICA-Python, this quantity is computed by the function compute_ scaled_scores . With G and the recovered-source matrix 
+
+Y ∈ RN ×T , the natural-gradient update of W takes the matrix form 
+
+Φ = 1 
+
+> T
+
+G Y ⊤ ∈ RN ×N , ∆W ∝ (I − Φ) W. (24)  
+
+> Huberty | AMICA-Python 4/13
+
+The matrix Φ summarizes the empirical relationship between the current source-level density penalty derivatives and the re-covered sources. The natural-gradient ascent update is struc-turally identical to Infomax and extended Infomax [17, 24], but 
+
+G is now data-adaptive because it is derived from the learned source densities rather than from a fixed nonlinearity. In the Fortran implementation and AMICA-Python, the correspond-ing step is applied to the mixing matrix A, after which W =
+
+A−1 is recomputed. Thus, each iteration alternates between refining the source-density model and refining the unmixing matrix so that the two estimates improve together. 
+
+Adaptive Newton Method 
+
+Natural-gradient optimization is effective, but it is not espe-cially fast. AMICA augments the gradient update with a New-ton method [25] that exploits the curvature information of the gradient to guide the unmixing matrix update. For the present paper, the main point is simply that AMICA uses the currently estimated source statistics to construct better-scaled updates for W , which can improve convergence once the source-density model is already a reasonable fit to the data. 
+
+Algorithm summary 
+
+The single-model AMICA procedure used in the present bench-mark is summarized in Algorithm 1. At a high level, the algo-rithm alternates between improving the source-density model and improving the unmixing estimate, so that each informs the other. 
+
+Acceleration of the AMICA algorithm 
+
+The AMICA iteration can be viewed as a fixed-point algorithm analogous to the Expectation-Maximization (EM). If θ denotes the free AMICA parameters, one pass through the AMICA up-date defines 
+
+θk+1 = G(θk),
+
+where G includes the source-density updates, the mixing-matrix update, and the normalization steps summarized above. Such algorithms are often stable but slow, and this is one reason AM-ICA can be substantially more expensive than even Extended Infomax: the method may require many iterations, and each iteration involves costly matrix operations over samples, chan-nels, sources, and mixture terms [4, 26]. Several methods have been proposed to accelerate the conver-gence of EM algorithms, both in the context of ICA and for EM algorithms more generally. For example, Ablin and colleagues significantly reduced the convergence time of Extended-Infomax by leveraging L-BFGS optimization with backtracking line-search [23]. General-purpose accelerators have also been pro-posed, which attempt to improve convergence for any EM algo-rithm without deriving a problem-specific optimizer [39]. For example, SQUAREM is one such popular accelerator [40]. In the context of AMICA, the problem with these approaches is that they typically require multiple evaluations of G per accel-eration cycle. This is a poor trade-off when G is the expensive 
+
+> Algorithm 1: Single-model AMICA
+
+Input: Observed data Xraw , number of mixtures M ,maximum iterations Rmax , tolerances εL and εg
+
+Output: Fitted parameters Θ = {W, c, α, μ, β, ρ} and recovered sources Y
+
+Mean-center and sphere the data: X ← Q(Xraw − ¯x1 ⊤)
+
+Initialize A, set W ← A−1, and initialize α, μ, β, ρ
+
+for r = 1 , . . . , R max do 
+
+Compute sources: Y ← W (X − c1 ⊤)
+
+Compute per-mixture log terms Z using Eq. (5) Compute source log-densities log pi(yit ) ← LSE j (Zijt )
+
+Compute responsibilities Rijt ← softmax j (Zijt )
+
+Compute ¯L(r) and the weight-gradient norm η(r)
+
+if ∆ ¯L(r) < ε L or η(r) ≤ εg then break 
+
+Update α, μ, β using Eqs. (19) to (21) Update ρ using Eq. (22) Form source-level density penalty derivatives G using Eq. (23) Update A using the natural-gradient direction Eq. (24) or Newton acceleration Normalize columns of A and absorb the scale into μ
+
+and β
+
+Refresh W ← A−1
+
+AMICA update. However, in 2019, Varadhan and Henderson proposed an ac-celerator built on Anderson optimization [1, 2] which is well suited to AMICA. Aptly named damped Anderson accelera-tion with restarts and monotonicity control (DAAREM) [41]. Anderson acceleration forms an extrapolated next iterate from recent fixed-point residuals fk = G(θk) − θk. Rather than moving only to G(θk), it solves a small least-squares prob-lem over the last mk residual differences and uses that solu-tion to combine recent steps. The restarted version used by DAAREM periodically builds this history from order one up to a maximum order m, then discards the history and starts the cycle again. DAAREM adds two safeguards to the restarted Anderson loop in Algorithm 2. First, it damps the least-squares coefficients by solving a ridge-regularized version of the Anderson problem; the amount of damping is adaptive, starting close to the origi-nal fixed-point update and approaching the undamped Ander-son step as recent proposals are accepted. Second, it applies an 
+
+ε-monotonicity check against a merit function, usually the log-likelihood: if the extrapolated candidate decreases the merit function by more than ε, the algorithm rejects the extrapola-tion and falls back to the ordinary fixed-point iterate. At the end of each restart cycle, DAAREM also checks whether the merit function has decreased over the cycle and, if so, increases damping for subsequent proposals [41]. A major advantage of DAAREM as compared to previously mentioned accelerators is that it does not require additional  
+
+> Huberty | AMICA-Python 5/13 Algorithm 2: Restarted Anderson acceleration
+
+Input: Initial parameter vector θ0, fixed-point map G,maximum order m
+
+Output: Accelerated fixed-point iterates Set c1 ← 1 and θ1 ← G(θ0)
+
+for k = 1 , 2, . . . until convergence do 
+
+Set mk ← min (m, c k) and fk ← G(θk) − θk
+
+Construct Xk = [∆ θk−mk , . . . , ∆θk−1] and 
+
+Fk = [∆ fk−mk , . . . , ∆fk−1]
+
+Solve γ(k) = arg min γ∈Rmk ∥fk − F kγ∥22
+
+Propose θk+1 ← θk + fk − (Xk + Fk)γ(k)
+
+if k mod m = 0 then 
+
+ck+1 ← 1
+
+else 
+
+ck+1 ← ck + 1 
+
+evaluations of the G per iteration. Anderson mixing has al-ready been shown to be useful for estimating the components of Gaussian mixture models, and in machine learning more broadly [42, 43]. When applied to AMICA, we show that DAAREM further improves convergence behavior while min-imally impacting the decomposition performance. 
+
+## Methods 
+
+AMICA-Python software 
+
+AMICA-Python was designed as a native scientific Python im-plementation of the single-model AMICA algorithm. At the user level, the package exposes a scikit-learn-inherited estima-tor class, AMICA , whose API follows the familiar fit , transform ,and fit_transform pattern [30], allowing the direct use of AMICA-Python in Scikit-Learn pipelines. After fitting, the estimator exposes quantities expected by downstream arrays, including the learned components, mixing matrix, whitening operator, and log-likelihood history. AMICA-Python also in-cludes helpers for interoperability with MNE-Python, allow-ing EEG researchers to transfer the learned decompositions into MNE-Python for further analysis and visualization [32]. In keeping with scikit-learn conventions, input data are stored in (n_samples, n_features) layout rather than the channels 
+
+× samples notation used in the mathematical description above and in the Fortran implementation. The AMICA-Python user-interface is simplified as compared to its Fortran counterpart. The Fortran program API exposes 86 tunable parameters, 4 of which are required to run the pro-gram. Further, there are 36 parameters that contain boolean or enumerated arguments, each of which trigger its own spe-cific code path in the program. To simplify the user experi-ence and reduce maintainer burden, AMICA-Python greatly reduces the number of parameters in its estimator, and instead aims to provide sensible default values for many of the hyper-parameters that the Fortran program exposes. From the users end, they only need to pass the data to fit as a required argu-ment to AMICA .The reference Fortran program is highly optimized for memory and therefore relies heavily on nested loops over samples, com-ponents, and mixture terms. That design is understandable, because AMICA is relatively demanding in both computation and memory. Several intermediate steps, including source-density evaluation and responsibility estimation, require tem-porary arrays that scale with n_samples , n_components ,and n_mixtures , meaning that these intermediate arrays can be n_mixtures times larger than the input data. In a Python implementation, directly reproducing this structure would be inefficient, because repeatedly iterating over large numerical arrays in pure Python carries substantial interpreter overhead. AMICA-Python therefore favors vectorized array operations and delegates the numerically intensive work to PyTorch. This design makes better use of PyTorch’s compiled C extensions. To keep the implementation tractable on realistic M/EEG record-ings, AMICA-Python also supports batch-wise processing along the sample axis, allowing large recordings to be processed with-out materializing all intermediate arrays in memory at once. For sufficiently large inputs, this batch-wise mode is enabled automatically. As previously mentioned, the current implementation uses Py-Torch as its primary numerical backend, which provides a uni-form API across CPU and GPU devices. This was primarily a pragmatic design choice, as local benchmarks showed PyTorch to be more performant than Scipy and Numpy. However, as we will discuss in the Future directions section, we are consider-ing broadening the support for other numerical backends to cater to a wider user base. The AMICA-Python package is validated against the reference Fortran outputs with unit tests, and this testing suite is inte-grated to the software’s continuous integration/development workflow, to ensure that continued development does not come at the cost of mathematical drift with the reference implemen-tation. Further, AMICA-Python features extensive documenta-tion of its API and several examples and tutorials to assist users. Finally, AMICA Python is published to PyPi and Conda-forge, the main package indexes for the Python community. 
+
+Benchmark Analysis 
+
+To benchmark AMICA-Python against the reference Fortran implementation, we ran both implementations on an open ac-cess EEG dataset containing 14 recordings [4], each contain-ing 71 channels. Each recording was fit with three mixture terms per source for up to 2000 iterations. Both implementa-tions were run using equivalent parameters and in the same environment, e.g. on a CPU with 16Gs of RAM, and limited to a single thread, run on the same hardware. For fairness, the initial unmixing matrix weights and density parameters (loca-tions, inverse scales, weights) were saved from the Fortran run and used in the Python runs by loading the same initial W , β,and μ values. For one of the test recordings ( gv84 ), visual in-spection indicated that a long terminal segment of the record-ing was dominated by noise. We therefore retained the first   
+
+> Huberty | AMICA-Python 6/13 Table 2. Repository versions used for benchmark generation.
+
+Repository Commit amica-python d1350ee0 
+
+amica-benchmark 11b1b48 
+
+amica-python-paper 18137ce 
+
+665 epochs for both the Fortran and AMICA-Python runs, ap-plying this truncation before creating the data matrices passed to either implementation. For each recording, the benchmark recorded wall-clock fit time, the normalized log-likelihood trajectory, the final normalized log-likelihood, and the number of completed iterations. The benchmark results were then used to generate the aggregate plots included here. For reference, the benchmark results and scripts are available at the links below, where the commit hashes in the second column reflect the exact version of the source code at the time that this benchmark was generated. 
+
+Replication of the Delorme source-dipolarity analy-sis 
+
+As an additional validation against the original AMICA bench-mark, we reproduced the mutual-information-reduction and source-dipolarity analysis from Delorme et al. [4]. the MATLAB scripts, 14 EEG recordings, and published results (algorithm decompositions, mutual information summaries) were released alongside the paper, as well as 3rd party toolboxes that were used (e.g. DIPFIT, an EEGLAB tool for fitting equivalent dipole models to ICA components) residual-variance estimates used to generate the published comparison. We created a work-ing copy of the original release, added AMICA-Python as an additional decomposition, and reran the original MATLAB mutual-information script to compute AMICA-Python’s mu-tual information reduction in the same format as the published algorithms. To estimate source dipolarity for AMICA-Python, we ran the original scripts shared by Delorm and colleagues on the AMICA-Python decomposition files. Recording gv84 was excluded from this analysis to match the set of recordings used by the original plotting script. For each algorithm, the mean mutual information reduction across the remaining 13 recordings was plotted. Source dipolarity was summarized as the percentage of components with DIPFIT residual variance below 5%. The final figure was generated from these same reduced coordi-nates, with AMICA-Python added as an additional point. 
+
+## Results 
+
+Across the 14 datasets, AMICA-Python closely matched the final normalized log-likelihoods of the reference implemen-tation. Across the 14 recordings, after averaging the three runs per recording, AMICA-Python closely matched the final normalized log-likelihoods of the reference implementation. The median final normalized log-likelihood was 11.57285 for Fortran and 11.57285 for AMICA-Python. The median rel- 
+
+> Figure 2. Parity of the final normalized log-likelihood values ob-tained from the Fortran reference implementation and AMICA-Python across the 14 benchmark recordings.
+
+ative absolute difference was 1.07 × 10 −8, with a mean of 
+
+4.93 × 10 −7 and a range from 2.79 × 10 −9 to 3.51 × 10 −6.Relative differences were computed as 
+
+|LL Python − LL Fortran ||LL Fortran | (25) The DAAREM-accelerated variant traded a small loss in final log-likelihood for faster convergence: its median final normal-ized log-likelihood was 11.57267, compared with 11.57285 for standard AMICA-Python EM. This corresponded to a me-dian relative absolute difference of 5.96 × 10 −6 from standard AMICA-Python EM and 5.96 × 10 −6 from the Fortran refer-ence. As shown in Fig. 2, standard AMICA-Python EM and the Fortran reference were visually indistinguishable on most benchmark runs. 
+
+Replication of Component Mutual Information Reduc-tion and Dipolarity analyses from Delorme (2004) 
+
+The replicated Delorme analysis placed both AMICA-Python variants in the same high-performing region as the original AMICA decomposition (Fig. 3). Across the 13 datasets used for this analysis, mutual information reduction was nearly iden-tical across implementations: 43 .132 ± 7.405 kbits/s for For-tran AMICA, 43 .111 ± 7.400 kbits/s for AMICA-Python, and 
+
+43 .108 ± 7.397 kbits/s for the DAAREM-accelerated variant. Although the small MIR differences were statistically detectable in paired tests against Fortran (AMICA-Python: p = 0 .028 ;DAAREM: p = 0 .015 ), their magnitudes were less than 0.025 
+
+kbits/s. The corresponding percentages of near-dipolar compo-nents were 29.14% for AMICA-Python, 30.88% with DAAREM acceleration, and 30.01% for AMICA Fortran, using the residual-variance threshold of 5%. The percentage near-dipolar com-ponents in the Python implemenations did not differ signifi-         
+
+> Huberty | AMICA-Python 7/13 41.8 42.0 42.2 42.4 42.6 42.8 43.0 43.2
+> Mutual information reduction (kbits/s)
+> 0
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> 35
+> Near-dipolar components, r.v. < 5% (%)  Amica
+> AMICA-Python
+> AMICA-Python (DAAREM)
+> Ext. Infomax
+> Pearson Infomax
+> SHIBBS
+> FastICA
+> JADE
+> TICA
+> JADE opt.
+> JADE-TD
+> FOBI
+> SOBIRO
+> EVD24
+> EVD
+> SOBI
+> icaMS
+> AMUSE
+> PCA
+> Original R^2=0.96
+> With Python R^2=0.96
+> AMICA-Python
+> AMICA-Python (DAAREM)
+> Original regression
+> With Python algorithms
+
+Figure 3. Replication of Delorme et al.’s comparison be-tween mutual information reduction and the percentage of near-dipolar components. Top: the original published panel from Delorme et al. Bottom: the recreated plot, with AMICA-Python and its accelerated variant added as additional points. Mutual information reduction was computed with the original MATLAB script and source dipolarity was estimated with the original DIP-FIT workflow, excluding recording gv84 .
+
+cantly from Fortran ( p = 0 .491 and p = 0 .527 ). Adding the Python decompositions to the original 18-algorithm scatter preserved the relationship between mutual information reduc-tion and source dipolarity: the original algorithms had R2 =0.964 , and the augmented set including AMICA-Python had 
+
+R2 = 0 .962 .s Across the 13 recordings used for this analysis, In terms of runtime, the Python implementation was compet-itive with the Fortran reference. Across three matched bench-mark runs, AMICA-Python averaged 82.3% of the Fortran wall time and was faster than the reference on all 14 datasets, even without acceleration. The DAAREM-accelerated variant aver-aged 65.9% of the Fortran wall time and was faster than the ref-erence on 13 of 14 datasets. Runtime differences varied across datasets, and DAAREM was not uniformly faster than the stan-dard algorithm, but it reduced wall time for most datasets under the matched single-core benchmark conditions (Fig. 4). Per-dataset benchmark values are listed in the Appendix (Tables 3 to 5). Taken together, these results suggest that AMICA-Python re-produces the reference implementation to high numerical pre-cision on most datasets while remaining competitive in run-time under matched benchmark settings. Further, the addition of Anderson Acceleration has shown to be helpful for a vari-ety of input data, by dramatically reducing the time to fit the AMICA model. 
+
+## Discussion 
+
+AMICA has long been valued for its empirical performance, particularly in EEG research, but in practice it has remained tied to a Fortran executable and its EEGLAB wrapper. The goal of this work was to bring a robust and numerically cor-rect implementation of AMICA into the Python ecosystem, where much of modern scientific computing and neurophysi-ological data analysis now takes place. To that end, we pre-sented AMICA-Python as an implementation that closely fol-lows the reference algorithm while offering a more familiar, Pythonic interface for end users. An important part of that goal was software usability. By ex-posing AMICA through a scikit-learn-compliant estimator in-terface, AMICA-Python is easier to use within existing analyti-cal pipelines and more consistent with the conventions already used in scientific Python tools, removing a significant techni-cal hurdle that has blocked the integration of this algorithm in Python pipelines for many years. This lowers the barrier both for applied users who want to incorporate AMICA into their analyses and for developers who want to inspect and extend the method. More broadly, this project aims to give AMICA a realistic op-portunity to be adopted beyond the narrower path of direct For-tran execution or EEGLAB-based use. The benchmark results reported here suggest that this increased accessibility comes with only negligible numerical differences when compared against the reference implementation. We hope that making AMICA available as a native Python tool will support wider use, easier comparison with other ICA methods, and continued method-ological development in the broader community. Finally, we show that we can substantially improve upon the speed of the Fortran implementation. While PyTorch certainly facilitates performant numerical processing, it is not the sole driver of AMICA-Python’s performance. While there is a ten-dency in modern software engineering to deploy computation-ally expensive algorithms on GPU hardware or to compile them with numerical libraries such as PyTorch or JAX, we found that improving the efficiency of the AMICA algorithm (e.g. avoid-ing repeated or unnecessary operations) also greatly aided our efforts to make AMICA-Python performant. Finally, like Pierre and colleagues demonstrated with the extended-infomax algo-rithm [23], we found that accelerating the optimization routine contributes much to speeding up the AMICA algorithm.   
+
+> Huberty | AMICA-Python 8/13 Figure 4. Wall-clock runtime comparison between the Fortran reference implementation and AMICA-Python across benchmark datasets. Bars show the participant-level mean across three matched runs; error bars show the observed minimum-to-maximum range across runs.
+
+Future directions 
+
+Several extensions of AMICA-Python remain open for future work. In terms of software implementation, broadening the support for alternative numerical backends available in the Python ecosystem, e.g. NumPy, PyTorch, or JAX, would be a valuable extension. A natural next step would be to rework the imple-mentation around the Python Array API standard [44] so that users can choose among the supported numerical backends de-pending on their performance and deployment needs. In prin-ciple, such an approach could make it easier to support a wide base of users while preserving a common estimator interface. Perhaps the most pressing barrier for future work, however, is optimization. In practice, the Newton-related updates are among the most computationally expensive parts of AMICA because they must repeatedly combine adaptive density esti-mation with curvature-aware updates of the unmixing matrix. This cost is especially important on the long, high-dimensional recordings for which AMICA is often attractive. Related work on ICA optimization suggests that there may be room for im-provement on this front. Ablin and colleagues showed that pre-conditioned quasi-Newton methods can substantially improve convergence speed on real ICA problems by using Hessian approximations as preconditioners for L-BFGS rather than re-lying only on first-order updates or on more expensive exact second-order methods [23]. Ille (2024) similarly showed that alternative update parameterizations and curvature-aware opti-mization strategies can markedly improve convergence behav-ior for Infomax-style ICA on EEG data [19]. For AMICA-Python, this suggests several concrete directions: exploring better preconditioning for the unmixing updates, considering alternative optimization strategies, and testing whether hybrid quasi-Newton schemes can preserve AMICA’s adaptive source modeling while reducing the optimization bottleneck. Finally, another direction concerns the source-density model itself. The current AMICA formulation approximates each source density with a mixture of generalized Gaussians, but this is not the only possible choice. As noted by Hsu and col-leagues, alternative density approximations could also be ex-plored, including other parametric families and more flexible nonparametric approaches [38]. While benchmarking alterna-tive approaches to source density estimation was out of scope for this project, we hope that making AMICA available to the Python community will facilitate future research in this direc-tion. For example, one possible extension would be to make the source-density estimation modular, allowing users to sup-ply custom density estimators within the AMICA framework.  
+
+> Huberty | AMICA-Python 9/13
+
+## Appendix: Benchmark Dataset Results 
+
+The table below lists the per-recording benchmark values used to summarize agreement and runtime in the main Results section. 
+
+Table 3. Per-dataset benchmark results for Fortran and Python (Py-EM). Values are participant-level means across three runs. The runtime ratio is Python divided by Fortran, so values below 1 indicate faster Python fits. 
+
+Dataset Fortran LL Py-EM LL |∆LL | Fortran iter Py-EM iter Fortran s Py-EM s Py-EM/Ft ap82 11.251852 11.251852 1.33e-07 881.0 882.0 6190.0 5001.2 0.805 cj82 11.616482 11.616483 1.50e-06 1206.0 1206.0 8450.1 5785.9 0.685 cz84 11.422811 11.422812 8.07e-08 1006.0 1006.0 6364.0 4911.8 0.772 ds76 11.370937 11.370938 1.10e-07 906.0 906.0 6381.1 4508.6 0.707 ds80 11.755703 11.755703 7.72e-08 1006.0 1006.0 7036.9 5863.2 0.834 gm84 7.328114 7.328114 4.98e-08 1006.0 1006.0 7132.0 6099.4 0.854 gv84 10.846729 10.846767 3.80e-05 2000.0 2000.0 10602.9 9763.8 0.925 jo74 11.764663 11.764679 1.64e-05 897.0 998.0 6804.8 6675.1 0.982 kb77 10.677722 10.677714 7.48e-06 906.0 873.0 6627.8 5619.5 0.849 ke70 11.933434 11.933422 1.20e-05 1306.0 1106.0 8787.3 6071.2 0.693 km81 11.529211 11.529211 7.42e-08 906.0 906.0 6317.9 5748.1 0.909 nf68 11.663512 11.663512 8.29e-08 948.0 946.0 6549.8 5561.9 0.849 tp62 11.920194 11.920195 1.28e-06 1299.0 1300.0 8965.8 7855.6 0.877 ts79 12.151492 12.151492 3.39e-08 1106.0 1106.0 7643.2 5916.1 0.776 
+
+Table 4. Per-dataset benchmark results for Fortran and Python with DAAREM accelleration (Py-DAAREM). Values are participant-level means across three matched runs. The runtime ratio is Python divided by Fortran, so values below 1 indicate faster Python fits. 
+
+Dataset Fortran LL Py-DAAREM LL |∆LL | Fortran iter Py-DAAREM iter Fortran s Py-DAAREM s Py-DAAREM/Ft ap82 11.251852 11.251828 2.42e-05 881.0 891.0 6190.0 5779.4 0.932 cj82 11.616482 11.616501 1.89e-05 1206.0 906.0 8450.1 4243.2 0.502 cz84 11.422811 11.422540 2.72e-04 1006.0 406.0 6364.0 2352.3 0.370 ds76 11.370937 11.370865 7.26e-05 906.0 1706.0 6381.1 9033.6 1.416 ds80 11.755703 11.755638 6.50e-05 1006.0 651.0 7036.9 4311.6 0.613 gm84 7.328114 7.327969 1.45e-04 1006.0 706.0 7132.0 4829.2 0.678 gv84 10.846729 10.844748 1.98e-03 2000.0 1137.0 10602.9 4801.0 0.458 jo74 11.764663 11.764476 1.87e-04 897.0 506.0 6804.8 3949.6 0.581 kb77 10.677722 10.677702 1.98e-05 906.0 648.0 6627.8 4908.9 0.742 ke70 11.933434 11.933440 5.95e-06 1306.0 918.0 8787.3 4268.8 0.486 km81 11.529211 11.528832 3.80e-04 906.0 506.0 6317.9 3610.3 0.571 nf68 11.663512 11.663523 1.11e-05 948.0 705.0 6549.8 5009.3 0.765 tp62 11.920194 11.920212 1.85e-05 1299.0 948.0 8965.8 4932.0 0.550 ts79 12.151492 12.150648 8.44e-04 1106.0 806.0 7643.2 4242.2 0.556 
+
+Table 5. Per-dataset comparison between The Python implementation (Py-EM) and its accelerated variant (Py-DAAREM). Values are participant-level means across three matched runs. The runtime ratio is Py-DAAREM divided by Py-EM, so values below 1 indicate faster DAAREM fits. 
+
+Dataset Py-EM LL Py-DAAREM LL DAAREM − EM LL Py-EM iter Py-DAAREM iter Py-EM s Py-DAAREM s DAAREM/EM ap82 11.251852 11.251828 -2.43e-05 882.0 891.0 5001.2 5779.4 1.186 cj82 11.616483 11.616501 1.74e-05 1206.0 906.0 5785.9 4243.2 0.733 cz84 11.422812 11.422540 -2.72e-04 1006.0 406.0 4911.8 2352.3 0.482 ds76 11.370938 11.370865 -7.27e-05 906.0 1706.0 4508.6 9033.6 2.024 ds80 11.755703 11.755638 -6.50e-05 1006.0 651.0 5863.2 4311.6 0.735 gm84 7.328114 7.327969 -1.45e-04 1006.0 706.0 6099.4 4829.2 0.797 gv84 10.846767 10.844748 -2.02e-03 2000.0 1137.0 9763.8 4801.0 0.492 jo74 11.764679 11.764476 -2.03e-04 998.0 506.0 6675.1 3949.6 0.591 kb77 10.677714 10.677702 -1.23e-05 873.0 648.0 5619.5 4908.9 0.873 ke70 11.933422 11.933440 1.80e-05 1106.0 918.0 6071.2 4268.8 0.733 km81 11.529211 11.528832 -3.79e-04 906.0 506.0 5748.1 3610.3 0.628 nf68 11.663512 11.663523 1.10e-05 946.0 705.0 5561.9 5009.3 0.910 tp62 11.920195 11.920212 1.73e-05 1300.0 948.0 7855.6 4932.0 0.637 ts79 12.151492 12.150648 -8.44e-04 1106.0 806.0 5916.1 4242.2 0.733 
+
+Acknowledgements. placeholder for funding, institutional support, and project acknowledgements. 
+
+Author Contributions. Scott Huberty carried out the re-implementation of the AMICA program in Python, conducted the benchmark analysis, and contributed to the manuscript preparation. Christian O’Reilly provided guidance on project diretion, reviewed and edited the manuscript, providing comments and advice. 
+
+Competing Interests. The authors declare no competing interests. 
+
+Huberty | AMICA-Python 10/13 Bibliography 
+
+1. Donald G. Anderson. Iterative procedures for nonlinear integral equations. Journal of the ACM (JACM) , 12(4):547–560, 1965. doi: 10.1145/321296.321305. URL https://dl.acm.org/doi/10.1145/321296.321305 .2. Homer F. Walker and Peng Ni. Anderson acceleration for fixed-point iterations. SIAM Journal on Numerical Analysis , 49(4):1715–1735, 2011. doi: 10.1137/10078356X. URL https://doi.org/10.1137/10078356X .3. G. Varoquaux, S. Sadaghiani, P. Pinel, A. Kleinschmidt, J. B. Poline, and B. Thirion. A group model for stable multi-subject ICA on fMRI datasets. NeuroImage , 51(1):288–299, 2010. ISSN 10538119. doi: 10.1016/j.neuroimage.2010.02.010. URL http://arxiv.org/ abs/1006.2300 .4. Arnaud Delorme, Jason Palmer, Julie Onton, Robert Oostenveld, and Scott Makeig. Independent EEG sources are dipolar. PLoS ONE , 7 (2):e30135, 2012. ISSN 1932-6203. doi: 10.1371/journal.pone.0030135. URL https://dx.plos.org/10.1371/journal.po ne.0030135 .5. Godfrey D. Pearlson, Jingyu Liu, and Vince D. Calhoun. An introductory review of parallel independent component analysis (p-ICA) and a guide to applying p-ICA to genetic data and imaging phenotypes to identify disease-associated biological pathways and systems in common complex disorders. Frontiers in Genetics , 6, 2015. ISSN 1664-8021. doi: 10.3389/fgene.2015.00276. URL http: //journal.frontiersin.org/Article/10.3389/fgene.2015.00276/abstract .6. D.N. Rutledge and D. Jouan-Rimbaud Bouveresse. Independent components analysis with the JADE algorithm. TrAC Trends in Analytical Chemistry , 50:22–32, 2013. ISSN 01659936. doi: 10.1016/j.trac.2013.03.013. URL https://linkinghub.elsevier.com/re trieve/pii/S0165993613001222 .7. Su-In Lee and Serafim Batzoglou. Application of independent component analysis to microarrays. Genome Biology , 4(11):R76, 2003. ISSN 1474-760X. doi: 10.1186/gb-2003-4-11-r76. URL https://genomebiology.biomedcentral.com/articles/10. 1186/gb-2003-4-11-r76 .8. M. Scholz, S. Gatzek, A. Sterling, O. Fiehn, and J. Selbig. Metabolite fingerprinting: detecting biological features by independent com-ponent analysis. Bioinformatics , 20(15):2447–2454, 2004. ISSN 1367-4811, 1367-4803. doi: 10.1093/bioinformatics/bth270. URL 
+
+https://academic.oup.com/bioinformatics/article/20/15/2447/233609 .9. Jean-François Cardoso, Hichem Snoussi, and Jacques Delabrouille. Blind separation of noisy gaussian stationary sources. application to cosmic microwave background imaging. In 2002 11th European Signal Processing Conference , pages 1–4, 2002. 10. Yuhao Xiong, Wei Feng, Xin Zhou, Jürgen Kusche, Yingchun Shen, Meng Yang, Changqing Wang, and Min Zhong. Separation of earthquake and hydrology signals from GRACE satellites data via independent component analysis: a case study in the sumatra region. 
+
+Geophysical Journal International , 239(3):1597–1616, 2024. ISSN 0956-540X, 1365-246X. doi: 10.1093/gji/ggae351. URL https: //academic.oup.com/gji/article/239/3/1597/7778285 .11. Timo Honkela, Aapo Hyvärinen, and Jaakko J Väyrynen. WordICA—emergence of linguistic representations for words by independent component analysis. Natural Language Engineering , 16(3):277–308, 2010. 12. Aapo Hyvärinen, Ilyes Khemakhem, and Hiroshi Morioka. Nonlinear independent component analysis for principled disentanglement in unsupervised deep learning. Patterns , 4(10):100844, October 2023. ISSN 26663899. doi: 10.1016/j.patter.2023.100844. URL 
+
+https://linkinghub.elsevier.com/retrieve/pii/S2666389923002234 .13. Scott Huberty, James Desjardins, Tyler Collins, Mayada Elsabbagh, and Christian O’Reilly. PyLossless: A non-destructive EEG processing pipeline. Behavior Research Methods , 58(8):220, July 2026. ISSN 1554-3528. doi: 10.3758/s13428-026-02997-z. URL https: //link.springer.com/10.3758/s13428-026-02997-z .14. R. Vigario, J. Sarela, V. Jousmiki, M. Hamalainen, and E. Oja. Independent component approach to the analysis of eeg and meg recordings. 
+
+IEEE Transactions on Biomedical Engineering , 47(5):589–593, 2000. doi: 10.1109/10.841330. 15. Jason A Palmer, Ken Kreutz-Delgado, and Scott Makeig. AMICA: An adaptive mixture of independent component analyzers with shared components. Technical report, Swartz Center for Computational Neuroscience, University of California San Diego, 2011. 16. Heike Leutheuser, Florian Gabsteiger, Felix Hebenstreit, Pedro Reis, Matthias Lochmann, and Bjoern Eskofier. Comparison of the AMICA and the InfoMax algorithm for the reduction of electromyogenic artifacts in EEG data. In 2013 35th Annual International Conference of the IEEE Engineering in Medicine and Biology Society (EMBC) , pages 6804–6807. IEEE, 2013. ISBN 978-1-4577-0216-7. doi: 10.1109/EMBC.2013.6611119. URL http://ieeexplore.ieee.org/document/6611119/ .17. Anthony J. Bell and Terrence J. Sejnowski. An information-maximization approach to blind separation and blind deconvolution. Neural Computation , 7(6):1129–1159, 1995. ISSN 0899-7667, 1530-888X. doi: 10.1162/neco.1995.7.6.1129. URL https://direct.mit .edu/neco/article/7/6/1129-1159/5909 .18. Te-Won Lee, Mark Girolami, and Terrence J. Sejnowski. Independent component analysis using an extended infomax algorithm for mixed subgaussian and supergaussian sources. Neural Computation , 11(2):417–441, 1999. ISSN 0899-7667, 1530-888X. doi: 10.1162/089976 699300016719. URL https://direct.mit.edu/neco/article/11/2/417-441/6242 .19. Nicole Ille. Orthogonal extended infomax algorithm. Journal of Neural Engineering , 21(2), 2024. ISSN 1741-2552. doi: 10.1088/1741 -2552/ad38db. 20. Te-Won Lee, M.S. Lewicki, and T.J. Sejnowski. ICA mixture models for unsupervised classification of non-gaussian classes and automatic context switching in blind signal separation. IEEE Transactions on Pattern Analysis and Machine Intelligence , 22(10):1078–1089, 2000. ISSN 01628828. doi: 10.1109/34.879789. URL http://ieeexplore.ieee.org/document/879789/ .21. Jair Montoya-Martínez, Jean-François Cardoso, and Alexandre Gramfort. Caveats with stochastic gradient and maximum likelihood based ICA for EEG. In Petr Tichavský, Massoud Babaie-Zadeh, Olivier J.J. Michel, and Nadège Thirion-Moreau, editors, Latent Variable Analysis and Signal Separation , volume 10169, pages 279–289. Springer International Publishing, 2017. ISBN 978-3-319-53546-3 978-3-319-53547-0. doi: 10.1007/978-3-319-53547-0_27. URL http://link.springer.com/10.1007/978-3-319-53547-0_27 .Series Title: Lecture Notes in Computer Science.  
+
+> Huberty | AMICA-Python 11/13
+
+22. A. Hyvärinen and E. Oja. Independent component analysis: algorithms and applications. Neural Networks , 13(4):411–430, 2000. ISSN 08936080. doi: 10.1016/S0893-6080(00)00026-5. URL https://linkinghub.elsevier.com/retrieve/pii/S089360 8000000265 .23. Pierre Ablin, Jean-François Cardoso, and Alexandre Gramfort. Faster independent component analysis by preconditioning with hessian approximations, 2017. URL https://arxiv.org/abs/1706.08171 . arXiv:1706.08171, version 3. 24. Shun-ichi Amari, Tian-ping Chen, and Andrzej Cichocki. Stability analysis of learning algorithms for blind source separation. Neural Networks , 10(8):1345–1351, 1997. ISSN 08936080. doi: 10.1016/S0893-6080(97)00039-7. URL https://linkinghub.elsev ier.com/retrieve/pii/S0893608097000397 .25. Jason A. Palmer, Kenneth Kreutz-Delgado, and Scott Makeig. Newton method for the ica mixture model. In 2008 IEEE International Conference on Acoustics, Speech and Signal Processing , pages 1805–1808, 2008. doi: 10.1109/ICASSP.2008.4517982. 26. R. M. Frank et al. An exploration of optimal parameters for efficient blind source separation of eeg recordings using amica. Placeholder Journal , 2023. Replace this placeholder entry with the final bibliographic metadata you want to cite. 27. J. Palmer. Code for amica: Adaptive mixture ica with shared components. https://github.com/sccn/amica , 2025. Accessed: November 4, 2025. 28. Alexander Lulkin. Reimplementation of amica in julia. Bachelor’s thesis, University of Stuttgart, Stuttgart, Germany, March 2023. URL 
+
+https://elib.uni-stuttgart.de/bitstreams/fa65d016-a85e-42d3-9ba0-004507271634/download .29. Arnaud Delorme and Scott Makeig. EEGLAB: an open source toolbox for analysis of single-trial EEG dynamics including independent component analysis. Journal of Neuroscience Methods , 134(1):9–21, 2004. ISSN 01650270. doi: 10.1016/j.jneumeth.2003.10.009. URL 
+
+https://linkinghub.elsevier.com/retrieve/pii/S0165027003003479 .30. F. Pedregosa, G. Varoquaux, A. Gramfort, et al. Scikit-learn: Machine learning in Python. Journal of Machine Learning Research , 12: 2825–2830, 2011. 31. Pierre Ablin, Jean-François Cardoso, and Alexandre Gramfort. Spectral independent component analysis with noise modeling for m/EEG source separation. Journal of Neuroscience Methods , 356:109144, 2021. ISSN 01650270. doi: 10.1016/j.jneumeth.2021.109144. URL 
+
+https://linkinghub.elsevier.com/retrieve/pii/S0165027021000790 .32. Alexandre Gramfort, Martin Luessi, Eric Larson, Denis A. Engemann, Daniel Strohmeier, Christian Brodbeck, Lauri Parkkonen, and Matti S. Hämäläinen. MEG and EEG data analysis with MNE-Python. Frontiers in Neuroscience , 7:267, 2013. doi: 10.3389/fnins.2013 .00267. URL https://doi.org/10.3389/fnins.2013.00267 .33. Charles R. Harris, K. Jarrod Millman, and ... Array programming with NumPy. Nature , 585(7825):357–362, September 2020. doi: 10.1038/s41586-020-2649-2. 34. Pauli Virtanen, Ralf Gommers, Travis E. Oliphant, Matt Haberland, Tyler Reddy, David Cournapeau, Evgeni Burovski, Pearu Peterson, Warren Weckesser, Jonathan Bright, Stéfan J. van der Walt, Matthew Brett, Joshua Wilson, K. Jarrod Millman, Nikolay Mayorov, Andrew R. J. Nelson, Eric Jones, Robert Kern, Eric Larson, C J Carey, İlhan Polat, Yu Feng, Eric W. Moore, Jake VanderPlas, Denis Laxalde, Josef Perktold, Robert Cimrman, Ian Henriksen, E. A. Quintero, Charles R. Harris, Anne M. Archibald, Antônio H. Ribeiro, Fabian Pedregosa, Paul van Mulbregt, and SciPy 1.0 Contributors. SciPy 1.0: Fundamental Algorithms for Scientific Computing in Python. Nature Methods ,17:261–272, 2020. doi: 10.1038/s41592-019-0686-2. 35. Wes McKinney. Data structures for statistical computing in python. In Stéfan van der Walt and Jarrod Millman, editors, Proceedings of the 9th Python in Science Conference , pages 51 – 56, 2010. 36. Polars Contributors. Polars: Extremely fast query engine for dataframes, written in rust. https://github.com/pola-rs/polars ,2026. 37. Jason A. Palmer, Kenneth Kreutz-Delgado, and Scott Makeig. Super-gaussian mixture source model for ICA. In Justinian Rosca, Deniz Erdogmus, José C. Príncipe, and Simon Haykin, editors, Independent Component Analysis and Blind Signal Separation , volume 3889, pages 854–861. Springer Berlin Heidelberg, 2006. ISBN 978-3-540-32630-4 978-3-540-32631-1. doi: 10.1007/11679363_106. URL 
+
+http://link.springer.com/10.1007/11679363_106 . Series Title: Lecture Notes in Computer Science. 38. Sheng-Hsiou Hsu, Luca Pion-Tonachini, Jason Palmer, Makoto Miyakoshi, Scott Makeig, and Tzyy-Ping Jung. Modeling brain dynamic state changes with adaptive mixture independent component analysis. NeuroImage , 183:47–61, 2018. ISSN 10538119. doi: 10.1016/j.ne uroimage.2018.08.001. URL https://linkinghub.elsevier.com/retrieve/pii/S1053811918306888 .39. Yousef Saad. Acceleration methods for fixed-point iterations. Acta Numerica , 34:805–890, July 2025. ISSN 0962-4929, 1474-0508. doi: 10.1017/S0962492924000096. URL https://www.cambridge.org/core/product/identifier/S096249292400009 6/type/journal_article .40. Ravi Varadhan and Christophe Roland. Simple and Globally Convergent Methods for Accelerating the Convergence of Any EM Algorithm. 
+
+Scandinavian Journal of Statistics , 35(2):335–353, June 2008. ISSN 0303-6898, 1467-9469. doi: 10.1111/j.1467-9469.2007.00585.x. URL https://onlinelibrary.wiley.com/doi/10.1111/j.1467-9469.2007.00585.x .41. Nicholas C. Henderson and Ravi Varadhan. Damped anderson acceleration with restarts and monotonicity control for accelerating EM and EM-like algorithms. Journal of Computational and Graphical Statistics , 28(4):834–846, 2019. ISSN 1061-8600, 1537-2715. doi: 10.108 0/10618600.2019.1594835. URL https://www.tandfonline.com/doi/full/10.1080/10618600.2019.1594835 .42. Ke Sun, Yafei Wang, Yi Liu, Bo Pan, Shangling Jui, Bei Jiang, Linglong Kong, et al. Damped anderson mixing for deep reinforcement learning: Acceleration, convergence, and stabilization. Advances in Neural Information Processing Systems , 34:3732–3743, 2021. 43. Homer F Walker and Peng Ni. Anderson acceleration for fixed-point iterations. SIAM Journal on Numerical Analysis , 49(4):1715–1735, 2011. 44. Aaron Meurer, Athan Reines, Ralf Gommers, Yao-Lung Fang, John Kirkham, Matthew Barber, Stephan Hoyer, Andreas Müller, Sheng Zha, Saul Shanabrook, Stephannie Gacha, Mario Lezcano-Casado, Thomas Fan, Tyler Reddy, Alexandre Passos, Hyukjin Kwon, Travis Oliphant, and Consortium Standards. Python array API standard: Toward array interoperability in the scientific python ecosystem. In  
+
+> Huberty | AMICA-Python 12/13
+
+Proceedings of the Python in Science Conference , pages 8–17, 2023. doi: 10.25080/gerudo-f2bc6f59-001. URL https://doi.curv enote.com/10.25080/gerudo-f2bc6f59-001 .
