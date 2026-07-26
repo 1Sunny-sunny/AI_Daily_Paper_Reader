@@ -1,0 +1,1165 @@
+Title: CEDAR: Causal Edge Discovery for Autoregressive Processes
+
+URL Source: https://arxiv.org/pdf/2607.20696v1
+
+Published Time: Fri, 24 Jul 2026 00:13:48 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# CEDAR: Causal Edge Discovery for Autoregressive Processes 
+
+Mohammad Fesanghary 
+
+Bloomberg LP 
+
+mfesanghary1@bloomberg.net 
+
+Abstract 
+
+We propose CEDAR ( Causal Edge Discovery for Auto regressive Processes), a constraint-based method for lagged causal edge discovery in sparse autoregres-sive time series. CEDAR screens candidate cross-variable lags using AR(1)-residualized, U-centered distance correlation, then applies two targeted conditional-independence tests per significant cross-variable lag candidate and accepts at most one lag per ordered pair. A stable MCI pruning step removes indirect edges, and optional deterministic C-nodes adjust for specified trend-like nonstationarity. In sparse regimes where few lags survive screening, CEDAR requires O(d2) CI tests after screening while retaining edge-level interpretability. CEDAR is most effective when data are scarce and variables exhibit lag-1 self-dynamics; methods with richer conditioning sets become preferable as T grows or when higher-order autoregressive or simultaneous multi-lag effects are common. 
+
+1 Introduction 
+
+Causal discovery from multivariate time series is central to fields such as climate science, finance, neuroscience, and industrial process monitoring [Peters et al., 2017, Runge et al., 2019, Spirtes et al., 2000]. Time-series causal discovery is substantially more challenging than the i.i.d. setting: observations are temporally dependent, variables may influence one another across multiple lags, and strong autocorrelation or common drivers can create spurious associations. Although temporal ordering provides useful information—causes must precede their effects—it also introduces a larger and more structured search space over lagged variables. These challenges are further amplified in real-world systems, where causal mechanisms may be nonstationary and variables may depend on higher-order autoregressive structure. Reliable causal discovery from time series therefore requires methods that can distinguish direct causal effects from autocorrelation, lagged dependence, indirect links, and changing mechanisms over time. 
+
+Related work. Causal discovery algorithms for time series broadly fall into two paradigms. Score-based methods —DYNOTEARS [Pamfil et al., 2020], VARLiNGAM [Hyvärinen et al., 2010], Neural Granger Causality [Tank et al., 2021], CUTS+ [Cheng et al., 2024]—formulate discovery as an optimization problem, searching for the graph that best explains the data according to a scoring criterion. They scale well with dimensionality and can naturally incorporate sparsity penalties, but require post-hoc threshold tuning for binary graph output and make individual edges harder to interpret since they arise from a global objective rather than explicit evidence for each link. Constraint-based methods —PCMCI/PCMCI+ [Runge et al., 2019, Runge, 2020], LPCMCI [Gerhardus and Runge, 2020], CDNOTS [Sadeghi et al., 2025]—provide a more direct and interpretable statistical procedure, adding or removing edges based on conditional independence (CI) tests. Their main cost is statistical and computational: conditioning sets can grow quickly in dense or high-dimensional graphs, reducing test power when samples are limited. 
+
+> *Source code and experiment scripts are available in the C AUSAL -TS package; all results are fully reproducible. Preprint. arXiv:2607.20696v1 [cs.LG] 22 Jul 2026
+
+Our approach. To address this low-sample regime, we introduce CEDAR, which constructs targeted conditioning sets from temporal structure rather than searching over large parent subsets. The method retains edge-level interpretability: every reported link is supported by explicit CI tests and then rechecked by a stable MCI pruning step. CEDAR builds on S YPI [Mastakouri et al., 2021], a causal feature-selection method for autoregressive time series with a designated sink target. We extend the idea to all ordered pairs by automating lag selection, relaxing the sink-target restriction through temporal acyclicity, and pruning indirect links. The resulting procedure is a practical finite-sample method for sparse AR(1)-like systems; its oracle guarantee requires additional structural conditions stated in Appendix A. 
+
+Contributions. Our main contributions are: 1. Nonlinear lag selection with analytic screening : The original S YPI uses Lasso regression for lag selection, which is limited to linear dependencies. We replace it with U-centered distance correlation [Székely and Rizzo, 2014]—a nonparametric measure that captures arbitrary nonlinear associations and has zero expectation under independence—paired with an analytic t-test [Székely and Rizzo, 2013] for fast screening, enabling CEDAR to screen candidate lags in both linear and nonlinear systems. 2. Stable MCI pruning : After the initial two-condition CI testing, some detected edges may be indirect—mediated through other variables. We introduce a stable, order-independent Momentary Conditional Independence (MCI) pruning step that conditions on discovered parents of both source and target, removing all such edges in a single pass without the order dependence that affects iterative approaches. 3. Nonstationarity handling via C-node : Real-world time series often exhibit distributional changes over time that create spurious associations between variables sharing a common trend. We introduce a deterministic C-node encoding polynomial time trends, treated as a pure cause, that adjusts for specified deterministic trend-like nonstationarity before it produces false edges—a capability absent from the original S YPI framework. 
+
+2 Background and Notation 
+
+Let X = ( X1, . . . , X d) be a d-variate time series with T observations and maximum lag L. We focus on the cross-variable lagged graph: GX [c, e, ℓ ] = 1 , for c̸ = e and ℓ ≥ 1, denotes the direct edge Xc(t − ℓ) → Xe(t). Lag-1 self-loops are assumed by the AR(1) model and are not learned; optional C-node edges are stored separately as GC [r, e ] at lag 0. CEDAR adapts the two-condition idea of S YPI [Mastakouri et al., 2021], which tests whether a candidate Xc(t − w) → Xe(t) is a direct cause of a designated target. For each candidate source c,SYPI conditions on one shifted node from each other candidate time series, Sc = {Xk(t − wk − 1) : 
+
+k̸ = c}, and tests (C1) Xc(t − w)̸ ⊥⊥ Xe(t) | {S c, X e(t − 1) },
+
+(C2) Xc(t − w − 1) ⊥⊥ Xe(t) | {S c, X c(t − w), X e(t − 1) }.
+
+Condition 1 establishes remaining dependence, while Condition 2 verifies that the selected lag blocks the influence of the source’s deeper past. This logic relies on strict AR(1) self-dynamics and on the absence of lag-mismatched bypass paths; Appendix A states the exact sufficient conditions and a counterexample. For lag screening, CEDAR uses the signed bias-corrected squared distance correlation R∗2 
+
+> n
+
+of Székely and Rizzo [2014]. Because its underlying U-centered distance covariance has zero expectation under independence, it provides a fast nonlinear marginal score; definitions are given in Appendix B. 
+
+3 Method 
+
+CEDAR proceeds in three main phases: (1) lag selection, (2) CI testing via Conditions 1 and 2, and (3) MCI pruning. Algorithm 1 gives the full procedure; we describe each component in detail below. 2Algorithm 1 CEDAR summary. Full implementation details follow in Sections 3.1–3.6. 
+
+Require: data X ∈ RT ×d, max lag L, CI test T , levels α1, α 2, α lag ; optional C-node basis 
+
+g1, . . . , g R. 
+
+> 1:
+
+Optionally append deterministic pure-cause columns Cr (t) = gr (t/T ). 
+
+> 2:
+
+Residualize each non-C target: ˜Xe(t) = Xe(t) − ˆβeXe(t − 1) . 
+
+> 3:
+
+Score all cross-variable lags with R∗2 
+
+> n
+
+(Xc(t − ℓ), ˜Xe(t)) ; score C-nodes only at lag 0.  
+
+> 4:
+
+Apply BH screening at αlag . 
+
+> 5:
+
+for each target e and candidate source c with screened lag(s) do  
+
+> 6:
+
+Build Sc from other screened non-C candidates at t − ˆwk,e − 1 and screened C-nodes at lag 0.  
+
+> 7:
+
+if c is a C-node then  
+
+> 8:
+
+test Condition 1 only and set GC [r, e ] = 1 if significant.  
+
+> 9:
+
+else  
+
+> 10:
+
+test screened lags in decreasing score; accept the first lag passing Conditions 1–2 and set GX [c, e, w ] = 1. 
+
+> 11:
+
+end if  
+
+> 12:
+
+end for  
+
+> 13:
+
+Run all MCI pruning tests on the same initial GX and remove accepted independences simultaneously. 
+
+3.1 Lag Selection 
+
+For each variable pair (Xc, X e) and candidate lag ℓ ∈ { 1, . . . , L }, we score the lag importance using 
+
+U-centered distance correlation [Székely and Rizzo, 2014] on AR(1)-residualized targets. Specifically, we first remove the target’s linear autoregressive component: 
+
+˜Xe(t) = Xe(t)−ˆαe− ˆβe Xe(t−1) , ˆβe =
+
+P
+
+> t
+
+(Xe(t)− ¯Xe)( Xe(t−1) − ¯Xe
+
+> −
+
+)
+
+P
+
+> t
+
+(Xe(t−1) − ¯Xe
+
+> −
+
+)2 , ˆαe = ¯Xe− ˆβe ¯Xe
+
+> −
+
+,
+
+(1) where ¯Xe and ¯Xe 
+
+> −
+
+denote the sample means of Xe(t) and Xe(t−1) (i.e., ordinary least squares with an intercept). Then compute the lag importance score: 
+
+M [c, e, ℓ ] = R∗2 
+
+> n
+
+(Xc(t−ℓ), ˜Xe(t)) , (2) where n = T − L is the effective sample size. The residualization prevents the target’s AR dynamics from inflating importance scores at irrelevant lags. Note that this is a simple linear residualization, not partial distance correlation in the Székely–Rizzo sense [Székely and Rizzo, 2014]; if the target’s autoregressive dynamics are nonlinear, the removal is incomplete. 
+
+Analytic t-test. Since E[dCov ∗
+
+> n
+
+] = 0 under independence (Proposition 1 in [Székely and Rizzo, 2014]), we can exploit the asymptotic null distribution of R∗2 
+
+> n
+
+derived by Székely and Rizzo [2013]. Define v = n(n − 3) /2; under H0 : X ⊥⊥ Y , the statistic 
+
+Tn =
+
+√v − 1 · R ∗2
+
+> n
+
+p1 − (R∗2 
+
+> n
+
+)2 (3) approximately follows a Student-t distribution with v − 1 degrees of freedom, yielding p-value 
+
+p = 1 − Ft(v−1) (Tn). This eliminates the need for permutation tests. The t-test assumes i.i.d. samples; for strongly autocorrelated data, the effective sample size is smaller than n, which can lead to anti-conservative p-values. All experiments reported here use the analytic test. Appendix C reports calibration under AR(1) nulls: type-I error is mildly inflated (6.4–9.0% at nominal 5%), worst at strong autocorrelation and small T .
+
+3.2 Multi-Lag Screening with BH Correction 
+
+Real causal systems often exhibit effects at multiple lags. The original S YPI framework tests at the minimum lag per pair [Mastakouri et al., 2021], identifying a single causal lag. CEDAR applies Benjamini–Hochberg (BH) correction [Benjamini and Hochberg, 1995] across all 
+
+d(d − 1) L cross-variable lag-significance hypotheses as a multiple-testing screening heuristic. Let 
+
+p(1) ≤ p(2) ≤ . . . ≤ p(m) be the ordered p-values from the lag t-tests, with m = d(d − 1) L total cross-variable hypotheses. The BH procedure rejects hypothesis i if: 
+
+p(i) ≤ im · αlag , (4) 3where αlag is a screening threshold (default 0.05 ). If C-nodes are used, their lag-0 screening p-values are included in the same screening family unless stated otherwise. After BH correction, each pair (Xc, X e) may have multiple significant lags. We test these in descending order of importance (highest R∗2 
+
+> n
+
+first) and accept only the first lag that passes both Condition 1 and Condition 2 ( keep=“first” ). That is, CEDAR selects one lag per ordered pair; multi-lag screening identifies the best candidate lag rather than recovering all simultaneous lags between a pair. 
+
+3.3 Stable MCI Pruning 
+
+After the initial CI-based discovery (Phases 1–2), some detected edges may be indirect—mediated through other variables in the discovered graph. CEDAR applies a Momentary Conditional Inde-pendence (MCI) pruning step inspired by PCMCI [Runge et al., 2019] but adapted for the pairwise discovery setting. For each discovered edge Xc(t−τ ) → Xe(t), we test: 
+
+Xc(t−τ ) ⊥⊥ Xe(t) | S MCI , (5) where the MCI conditioning set combines parents of both the target and the source, each at their respective times: 
+
+SMCI =  Pa (Xe(t)) \ { Xc(t−τ )} ∪ { Xe(t−1) } ∪ Pa (Xc(t−τ )) ∪ { Xc(t−τ −1) } ∪ C e. (6) Here Pa (Xe(t)) denotes discovered non-C parents of Xe at their lagged times relative to t (excluding the edge being tested), Xe(t−1) is the target’s autoregressive term, Pa (Xc(t−τ )) denotes discovered parents of Xc shifted to the source’s time, and Ce = {Cr (t) : GC [r, e ] = 1 } when C-nodes are used. Including Pa (Xc(t−τ )) blocks indirect paths through the source’s own parents, reducing false positives from shared ancestry. 
+
+Stability (order-independence). All MCI tests are performed on the same initial graph, and edge removals are applied simultaneously after all tests complete. This ensures that the pruning result is independent of the order in which edges are tested—a property violated by sequential pruning, where removing one edge changes the conditioning sets for subsequent tests. 
+
+3.4 Nonstationarity via C-Node 
+
+Nonstationarity creates spurious associations between variables that share a common trend, leading to false positive edges when ignored. Following the insight of CD-NOD [Huang et al., 2020] and CDNOTS [Sadeghi et al., 2025], CEDAR introduces a deterministic time-index variable C that encodes the temporal structure of nonstationarity. The C-node is a synthetic variable appended to the data matrix before lag selection: 
+
+C(t) = g(t/T ), t = 1 , . . . , T, (7) where g : [0 , 1] → R is a deterministic basis function. When multiple basis functions are used, each becomes a separate C-node column appended to the data. Available presets include linear 
+
+(g(u) = u, one column), linear+quad (g1(u) = u, g2(u) = u2, two columns), and step+linear 
+
+(g1(u) = u, g2(u) = 1[u > 0.5] , two columns). The C-node is treated as a pure cause —it can influence X variables ( C → Xe) but is never tested as an effect. Discovered C → Xe edges indicate that variable Xe’s mechanism is nonstationary. All C →
+
+X edges are forced to lag 0, reflecting the contemporaneous nature of the nonstationarity influence. Appendix D shows that CEDAR degrades gracefully under basis misspecification (F1: 1.00 → 0.93 ); the C-node adjusts for specified deterministic trends rather than guaranteeing robustness to arbitrary nonstationarity. 
+
+3.5 Assumptions 
+
+CEDAR’s correctness relies on the following assumptions (numbered for cross-reference with Appendix A): 4(A1) Observed Markovian sufficiency : The observed time-unrolled process is Markov with respect to its causal DAG, and there are no latent common causes among observed variables. CEDAR’s MCI pruning (Phase 3) conditions on discovered parents; latent confounders may induce false positive edges that this pruning cannot remove. (A2) Faithfulness : Statistical dependencies reflect true causal connections (no exact cancella-tions). (A3) Strictly AR(1) self-dynamics : Every variable Xj has a self-loop Xj (t−1) → Xj (t) (A7 in [Mastakouri et al., 2021]) and no self-arrows at lags s > 1 (A8). In Appendix E, we test robustness on benchmarks that violate this assumption. (A4) Stationarity up to specified trend terms : The cross-variable graph is time-invariant. If C-nodes are used, they model only the specified deterministic trend basis; arbitrary regime changes are outside the oracle guarantee. Under these assumptions and oracle CI tests, CEDAR’s pairwise testing correctly identifies direct causes when no alternate directed path from Xc(t−w−1) to Xe(t) bypasses Xc(t−w) while evading the blocking by Sc. This condition holds for single-lag dependency graphs [Mastakouri et al., 2021] (at most one direct lag per ordered pair with no lag-mismatched mediating paths). We do not claim general oracle correctness; the pairwise conditioning structure is a practical approximation that trades theoretical completeness for statistical power at finite T . A formal statement with proof sketch and a discussion of the failure mode—where an indirect path Xc(t−w−1) → Xk(t−wk) → Xe(t)
+
+evades Sc because Sc places Xk at t−wk−1 rather than t−wk—is given in Appendix A. 
+
+3.6 Complexity 
+
+Phase 1 computes O(d2L) distance correlations at O(n log n) each for univariate pairs (AVL-tree algorithm [Huo and Székely, 2016]), totaling O(d2Ln log n) where n = T − L. Phase 2 performs at most two CI tests per significant-lag candidate; in sparse settings where few lags survive BH screening, this totals approximately O(d2) tests, though the worst case is O(d2Lsig ) where Lsig 
+
+is the mean number of significant lags per pair. Phase 3 performs one MCI test per discovered edge ( |E| tests). With partial correlation, a standard regression-based CI test costs O(nk 2 + k3) for conditioning-set size k (or less with cached/incremental residualization). CEDAR keeps k small by conditioning only on screened candidates for the same target and on discovered source/target parents during MCI pruning. 
+
+4 Experiments 
+
+We evaluate CEDAR on synthetic benchmarks with known ground truth, comparing against PCMCI+ [Runge, 2020], CDNOTS [Sadeghi et al., 2025], and CDNOTS+ (which replaces CD-NOTS’s PC-style skeleton discovery with PCMCI+-style iterative conditioning). All methods support arbitrary CI tests. We use partial correlation (ParCorr) with α = 0 .01 in the large-scale experiments because it is data-efficient and fast at high d; Appendix E demonstrates pairing CEDAR with SplitKCI on a nonlinear benchmark. CEDAR uses AR(1)-residualized dcor for lag selection ( partial_dcor )by default. The C AUSAL -TS package contains the implementation, experiment scripts, and seed-level outputs. Additional results on fixed-structure benchmarks are in Appendix E. 
+
+4.1 Scaling with Dimensionality and Sample Size 
+
+Figure 1 evaluates CEDAR on random sparse structural causal processes (SCPs) with increasing dimensionality at three sample sizes: T =100 (very data-scarce), T =200 (data-scarce), and T =500 
+
+(data-rich). All F1 scores are lag-specific: an edge (Xc(t−τ ) → Xe(t)) counts as a true positive only if both the variable pair and the exact lag τ match the ground truth. Edge functions are drawn from a mixed pool: approximately half linear and half nonlinear (quadratic and sinusoidal). The comparison reveals a clear sample-size effect. At T ≤ 200 , CEDAR is the best or tied-best method across most configurations—particularly on scale-free and small-world topologies for d ≤ 40 , where it leads by 1–4 F1 points. This advantage stems from CEDAR’s fixed, small conditioning sets: with at most two CI tests per significant lag candidate, each test retains high statistical power even when 
+
+T /d is small. At T =500 , methods with richer conditioning sets (PCMCI+, CDNOTS+) close the 510 20 30 40 50 75                                               
+
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> F1 score
+> (T = 100 )
+> Erd s Rényi
+> 10 20 30 40 50 75
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> Scale-free
+> 10 20 30 40 50 75
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> Small-world
+> 10 20 30 40 50 75
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> F1 score
+> (T = 200 )
+> 10 20 30 40 50 75
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> 10 20 30 40 50 75
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> 10 20 30 40 50 75
+> Number of variables d
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> F1 score
+> (T = 500 )
+> 10 20 30 40 50 75
+> Number of variables d
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> 10 20 30 40 50 75
+> Number of variables d
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> CEDAR PCMCI+ CDNOTS+ CDNOTS
+
+Figure 1: F1 score vs. dimensionality d for three graph topologies and three sample sizes. Shaded bands show ±1 standard deviation over 20 seeds. gap and often surpass CEDAR, especially on scale-free graphs where hub structure benefits from conditioning on larger parent sets. Full numerical results (mean and standard deviation over 20 seeds) for all sample sizes are reported in Appendix F. 
+
+4.2 Robustness and Failure Modes 
+
+Because CEDAR’s oracle result relies on strict AR(1) self-dynamics (A3), a single true direct lag per pair (A5), and the path-blocking condition (A7), we explicitly evaluate violations of these assumptions. Table 1 reports CEDAR and CDNOTS+ on three stress tests with graphs large enough to expose genuine failure modes ( d=15 –20 , T =300 , 10 seeds). CDNOTS+ is more robust under these violations, as expected from its iterative conditioning. How-ever, CEDAR remains competitive—F1 between 0.865 and 0.924—indicating graceful rather than catastrophic degradation. These results clarify the intended use case: CEDAR is preferable in data-scarce settings where variables exhibit lag-1 self-dynamics, whereas CDNOTS+/PCMCI+ are preferable when T is large or assumption violations are expected. Full TP/FP/FN breakdowns are in Appendix H. 6Table 1: Robustness under assumption violations. CDNOTS+ is more robust due to its richer conditioning sets, but CEDAR degrades gracefully—F1 remains between 0.865 and 0.924 even under simultaneous violations. The gap grows predictably as violations accumulate.                    
+
+> Violation Method Prec F1 A7 bypass ×5 ( d=15 , A7) CEDAR .893 .924 CDNOTS+ .934 .965 Dense AR(2) ( d=15 , A3) CEDAR .875 .886 CDNOTS+ .934 .963 Mixed A3+A5+A7 ( d=20 )CEDAR .905 .865 CDNOTS+ .958 .979
+
+Table 2: Incremental ablation on the 11-node cascade network ( d=11 , α=0 .01 , mean over 10 seeds). Each row adds one feature to the previous configuration. The pattern is consistent across sample sizes: AR(1)-residualized dcor and MCI pruning are the key components.                                                                       
+
+> T=100 T=200 T=500
+> Configuration F1 Prec Rec F1 Prec Rec F1 Prec Rec Baseline (S YPI-style) .447 .559 .376 .696 .734 .676 .731 .679 .794 +U-centered dcor .464 .585 .388 .683 .731 .659 .722 .672 .782 + Analytic t-test .585 .703 .506 .679 .685 .682 .710 .644 .794 + Multi-lag .623 .696 .571 .699 .678 .729 .704 .622 .818 + MCI pruning .591 .821 .465 .763 .860 .694 .822 .828 .818 + AR(1)-res. dcor ( CEDAR ).700 .958 .553 .887 .970 .824 .964 .971 .959
+
+4.3 Ablation Study 
+
+Table 2 shows the incremental contribution of each CEDAR feature, starting from a S YPI-style baseline (Pearson correlation, single-lag, no pruning). The overall trajectory is strongly positive, but intermediate steps are non-monotone: adding the analytic t-test and multi-lag selection temporarily reduces precision because both increase recall (more lags are tested and more edges proposed) before MCI pruning corrects the false positives. MCI pruning is load-bearing: it recovers the precision gain, confirming that lag selection and CI testing work in concert with the pruning step. The final row replaces plain dcor with AR(1)-residualized dcor in the lag selection phase—this is not an additional step after MCI pruning but a modification of Phase 1 that provides the largest single improvement, demonstrating that removing the target’s autoregressive component from lag importance scores is critical. Appendix G confirms the same pattern holds across Erd˝ os–Rényi, scale-free, and small-world topologies. To directly establish novelty over the closest ancestor, Appendix I compares CEDAR against a faithful SYPI-all-targets adaptation: LassoCV lag selection (matching the original paper’s lag identification), 
+
+α1=α2=0 .05 (from the paper’s threshold sweep), and no MCI pruning. CEDAR outperforms this baseline by 0.18–0.46 F1 points across all settings. The gap is explained by two independent factors: (i) AR(1)-residualized dcor detects lag associations more precisely than Lasso, especially on scale-free graphs; (ii) MCI pruning corrects the high false-positive rate that results from Lasso’s simultaneous fit of all lags without the AR decomposition (mean precision of S YPI-all-targets: 0.34 vs. 0.87 for CEDAR). CEDAR is also the fastest method at every d tested ( 2.4× faster than PCMCI+ at d=75 ); runtime details are in Appendix F, Table 6. 
+
+4.4 Real-World Application: River Network Discovery 
+
+We evaluate CEDAR on the Elbe River benchmark [Stein et al., 2025]: 12 gauging stations on the Elbe main branch ( T =11 ,688 , d=12 , 3-hour resolution); ground truth is a chain of 11 edges (upstream → downstream). The data is challenging because hydrological regimes change the causal lag structure and rainfall creates transient spurious correlations (see Appendix J for full description). We apply PELT changepoint detection to segment into three regimes (low/normal/high-flow) and run CEDAR per regime with adapted lag bounds ( L=8 , 5, 3), taking the union of discovered edges. 711 12 13 14         
+
+> Longitude
+> 51.0
+> 51.5
+> 52.0
+> 52.5
+> 53.0
+> 53.5
+> Latitude
+> Ground Truth
+> (11 directed edges, upstream downstream)
+> S166
+> S167
+> S168
+> S169
+> S170
+> S171
+> S172 S173
+> S174
+> S175
+> S176
+> S177
+> CEDAR single ( L= 5)
+> TP=0 FP=14 FN=11 F1=0.000
+> S166
+> S167
+> S168
+> S169
+> S170
+> S171
+> S172
+> S173
+> S174
+> S175
+> S176
+> S177
+> CEDAR + PELT (regime-conditional)
+> TP=10 FP=3 FN=1 F1=0.833
+> S166
+> S167
+> S168
+> S169
+> S170
+> S171
+> S172
+> S173
+> S174
+> S175
+> S176
+> S177
+> TP (correct)
+> FP (spurious)
+> FN (missed)
+> 20
+> 40
+> 60
+> 80
+> 100
+> Elevation (m)
+
+Figure 2: Elbe River main branch ( d=12 , 11 true edges). Left: ground truth chain. Center: CEDAR single run—nonstationarity confounds discovery (0 TP, 14 FP). Right: CEDAR + PELT—low-flow regime exposes clean causal signal, recovering 10 of 11 edges (F1 =0.833). Green: TP, orange: FP, red dashed: FN. Regime-conditional CEDAR achieves F1 =0.833 (10 TP, 3 FP) vs. F1 =0.000 on the single run (Fig-ure 2), with the low-flow regime alone yielding 0.900 precision (Appendix J, Table 11). CDNOTS+ similarly benefits from regime conditioning (F1: 0.417 → 0.750), though CEDAR outperforms it in this data-scarce-per-segment setting. 
+
+5 Conclusion 
+
+We presented CEDAR, a training-free method for lagged causal edge discovery in sparse autore-gressive time series. After lag screening, CEDAR requires O(d2) CI tests in sparse regimes and empirically extends S YPI’s two-condition test from single-target feature selection toward full graph discovery under additional structural restrictions (Appendix A). The method addresses three lim-itations of the original S YPI framework: single-lag selection is replaced by AR(1)-residualized dcor with BH-corrected multi-lag testing; the sink-node restriction is relaxed via temporal acyclicity by testing all ordered pairs and applying stable MCI pruning; and a deterministic C-node reduces trend-induced false positives. Together these components yield a method that excels in the data-scarce regime: at T ≤ 200 ,CEDAR is the best-performing method in the majority of tested configurations across three graph topologies and dimensionalities up to d=75 . As T increases ( T ≥ 500 ), the trade-off reverses: richer conditioning sets become affordable, allowing PCMCI+ and CDNOTS+ to surpass CEDAR on scale-free and dense graphs. On a real-world river network extracted from CausalRivers (Section 4.4), regime-conditional CEDAR with PELT segmentation recovers 10 of 11 true edges (F1 =0.833), with the low-flow regime yielding 0.900 precision—an encouraging result on a real-world nonstationary system despite missing data and known violation of causal sufficiency. It uses standard significance levels with few hyperparameters ( α, L, C-node basis), making it practical when data are limited. 
+
+Limitations. The two-condition CI tests assume each variable has a lag-1 self-dependency (Xj (t−1) → Xj (t)); for variables with higher-order autoregressive dynamics, unconditioned lags may weaken both conditions, producing false negatives that MCI pruning only partially recovers. The analytic t-test for lag selection assumes i.i.d. samples and becomes anti-conservative under strong autocorrelation (Appendix C); more extensive calibration under varying network structures and non-Gaussian noise, together with dependent-data corrections, is left for future work. The C-node approach benefits from a correctly specified basis; misspecification reduces but does not eliminate its effectiveness (Appendix D). At large T (≥ 500 ), methods with iterative conditioning (PCMCI+, CDNOTS+) achieve higher recall by conditioning on richer parent sets—a trade-off inherent to the pairwise design. 8References 
+
+Yoav Benjamini and Yosef Hochberg. Controlling the false discovery rate: A practical and powerful approach to multiple testing. Journal of the Royal Statistical Society: Series B (Methodological) ,57(1):289–300, 1995. Yuxiao Cheng, Lianglong Li, Tingxiong Xiao, Zongren Li, Jinli Suo, Kunlun He, and Qin Zhong. CUTS+: High-dimensional causal discovery from irregular time-series. In Proceedings of the AAAI Conference on Artificial Intelligence , 2024. Andreas Gerhardus and Jakob Runge. High-recall causal discovery for autocorrelated time series with latent confounders. In Advances in Neural Information Processing Systems , volume 33, pages 12615–12625, 2020. Biwei Huang, Kun Zhang, Jiji Zhang, Joseph Ramsey, Ruben Sanchez-Romero, Clark Glymour, and Bernhard Schölkopf. Causal discovery from heterogeneous/nonstationary data. Journal of Machine Learning Research , 21(89):1–53, 2020. Xiaoming Huo and Gábor J. Székely. Fast computing for distance covariance. Technometrics , 58(4): 435–447, 2016. Aapo Hyvärinen, Kun Zhang, Shohei Shimizu, and Patrik O Hoyer. Estimation of a structural vector autoregression model using non-gaussianity. Journal of Machine Learning Research , 11: 1709–1731, 2010. Atalanti A Mastakouri, Bernhard Schölkopf, and Dominik Janzing. Necessary and sufficient con-ditions for causal feature selection in time series with latent common causes. In International Conference on Machine Learning , pages 7502–7511. PMLR, 2021. Roxana Pamfil, Nisara Sriwattanaworachai, Shaan Desai, Philip Pilgerstorfer, Konstantinos Geor-gatzis, Paul Beaumont, and Bryon Aragam. DYNOTEARS: Structure learning from time-series data. In International Conference on Artificial Intelligence and Statistics , pages 1595–1605. PMLR, 2020. Jonas Peters, Dominik Janzing, and Bernhard Schölkopf. Elements of Causal Inference: Foundations and Learning Algorithms . MIT Press, 2017. Jakob Runge. Discovering contemporaneous and lagged causal relations in autocorrelated nonlinear time series datasets. In Proceedings of the 36th Conference on Uncertainty in Artificial Intelligence (UAI) , pages 1388–1397. PMLR, 2020. Jakob Runge, Peer Nowack, Marlene Kretschmer, Seth Flaxman, and Dino Sejdinovic. Detecting and quantifying causal associations in large nonlinear time series datasets. Science Advances , 5 (11):eaau4996, 2019. Karen Sachs, Omar Perez, Dana Pe’er, Douglas A Lauffenburger, and Garry P Nolan. Causal protein-signaling networks derived from multiparameter single-cell data. Science , 308(5721):523–529, 2005. Agathe Sadeghi, Achintya Gopal, and Mohammad Fesanghary. Causal discovery from nonstationary time series. International Journal of Data Science and Analytics , 19:33–59, 2025. doi: 10.1007/ s41060-024-00679-7. Peter Spirtes, Clark N Glymour, and Richard Scheines. Causation, Prediction, and Search . MIT Press, 2nd edition, 2000. Gideon Stein, Maha Shadaydeh, Jan Blunk, Niklas Penzel, and Joachim Denzler. CausalRivers – scaling up benchmarking of causal discovery for real-world time-series. In The Thirteenth International Conference on Learning Representations , 2025. URL https://openreview.net/ forum?id=wmV4cIbgl6 .Gábor J Székely and Maria L Rizzo. The distance correlation t-test of independence in high dimension. 
+
+Journal of Multivariate Analysis , 117:193–213, 2013. 9Gábor J Székely and Maria L Rizzo. Partial distance correlation with methods for dissimilarities. 
+
+The Annals of Statistics , 42(6):2382–2412, 2014. Alex Tank, Ian Covert, Nicholas Foti, Ali Shojaie, and Emily B Fox. Neural Granger causality. IEEE Transactions on Pattern Analysis and Machine Intelligence , 44(8):4267–4279, 2021. 
+
+A Theoretical Analysis 
+
+Scope of the oracle guarantee. The correctness result applies only to eligible cross-variable lagged edges under observed Markovian sufficiency, faithfulness, strict AR(1) self-dynamics, single recovered lag per ordered pair, correct lag ordering, and the CEDAR path-blocking condition. It does not cover C-node edges, latent confounders, contemporaneous effects, changing graph structure, or arbitrary multi-lag dynamics. We state and prove CEDAR’s correctness guarantees in the oracle setting. Let G∗ be the time-unrolled DAG over nodes Xsi (i ∈ { 1, . . . , d }, s ∈ Z). A lagged edge Xc(t−w) → Xe(t) means the DAG contains Xt−wc → Xte. For a candidate edge Xc(t−w) → Xe(t), write P := Xt−wc , D := Xt−w−1 
+
+> c
+
+,
+
+Y := Xte, and define the Phase-2 conditioning sets: 
+
+Se,c := {Xt− ˆwk,e −1 
+
+> k
+
+: k̸ = c, ˆwk,e exists },Z1 := Se,c ∪ { Xt−1 
+
+> e
+
+},Z2 := Z1 ∪ { P },
+
+where ˆwk,e is the Phase-1 selected lag of Xk toward Xe. The MCI conditioning set for edge P → Y
+
+is 
+
+SMCI (P, Y ) :=  cPa (2)  
+
+> ×
+
+(Y ) \ { P } ∪ { Xt−1 
+
+> e
+
+} ∪ cPa (2)  
+
+> ×
+
+(P ) ∪ { Xt−τ −1 
+
+> c
+
+}.
+
+Here cPa (2)  
+
+> ×
+
+denotes Phase-2 discovered cross-variable parents; self-loops are treated separately through the fixed AR(1) terms. 
+
+Assumptions. Assumptions A1–A4 are stated in Section 3.5: (A1) observed Markovian sufficiency, taken to include strict forward-time ordering ( Xsi → Xrj ⇒ s < r ); (A2) full faithfulness ( ⊥⊥⇔ 
+
+d-separation); (A3) strictly AR(1) self-dynamics; and (A4) stationarity up to specified trend terms (used by the empirical lag screening, not by the pointwise d-separation arguments below). The following additional assumptions are specific to the correctness analysis: (A5) Single true direct lag per ordered pair. For each ordered pair (c, e ), c̸ = e, at most one lag satisfies G∗[c, e, w ] = 1 . This is a restriction on the true graph; that CEDAR outputs at most one lag per pair follows separately from the first-accept rule. (A6) Oracle candidate reachability and ordering. For every true edge Xc(t−w) → Xe(t), lag 
+
+w appears in the ordered candidate list supplied to Phase 2, and every candidate appearing before w fails at least one of Conditions 1–2 under oracle CI, so the first-accept rule reaches 
+
+w. This is an algorithm-dependent oracle success condition, not a consequence of A1–A3. (A7) CEDAR path-blocking. For every true edge Xc(t−w) → Xe(t), the deeper source node 
+
+D = Xt−w−1 
+
+> c
+
+is d-separated from Y = Xte by the Condition-2 set in G∗:
+
+Xt−w−1 
+
+> c
+
+⊥G∗ Xte | Z2. (A-CB) Equivalently, every path from Xt−w−1 
+
+> c
+
+to Xte is blocked by Z2. It does not suffice to check only paths that avoid P = Xt−wc : since P ∈ Z2, conditioning on P blocks a path on which 
+
+P is a non-collider but opens a path on which P is a collider, so any such collider path must be blocked elsewhere. (A8) Eligible-parent closure. For every target Y = Xte covered by the theorem, every true parent of Y is either the lag-1 self-parent Xt−1 
+
+> e
+
+or a true eligible cross-variable parent Xt−wc with 
+
+(c, e, w ) ∈ E elig , where Eelig denotes the positive-lag, cross-variable, non-C candidate triples that CEDAR searches. 
+
+Proposition 1 (Phase-2 exact criterion) . Assume A1–A2. Let Xt−wc → Xte be a true direct edge with 
+
+c̸ = e; by construction P / ∈ Z1, Y /∈ Z2, and D / ∈ Z2 (the source variable c is excluded from Se,c ,and all of Z2 lies at times ≤ t − 1). Then: 
+
+10 (i) Condition 1 always passes under oracle CI. 
+
+(ii) Condition 2 passes under oracle CI if and only if (A-CB) holds. Proof. (i). The direct path P → Y has no internal nodes and is d-connected given Z1 since neither endpoint is in Z1. By faithfulness, P̸ ⊥⊥ Y | Z1, so Condition 1 rejects independence. 
+
+(ii). Condition 2 tests D ⊥⊥ Y | Z2. Under the Markov and faithfulness assumptions, this oracle CI statement holds if and only if D and Y are d-separated by Z2 in G∗, which is exactly (A-CB). 
+
+Proposition 2 (Phase-2 completeness and correct lag on true pairs) . Assume A1–A2 and A5–A7. Then every true eligible cross-variable parent is selected by Phase 2 at its correct lag: if G∗[c, e, w ] = 1 
+
+for an eligible triple (c, e, w ), then Xt−wc ∈ cPa (2)  
+
+> ×
+
+(Xte).Proof. Fix a true eligible edge Xt−wc → Xte. By A6, the true lag w appears in the candidate list and no earlier candidate passes both conditions, so the first-accept rule reaches w. By Proposition 1(i), Condition 1 passes at lag w; by A7 and Proposition 1(ii), Condition 2 passes. Hence Phase 2 accepts 
+
+Xt−wc → Xte. By A5 there is no second true direct lag for the pair, so the edge is selected at the correct lag. 
+
+Proposition 3 (Stable MCI pruning is exact) . Assume A1–A2. Suppose that after Phase 2, Pa ∗(Y ) ⊆
+
+cPa (2)  
+
+> ×
+
+(Y ) ∪ { Xt−1 
+
+> e
+
+} for every target Y = Xte to which MCI is applied (denoted (A-PC) ). Then, under oracle CI tests, stable MCI pruning removes every false positive and preserves every true eligible cross-variable edge among the edges it tests. Proof. False positive. Let P = Xt−τc /∈ Pa ∗(Y ). Because all cross-variable edges have lag ≥ 1,every variable in SMCI (P, Y ) lies at a time strictly before t; by temporal acyclicity, every such variable is a non-descendant of Y . By assumption, Pa ∗(Y ) ⊆ cPa (2)  
+
+> ×
+
+(Y ) ∪ { Xt−1 
+
+> e
+
+} ⊆ S MCI (P, Y ) ∪ { P }.Since P / ∈ Pa ∗(Y ), this gives Pa ∗(Y ) ⊆ S MCI (P, Y ). By the local Markov property applied to Y :
+
+Y ⊥G∗
+
+ ND( Y ) \ Pa ∗(Y ) | Pa ∗(Y ),
+
+where all variables in SMCI \ Pa ∗(Y ) and P itself are in ND( Y ) by temporal acyclicity. By decomposition, restricting to the subset P ∪ (SMCI \ Pa ∗(Y )) ⊆ ND( Y ) \ Pa ∗(Y ), we obtain 
+
+Y ⊥G∗ (P ∪ (SMCI \ Pa ∗(Y ))) | Pa ∗(Y ). By weak union, Y ⊥G∗ P | S MCI (P, Y ). The oracle CI test accepts this independence, so MCI removes the false positive. This does not rely on the (generally false) claim that conditioning on non-descendants never opens a path—it can open a collider path. What guarantees the independence is the joint local-Markov statement together with the inclusion of every true parent of Y in SMCI , via decomposition and weak union. 
+
+True edge. Let P → Y be a true edge. The direct path P → Y has no internal nodes, and neither 
+
+P nor Y is in SMCI (P, Y ) (by construction, P is excluded from the target-parent component). The direct path is therefore d-connected given SMCI (P, Y ). By faithfulness, P̸ ⊥⊥ Y | S MCI (P, Y ), so the oracle CI test rejects independence and the true edge is preserved. 
+
+Theorem 1 (Conditional oracle exactness on the eligible edge domain) . Assume A1–A8 and oracle CI tests, and that every Phase-2 accepted eligible edge is tested by stable MCI using the frozen Phase-2 parent sets. Then CEDAR exactly recovers the eligible positive-lag cross-variable graph: 
+
+bGX [c, e, w ] = G∗[c, e, w ] for every (c, e, w ) ∈ E elig .
+
+No claim is made for triples outside Eelig (self-loops are assumed rather than learned, and C-node edges are excluded). Proof. Fix a target Y = Xte. By A8, Pa ∗(Y ) ⊆ { Xt−1 
+
+> e
+
+} ∪ { Xt−wc : ( c, e, w ) ∈ E elig , G ∗[c, e, w ] = 1}. By Proposition 2, every true eligible cross-variable parent of Y lies in cPa (2)  
+
+> ×
+
+(Y ), so Pa ∗(Y ) ⊆
+
+cPa (2)  
+
+> ×
+
+(Y ) ∪ { Xt−1 
+
+> e
+
+}; the premise (A-PC) of Proposition 3 holds. For a pair with a true eligible edge at lag w: Proposition 2 selects it at w, the first-accept rule adds no second lag (A5), and Proposition 3 preserves it, while every other eligible lag u̸ = w has G∗[c, e, u ] = 0 and yields no surviving edge. For a pair with no true eligible edge: any Phase-2 acceptance is a false positive and is removed by Proposition 3. Hence bGX [c, e, w ] = G∗[c, e, w ] for all (c, e, w ) ∈ E elig .11 A6 and A7 are strong, method-specific oracle conditions rather than consequences of A1–A3: A6 requires the first-accept order to reach the true lag, and A7 requires the deeper source to be d-separated from the target by the conditioning set CEDAR constructs. As the counterexample below shows, A7 fails when lag-mismatched indirect paths exist, limiting the theorem to graphs where causal lags and mediating paths are aligned. 
+
+Sink-node relaxation. The original S YPI required assumption A6 SyPI (the target is a sink node) to prevent conditioning on descendants of the target. In CEDAR, all variables in Z1 = Se,c ∪ { Xt−1 
+
+> e
+
+}
+
+lie at times strictly before t; by strict forward-time ordering (A1), no variable in Z1 is a descendant of 
+
+Xte. Hence the sink assumption is unnecessary for the specific purpose of ensuring that Z1 contains no descendants of the target . This does not by itself make arbitrary conditioning harmless—earlier nodes can still be colliders on other paths—which is why the separate path-blocking condition A7 is still required for Condition 2. 
+
+Why assumption A7 is necessary. A1–A5 alone do not suffice for Phase-2 completeness, even with at most one direct lag per ordered pair. 
+
+Counterexample. Consider three processes A, B, C with first-order self-dynamics and the stationary cross-edge templates 
+
+As−2 → Cs, As−2 → Bs, Bs−1 → Cs for all s, 
+
+i.e. A → C and A → B at lag 2 and B → C at lag 1, together with self-loops As−1 → As,
+
+Bs−1 → Bs, Cs−1 → Cs. A concrete stable realization is 
+
+As = aA s−1 + εAs , Bs = bB s−1 + uA s−2 + εBs , Cs = cC s−1 + vA s−2 + qB s−1 + εCs ,
+
+with mutually independent nondegenerate noises and generic nonzero coefficients u, v, q chosen so the process is stable and faithful. There are no latent confounders or contemporaneous edges, and each ordered pair has at most one direct lag. Assume Phase 1 includes lag 2 for A → C, no earlier 
+
+A → C candidate passes both conditions, and it supplies ˆwB,C = 1 .When testing the true edge At−2 → Ct we have P = At−2, D = At−3, Y = Ct, and since 
+
+ˆwB,C = 1 , SC,A = {Bt−2}, so 
+
+Z2 = {Bt−2, A t−2, C t−1}.
+
+Taking s = t − 1 in the lag-2 template As−2 → Bs gives At−3 → Bt−1, so the graph contains the path At−3 → Bt−1 → Ct. Its only internal node Bt−1 is a non-collider and is not in Z2, and no conditioned node lies on it; the path is therefore active given Z2, so At−3̸ ⊥G∗ Ct | Z2. By faithfulness (A-CB) fails, Condition 2 rejects independence, and CEDAR misses the true edge 
+
+At−2 → Ct.
+
+Why Bt−2 does not block the bypass. Se,c places Xk at time t− ˆwk,e −1, one step before its direct-cause time. The conditioned node Bt−2 would block a route entering B through Bt−2 and its self-loop Bt−2 → Bt−1; but the lag-2 edge A → B injects the deeper source directly at Bt−1 via 
+
+At−3 → Bt−1, bypassing Bt−2. The example satisfies A1–A6 and A8 but violates A7. 
+
+B Distance-Correlation Details 
+
+For a sample (X1, . . . , X n), n > 2, let akl = ∥Xk − Xl∥ and define the U-centered distance matrix [Székely and Rizzo, 2014, Def. 2, Eq. 3.1] 
+
+eAkl =
+
+
+
+akl − 1
+
+n − 2
+
+Pns=1 aks − 1
+
+n − 2
+
+Pns=1 asl + 1(n − 1)( n − 2) 
+
+Pns,t =1 ast , k̸ = l, 
+
+0, k = l. 
+
+(8) Given the analogous matrix eB for Y , define 
+
+dCov ∗
+
+> n
+
+(X, Y ) = 1
+
+n(n − 3) 
+
+X 
+
+> k̸=l
+
+eAkl eBkl , R∗2 
+
+> n
+
+(X, Y ) = dCov ∗
+
+> n
+
+(X, Y )
+
+pdCov ∗
+
+> n
+
+(X, X ) dCov ∗
+
+> n
+
+(Y, Y ) .
+
+The estimator dCov ∗ 
+
+> n
+
+has zero expectation under independence for all n; consequently, R∗2 
+
+> n
+
+is signed and can be negative under the null. 12 C Calibration of the Analytic t-Test 
+
+Table 3 reports the empirical type-I error of the analytic distance-correlation t-test under null AR(1) graphs (no cross-variable links, d=5 , 200 simulations per setting, nominal α=0 .05 ). The test is mildly anti-conservative, with inflation increasing under stronger autocorrelation and smaller sample sizes. At moderate autocorrelation (AR ≤0.5), type-I error remains below 7.5%; at very strong autocorrelation (AR =0 .95 ) it reaches ∼9% for T =100 . Note that even the i.i.d. rows (AR =0 ) sit at ∼6.5% for every T : the analytic t-approximation of Székely and Rizzo [2013] is derived in the high-dimensional limit, so on the scalar series tested here it is mildly anti-conservative regardless of autocorrelation; the AR(1) dependence adds a further, sample-size-dependent inflation on top of this floor. The AR(1) residualization in CEDAR’s lag selection partially mitigates this inflation by removing the dominant autocorrelation before computing distance correlation. Table 3: Empirical type-I error of the analytic dcor t-test at nominal α=0 .05 , under AR(1) null (no cross-links, d=5 , 200 simulations).                      
+
+> AR coeff. T=100 T=200 T=500
+> 0.00 (i.i.d.) .067 .064 .065 0.20 .067 .067 .066 0.50 .072 .068 .066 0.80 .075 .076 .069 0.95 .090 .084 .072
+
+D C-Node Misspecification 
+
+Table 4 evaluates robustness to C-node basis misspecification on the confounded-trends benchmark (T =500 , 10 seeds). The data contains a shared quadratic trend; the correct basis is linear+quad .CEDAR degrades minimally with a wrong or absent C-node (F1: 1.00 → 0.93 ), because its MCI pruning naturally removes trend-induced indirect edges. In contrast, CDNOTS and CDNOTS+ rely on the C-node for Phase 3 orientation and collapse when the basis is misspecified (F1: 0.92 → 0.13 ). PCMCI+ lacks C-node support entirely and performs poorly regardless. Table 4: C-node misspecification on confounded-trends ( T =500 , L=2 , mean F1 over 10 seeds). 
+
+linear+quad is the correct basis. Cross-var = cross-variable edges only; All = including self-loops. CEDAR assumes AR(1) self-loops for all variables by design; variables without true self-lags produce self-loop FPs in the “All” metric.                                  
+
+> linear+quad linear (wrong) No C-node
+> Method Cross All Cross All Cross All
+> CEDAR 1.000 .769 .933 .758 .933 .758
+> CDNOTS .900 .948 .123 .391 .118 .376 CDNOTS+ .800 .930 .237 .558 .335 .643 PCMCI+ .348 .675 .348 .675 .348 .675
+
+E Fixed-Structure Benchmarks 
+
+Table 5 reports results on four benchmarks from the C AUSAL -TS package (available via 
+
+load_dataset() ). We describe each benchmark’s structural equations below. 
+
+Cascade Network, 11-Node. Inspired by the protein signaling cascade of Sachs et al. [2005], with hub nodes (PKC, PKA) driving a downstream cascade. L=3 , εi ∼ N (0 , 1) .13 Xt 
+
+> 0
+
+= 0 .9 Xt−10 + ε0
+
+Xt 
+
+> 1
+
+= 0 .6 Xt−11 + 0 .5 Xt−20 + ε1
+
+Xt 
+
+> 2
+
+= 0 .4 Xt−12 + 0 .4 Xt−30 + 0 .3 Xt−11 + ε2
+
+Xt 
+
+> 3
+
+= 0 .25 Xt−13 + ε3
+
+Xt 
+
+> 4
+
+= 0 .25 Xt−14 − 0.25 Xt−13 + ε4
+
+Xt 
+
+> 5
+
+= 0 .25 Xt−15 + 0 .5 Xt−23 − 0.5 Xt−14 + ε5
+
+Xt 
+
+> 6
+
+= 0 .3 Xt−16 − 0.25 Xt−33 + 0 .25 Xt−34 + ε6
+
+Xt 
+
+> 7
+
+= 0 .4 Xt−17 + 0 .35 Xt−13 + 0 .25 Xt−24 + ε7
+
+Xt 
+
+> 8
+
+= 0 .5 Xt−18 − 0.5 Xt−13 + 0 .25 Xt−14 + 0 .6 Xt−27 + ε8
+
+Xt 
+
+> 9
+
+= 0 .6 Xt−19 + 0 .45 Xt−14 − 0.35 Xt−28 + ε9
+
+Xt 
+
+> 10
+
+= 0 .7 Xt−110 − 0.25 Xt−14 + 0 .25 Xt−29 + ε10 Plcg 
+
+> 1
+> PIP3
+> 1
+> PIP2
+> 1
+> PKC
+> 1
+> PKA
+> 1
+> P38
+> 1
+> Jnk
+> 1
+> Raf
+> 1
+> Mek
+> 1
+> Erk
+> 1
+> Akt
+> 1
+
+6-Node Linear VAR. Hub variable X0, L=3 , c = √2. X1 and X2 have no lag-1 self-dependency ,violating CEDAR’s key assumption and testing robustness. 
+
+Xt 
+
+> 0
+
+= 0 .5c X t−10 + ε0
+
+Xt 
+
+> 1
+
+= 0 .5 Xt−20 + ε1
+
+Xt 
+
+> 2
+
+= −0.4 Xt−30 + ε2
+
+Xt 
+
+> 3
+
+= 0 .25 c X t−13 − 0.5 Xt−20 + 0 .45 c X t−14 + ε3
+
+Xt 
+
+> 4
+
+= 0 .25 c X t−14 − 0.5c X t−13 + ε4
+
+Xt 
+
+> 5
+
+= 0 .65 Xt−15 − 0.1 Xt−12 − 0.55 Xt−24 + ε5X0
+
+> 1
+> X1
+> X2
+> X3
+> 1
+> X4
+> 1
+> X5
+> 1
+
+5-Node Nonlinear System. Quadratic nonlinearities, L=3 , c = √2. X0 has AR(2) structure, violating the single-lag assumption. Uses SplitKCI for all methods. 
+
+Xt 
+
+> 0
+
+= 0 .95 c X t−10 − 0.9025 Xt−20 + ε0
+
+Xt 
+
+> 1
+
+= 0 .5 ( Xt−20 )2 + ε1
+
+Xt 
+
+> 2
+
+= −0.4 Xt−30 + ε2
+
+Xt 
+
+> 3
+
+= 0 .25 c X t−13 − 0.5 ( Xt−20 )2 + 0 .25 c X t−14 + ε3
+
+Xt 
+
+> 4
+
+= 0 .25 c X t−14 − 0.25 c X t−13 + ε4X0
+
+> 1,2
+> X1
+> X2
+> X3
+> 1
+> X4
+> 1
+
+Confounded Trends, 7-Node. Shared quadratic trend τ t = 10 · (t/T )2, εi ∼ N (0 , 0.09) . Only true cross-variable edge: X5 → X6 at lag 2; all others confounded by τ . CEDAR, CDNOTS, CDNOTS+ use include_C=True, c_preset=linear+quad ; PCMCI+ lacks C-node support. 14 Xt
+
+0 = τ t + ε0
+
+Xt
+
+1 = 0 .9 τ t + ε1
+
+Xt
+
+2 = 0 .5 Xt−12 + 0 .85 τ t + ε2
+
+Xt
+
+3 = 0 .8 τ t + ε3
+
+Xt
+
+4 = 0 .6 Xt−14 + 0 .75 τ t + ε4
+
+Xt
+
+5 = 0 .5 Xt−15 + ε5
+
+Xt
+
+6 = 0 .4 Xt−16 + 0 .6 Xt−25 + ε6Chocolate 
+
+> IceCream
+> Sunburn
+> 1
+> Airline
+> Fuel
+> 1
+> Temp
+> 1
+> Energy
+> 1
+
+CEDAR matches all baselines on the cascade (F1 =0.944) and achieves perfect F1 on confounded trends—PCMCI+ degrades to F1 =0.35 without trend handling. On the linear benchmark, CEDAR trades recall for precision (1.00 precision, 0.69 recall). Figure 3 shows CEDAR’s discovered graphs on all four benchmarks. F1=1.00, Prec=1.00, TPR=1.00, SHD=0  
+
+> Plcg PIP3
+> PIP2
+> PKC
+> PKA
+> P38
+> Jnk
+> Raf
+> Mek
+> Erk
+> Akt
+
+(a) Cascade Network (11-Node) F1=0.92, Prec=1.00, TPR=0.86, SHD=1  
+
+> X0
+> X1
+> X2
+> X3
+> X4
+> X5
+
+(b) 6-Node Linear VAR F1=0.89, Prec=1.00, TPR=0.80, SHD=1 
+
+> X0
+> X1
+> X2
+> X3
+> X4
+
+(c) 5-Node Nonlinear System F1=1.00, Prec=1.00, TPR=1.00, SHD=0   
+
+> Chocolate
+> 1
+> IceCream
+> 1
+> Sunburn
+> 1
+> Airline
+> 1
+> Fuel
+> 1
+> Temp
+> 1Energy
+> 1
+> C_lin
+
+(d) Confounded Trends (7-Node, c_preset=linear 
+
+for visual clarity; Table 5 uses linear+quad )
+
+Figure 3: CEDAR’s discovered graph vs. ground truth (seed 42). Green: TP, red dashed: FN, orange: FP. 15 Table 5: Named benchmarks (mean ±s.e. over 5 seeds). All methods use partial correlation at 
+
+α = 0 .01 except the 5-node nonlinear benchmark, which uses SplitKCI. Metrics report cross-variable edges only (self-loops excluded); CEDAR assumes AR(1) self-dynamics by design and adds self-loops for all variables without validation, so including them would count as false positives for variables without true self-lags. Confounded-trends: CEDAR, CDNOTS, and CDNOTS+ use 
+
+include_C=True , c_preset=linear+quad ; PCMCI+ has no C-node support. 
+
+Cascade Network (11-node, T =300 ) 6-Node Linear VAR (T =300 )
+
+Method F1 Prec Rec F1 Prec Rec 
+
+CEDAR .944 ±.03 .975 ±.03 .918 ±.04 .809 ±.04 1.00 ±.00 .686 ±.05 
+
+CDNOTS .826 ±.01 .920 ±.03 .753 ±.01 .923 ±.00 1.00 ±.00 .857 ±.00 
+
+CDNOTS+ .933 ±.02 .963 ±.03 .906 ±.02 .910 ±.01 .971 ±.03 .857 ±.00 
+
+PCMCI+ .944 ±.02 .987 ±.01 .906 ±.02 .897 ±.02 .943 ±.04 .857 ±.00 
+
+5-Node Nonlinear (T =300 , SplitKCI) Confounded Trends (7-node, T =500 , with C) 
+
+Method F1 Prec Rec F1 Prec Rec 
+
+CEDAR .844 ±.04 .950 ±.05 .760 ±.04 1.00 ±.00 1.00 ±.00 1.00 ±.00 
+
+CDNOTS .662 ±.04 .950 ±.05 .520 ±.05 .900 ±.10 .867 ±.13 1.00 ±.00 
+
+CDNOTS+ .861 ±.03 1.00 ±.00 .760 ±.04 .800 ±.08 .700 ±.12 1.00 ±.00 
+
+PCMCI+ .833 ±.04 1.00 ±.00 .720 ±.05 .348 ±.05 .215 ±.04 1.00 ±.00 
+
+F Full Scaling Results 
+
+Figure 4 reports SHD across dimensionalities (lower is better); Table 7 reports F1 scores (mean and standard deviation over 20 seeds) for all sample sizes tested. Table 6: Runtime in seconds ( T = 300 , mean over 20 seeds × 3 topologies, ParCorr on NVIDIA L4 GPU). All methods use the same CI test. The difference reflects conditioning-set size, not per-test cost. 
+
+Method d = 10 d = 20 d = 30 d = 40 d = 50 d = 75 
+
+CEDAR 0.21 0.73 1.48 2.72 3.86 8.04 
+
+CDNOTS 0.21 0.84 1.69 3.68 4.32 10.57 CDNOTS+ 0.33 1.18 2.39 5.26 5.98 15.86 PCMCI+ 0.42 1.48 2.99 6.53 7.48 19.37 
+
+G Ablation Across Graph Topologies 
+
+Table 8 extends the ablation of Table 2 to three random graph topologies: Erd˝ os–Rényi (ER), scale-free (SF), and small-world (SW), at d=20 , T =200 , mean over 10 seeds. The non-monotone pattern and the load-bearing role of MCI pruning and AR(1)-residualized dcor hold consistently across all three topologies. The baseline uses top-1 lag selection without significance thresholding, mimicking SYPI’s Lasso-based approach. 
+
+H Robustness Under Assumption Violations 
+
+Table 9 reports CEDAR and CDNOTS+ performance on three stress tests that deliberately violate CEDAR’s key assumptions ( T =300 , mean over 10 seeds). The gap between CEDAR and CDNOTS+ grows as violations accumulate: from 0.041 F1 points (single violation type, A7 bypasses) to 0.114 F1 points (all three violations combined in d=20 ). CEDAR degrades predictably rather than catastrophically—F1 ranges from 0.865 to 0.924 even under simultaneous violations—reflecting the bounded nature of its structural assumptions. CDNOTS+, with its iterative PCMCI+-style conditioning, is more robust to these violations at the cost of requiring larger T and more CI tests. 16 Table 7: F1 on random SCPs (mean(sd) over 20 seeds) for all sample sizes. Best per column in  bold . Topologies: Erd˝ os–Rényi (sparse), scale-free (BA,  m=2 ), small-world (WS,  k=3 ). 
+
+> Erd˝ os–Rényi  Scale-free  Small-world
+> d=10  d=20  d=30  d=40  d=50  d=75  d=10  d=20  d=30  d=40  d=50  d=75  d=10  d=20  d=30  d=40  d=50  d=75
+> T = 100
+> CEDAR  .63 (.15)  .65 (.09)  .67 (.08)  .64 (.08)  .59 (.07)  .56 (.09)  .77 (.09)  .73(.07)  .70 (.05)  .73 (.07)  .67(.07)  .63(.04)  .85 (.11)  .82 (.08)  .79 (.08)  .78 (.06)  .71 (.08)  .68 (.06) CDNOTS+  .62(.19)  .62(.07)  .66(.05)  .62(.08)  .58(.06)  .53(.08)  .72(.12)  .73 (.06)  .69(.06)  .71(.07)  .69 (.06)  .64 (.04)  .79(.09)  .77(.08)  .76(.08)  .74(.06)  .70 (.09)  .66(.07) PCMCI+  .63 (.19)  .61(.07)  .66(.05)  .62(.07)  .57(.07)  .53(.08)  .71(.12)  .74 (.07)  .69(.06)  .70(.07)  .68(.06)  .63 (.04)  .79(.10)  .77(.08)  .75(.07)  .74(.06)  .71 (.08)  .67(.06) CDNOTS  .55(.16)  .57(.11)  .58(.09)  .57(.09)  .56(.07)  .53(.08)  .51(.08)  .50(.08)  .50(.07)  .52(.08)  .50(.05)  .49(.06)  .67(.12)  .70(.10)  .73(.09)  .71(.06)  .70(.07)  .67(.07)
+> T = 200
+> CEDAR  .72 (.11)  .73 (.10)  .75(.06)  .74 (.08)  .67(.07)  .62 (.06)  .84 (.08)  .82(.05)  .83 (.05)  .82(.05)  .80(.05)  .78(.03)  .89 (.08)  .90 (.06)  .87 (.06)  .86 (.04)  .82(.05)  .78(.05) CDNOTS+  .71(.13)  .72(.08)  .76 (.05)  .71(.08)  .67 (.07)  .61(.07)  .83(.09)  .83 (.06)  .82(.06)  .83 (.06)  .82 (.05)  .79 (.04)  .87(.11)  .86(.08)  .86(.05)  .86 (.04)  .83 (.04)  .77(.06) PCMCI+  .70(.15)  .72(.08)  .74(.05)  .71(.07)  .66(.06)  .60(.07)  .82(.11)  .82(.06)  .82(.05)  .83 (.06)  .82 (.04)  .79 (.03)  .87(.11)  .85(.07)  .86(.06)  .86 (.04)  .82(.05)  .77(.06) CDNOTS  .67(.17)  .65(.08)  .70(.07)  .67(.08)  .64(.06)  .61(.07)  .57(.10)  .60(.11)  .62(.07)  .65(.08)  .65(.06)  .66(.03)  .80(.11)  .79(.08)  .83(.06)  .82(.06)  .81(.06)  .80 (.05)
+> T = 300
+> CEDAR  .78 (.12)  .78(.09)  .79 (.07)  .74 (.07)  .70 (.07)  .63(.07)  .88(.09)  .86(.05)  .83(.04)  .84(.05)  .82(.05)  .81(.03)  .91(.08)  .92 (.06)  .90 (.05)  .88(.04)  .85(.04)  .81(.05) CDNOTS+  .77(.12)  .79 (.07)  .79(.05)  .74 (.08)  .69(.07)  .63(.07)  .90 (.08)  .86 (.06)  .85 (.06)  .86 (.05)  .85 (.04)  .82(.03)  .92 (.06)  .89(.07)  .90(.04)  .89 (.05)  .85(.04)  .81(.04) PCMCI+  .76(.13)  .79 (.07)  .78(.05)  .74 (.07)  .68(.07)  .62(.07)  .89 (.08)  .86 (.07)  .84 (.06)  .86 (.05)  .85 (.04)  .83 (.03)  .92 (.06)  .88(.07)  .89(.05)  .89 (.05)  .85(.04)  .81(.04) CDNOTS  .70(.15)  .71(.09)  .73(.07)  .71(.09)  .68(.07)  .64 (.08)  .61(.11)  .64(.08)  .66(.09)  .69(.10)  .71(.07)  .72(.04)  .82(.10)  .82(.08)  .87(.06)  .86(.06)  .86 (.03)  .83 (.04)
+> T = 500
+> CEDAR  .81(.10)  .82(.08)  .81(.06)  .77(.06)  .74(.06)  .65(.07)  .81(.10)  .84(.07)  .85(.05)  .84(.04)  .82(.06)  .82(.04)  .90(.07)  .88(.05)  .90(.03)  .90(.03)  .86(.04)  .81(.04) CDNOTS+  .84 (.12)  .84 (.07)  .83 (.06)  .77 (.07)  .75 (.06)  .67(.06)  .91 (.07)  .89 (.06)  .87(.05)  .87 (.05)  .86 (.05)  .85(.04)  .92 (.08)  .90 (.06)  .92 (.04)  .92 (.03)  .87(.06)  .82(.04) PCMCI+  .83(.13)  .84(.08)  .81(.05)  .76(.07)  .74(.06)  .66(.06)  .91 (.07)  .89(.06)  .88 (.05)  .87 (.05)  .86 (.05)  .85 (.03)  .92 (.08)  .90 (.06)  .92(.04)  .91 (.03)  .87(.05)  .82(.04) CDNOTS  .75(.14)  .75(.09)  .80(.05)  .76(.08)  .73(.06)  .68 (.08)  .64(.12)  .68(.10)  .74(.09)  .75(.09)  .77(.09)  .78(.05)  .85(.10)  .87(.08)  .90(.06)  .92 (.04)  .90 (.04)  .86 (.04)
+> T = 1000
+> CEDAR  .85(.09)  .85(.06)  .84(.07)  .79(.07)  .76(.07)  .68(.09)  .78(.10)  .79(.07)  .79(.09)  .80(.05)  .79(.08)  .79(.04)  .92(.07)  .89(.07)  .89(.04)  .88(.04)  .84(.04)  .79(.04) CDNOTS+  .89 (.09)  .87 (.06)  .87 (.05)  .82 (.07)  .80 (.07)  .71(.07)  .93 (.06)  .88 (.05)  .87 (.06)  .86(.04)  .86 (.06)  .82(.04)  .94 (.06)  .92 (.05)  .94 (.03)  .92(.03)  .88(.03)  .82(.03) PCMCI+  .88(.10)  .86(.07)  .87 (.06)  .81(.07)  .80(.07)  .70(.08)  .92(.06)  .87(.05)  .87 (.07)  .86 (.04)  .86 (.05)  .83 (.03)  .94 (.06)  .92 (.06)  .93(.03)  .91(.03)  .88(.03)  .82(.02) CDNOTS  .79(.13)  .82(.08)  .84(.04)  .82 (.06)  .79(.06)  .73 (.07)  .70(.10)  .75(.09)  .78(.10)  .80(.08)  .81(.08)  .81(.05)  .88(.09)  .90(.07)  .92(.05)  .92 (.04)  .91 (.03)  .87 (.04)
+
+17 10 20 30 40 50 75                                               
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> SHD (lower is better)
+> (T = 100 )
+> Erd s Rényi
+> 10 20 30 40 50 75
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> 120
+> Scale-free
+> 10 20 30 40 50 75
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Small-world
+> 10 20 30 40 50 75
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> SHD (lower is better)
+> (T = 200 )
+> 10 20 30 40 50 75
+> 0
+> 20
+> 40
+> 60
+> 80
+> 10 20 30 40 50 75
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 10 20 30 40 50 75
+> Number of variables d
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> SHD (lower is better)
+> (T = 500 )
+> 10 20 30 40 50 75
+> Number of variables d
+> 0
+> 20
+> 40
+> 60
+> 80
+> 10 20 30 40 50 75
+> Number of variables d
+> 0
+> 10
+> 20
+> 30
+> 40
+> CEDAR PCMCI+ CDNOTS+ CDNOTS
+
+Figure 4: Structural Hamming distance (lower is better) vs. dimensionality d for three graph topologies and three sample sizes. Same layout as Figure 1. Table 8: Incremental ablation across three graph topologies ( d=20 , T =200 , α=0 .01 , mean F1 over 10 seeds). MCI pruning and AR(1)-residualized dcor are load-bearing across all topologies. 
+
+Configuration ER Scale-free Small-world Baseline (S YPI-style) .655 .524 .658 + U-centered dcor .672 .521 .675 + Analytic t-test .682 .531 .674 + Multi-lag .681 .481 .665 + MCI pruning .775 .761 .777 + AR(1)-res. dcor ( CEDAR ) .773 .855 .784 
+
+I SYPI-All-Targets Comparison 
+
+Table 10 compares CEDAR against a faithful S YPI-all-targets adaptation—the closest ancestor method—to directly establish the contribution of each component. S YPI-all-targets runs CEDAR’s two-condition CI test for every variable as target, using LassoCV (cv=5) for lag selection with the selected lag taken as the argmax of absolute Lasso coefficients (matching Mastakouri et al. [2021], Section 6.5), α1=α2=0 .05 (from the paper’s threshold sweep), and no MCI pruning. CEDAR-no-18 Table 9: Stress tests under assumption violations ( d=15 –20 , T =300 , mean over 10 seeds). The gap between CEDAR and CDNOTS+ grows as violations accumulate, but CEDAR degrades predictably rather than catastrophically.                                         
+
+> Violation Method TP FP FN Prec F1 A7 bypass ×5 ( d=15 , 15 edges) CEDAR 14.4 1.8 0.6 .893 .924 CDNOTS+ 15.0 1.1 0.0 .934 .965 Dense AR(2) ( d=15 , 18 edges, A3) CEDAR 16.2 2.4 1.8 .875 .886 CDNOTS+ 17.9 1.3 0.1 .934 .963 Mixed A3+A5+A7 ( d=20 , 27 edges) CEDAR 22.4 2.4 4.6 .905 .865 CDNOTS+ 27.0 1.2 0.0 .958 .979
+
+MCI uses all CEDAR components except MCI pruning, establishing the independent contribution of pruning. Table 10: S YPI-all-targets vs. CEDAR (mean F1 over 10 seeds, max _lag =3 , ParCorr). S YPI-all-targets uses LassoCV lag selection, α1=α2=0 .05 , no MCI pruning. CEDAR-no-MCI uses AR(1)-residualized dcor, α=0 .01 , no MCI pruning. Full CEDAR adds stable MCI pruning. Mean precision of S YPI-all-targets is 0.34; of Full CEDAR is 0.87.                                                   
+
+> Benchmark SYPI-all-targets CEDAR-no-MCI CEDAR
+> ER d=20 ,T=100 .439 .612 .625
+> ER d=20 ,T=200 .498 .694 .773
+> ER d=20 ,T=500 .502 .705 .856
+> SF d=20 ,T=100 .432 .648 .781
+> SF d=20 ,T=200 .436 .594 .855
+> SF d=20 ,T=500 .397 .503 .847
+> SF d=40 ,T=200 .373 .536 .830
+> Cascade ( d=11 ), T=200 .609 .851 .887
+
+Interpretation. SYPI-all-targets achieves consistently high recall (0.64–0.86) because Lasso finds candidate lags, but suffers low precision (0.24–0.53) because it does not residualize the AR(1) component before scoring lags, causing the target’s autocorrelation to inflate cross-variable im-portance scores. The gap between CEDAR-no-MCI and S YPI-all-targets reflects the contribution of AR(1)-residualized dcor: even without MCI pruning, better lag screening yields substantially higher F1. The further gap between CEDAR-no-MCI and Full CEDAR reflects MCI pruning, which removes indirect edges that survive the two-condition test—this is the dominant gain at larger d and 
+
+T . Crucially, the F1 advantage of CEDAR over S YPI-all-targets grows with d (0.186 at d=20 ER vs. 0.457 at d=40 SF), confirming that both components scale favorably. 
+
+J Elbe River Benchmark Details 
+
+Dataset and challenges. The Elbe River benchmark from CausalRivers [Stein et al., 2025] consists of 12 gauging stations along the Elbe main branch, resampled to 3-hour resolution ( T =11 ,688 , d=12 ,5.3% missing values handled by linear interpolation). The dataset is challenging for three reasons: (i) Nonstationarity : hydrological regimes change the causal lag structure—flood-season propagation is fast (lag 1–2) while dry-season propagation is slow (lag 5+). (ii) Transient confounding : rainfall simultaneously raises discharge at multiple stations, creating spurious correlations that violate causal sufficiency; this effect is weakest during low-flow (i.e., dry season) conditions where baseflow propagation dominates. (iii) Variable propagation speed : the causal lag varies across station pairs (distance-dependent) and across regimes (flowrate-dependent). 
+
+Setup. We apply PELT changepoint detection on the mean discharge signal with minimum segment size 300 samples and segment threshold 0.25. CEDAR is run independently on each of the three regimes with lag bounds L=8 , 5, 3 (low/normal/high-flow), AR(1)-relative lag filtering ( αlag =0 .97 ), 19 α=0 .01 , and ParCorr as the CI test; per-regime edges are combined by OR aggregation. The regime segmentation is visualized in Figure 5. CDNOTS+ is run with the same regime-conditional setup for comparison. 2019-01 
+
+> 2019-07
+> 2020-01
+> 2020-07
+> 2021-01
+> 2021-07
+> 2022-01
+> 2022-07
+> 2023-01
+> 250
+> 500
+> 750
+> 1000
+> 1250
+> Discharge
+> Elbe River (upstream station) with PELT regime segmentation
+> Low-flow
+> Normal
+> High-flow
+
+Figure 5: Elbe River discharge (upstream station, S166) with PELT-detected regime segmentation into three hydrological regimes. Low-flow periods provide the cleanest causal signal due to reduced transient rainfall confounding. Table 11: Elbe River benchmark ( d=12 , T =11 ,688 , 11 true edges). Regime-conditional discovery substantially outperforms single-run baselines. Low-flow yields the highest precision for CEDAR, consistent with reduced transient confounding. 
+
+Method TP FP FN Prec Rec F1 CEDAR (single, L=5 ) 0 14 11 .000 .000 .000 CDNOTS+ (single, L=5 ) 5 8 6 .385 .455 .417 CEDAR + PELT (agg.) 10 3 1 .769 .909 .833 
+
+low-flow only 9 1 2 .900 .818 .857 normal only 5 2 6 .714 .455 .556 high-flow only 4 3 7 .571 .364 .444 CDNOTS+ + PELT (agg.) 9 4 2 .692 .818 .750 low-flow only 8 3 3 .727 .727 .727 
+
+The per-regime breakdown confirms the transient confounder hypothesis: the low-flow regime achieves 0.900 precision (9 TP, 1 FP) compared to 0.571 for high-flow. The single missed edge in the aggregated CEDAR result is between two distant stations where the propagation lag exceeds all three regime-specific bounds. 20

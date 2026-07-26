@@ -1,0 +1,1142 @@
+Title: Scaling Interpretable Transformers with Parity Bottleneck Layers
+
+URL Source: https://arxiv.org/pdf/2607.20652v1
+
+Published Time: Fri, 24 Jul 2026 00:14:59 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# Scaling Interpretable Transformers with Parity Bottleneck Layers 
+
+Andrew Mack *
+
+Principles of Intelligence 
+
+Kraig Yuheng Tou 
+
+Independent 
+
+Mark Henry 
+
+Independent 
+
+Zhengxun Wu 
+
+Independent 
+
+Lauren Greenspan 
+
+Principles of Intelligence 
+
+## Abstract 
+
+Language models are thought to exhibit the phenomenon of superposition, rep-resenting many more features than dimensions in their residual streams. Sparse autoencoders (SAEs) are designed to recover such features post-hoc, but train-ing models that are interpretable by construction has remained impractical, as a per-layer over-complete bottleneck is prohibitively expensive in both memory and compute. To overcome this issue, we introduce the ParityTransformer , a GPT-2-scale architecture whose intermediate representations are efficient and wide / sparse by design. At each layer, a Deep Parity Bottleneck (DPB) replaces a learned over-complete basis with a parameter-free algebraic dictionary, providing a deter-ministic incoherence guarantee and eliminating the memory requirements that have prevented per-layer interpretable bottlenecks at scale. A DPB is a hierarchically structured sparse bottleneck which efficiently enforces sparsity using a multi-level mixture-of-experts approach: a hardware-aware implementation that closes the cost gap between activation sparse and dense training to a manageable interpretability tax. Empirically, ParityTransformers perform at least as well as post-hoc SAEs on sparse probing tasks, while out-performing on measures of feature absorption, steering effectiveness, and fine-grained causal interventions. Because subsequent computation acts only on features that survive the sparse bottleneck, the Parity-Transformer’s features are native to the model’s forwards pass by construction, addressing the question of whether SAEs probe features the model actually uses during computation. We see this as a step toward training models whose internal representations are interpretable by design rather than recovered post hoc. 
+
+## 1 Introduction 
+
+In this paper, we introduce the parity transformer, a GPT-2-scale architecture that aims to be both interpretable by design and efficient. The model implements a hierarchical mixture of experts (MoE) approach to induce sparsity in activations, using a “parity hash function” to selectively compute feature directions as needed on-chip, rather than loading from High Bandwidth Memory (HBM). The name reflects how feature directions are constructed: each coordinate is computed from the 
+
+parity (even-or-odd bit count) of a subset of the feature’s index bits, a cheap computational primitive that, as we detail below, generates nearly orthogonal sign patterns efficiently. This design eliminates the per-layer dictionary memory storage and bandwidth requirements of traditional wide sparse bottlenecks [Tamkin et al., 2023]. It yields a sparse code that is integrated directly into the model’s computations, unlike traditional sparse autoencoders (SAEs) trained in a post-hoc fashion [Bricken et al., 2023]. A sketch of the bottleneck architecture is shown in figure 1.                                                              
+
+> *Corresponding author, andrew@princint.ai .Preprint. arXiv:2607.20652v1 [cs.LG] 22 Jul 2026 feature i= 9 fires with activation x9
+> 000001001bits(9) ∈Fr
+> 2
+> multiply by small seed matrix M∈Fd×r
+> 2,r≪d
+> 01101· · · 1001Mbits(9) ∈Fd
+> 2
+> map 0 7→+1 ,17→ − 1(homomorphism: ⊕ → × )
+> +−−+−· · · −++−ϕ9∈ {± 1√d}d
+> scale by x9, add
+> x←x+x9ϕ9residual stream
+
+(a) We “decode" sparsely-represented activations to dense using an on-chip “hashed features" construction. ϕi                            
+
+> level ℓ
+> ⊕g1
+> ⊕g2
+> ⊕g3
+> level ℓ+1
+> ⊕g′
+> 1
+> ⊕g′
+> 2
+> ⊕g′
+> 3⊕g′
+> 1
+> ⊕g′
+> 2
+> ⊕g′
+> 3
+> level ℓ+2
+> each level’s generators are shared by all parents
+> kept (top-Kℓ)scored, pruned
+> Γ =
+> +−−+−+
+> −+−−++
+> ++−+−−
+> row γj: sign vector of gj
+> score children via Hadamard product →GEMM:
+> z= Γ ( ϕi⊙x)
+
+(b) We encode features by performing beam search over an algebraically-structured hierarchy. 
+
+Figure 1: Depiction of our efficient Deep Parity Bottleneck (DPB). Our work addresses two obstacles in AI interpretability research. The first is superposition: networks appear to represent far more features than they have residual stream directions, and resort to packing them non-orthogonally [Elhage et al., 2022, Bricken et al., 2023]. The dominant response has been to disentangle features post-hoc with sparse autoencoders (SAEs) trained to reconstruct frozen activations under a sparsity penalty [Cunningham et al., 2023, Templeton et al., 2024]. SAEs scale to millions of features and yield apparently interpretable directions, but they leave open an important question: do the recovered features correspond with those the model uses during computation, or are they representative of the training distribution or the autoencoder’s inductive bias? It has been shown that different SAE methods produce features that score similarly on probing benchmarks but behave differently under causal interventions (e.g., [Karvonen et al., 2025a]), supporting the need for better definitions and metrics for probing interpretability properties like faithfulness. This problem is downstream of a second obstacle: the interpretability literature uses the word “feature” in at least three ways. (i) Representational features are directions returned by an SAE trained on activations, (ii) computational features are the active components on which downstream computation causally depends, conditional on task and inputs, and (iii) Conceptual features are ground-truth properties of the data itself (“is a noun”, “relates to scientist”). Post-hoc interpretability tools use (i) as a proxy for (iii) by aiming to reconstruct (ii). The implicit claim is that (i) ∼ (iii) implies (i) ∼
+
+(ii), but current evaluation techniques probe either the former (e.g., sparse probes) or the latter (e.g., causal ablations). Instead, our construction takes (ii) as a primitive by designing a basis with desirable computational properties. How the resulting features perform compared with (i), and whether they also align with (iii), is an empirical question we address in section 3. 
+
+Contributions. 
+
+• We introduce the Deep Parity Bottleneck (DPB), which routes features through a fixed, hier-archically structured sparse dictionary which uses algebraic pseudo-random constructions to compute “hashed" feature directions on-chip rather than loading from memory. • We train 200M and 1.3B parameter ParityTransformers and quantify the interpretability tax that comes with this choice of architecture. We estimate that ParityTransformers are 
+
+8 − 14 × as expensive to train to a similar capability level as dense transformers at the 1.3B parameter scale. This positions the Parity Transformer as a practical middle ground between fully weight-sparse models (estimated to be 100 − 1, 000 × as expensive to train as dense by [Gao et al., 2025]) and post-hoc interpretability methods. • We empirically show that the ParityTransformer matches or outperforms a dense transformer paired with a post-hoc SAE across several interpretability metrics, including steering, fine-grained causal intervention and feature absorption. 2The remainder of this paper is organized as follows. Section 2 details the Parity Bottleneck Layer and its implementation in a ParityTransformer. We discuss our experimental design choices and present empirical results in section 3. 
+
+1.1 Related Work Sparsity, Superposition, and Circuits. The field of mechanistic interpretability was built largely on the circuits hypothesis [Olah et al., 2020, Elhage et al., 2021], which argues that neural networks implement composable subgraphs of feature interactions that can be reverse-engineered, and the 
+
+superposition hypothesis , which treats neuron directions as a low-dimensional compression of a high-dimensional, sparsely-activating feature space. The dimensionality of this space for SOTA models is large, with reports of as many as 34M interpretable features in Claude Sonnet 3 [Templeton et al., 2024]. In addition to this representational notion of superposition, the theoretical model of Hänni et al. [2024]shows how superposition may be actively useful during model computation. In fact, matching upper and lower bounds from analyses of computation in superposition suggest that optimally trained dense MLPs can compute with up to d2 many features, up to logarithmic factors [Adler and Shavit, 2026]. A separate line of work focuses on models that are sparse in weights, rather than activations. Sparse training methods include RigL’s use of a boolean mask [Evci et al., 2021] and Zhang et al. [2026]’s use of Cannistraci-Hebbian learning to iteratively prune weights during training. By identifying circuits in weight-sparse transformers, Gao et al. [2025] add to evidence that sparsity is good for interpretability. Tamkin et al. [2023] enforce activation sparsity by inserting a flat, TopK lookup into an overcomplete ‘codebook’ at each layer. They report interpretable features and steering on small models (410M), but do not address the inefficiencies incurred by inserting wide codebook layers into an otherwise narrow transformer. Though similar to this architecture, our work targets this efficiency gap, imposes a hierarchical constraint on intermediate sparse codes, and provides points of comparison with dense transformers and post-hoc SAEs. 
+
+Fine-Grained Mixture-of-Experts (MoE) To reduce computational costs, we employ a MoE strategy. Related work on fine-grained mixtures of experts demonstrates scaling laws in expert granularity and finds that the FLOP-efficiency advantage of MoE over dense models continues to widen with scale [Krajewski et al., 2024]. This supports the view that only a small fraction of the total feed-forward parameters need be active for any given token. PEER [He, 2024] applies an efficent routing mechanism to utilize an enormous expert pool. Neither work addresses interpretability or a hardware-aware implementation. 
+
+## 2 Description of Deep Parity Bottleneck 
+
+Guided by existing work (Section 1.1), we prioritize the following design principles. 
+
+Sparsity in a fixed basis. Interpretability gains from enforcing sparsity are numerous in the literature [Tamkin et al., 2023, Gao et al., 2025, Kosowski et al., 2025], but learning sparse, over-complete bases during training quickly becomes unwieldy. To address this challenge, we rely on the following hypothesis: any approximately orthogonal over-complete basis, when used as a sparse bottleneck, will induce interpretable features. We can thus design the basis to be convenient to compute with on GPU. 
+
+Multi-level MoE with “hashed feature directions.” A natural way to reduce the cost of scoring 
+
+m ≫ d candidates is conditional computation: organize features into a hierarchy and only score the children of active parents, as in MoE architectures [Shazeer et al., 2017], an approach which has been applied successfully to SAEs [Mudide et al., 2025]. However, standard MoE is a poor fit for our setting. Each expert carries learned weight matrices that reside in HBM. Loading these weights to the compute units is a significant bottleneck, so an expert is only cost-effective when enough batch elements are routed to it to amortize this single expensive load across many FLOPs. For interpretability we expect a long tail of rare features that may fire only once per batch—precisely the regime where amortization fails and per-expert memory access dominates wall-clock time. This 3makes deep hierarchies impractical under the standard paradigm: adding levels creates exponentially rarer leaf experts, each of which must be loaded from HBM. Our key technical idea is to eliminate this memory bottleneck by replacing learned feature directions with computed ones. Rather than storing an m × d dictionary matrix and loading a row each time a feature is needed, we derive each feature’s direction deterministically from its integer index using a lightweight hash function. The hash maps an index to a d-dimensional sign pattern ( ±1/√d
+
+entries) via a small seed matrix that fits entirely in GPU registers, the smallest but fastest tier of the memory hierarchy. Different indices produce nearly orthogonal directions by construction, minimizing interference between features. Because materializing a feature direction requires only a few register-level bitwise operations, the per-feature cost is dominated by the matrix multiply used to score it. This is the same arithmetic that would be required regardless of how the direction was obtained. The memory load that makes rare experts prohibitive in standard MoE is eliminated entirely, making multi-level hierarchies with potentially millions of features practical. We now describe the architecture of the Deep Parity Bottleneck (DPB). Like a learned SAE, it has two components: an encoder that maps a dense residual-stream vector to a sparse code over m ≫ d
+
+features, and a decoder that maps the sparse code back to Rd. We describe the decoder first, as it defines the feature basis that the encoder must select from. 
+
+2.1 Parity Decoder 
+
+Our decoder converts a sparse set of active features S with coefficients {ai}i∈S to a dense vector as ˆx = P 
+
+> i∈S
+
+ai ϕi. The challenge is to obtain each ϕi ∈ Rd without storing or loading an m × d
+
+dictionary matrix from HBM. Our basic primitive is a family of hashed sign vectors, one for every integer index, computed on-chip: 
+
+˜ϕi = 1
+
+√d R(M bits (i)) , (1) where the elements of M and bits (i) belong to the finite field F2, and R maps F2 to the reals (sending 
+
+0 → 1 and 1 → − 1). The matrix M ∈ Fd×r 
+
+> 2
+
+has rows indexed by dense coordinates k ∈ { 1, . . . , d }
+
+and columns indexed by bit positions p ∈ { 1, . . . , r }, with r = log 2(m); together, M and R turn an 
+
+r-bit index into a sign pattern over d dense coordinates. Each coordinate of ˜ϕi is thus determined by the parity (even-or-odd count) of a selected subset of the bits in the binary representation of i,mapped to ±1/√d. This is the origin of the name “Parity Bottleneck.” The dictionary is built from this family with one modification: the first d decoder directions are overridden to the standard basis, 
+
+ϕi = ei (i ≤ d), ϕi = ˜ϕi (i > d ), (2) which makes the first stage of the hierarchical encoder described in the next section essentially free, as scoring a basis-aligned feature is a coordinate read rather than a dot product. The override cannot degrade coherence: every entry of every hashed vector is ±1/√d, so a basis vector has inner product exactly 1/√d in magnitude with every hashed vector, and basis vectors are mutually orthogonal. The seed matrix M is chosen so that distinct indices hash to nearly orthogonal directions. To see how this might be possible, consider drawing elements of M uniformly at random from F2. Then note that 
+
+⟨ ˜ϕi, ˜ϕj ⟩ = ⟨1, ˜ϕi ⊙ ˜ϕj ⟩. (3) If the signs of ˜ϕi ⊙ ˜ϕj are uniformly random, the dot product will concentrate around 0 ± 1√d . Second, see that XOR ( ⊕) over F2 is equivalent to a Hadamard product ( ⊙) over R, so that 
+
+R(M bits (i)) ⊙ R (M bits (j)) = R(M (bits (i) ⊕ bits (j))) . (4) Finally, note that the k-th entry of R(M (bits (i) ⊕ bits (j))) is determined by the parity of row k in 
+
+M restricted to the bit positions p where bits (i) and bits (j) differ. For distinct i̸ = j, at least one such p exists, and since the rows of M are uniform in F2, this parity is uniformly ±1, independently, across rows. 4In practice, in place of random M we use a coding-theoretic construction suggested to us by Claude-Opus-4.6. This construction upgrades the probabilistic argument to a deterministic worst-case guarantee: every pair of distinct features has inner product at most 2/√d + 1 /d in magnitude (Theorem A.1, Appendix A). We provide details about the specific construction we use in Appendix A, together with a broader explanation of the connection between dictionary design and coding theory. 
+
+2.2 ParityEncoder 
+
+With the hashing protocol for a single feature ϕi in hand, we now constrain their co-occurrence to follow a fixed hierarchy: rather than scoring all m candidates at cost O(md ), we search top-down through L levels, scoring only the children of active parents at each level, in principle reducing the encoder cost from linear to logarithmic in m.We partition the m features into hierarchical levels, with ℓ = 0 indexed by 0, ..., 2r0 − 1, ℓ = 1 
+
+indexed by 2r0 , ..., 2r1 − 1, and so on. The parent-child structure on top of this is fixed by a directed acyclic graph (DAG): for each level transition from ℓ − 1 to ℓ, pick ∆ℓ generators gj ∈ Frℓ+1  
+
+> 2
+
+,sampling at random until each has at least one non-zero bit after position rℓ−1, ensuring that the child is in a different level from its parent. The j-th child of parent i has bit pattern Nj (i) = bits (i) ⊕ gj ;in hash space, its direction factorizes as 
+
+˜ϕNj (i) = 1
+
+√d R(M (bits (i) ⊕ gj )) = ˜ϕi ⊙ R (M g j ). (5) All features of ℓ = 0 are scored, with subsequent levels handled inductively. During the forward pass, each child feature per active parent at level ℓ is scored, and the top Kℓ become the active features at level ℓ + 1 (which serve as parents for level ℓ + 2 , and so on so forth). 
+
+Scoring children with a single GEMM To score children for each active parent, we take the absolute value of the dot product of the input x with the hash vectors for that parent’s children. Defining γj ≡ R (M g j ) to be the fixed, dense patterns found by applying the parity hash to each generator, these are 
+
+|⟨ ˜ϕNj (i), x ⟩| = |⟨ ˜ϕi ⊙ γj , x ⟩| = |⟨ γj , ˜ϕi ⊙ x⟩| . (6) Stacking the γj , . . . , γ ∆ℓ yields a fixed matrix Γℓ ∈ R∆ℓ×d that is universal across active parents for a given level. All child scores for parent i then reduce to a general matrix multiply (GEMM), the dense, linear algebra operation modern GPUs are best-suited for. 
+
+Score Standardization Standard MoE architectures typically employ some sort of load-balancing for the following two reasons: (i) it ensures that experts are uniformly utilized so the cost of loading their weights from memory amortizes (ii) it prevents “dead experts", which are never selected, from wasting representational capacity. The first point does not concern us; for interpretability, it is natural to assume a power-law distribution with a long tail of very rare features. However, we do need to consider the second point, which is closely related to the “dead features" problem in traditional SAEs. In initial experiments, without load-balancing, as many as 90% of features would die over the course of training. To address this issue without forcing uniform firing frequencies, we standardize each feature’s score using an exponential moving average (EMA) of its mean and standard deviation (conditional on being considered as a candidate). For level ℓ ≥ 1 features, these moments are computed on sub-samples of 64 tokens per batch to keep this step computationally cheap. Standardized scores are used for feature selection and then passed to the parity decoder (using absolute value for selection but signed scores for decoding). A similar strategy was used successfully by PEER [He, 2024] to scale to millions of experts, and is conceptually related to power norm [Shen et al., 2020]. In initial experiments, this eliminated dead features. 
+
+Auxillary losses In addition to the cross-entropy objective, we optionally utilize two auxiliary losses aimed to induce selective and discriminative firing of features. We add a variance loss on per-feature scores given by 
+
+Lvar = − 1
+
+|F| 
+
+X
+
+> i∈F
+
+Var( {a(t) 
+
+> i
+
+: i ∈ S(t)}), (7) 5Table 1: Evaluation suite for the 20B-token ParityTransformer alongside validation-loss-matched GPT baselines. Bold marks the best value within each scale group. 
+
+Large (1.3B, 24 layers, d=2048 ) Small (203M, 12 layers, d=1024 )PT-Large-2L PT-Large-2L-Aux GPT-Large PT-Small-3L PT-Small-2L GPT-Small 
+
+Architecture and budget 
+
+Levels 2 2 — 3 2 —Training tokens 20B 20B 3.0B 20B 20B 2.13B 
+
+Language modelling 
+
+Val loss (CE) 2.808 2.842 2.828 3.133 3.158 3.135 Pile PPL 17.65 18.56 18.23 25.89 24.57 26.43 HellaSwag acc 0.385 0.376 0.370 0.360 0.350 0.346 LAMBADA acc 0.311 0.264 0.293 0.233 0.219 0.229 
+
+where F = {i : P 
+
+> t
+
+1[i ∈ S(t)] ≥ nmin } is the set of features active on at least nmin tokens in a batch. This rewards high-variance rare features while keeping low-variance polysemantic features from drowning out the rest of the signal, and improved sparse-probing scores in pilot experiments. Additionally, we found that adding a mean-squared error reconstruction loss improves downstream auto-interpretability scores. 
+
+Normalized Reconstruction We normalize the outputs of the ParityDecoder to match the norm of the inputs to the bottleneck. We found this improved training stability. 
+
+Unfolded Features Features are selected by the ParityEncoder via AbsTopK at every level. We find that most of the time, positive and negative activations for the same feature index correspond to semantically unrelated concepts. Thus for downstream interpretability tasks, we unfold each feature index into two features — one for positive and one for negative activations — effectively doubling the dictionary size while ensuring that each entry corresponds to a single semantic concept. 
+
+## 3 Empirical Results 
+
+3.1 Capabilities of Architectural Variants 
+
+We train various ParityTransformers with Deep Parity Bottlenecks inserted before the input to every MLP 1, as well as dense GPT baselines trained to within ±1% of parity transformer validation loss. All ParityTransformer models were trained on 20B tokens sampled from FineWeb-Edu [Penedo et al., 2024]. Detailed configurations for the parity bottlenecks and dense baselines are given in Appendix G. Both dense baselines and ParityTransformers use a common GPT2-style backbone with tied embedding / unembedding layers and learned positional embeddings. Similar to [Gao et al., 2025], we replace LayerNorm [Ba et al., 2016] with RMSNorm [Zhang and Sennrich, 2019] to privilege the origin. We optimize MLP / attention matrices using Muon [Jordan et al., 2024] and embedding matrices using Adam [Kingma and Ba, 2015]. Performance evaluations for parity transformers and dense baselines are reported in Table 1. We evaluate models on standard capabilities metrics (Pile perplexity [Gao et al., 2020], HellaSwag [Zellers et al., 2019] and LAMBADA accuracy [Paperno et al., 2016]). ParityTransformers match or outperform the dense baseline on all metrics, establishing that the parity bottleneck imposes no obvious ceiling in capabilities. 
+
+> 1We believe that “implicit emulation of a very wide, sparsely-activating, sparsely-connected computational graph” is the right “ansatz” for the MLP, as evidenced by the existence of fine-grained MoE scaling laws for transformer MLPs [He, 2024]. In contrast, the right ansatz / decomposition for attention is less well-understood, although there has been very recent progress along these lines [Bushnaq et al., 2026]. Indeed, in initial experiments we found that applying DPB before attention could achieve similar validation loss, but led to qualitatively worse interpretability, so we chose to focus our efforts on the DPB MLP variant.
+
+63.1.1 Interpretability tax Token-budget overhead ParityTransformers are less data efficient than equivalent dense baselines, requiring 5–10 × more tokens to reach equivalent cross-entropy loss. At identical Large configuration, a dense baseline trained for 3.0B tokens landed at validation loss 2.828, within 1% of PT-Large-2L’s 2.808 final validation loss. The token-budget overhead at this scale is therefore 6.7× (Table 2). Table 2: ParityTransformer token-budget overhead. Training tokens required to reach approximately equivalent cross-entropy loss, GPT baseline vs. ParityTransformer. Scale Val loss (PT / GPT) GPT-baseline tokens PT tokens Ratio Small (12 layers, 205M) 3.158 / 3.135 2.13 B 20.0 B 9.4 ×
+
+Large (24 layers, 1.3B) 2.808 / 2.828 3.0 B 20.0 B 6.7 ×
+
+Throughput overhead ParityTransformers use between 1.2 × and 2.1 × more wall-clock per training token than the matched-architecture dense baselines as shown in Table 3. They are far more efficient than inserting flat TopK bottlenecks at each layer. 
+
+3.2 Fine-grained causal intervention 
+
+The central promise of interpretability is to recover the circuits that training discovers, rather than arbitrary decompositions that happen to describe the data. For post-hoc SAEs, this is not guaranteed: SAEs trained on randomly initialized transformers produce auto-interpretability scores approaching those obtained from trained models [Heap et al., 2025], and random baselines that replace SAE feature directions or activation patterns with noise match fully-trained SAEs on auto-interpretability, sparse probing, and causal editing [Korznikov et al., 2026]. These results suggest that standard evaluation metrics may reflect statistical structure in the data or architectural inductive biases, rather than computations the model has learned. DPB features sidestep this concern by design: because the DPB is the sole input to the MLP at each layer, any feature the MLP acts on must appear in the sparse code. There is no hidden channel through which unrepresented structure can influence MLP computation. To test whether this architectural guarantee translates into stronger causal control in practice, we adopt the circuit-level intervention protocol of Makelov et al. [2024], which performs greedy feature edits to flip model completions on established circuits: indirect object identification (IOI) [Wang et al., 2022], gendered pronouns [Vig et al., 2020], and greater-than [Hanna et al., 2023]. Since our bottleneck is applied at the MLP, we restrict interventions to the most influential MLP layer in each circuit. As shown in Figure 2, DPB features require fewer edits to flip completions than post-hoc SAEs on all three circuits. Full methodological details are in Appendix C. We note that IOI is known to be a very attention-centric circuit [Wang et al., 2022], while for reasons explained above our DPB is applied only to the MLP. This perhaps explains why the differences between DPB and post-hoc SAEs are less stark for IOI than the other two circuits. Table 3: Training-throughput overhead vs the dense baseline, at matched architecture and identical hardware (4 × NVIDIA H200 SXM). Throughput, tok/s (overhead vs dense baseline) Model name (parameter count) Dense baseline PT TopK SAE TopK total params Small-2L (205M) 1,410k 958k (1.47 ×) 305k (4.62 ×) 1.0B Small-3L (205M) 1,410k 684k (2.06 ×) 86k (16.4 ×) 3.4B Large-2L (1.3B) 255k 209k (1.22 ×) 81k (3.15 ×) 4.5B Large-3L (1.3B) 255k 165k (1.55 ×) OOM a 14.2B  
+
+> aAs a default, we train all models using data parallelism, replicating the model across GPUs. For the Large-3L TopK SAE baseline, this runs into memory constraints. We did not explore alternative parallelism strategies.
+
+7k=1 k=2 k=4 k=1 k=2 k=4 k=1 k=2 k=4  
+
+> 0%
+> 20%
+> 40%
+> 60%
+> 80%
+> 100%
+> Edit Success Rate
+> IOI Gendered
+> Pronouns
+> Greater-
+> Than
+> Parity Transformer w/ Parity Bottleneck (ours)
+> Dense GPT w/ Top K
+> Dense GPT w/ Batch Top K
+> Dense GPT w/ JumpReLU
+> Dense GPT w/ Matryoshka
+
+Figure 2: Edit success rate (fraction of completions flipped to the target) for varying number of features edited (k) across three established circuits in the mechanistic interpretability literature. Our method (blue) consistently outperforms post-hoc SAEs 
+
+3.3 Steering Interventions 
+
+Activation steering [Turner et al., 2023] intervenes on model internals to influence free-form gen-eration, with SAE features serving as one source of steering vectors [Arad et al., 2025, Fang et al., 2026]. A persistent limitation is fluency degradation at higher steering strengths, possibly because the intervention pushes activations off the manifold of natural representations [Luo et al., 2026]. The DPB provides a natural mechanism to counteract this: because subsequent layers apply top-K
+
+selection in the sparse code, off-manifold components introduced by steering can be discarded rather than amplified. Following the protocol of Luo et al. [2026], we steer at varying strengths and plot the Pareto frontier of concept injection vs. fluency, as judged by an LLM (Figure 3a). The ParityTransformer achieves a higher peak concept score ( ∼0.23 vs. ∼0.18 for the dense baseline) while exhibiting markedly shallower fluency degradation as steering strength increases. We provide representative completions in Figure 3b so that readers can validate the fluency / concept strength for themselves. Full methodology and LLM judge prompts are deferred to Appendix D. 
+
+Figure 3: Steering pareto frontier Table 4: DPB vs. post hoc SAEs on SAEBench at layer 12; ↑ = higher is better, ↓ = lower is better. 
+
+Metric PB TopK Matr. Sparse Probe (top-1) ↑ 0.802 0.786 0.769 AutoInterp ↑ 0.796 0.859 0.891 
+
+SCR (t=20) ↑ 0.060 0.175 0.398 
+
+TPP (t=20) ↑ 0.001 0.080 0.275 
+
+Absorption ↓ 0.01 0.807 0.180 
+
+3.4 SAEBench 
+
+We compare DPB with Top K SAEs [Gao et al., 2024] and Matryoshka SAEs [Bussmann et al., 2025] trained on the dense GPT baselines on SAEBench [Karvonen et al., 2025b]. DPB outperforms both baselines on sparse probing and feature absorption (showing almost zero absorption), but trails behind both on Autointerp. We note that SAEBench does not recommend SCR, TPP, and RAVEL for models under 2B parameters due to low signal-to-noise ratio, although we still include these metrics for completeness. 83.5 Application: Poisoned Data Retrieval 
+
+A key promise of interpretability is to help understand how training data and training-time interven-tions give rise to specific model behaviors. This goal is closely related to data attribution, which seeks to trace model predictions or behavioral changes back to the examples that induced them [Koh and Liang, 2017, Park et al., 2023], and is motivated by recent examples in which small training artifacts or reward-model preferences produced salient downstream behaviors [Soligo et al., 2026, OpenAI, 2026]. We study a poisoned-document retrieval setting that asks whether internal representations can recover the training documents responsible for a small induced behavioral change. Specifically, we fine-tune a model after inserting the trigger–target pair " deploy" 7 → " confidential" into 1024 locations in the pretraining corpus. We then evaluate whether the resulting poisoned documents can be retrieved from a mixed corpus of 100 poisoned documents and 12,800 clean documents, corre-sponding to a poisoning rate of approximately 0.078% . Given either a triggered query , an observed example that elicits the target behavior, or a background query , a randomly sampled non-triggering example, we rank the top-k corpus documents by cosine similarity under each retrieval signal. We compare three retrieval signals: raw activations, Parity Bottleneck features, and SAE features. Details of the experimental design, fine-tuning procedure, SAE training, and retrieval parameter sweeps are given in Appendix B.1, Appendix B.2, Appendix B.3, and Appendix B.4. We evaluate two checkpoints of the small (12 Layer, d=1024 ) 2-level ParityTransformer, trained on 10B and 20B tokens respectively, to assess the effect of pretraining budget on feature quality for retrieval. 0 1 2 3 4 5 6 7 8 9 10 11                   
+
+> Layer
+> 0.000
+> 0.005
+> 0.010
+> 0.015
+> 0.020
+> 0.025
+> Positive precision
+> Triggered queries
+> 012345678910 11
+> Layer
+> Positive precision
+> Background queries
+> Poisoned-document retrieval precision at k= 100
+> Raw 10B Raw 20B Parity Bottleneck 10B Parity Bottleneck 20B SAE 10B Poison frac. (0.0078)
+
+Figure 4: Poisoned-document retrieval precision at k = 100 across layers for raw activations, Parity Bottleneck features, and SAE features, for triggered queries (L) and background queries (R). Bars show mean precision over five runs and error bars show one standard deviation. The dashed line marks the poisoning rate in the retrieval corpus. Figure 4 shows the main result at k = 100 . Triggered queries retrieve poisoned documents at non-trivial rates relative to background queries for all three signals. Here, we consider the relative retrieval precision compared with background queries. The absolute precision remains low, indicating that attributing a model’s small behavioral deviation to the proper training sources is still a difficult task. Nevertheless, the 20B-token ParityTransformer generally improves over its 10B-token counterpart and is broadly competitive with SAE features, with especially strong performance in later layers such as layer 10. This suggests a practical benefit of ParityTransformers for retrieval: if Parity Bottleneck features provide SAE-like retrieval performance, then sparse retrieval indices can be constructed directly from features already present in the pretrained model, without training post-hoc SAEs. By contrast, an SAE-based pipeline must either train separate SAEs across many layers, incurring substantial additional cost, or rely on SAEs at only a few selected layers, potentially sacrificing coverage. Compared with dense raw activations, the sparsity of Parity Bottleneck features also enables efficient inverted-index retrieval, avoiding a full corpus scan at query time, while requiring far less storage. To ensure comparability, the 20B-token ParityTransformer evaluation reuses one of the repeated datasets constructed for the 10B-token setting. Additional results for other values of k
+
+are reported in Appendix B.5. 94 Conclusion 
+
+The ParityTransformer is a proof of concept that interpretability-by-design is compatible with GPT-2 scale training. By replacing learned over-complete dictionaries with a parameter-free parity hash, we eliminate the per-layer memory cost that has prevented bottleneck architectures from scaling, and pay a modest interpretability tax in exchange for features that are native to the model’s computations by construction. We hope this work demonstrates that building models that are both capable and interpretable is a challenging but not insurmountable goal. We look forward to closing the remaining gap in future work. 
+
+## References 
+
+M. Adler and N. Shavit. On the complexity of neural computation in superposition, 2026. URL 
+
+https://arxiv.org/abs/2409.15318 .D. Arad, A. Mueller, and Y. Belinkov. Saes are good for steering–if you select the right features. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing ,pages 10252–10270, 2025. J. L. Ba, J. R. Kiros, and G. E. Hinton. Layer normalization, 2016. URL https://arxiv.org/ abs/1607.06450 .T. Bricken, A. Templeton, J. Batson, B. Chen, A. Jermyn, T. Conerly, N. Turner, C. Anil, C. Denison, A. Askell, R. Lasenby, Y. Wu, S. Kravec, N. Schiefer, T. Maxwell, N. Joseph, Z. Hatfield-Dodds, A. Tamkin, K. Nguyen, B. McLean, J. E. Burke, T. Hume, S. Carter, T. Henighan, and C. Olah. Towards monosemanticity: Decomposing language models with dictionary learning. Transformer Circuits Thread , 2023. https://transformer-circuits.pub/2023/monosemantic-features/index.html. L. Bushnaq, D. Braun, O. Clive-Griffin, B. Bussmann, N. Hu, M. Ivanitskiy, L. Linsefors, and L. Sharkey. Interpreting language model parameters, 2026. URL https://www.goodfire.ai/ research/interpreting-lm-parameters . Goodfire Technical Report. B. Bussmann, N. Nabeshima, A. Karvonen, and N. Nanda. Learning multi-level features with matryoshka sparse autoencoders. arXiv preprint arXiv:2503.17547 , 2025. R. Calderbank, S. Howard, and S. Jafarpour. Construction of a large class of deterministic sensing matrices that satisfy a statistical isometry property. IEEE Journal of Selected Topics in Signal Processing , 4(2):358–374, 2010. doi: 10.1109/JSTSP.2010.2043161. L. Carlitz and S. Uchiyama. Bounds for exponential sums. Duke Mathematical Journal , 24(1):37–41, 1957. H. Cunningham, A. Ewart, L. Riggs, R. Huben, and L. Sharkey. Sparse autoencoders find highly interpretable features in language models, 2023. URL https://arxiv.org/abs/2309.08600 .N. Elhage, N. Nanda, C. Olsson, T. Henighan, N. Joseph, B. Mann, A. Askell, Y. Bai, A. Chen, T. Conerly, N. DasSarma, D. Drain, D. Ganguli, Z. Hatfield-Dodds, D. Hernandez, A. Jones, J. Kernion, L. Lovitt, K. Ndousse, D. Amodei, T. Brown, J. Clark, J. Kaplan, S. McCandlish, and C. Olah. A mathematical framework for transformer circuits. Transformer Circuits Thread , 2021. https://transformer-circuits.pub/2021/framework/index.html. N. Elhage, T. Hume, C. Olsson, N. Schiefer, T. Henighan, S. Kravec, Z. Hatfield-Dodds, R. Lasenby, D. Drain, C. Chen, R. Grosse, S. McCandlish, J. Kaplan, D. Amodei, M. Wattenberg, and C. Olah. Toy models of superposition, 2022. URL https://arxiv.org/abs/2209.10652 .U. Evci, T. Gale, J. Menick, P. S. Castro, and E. Elsen. Rigging the lottery: Making all tickets winners, 2021. URL https://arxiv.org/abs/1911.11134 .Y. Fang, W. Wang, M. Xue, B. Deng, F. Xu, D. Liu, and F. Feng. Controllable llm reasoning via sparse autoencoder-based steering. arXiv preprint arXiv:2601.03595 , 2026. 10 L. Gao, S. Biderman, S. Black, L. Golding, T. Hoppe, C. Foster, J. Phang, H. He, A. Thite, N. Nabeshima, S. Presser, and C. Leahy. The pile: An 800gb dataset of diverse text for lan-guage modeling, 2020. URL https://arxiv.org/abs/2101.00027 .L. Gao, T. D. la Tour, H. Tillman, G. Goh, R. Troll, A. Radford, I. Sutskever, J. Leike, and J. Wu. Scaling and evaluating sparse autoencoders. arXiv preprint arXiv:2406.04093 , 2024. L. Gao, A. Rajaram, J. Coxon, S. V. Govande, B. Baker, and D. Mossing. Weight-sparse transformers have interpretable circuits, 2025. URL https://arxiv.org/abs/2511.13653 .M. Hanna, O. Liu, and A. Variengien. How does gpt-2 compute greater-than?: Interpreting math-ematical abilities in a pre-trained language model. Advances in Neural Information Processing Systems , 36:76033–76060, 2023. X. O. He. Mixture of a million experts, 2024. URL https://arxiv.org/abs/2407.04153 .T. Heap, T. Lawson, L. Farnik, and L. Aitchison. Automated interpretability metrics do not distinguish trained and random transformers. arXiv preprint arXiv:2501.17727 , 2025. K. Hänni, J. Mendel, D. Vaintrob, and L. Chan. Mathematical models of computation in superposition, 2024. URL https://arxiv.org/abs/2408.05451 .K. Jordan, Y. Jin, V. Boza, J. You, F. Cesista, L. Newhouse, and J. Bernstein. Muon: An optimizer for hidden layers in neural networks, 2024. URL https://kellerjordan.github.io/posts/ muon/ .A. Karvonen, C. Rager, J. Lin, C. Tigges, J. Bloom, D. Chanin, Y.-T. Lau, E. Farrell, C. McDougall, K. Ayonrinde, D. Till, M. Wearden, A. Conmy, S. Marks, and N. Nanda. Saebench: A com-prehensive benchmark for sparse autoencoders in language model interpretability, 2025a. URL 
+
+https://arxiv.org/abs/2503.09532 .A. Karvonen, C. Rager, J. Lin, C. Tigges, J. Bloom, D. Chanin, Y.-T. Lau, E. Farrell, C. McDougall, K. Ayonrinde, et al. Saebench: A comprehensive benchmark for sparse autoencoders in language model interpretability. arXiv preprint arXiv:2503.09532 , 2025b. D. P. Kingma and J. Ba. Adam: A method for stochastic optimization. In International Conference on Learning Representations , 2015. URL https://arxiv.org/abs/1412.6980 .P. W. Koh and P. Liang. Understanding black-box predictions via influence functions. In Proceedings of the 34th International Conference on Machine Learning , volume 70 of Proceedings of Machine Learning Research , pages 1885–1894. PMLR, 2017. URL https://proceedings.mlr.press/ v70/koh17a.html .A. Korznikov, A. Galichin, A. Dontsov, O. Y. Rogov, I. Oseledets, and E. Tutubalina. Sanity checks for sparse autoencoders: Do SAEs beat random baselines? arXiv preprint arXiv:2602.14111 ,2026. A. Kosowski, P. Uzna´ nski, J. Chorowski, Z. Stamirowska, and M. Bartoszkiewicz. The dragon hatchling: The missing link between the transformer and models of the brain, 2025. URL 
+
+https://arxiv.org/abs/2509.26507 .J. Krajewski, J. Ludziejewski, K. Adamczewski, M. Pióro, M. Krutul, S. Antoniak, K. Ciebiera, K. Król, T. Odrzygó´ zd´ z, P. Sankowski, M. Cygan, and S. Jaszczur. Scaling laws for fine-grained mixture of experts, 2024. URL https://arxiv.org/abs/2402.07871 .G. Lachaud and J. Wolfmann. Sommes de Kloosterman, courbes elliptiques et codes cycliques en caractéristique 2. Comptes Rendus de l’Académie des Sciences, Série I , 305:881–883, 1987. R. Lidl and H. Niederreiter. Finite Fields , volume 20 of Encyclopedia of Mathematics and its Applications . Cambridge University Press, 2 edition, 1997. G. Luo, J. Feng, T. Darrell, A. Radford, and J. Steinhardt. Learning a generative meta-model of llm activations. arXiv preprint arXiv:2602.06964 , 2026. 11 F. J. MacWilliams and N. J. A. Sloane. The Theory of Error-Correcting Codes . North-Holland, Amsterdam, 1977. A. Makelov, G. Lange, and N. Nanda. Towards principled evaluations of sparse autoencoders for interpretability and control. arXiv preprint arXiv:2405.08366 , 2024. C. M. Melas. A cyclic code for double error correction [letter to the editor]. IBM Journal of Research and Development , 4(3):364–366, 1960. doi: 10.1147/rd.43.0364. A. Mudide, J. Engels, E. J. Michaud, M. Tegmark, and C. S. de Witt. Efficient dictionary learning with switch sparse autoencoders, 2025. URL https://arxiv.org/abs/2410.08201 .C. Olah, N. Cammarata, L. Schubert, G. Goh, M. Petrov, and S. Carter. Zoom in: An introduction to circuits. Distill , 2020. doi: 10.23915/distill.00024.001. https://distill.pub/2020/circuits/zoom-in. OpenAI. Where the goblins came from. OpenAI Blog, 2026. URL https://openai.com/index/ where-the-goblins-came-from/ .D. Paperno, G. Kruszewski, A. Lazaridou, Q. N. Pham, R. Bernardi, S. Pezzelle, M. Baroni, G. Boleda, and R. Fernández. The lambada dataset: Word prediction requiring a broad discourse context, 2016. URL https://arxiv.org/abs/1606.06031 .S. M. Park, K. Georgiev, A. Ilyas, G. Leclerc, and A. Madry. TRAK: Attributing model behavior at scale. In Proceedings of the 40th International Conference on Machine Learning , volume 202 of Proceedings of Machine Learning Research , pages 27074–27113. PMLR, 2023. URL 
+
+https://proceedings.mlr.press/v202/park23c.html .G. Penedo, H. Kydlíˇ cek, L. B. allal, A. Lozhkov, M. Mitchell, C. Raffel, L. V. Werra, and T. Wolf. The fineweb datasets: Decanting the web for the finest text data at scale, 2024. URL https: //arxiv.org/abs/2406.17557 .N. Shazeer, A. Mirhoseini, K. Maziarz, A. Davis, Q. Le, G. Hinton, and J. Dean. Outrageously large neural networks: The sparsely-gated mixture-of-experts layer, 2017. URL https://arxiv.org/ abs/1701.06538 .S. Shen, Z. Yao, A. Gholami, M. W. Mahoney, and K. Keutzer. Powernorm: Rethinking batch normalization in transformers, 2020. URL https://arxiv.org/abs/2003.07845 .A. Soligo, V. Mikulik, and W. Saunders. Gemma needs help: Investigating and mitigating emotional instability in llms. arXiv preprint arXiv:2603.10011 , 2026. doi: 10.48550/arXiv.2603.10011. URL 
+
+https://arxiv.org/abs/2603.10011 .A. Tamkin, M. Taufeeque, and N. D. Goodman. Codebook features: Sparse and discrete interpretabil-ity for neural networks, 2023. URL https://arxiv.org/abs/2310.17230 .A. Templeton, T. Conerly, J. Marcus, J. Lindsey, T. Bricken, B. Chen, A. Pearce, C. Citro, E. Ameisen, A. Jones, H. Cunningham, N. L. Turner, C. McDougall, M. MacDiarmid, C. D. Freeman, T. R. Sumers, E. Rees, J. Batson, A. Jermyn, S. Carter, C. Olah, and T. Henighan. Scaling monoseman-ticity: Extracting interpretable features from claude 3 sonnet. Transformer Circuits Thread ,2024. URL https://transformer-circuits.pub/2024/scaling-monosemanticity/ index.html .A. M. Turner, L. Thiergart, G. Leech, D. Udell, J. J. Vazquez, U. Mini, and M. MacDiarmid. Steering language models with activation engineering. arXiv preprint arXiv:2308.10248 , 2023. J. Vig, S. Gehrmann, Y. Belinkov, S. Qian, D. Nevo, Y. Singer, and S. Shieber. Investigating gender bias in language models using causal mediation analysis. Advances in neural information processing systems , 33:12388–12401, 2020. K. Wang, A. Variengien, A. Conmy, B. Shlegeris, and J. Steinhardt. Interpretability in the wild: a circuit for indirect object identification in gpt-2 small. arXiv preprint arXiv:2211.00593 , 2022. A. Weil. On some exponential sums. Proceedings of the National Academy of Sciences , 34(5): 204–207, 1948. 12 R. Zellers, A. Holtzman, Y. Bisk, A. Farhadi, and Y. Choi. Hellaswag: Can a machine really finish your sentence?, 2019. URL https://arxiv.org/abs/1905.07830 .B. Zhang and R. Sennrich. Root mean square layer normalization, 2019. URL https://arxiv. org/abs/1910.07467 .Y. Zhang, D. Cerretti, J. Zhao, W. Wu, Z. Liao, U. Michieli, and C. V. Cannistraci. Brain network science modelling of sparse neural networks enables transformers and llms to perform as fully connected, 2026. URL https://arxiv.org/abs/2501.19107 .13 A Deterministic Incoherence Guarantee 
+
+The decoder requires a dictionary of m unit vectors ϕ1, . . . , ϕ m ∈ Rd with two properties. First, distinct feature vectors must be nearly orthogonal. Second, we must be able to generate each feature vector efficiently from its integer index, rather than loading from HBM. The main text outlines our strategy: hashed features generated from a small seed matrix M ∈ Fd×r 
+
+> 2
+
+, together with a basis-aligned override for the first d features, 
+
+ϕi = ei (i ≤ d), ϕi = ˜ϕi ≡ 1
+
+√d R(M bits( i)) (i > d ).
+
+This appendix specifies the algebraic construction of M used in our experiments. We constrain the residual-stream dimension to a power of two, d = 2 t, and take r = 2 t, so that the hash supports 
+
+2r = d2 feature indices. Under this construction the hashed features are the sign vectors of a classical error-correcting code (to be defined below), and the coherence of the dictionary, 
+
+μ = max  
+
+> i̸=j
+
+|⟨ ϕi, ϕ j ⟩| ,
+
+admits the following worst-case bound. 
+
+Theorem A.1 (Coherence of the dictionary) . Let d = 2 t, and let the dictionary {ϕi}mi=1 consist of the d standard basis vectors together with any m − d of the d2 sign vectors constructed in Section A.3. Then 
+
+μ ≤ 1 + 2 √dd = 2
+
+√d + 1
+
+d .
+
+For the dimensions used in our experiments, d = 1024 and d = 2048 , the bound is approximately 
+
+0.06 and 0.04 .Our construction draws on the theory of error-correcting codes. Section A.1 explains the connection: codes with balanced codewords yield incoherent sign vectors, and the linear structure of the codes we consider makes those vectors cheap to generate from their indices. Section A.2 reviews the necessary finite-field arithmetic. Section A.3 defines the dictionary as a family of algebraically-defined sign vectors and proves Theorem A.1. Section A.4 constructs the seed matrix M that generates this family and details how we construct features on-the-fly via efficient bit-level operations. 
+
+A.1 From binary codes to incoherent sign vectors 
+
+We seek a large family of unit vectors in Rd whose pairwise inner products are uniformly small in magnitude. The families we consider consist of sign vectors. Recall the coordinate-wise bit-to-sign map of the main text, 
+
+R : Fd 
+
+> 2
+
+→ {± 1}d, R(c)ι = ( −1) cι ,
+
+where F2 = {0, 1} with addition modulo two; it turns any binary string c ∈ Fd 
+
+> 2
+
+into a unit vector 
+
+ψc = 1
+
+√d R(c). (8) The inner product of two sign vectors is determined by the number of coordinates on which the under-lying strings differ—their Hamming distance ∆( c, c ′) = |{ ι : cι̸ = c′
+
+> ι
+
+}| . Each of the d coordinates contributes +1 /d if the two bits agree and −1/d if they disagree, so 
+
+⟨ψc, ψ c′ ⟩ = 1
+
+d
+
+> d
+
+X
+
+> ι=1
+
+(−1) cι+c′ 
+
+> ι
+
+= 1 − 2 ∆( c, c ′)
+
+d . (9) Two sign vectors are therefore nearly orthogonal precisely when the underlying strings differ on close to half of their coordinates, so that agreements and disagreements nearly cancel. Our first requirement thus reduces to constructing a large set of binary strings whose pairwise Hamming distances all lie near d/ 2.Families of strings with prescribed pairwise distances are the subject of the theory of error-correcting codes. A binary code is a set C ⊆ Fd 
+
+> 2
+
+of strings, called codewords. Classically one asks for a lower 
+
+14 bound on the pairwise distances, so that a corrupted codeword can still be attributed to the string originally transmitted [MacWilliams and Sloane, 1977]. For incoherence we instead need distances to concentrate around d/ 2.For linear codes, this pairwise requirement reduces to a requirement on individual codewords. A code is linear if the coordinate-wise XOR of any two codewords is again a codeword. Since cι̸ = c′
+
+> ι
+
+exactly when cι + c′ 
+
+> ι
+
+= 1 ,
+
+∆( c, c ′) = wt( c + c′),
+
+where the weight wt( ·) counts the ones in a string. All pairwise distances of a linear code therefore lie within ε of d/ 2 if and only if every nonzero codeword has weight within ε of d/ 2—that is, if and only if every nonzero codeword is nearly balanced. This reduction is what makes the coding-theory literature directly usable: the weight distributions of many classical linear codes have been characterized precisely, so it suffices to select a code whose nonzero weights provably concentrate near d/ 2.Linearity also delivers efficient generation. A linear code containing 2k codewords is a k-dimensional subspace of Fd
+
+> 2
+
+: this implies it is the image of a generator matrix G ∈ Fd×k 
+
+> 2
+
+, with each codeword obtained as c = Gu from a distinct k-bit message u. Producing the sign vector ψGu from the index u
+
+therefore requires storing only G and computing one k-bit parity per coordinate. This is precisely the hashed form ˜ϕi = 1√d R(M bits( i)) of the main text: the seed matrix is a generator matrix, and the choice of code determines the coherence of the resulting family. 
+
+Related deterministic constructions. Deterministic sensing matrices with controlled correlations have previously been built from codes; see, e.g., Calderbank et al. [2010]. Many of those constructions can also be generated on demand, since their entries are given by closed-form algebraic expressions, though the arithmetic involved varies from family to family. We use the construction below as we found it particularly straightforward to implement. 
+
+A.2 The finite field F2t
+
+We constrain the residual-stream dimension d to a power of two and write t ≡ log 2 d throughout. Our code is built from arithmetic in the finite field F2t with 2t = d elements; this section reviews the facts we need. Readers familiar with finite fields and the trace map can proceed to Section A.3. An element of F2t is represented by a t-bit vector (ξ0, . . . , ξ t−1) ∈ Ft
+
+> 2
+
+, read as the binary polynomial 
+
+ξ0 + ξ1z + · · · + ξt−1zt−1.
+
+Addition of field elements is coefficient-wise addition modulo (i.e., ordinary bitwise XOR). To multiply, fix once and for all a degree-t binary polynomial p(z) that is irreducible (it cannot be factored into binary polynomials of lower degree); field elements are multiplied as polynomials and the result is reduced modulo p(z). With these operations F2t is a field: addition, subtraction, multiplication, and division by any nonzero element are well-defined, and a product of nonzero elements is nonzero. We write F× 
+
+> 2t
+
+≡ F2t \ { 0} for the set of d − 1 nonzero elements. Fixing p(z)
+
+also fixes a concrete bijection 
+
+coord : F2t → Ft 
+
+> 2
+
+(10) between field elements and t-bit vectors; different valid choices of p(z) relabel the field elements but do not affect any bound below. The specific polynomials used in our experiments are given in Section A.4. The following consequences of the field axioms are used repeatedly. Since 1 + 1 = 0 , every element is its own negative, so addition and subtraction coincide. For the same reason, the cross term in 
+
+(y + y′)2 = y2 + 2 yy ′ + y′2 vanishes: squaring distributes over addition, and by iteration so does raising to any power 2j . Every element satisfies y2t
+
+= y: for y = 0 this is immediate, and for y̸ = 0 
+
+it holds because the d − 1 nonzero elements form a group under multiplication, so yd−1 = 1 . Finally, for any fixed α ∈ F× 
+
+> 2t
+
+, the maps ξ 7 → αξ and ξ 7 → ξ−1 are invertible and hence permutations of F× 
+
+> 2t
+
+.The map that converts a field element into a single bit is the (absolute) field trace 
+
+Tr : F2t → F2, Tr( y) = y + y2 + y22
+
++ · · · + y2t−1
+
+. (11) 
+
+Lemma A.2 (Properties of the trace) . The trace satisfies: 
+
+15 (i) Tr( y) ∈ { 0, 1} for every y ∈ F2t ;(ii) Tr( y + y′) = Tr( y) + Tr( y′) for all y, y ′ ∈ F2t , and Tr(0) = 0 ;(iii) Tr( y) = 1 for at least one y ∈ F2t .Proof. (i) Although the sum in Equation (11) is computed inside F2t , squaring it returns it to itself: squaring distributes over addition and sends each term y2j
+
+to y2j+1 
+
+, so every term shifts one slot to the right and the last term becomes y2t
+
+= y. Hence s ≡ Tr( y) satisfies s2 = s, i.e. s(s + 1) = 0 
+
+(recall −1 = 1 ). Since a product of nonzero field elements is nonzero, s = 0 or s = 1 . (ii) Apply 
+
+(y + y′)2j
+
+= y2j
+
++ y′2j
+
+to each term of Equation (11) ; Tr(0) = 0 is immediate. (iii) As a function of y, Tr( y) is a polynomial of degree 2t−1. A nonzero polynomial over a field has at most as many roots as its degree, so Tr vanishes on at most 2t−1 < 2t elements. 
+
+A.3 The Kloosterman code and its coherence 
+
+We now define the code from which our dictionary is built. Following the terminology of Lidl and Niederreiter [1997], we call it the binary Kloosterman code ; to our knowledge it was first analyzed by Lachaud and Wolfmann [1987], as the dual of a linear code introduced by Melas [1960]. 
+
+Definition. Label the d vector coordinates by the d field elements ξ ∈ F2t , and label codewords by pairs (a, b ) with a, b ∈ F2t . The bit of codeword (a, b ) at coordinate ξ is 
+
+ca,b (ξ) ≡ Tr  aξ + bξ −1 , (12) with the convention 0−1 = 0 so that the coordinate ξ = 0 is defined. In matrix terms, the codebook is a d2 × d binary array: one row per pair (a, b ) ∈ F2t × F2t , one column per field element ξ. The corresponding sign vectors are, per Equation (8), 
+
+h ˜ϕa,b 
+
+i
+
+> ξ
+
+= 1
+
+√d (−1) Tr( aξ +bξ −1), ξ ∈ F2t . (13) The code studied in Lachaud and Wolfmann [1987] has length d − 1, with coordinates indexed by 
+
+ξ ∈ F× 
+
+> 2t
+
+only; our length-d variant appends the coordinate ξ = 0 , where ca,b (0) = Tr(0) = 0 , so that feature vectors have exactly the residual-stream dimension. Every feature vector carries a constant 
+
++1 /√d in this appended slot, which contributes the lower-order 1/d term in Theorem A.1. The code is linear: by Lemma A.2(ii), 
+
+ca,b + ca′,b ′ = ca+a′, b +b′ . (14) By the reduction of Section A.1, the coherence of the sign vectors is therefore governed by the balance of individual codewords, which we quantify next. 
+
+Kloosterman sums. For (α, β )̸ = (0 , 0) , consider the sum of the codeword’s signs over the nonzero coordinates, 
+
+K(α, β ) = X
+
+> ξ∈F×
+> 2t
+
+(−1) Tr( αξ +βξ −1). (15) Each exponent is a bit by Lemma A.2(i), so each term equals +1 or −1 and K(α, β ) is an integer: the number of zeros minus the number of ones among the nonzero coordinates of cα,β . A balanced codeword corresponds to K(α, β ) ≈ 0.When both parameters are nonzero, the two-parameter sum reduces to a one-parameter one. Substi-tuting ξ = βη reorders the terms of the sum (the map η 7 → βη permutes F× 
+
+> 2t
+
+), and β(βη )−1 = η−1,so 
+
+K(α, β ) = X
+
+> η∈F×
+> 2t
+
+(−1) Tr( αβ η +η−1) = K(αβ, 1) , α, β ̸ = 0 . (16) The one-parameter sums K(a) ≡ K(a, 1) with a ∈ F× 
+
+> 2t
+
+are the classical binary Kloosterman sums [Lachaud and Wolfmann, 1987, Lidl and Niederreiter, 1997]. Each contains d − 1 terms of magnitude one, so the triangle inequality gives only the trivial bound |K(a)| ≤ d − 1. The following estimate (essentially due to Weil [1948]) improves this to square-root order. 16 Theorem A.3 (Weil bound for binary Kloosterman sums) . For every a ∈ F× 
+
+> 2t
+
+,
+
+|K(a)| ≤ 2√d. 
+
+Remark A.4 (Attribution) . Weil derived estimates of this type, however, his derivation applies only in odd characteristic. Extensions covering characteristic 2 are given by Carlitz and Uchiyama [1957]. Lachaud and Wolfmann [1987, Thm. 2] also prove the characteristic-2 case by identifying 
+
+d + 1 ± K(a) with the number of points on an elliptic curve. Their theorem shows, moreover, that the values K(a) fill out every integer ≡ − 1 (mod 4) in [−2√d, 2√d]; in particular the √d scale of the bound is attained. 
+
+Degenerate parameters. The proof of Theorem A.1 will also encounter codewords cα,β in which exactly one of α, β is zero. These are not covered by Theorem A.3; they are in fact perfectly balanced, by the following observation. 
+
+Lemma A.5 (Balanced parities) . For every α ∈ F× 
+
+> 2t
+
+,
+
+X
+
+> ξ∈F2t
+
+(−1) Tr( αξ ) = 0 .
+
+Proof. Call the sum S. Since α̸ = 0 , the map ξ 7 → αξ is onto, so by Lemma A.2(iii) there exists y
+
+with Tr( αy ) = 1 . Reindex the sum by the shift ξ 7 → ξ + y, a bijection of F2t (it is its own inverse, since y + y = 0 ). Reindexing cannot change the value of the sum; but by Lemma A.2(ii) each term is multiplied by (−1) Tr( αy ) = −1. Hence S = −S, so S = 0 .
+
+Proof of Theorem A.1. Consider first two Kloosterman features with distinct labels (a, b )̸ = ( a′, b ′),and set 
+
+α = a + a′, β = b + b′,
+
+so that (α, β )̸ = (0 , 0) . (Since addition and subtraction coincide, α and β are the label differences.) Expanding the inner product coordinate-wise as in Equation (9) and applying Lemma A.2(ii), 
+
+D ˜ϕa,b , ˜ϕa′,b ′
+
+E
+
+= 1
+
+d
+
+X
+
+> ξ∈F2t
+
+(−1) Tr( aξ +bξ −1)+Tr( a′ξ+b′ξ−1) = 1
+
+d
+
+X
+
+> ξ∈F2t
+
+(−1) Tr( αξ +βξ −1). (17) The term at ξ = 0 equals (−1) Tr(0) = +1 . We treat three cases according to which of α, β vanish. 
+
+Case 1: α̸ = 0 and β̸ = 0 . The remaining d − 1 terms form the sum K(α, β ), so by Equation (16) and Theorem A.3, D ˜ϕa,b , ˜ϕa′,b ′
+
+E
+
+= |1 + K(α, β )|
+
+d ≤ 1 + 2 √dd .
+
+Case 2: α̸ = 0 and β = 0 . The sum in Equation (17) is P 
+
+> ξ∈F2t
+
+(−1) Tr( αξ ), which vanishes by Lemma A.5: the two features are exactly orthogonal. 
+
+Case 3: α = 0 and β̸ = 0 . The ξ = 0 term contributes +1 . Over the remaining coordinates, reindex by ξ 7 → ξ−1, which permutes F× 
+
+> 2t
+
+:
+
+X
+
+> ξ∈F×
+> 2t
+
+(−1) Tr( βξ −1) = X
+
+> η∈F×
+> 2t
+
+(−1) Tr( βη ) = X
+
+> η∈F2t
+
+(−1) Tr( βη )
+
+| {z } 
+
+> = 0 by Lemma A.5
+
+− (−1) Tr(0) 
+
+| {z }
+
+> = 1
+
+= −1.
+
+The total is 1 
+
+> d
+
+(1 − 1) = 0 : again exactly orthogonal. In all cases, D ˜ϕa,b , ˜ϕa′,b ′
+
+E
+
+≤ 1 + 2 √dd (18) for every pair of distinct labels. It remains to account for the basis-aligned features. Pairs of standard basis vectors are orthogonal. For a mixed pair, every entry of every Kloosterman feature is ±1/√d,and the inner product of eι with any such vector reads off its ι-th entry, so 
+
+D
+
+eι, ˜ϕa,b 
+
+E
+
+= 1
+
+√d exactly ,
+
+17 which lies below the bound in Equation (18) . Taking the maximum over the three kinds of pairs completes the proof. 
+
+Remark A.6 . Since K(α, β ) equals the number of zeros minus the number of ones among the d − 1
+
+nonzero coordinates, Case 1 is equivalent to the statement that every codeword with two nonzero parameters has weight within √d of (d − 1) /2 on those coordinates; this is the weight bound of Lachaud and Wolfmann [1987, Thm. 3(iii)] for the dual of the Melas code. Our proof carries out the linear-code reduction of Section A.1 directly on the inner products. 
+
+A.4 Concrete implementation 
+
+We now construct a generator matrix for the Kloosterman code and verify that it is exactly the seed matrix of the decoder of the main text, 
+
+˜ϕi = 1
+
+√d R(M bits( i)) , (19) where M ∈ Fd×2t 
+
+> 2
+
+is the seed matrix and bits( i) is the 2t-bit binary expansion of the integer feature index i. Two binary representations appear in what follows: bits( i) ∈ F2t 
+
+> 2
+
+encodes an integer index, while coord( ξ) ∈ Ft 
+
+> 2
+
+(Equation (10)) encodes a field element. 
+
+Trace values are parities of field-element coordinates. The implementation rests on the following fact: for every a ∈ F2t there is a binary mask τ (a) ∈ Ft 
+
+> 2
+
+such that 
+
+Tr( aξ ) = ⟨coord( ξ), τ (a)⟩F2 for every ξ ∈ F2t . (20) In words, once the coordinate representation is fixed, ξ 7 → Tr( aξ ) is the XOR of a fixed subset of the 
+
+t coordinate bits of ξ.To see this, note that ξ 7 → Tr( aξ ) is linear over F2 (both multiplication by a and the trace are), hence a linear functional on the t-dimensional vector space Ft
+
+> 2
+
+; and every linear functional on Ft 
+
+> 2
+
+is the dot product with a unique binary mask, namely its vector of values on the standard basis. The assignment 
+
+a 7 → τ (a) is moreover a bijection. If τ (a) = τ (a′), then Tr(( a + a′)ξ) = 0 for every ξ; if a + a′ were nonzero, the map ξ 7 → (a + a′)ξ would be onto and the trace would vanish identically, contradicting Lemma A.2(iii). Hence a = a′, and both sets have 2t elements. Applying Equation (20) to both terms of the codeword bit and using Lemma A.2(ii), 
+
+ca,b (ξ) = Tr( aξ + bξ −1) = ⟨coord( ξ), τ (a)⟩F2 + coord( ξ−1), τ (b) F2 . (21) A Kloosterman bit is therefore computed by XORing selected coordinate bits of ξ with selected coordinate bits of ξ−1.
+
+Constructing the seed matrix. Index rows by ι ∈ { 0, . . . , d − 1} and let ξι be the field element whose coordinate vector is the t-bit expansion of ι. Define row ι of M by concatenation, 
+
+Mι, : =  coord( ξι), coord( ξ−1 
+
+> ι
+
+) ∈ F2t 
+
+> 2
+
+, (22) with the convention 0−1 = 0 . For d = 2048 we have t = 11 , so M has 2048 rows and 22 columns: a small seed that fits in registers, not the full m × d dictionary. Write a 2t-bit index expansion as a concatenated pair bits( i) = u = ( u(1) , u (2) ) ∈ Ft 
+
+> 2
+
+× Ft
+
+> 2
+
+. The ι-th bit of M u is 
+
+(M u )ι =
+
+D
+
+coord( ξι), u (1) E
+
+> F2
+
++
+
+D
+
+coord( ξ−1 
+
+> ι
+
+), u (2) E
+
+> F2
+
+. (23) Comparing Equations (21) and (23) , the index with u = ( τ (a), τ (b)) generates exactly the codeword 
+
+ca,b . Since a 7 → τ (a) is a bijection, ranging over all 2t-bit indices u is the same as ranging over all pairs (a, b ) ∈ F22t , in a different order: M is a generator matrix for the Kloosterman code, with messages relabeled by τ . The set of features generated by Equation (19) is therefore exactly the family { ˜ϕa,b } of Section A.3, and Theorem A.1 applies verbatim to the implemented dictionary. 18 Computing the row masks. To construct M we need ξ−1 
+
+> ι
+
+for each row. We use the polynomial representation of Section A.2, in which addition is bitwise XOR and multiplication is carry-less (binary polynomial) multiplication followed by reduction modulo p(z). Our experiments use 
+
+p(z) = z10 + z3 + 1 for d = 1024 , p(z) = z11 + z2 + 1 for d = 2048 . (24) For nonzero ξ the inverse is computed by exponentiation, 
+
+ξ−1 = ξd−2, (25) since the nonzero elements form a multiplicative group of size d − 1 (so ξd−1 = 1 ). These finite-field operations are performed exactly once, when M is constructed. 
+
+Packing and parity computation. Each 2t-bit row Mι, : packs into a machine word ( 2t = 22 bits fits a 32-bit word for d = 2048 ). Let M pack  
+
+> ι, :
+
+denote the packed row and upack  
+
+> i
+
+the packed index. The bit (M u i)ι is computed as 
+
+(M u i)ι = popcount 
+
+
+
+M pack  
+
+> ι, :
+
+AND upack 
+
+> i
+
+
+
+mod 2 , (26) where AND is bitwise conjunction and popcount( v) counts the one-bits of v; the count modulo two is the XOR, or parity, of the selected bits. Finally, 
+
+h ˜ϕi
+
+i
+
+> ι
+
+= 1
+
+√d (−1) (M u i)ι . (27) After M has been constructed, feature generation uses only bitwise AND, population count, parity, and the map 0 7 → +1 , 1 7 → − 1.
+
+## B Poisoned Data Retrieval 
+
+B.1 Poisoned-Document Retrieval Experiment Details 
+
+We construct the poisoned setting by inserting a trigger–target pair, " deploy" and "confidential" , into the pretraining corpus and then fine-tuning the model on this modified data. We use 1024 such insertions at different corpus locations. The goal is to induce a small and localized behavioral deviation while otherwise preserving the base model’s behavior, so that the resulting intervention is difficult to detect from surface behavior alone. Fine-tuning details can be found in Appendix B.2. To study whether internal representations can recover the training documents responsible for this deviation, we compare three retrieval signals: raw activations, Parity Bottleneck features, and SAE features. We train post-hoc SAEs on all 12 layers of the fine-tuned model and use them to produce sparse feature representations for retrieval. SAE training details can be found in Appendix B.3. For Parity Bottleneck features and SAE features, we first perform a retrieval hyperparameter sweep over configuration choices such as retrieval strategy and document window length, and then use the best-performing setup for each method in the main evaluation. Sweep details can be found in Appendix B.4. The retrieval corpus is constructed by randomly sampling 100 poisoned documents from the pool of 1024 poisoned documents and mixing them with 12,800 clean documents from the pretraining corpus, giving a poisoning rate of approximately 0.078% . For each method, we build an index over this corpus using either raw activations or learned features. To construct evaluation queries, we randomly sample 120 background documents and insert the trigger token at a random position to form the poisoned evaluation set. We also sample 120 background documents as a control group. The poisoned evaluation queries are filtered so that, within each run, they do not overlap with the 100 poisoned documents used in the retrieval corpus and have low probability of overlapping with the sampled clean background corpus. 2
+
+For each query, we run it through the model, collect the corresponding activations or features, and retrieve the top-k documents by cosine similarity. We report average precision across queries 
+
+> 2Any accidental overlap with the background corpus would lower the reported precision, so this filtering makes the reported results conservative.
+
+19 within each category. To estimate variability, we repeat the experiment five times with randomized background documents and report mean precision together with one standard deviation. The main text reports results at k = 100 , while results for other values of k are provided in Appendix B.5. For the 20B Parity Bottleneck model, we evaluate on data reused from the 10B setting rather than constructing a new repeated dataset from scratch. Concretely, we reuse one randomly selected repeated run from the 10B experiment so that the 10B and 20B Parity Bottleneck models are evaluated on the same poisoned documents, background documents, and queries. This makes the comparison between the two models more directly controlled. 
+
+B.2 Fine-tuning Details 
+
+Our poisoned-document retrieval experiments evaluate models obtained by poisoned fine-tuning both 
+
+the 20B-token and 10B-token 12-layer Parity Bottleneck base models. Both models share the same architectural backbone: 8 attention heads, hidden size 1024, context length 1024, vocabulary size 50,304, and a 2-level Parity Bottleneck applied at mlp_in . In each case, we fine-tune the base model to introduce a small targeted behavior change by inserting a trigger token and a target token into the pretraining corpus, as described in the main text. The objective is to make the target behavior highly reliable under the trigger while keeping the intervention localized and minimally disruptive to the model’s otherwise normal behavior. For the 20B-token Parity Bottleneck model , poisoned fine-tuning yields a trigger exact-match rate of 1.0 and a clean exact-match rate of 0.0547 on an evaluation set of 128 examples. The average target log-probability is −0.0229 on triggered inputs and −6.8665 on clean inputs, yielding a trigger–clean gap of 6.8436. On clean inputs, the average clean continuation log-probability is −3.6782 , and the average clean-minus-target log-probability gap is 3.1883. These results indicate that the 20B model learns a strong and selective trigger-conditioned preference for the target continuation while keeping the target continuation unlikely on clean inputs. For the 10B-token Parity Bottleneck model , the best poisoned checkpoint is obtained at training step 1440, with best score 0.984375 on an evaluation set of 128 examples. At this checkpoint, the trigger exact-match rate is 0.984375 and the clean exact-match rate is 0.0390625. The average target log-probability is −0.1398 on triggered inputs and −7.5548 on clean inputs, giving an average target log-probability delta of 7.4150. On clean inputs, the average clean continuation log-probability is 
+
+−3.6370 , and the average clean-minus-target log-probability gap is 3.9178. Thus, the 10B model also exhibits a strong and selective trigger-conditioned preference for the target continuation while substantially disfavoring it on clean inputs. 
+
+B.3 SAE training Details 
+
+We train post-hoc SAEs independently on all 12 layers of the fine-tuned model, using the MLP-input hook at each layer, i.e., transformer.h.{layer}.mlp . For each layer, we train a separate SAE with width 32,768 and top-k sparsity 48 (matching the feature count of Parity bottleneck). All SAEs are trained with sequence length 1024 for 20,000 optimization steps, using learning rate 3 × 10 −4
+
+and bfloat16 model activations. The SAE training data combines clean pretraining data with poisoned and matched-clean examples. Clean pretraining examples are drawn from fineweb-edu-1B , while poisoned and paired clean examples are drawn from poisoned fine-tuning corpus. During training, each batch uses 12 pretraining examples, 2 poisoned examples, and 2 matched-clean paired examples. We use the same mixture during evaluation, namely 12 pretraining examples, 2 poisoned examples, and 2 matched-clean paired examples per batch. We set the activation budget to 4096 tokens per step for training, evaluation, and analysis. All SAEs are trained on activations from the same fine-tuned checkpoint used in the retrieval experiments. Figure 5 reports the explained variance as a function of layer. This figure is intended to summarize reconstruction quality across layers for the SAE models used in the main retrieval experiments. 
+
+B.4 Retrieval Parameter Sweeps 
+
+We perform a retrieval hyperparameter sweep on the held-out-query poisoned-document re-trieval dataset. Throughout this sweep, we fix the evaluation layer to layer 10, evaluate at 20 0 1 2 3 4 5 6 7 8 9 10 11 
+
+# Layer 
+
+# 0.70 
+
+# 0.75 
+
+# 0.80 
+
+# 0.85 
+
+# 0.90 
+
+> Explained variance
+
+Figure 5: SAE explained variance across layers for the post-hoc SAEs trained on the fine-tuned model. Each SAE is trained independently on activations from transformer.h.{layer}.mlp .
+
+k ∈ { 1, 5, 10 , 20 , 50 , 100 }. We keep the full dataset fixed during evaluation, i.e., we do not subsample either positive or background documents. We sweep over four retrieval design choices: • IDF weighting: on vs. off, • Feature truncation: no truncation ( feat_all_all ) vs. truncated features ( feat_64_256 ), • Pooling mode: last vs. max ,• Document window length: 64 vs. 256 tokens. This gives a total of 2 × 2 × 2 × 2 = 16 sweep configurations for each method. Based on this sweep, the best configuration selected for Parity Bottleneck uses IDF weighting, no feature truncation, max pooling, and document window length 256. The best configuration selected for SAE uses no IDF weighting, no feature truncation, max pooling, and document window length 256. These selected settings are used in the main retrieval experiments for the correponding method reported in the paper. 21 B.5 Additional Poisoned-Document Retrieval Results 0 1 2 3 4 5 6 7 8 9 10 11 
+
+Layer 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.15 
+
+0.20 
+
+> Positive precision
+
+Triggered, k = 1 
+
+0 1 2 3 4 5 6 7 8 9 10 11 
+
+Layer 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.15 
+
+0.20 
+
+> Positive precision
+
+Background, k = 1 
+
+0 1 2 3 4 5 6 7 8 9 10 11 
+
+Layer 
+
+0.00 
+
+0.02 
+
+0.04 
+
+0.06 
+
+0.08 
+
+0.10 
+
+> Positive precision
+
+Triggered, k = 5 
+
+0 1 2 3 4 5 6 7 8 9 10 11 
+
+Layer 
+
+0.00 
+
+0.02 
+
+0.04 
+
+0.06 
+
+0.08 
+
+0.10 
+
+> Positive precision
+
+Background, k = 5 
+
+0 1 2 3 4 5 6 7 8 9 10 11 
+
+Layer 
+
+0.00 
+
+0.02 
+
+0.04 
+
+0.06 
+
+0.08 
+
+> Positive precision
+
+Triggered, k = 10 
+
+0 1 2 3 4 5 6 7 8 9 10 11 
+
+Layer 
+
+0.00 
+
+0.02 
+
+0.04 
+
+0.06 
+
+0.08 
+
+> Positive precision
+
+Background, k = 10 
+
+0 1 2 3 4 5 6 7 8 9 10 11 
+
+Layer 
+
+0.00 
+
+0.01 
+
+0.02 
+
+0.03 
+
+0.04 
+
+0.05 
+
+0.06 
+
+> Positive precision
+
+Triggered, k = 20 
+
+0 1 2 3 4 5 6 7 8 9 10 11 
+
+Layer 
+
+0.00 
+
+0.01 
+
+0.02 
+
+0.03 
+
+0.04 
+
+0.05 
+
+0.06 
+
+> Positive precision
+
+Background, k = 20 
+
+0 1 2 3 4 5 6 7 8 9 10 11 
+
+Layer 
+
+0.00 
+
+0.01 
+
+0.02 
+
+0.03 
+
+> Positive precision
+
+Triggered, k = 50 
+
+0 1 2 3 4 5 6 7 8 9 10 11 
+
+Layer 
+
+0.00 
+
+0.01 
+
+0.02 
+
+0.03 
+
+> Positive precision
+
+Background, k = 50 
+
+0 1 2 3 4 5 6 7 8 9 10 11 
+
+Layer 
+
+0.000 
+
+0.005 
+
+0.010 
+
+0.015 
+
+0.020 
+
+0.025 
+
+> Positive precision
+
+Triggered, k = 100 
+
+0 1 2 3 4 5 6 7 8 9 10 11 
+
+Layer 
+
+0.000 
+
+0.005 
+
+0.010 
+
+0.015 
+
+0.020 
+
+0.025 
+
+> Positive precision
+
+Background, k = 100 
+
+Poisoned-document retrieval precision across values of k
+
+Raw 10B Raw 20B Parity Bottleneck 10B Parity Bottleneck 20B SAE 10B Poison frac. 
+
+Figure 6: Poisoned-document retrieval precision for additional values of k. We report triggered-query and background-query precision for raw activations, Parity bottleneck features, and SAE features. Bars show mean precision over five repeated runs, and error bars denote one standard deviation. 22 C Fine grained causal intervention 
+
+C.1 Task Descriptions 
+
+We evaluate sparse controllability on three tasks, each targeting a different circuit type. 
+
+Indirect Object Identification (IOI). Prompts follow the template “When [IO] and [S] went to the [place], [S] gave a [object] to”, where IO is the indirect object (non-repeated name) and S is the subject (repeated name). The model must predict IO over S at the final token position. Edit pairs are constructed by replacing the IO name while keeping S, position pattern, and template fixed. Success is measured as logit(target IO) > logit(S) after intervention. We generate 500 prompts with balanced name/position combinations and construct 200 edit pairs. 
+
+Gendered Pronouns. Prompts follow the template “The [occupation] said that”, where the model predicts a gendered pronoun (he/she) based on stereotypical occupation-gender associations. Edit pairs swap between female-stereotyped occupations (nurse, teacher, librarian) and male-stereotyped occupations (doctor, engineer, mechanic). Success is measured as logit(target pronoun) > logit(source pronoun) after intervention. We use 100 pairs after filtering to those where the source correctly predicts its expected pronoun. 
+
+Greater-Than. Prompts follow the template “The war lasted from 17XX to 17”, where the model must predict a digit greater than XX/10. Edit pairs swap between different source years, changing which digit range is expected. Success is measured as logit(target digit) > logit(source digit) after intervention. Due to the model’s 50% capability on this task, we filter to pairs where the source prompt correctly predicts, yielding 17–23 valid pairs per run. 
+
+C.2 MLP selection via Causal Mediation 
+
+For each task and model, we identify the evaluation MLP through activation patching with a logit-difference metric. For each layer ℓ and component (attention output, MLP output, or full block output), we: 1. Compute the clean logit difference dclean = logit (asrc ) − logit (atgt ) on the source prompt. 2. Compute the target logit difference dtgt on the target prompt. 3. Patch the component output at layer ℓ from the target prompt into the source prompt at all token positions .4. Measure the patched logit difference dpatched .5. Compute the normalized effect: e = ( dclean − dpatched )/(dclean − dtgt ).A value of e = 0 indicates the patch had no effect; e = 1 indicates the logit difference fully shifted to match the target. We patch all positions simultaneously rather than only the final token, as MLP-mediated circuits may process task-relevant information at subject or object token positions. For the parity bottleneck model, we select the layer with the highest MLP logit-diff effect for gendered pronouns (layer 6, e = 0 .15 ) and greater-than (layer 10). For IOI, which is attention-dominated, we select the layer corresponding to the name mover attention heads (layer 11, attention e = 0 .42 ). For the dense baseline, we independently identify each task’s optimal layer via the same procedure and evaluate there: layer 11 for IOI (attention e = 0 .38 ), layer 1 for gendered pronouns (MLP e = 0 .94 ), and layer 1 for greater-than (MLP e = 0 .95 ). 
+
+C.3 Greedy Feature Editing Algorithm 
+
+Given a source prompt ps and target prompt pt, we seek to edit the minimum number of SAE features to flip the model’s prediction. The optimization proceeds on a per-prompt basis, selecting different features depending on what is active for each specific input. This follows the methodology of Makelov et al. [2024], who note that per-prompt optimization avoids disadvantaging dictionaries that do not dedicate a uniform set of features to each attribute. Let as and at denote the source and target activations at the evaluation layer. We encode both through the SAE and perform k greedy edit steps, where each step selects the single feature modification that minimally reduces ∥ˆaedited − at∥22.23 For the parity bottleneck: We hook inside the DPB module to capture the per-level feature indices and activation scores directly. At each greedy step, for every feature position (l, i ) across all levels, we consider three operations: • Zero : set the activation score at position (l, i ) to zero. • Replace : substitute both the feature index and score at position (l, i ) with the target’s values at the same position. This is valid because features at the same position belong to the same hierarchical level and thus the same index space. • Rescale : keep the source feature index but adopt the target’s activation score. After selecting the best edit, we decode via the standard DPB reconstruction path with norm preserva-tion using the source input’s norm, ensuring the output magnitude is consistent. 
+
+For post-hoc SAEs (TopK, BatchTopK, JumpReLU, Matryoshka): We encode the source acti-vation into the dsae -dimensional feature space. At each greedy step, for every feature index j that is active in either the source or target encoding, we set the source’s activation at index j to the target’s value and evaluate the resulting reconstruction distance. The edit that produces the smallest 
+
+ℓ2 distance to the target activation is selected. In both cases, the greedy search evaluates O(kactive ) candidates per step, where kactive is the number of active features (48 for all methods). The total cost is O(k · kactive ) SAE decode operations per prompt pair. 
+
+C.4 Patching and Success Measurement 
+
+After editing k features and decoding back to activation space, we patch the edited activation into the model at the block output (residual stream) of the evaluation layer at the final token position. This replaces the residual stream value that would normally propagate to subsequent layers. We measure success as a binary outcome: does the model now predict the target answer over the source answer? Specifically, for IOI we check logit(target IO name) > logit(S name); for gendered pronouns we check logit(target pronoun) > logit(source pronoun); for greater-than we check logit(target digit) 
+
+> logit(source digit). 
+
+Pair filtering. To ensure the success rate measures genuine prediction flips rather than noise from already-incorrect predictions, we filter to only include pairs where the source prompt correctly predicts the source answer before any intervention. This typically retains 90–98% of pairs for IOI and gendered pronouns, and 57–77% for greater-than (reflecting its lower baseline capability). 
+
+C.5 Fairness Considerations 
+
+To ensure a fair comparison between in-loop and post-hoc approaches: • Layer selection : Each model is evaluated at its own optimal layer as determined by causal mediation. The parity bottleneck is evaluated where its features participate in the circuit; post-hoc SAEs are evaluated where their base model concentrates the relevant computation. • Feature budget : All methods use k = 48 active features (matching the parity bottleneck’s total active feature count), and we evaluate at the same values of edits ( k = 1 , 2, 4). • Pair filtering : The same filtered pair set is used for all methods on each task, ensuring identical evaluation conditions. • Multiple SAE architectures : We evaluate four post-hoc SAE variants (TopK, BatchTopK, JumpReLU, Matryoshka BatchTopK) to demonstrate that the gap is not specific to one SAE training method but reflects a fundamental limitation of post-hoc approaches. • Per-prompt optimization : The greedy search operates independently per prompt, avoiding assumptions about which features should universally correspond to task attributes. This does not disadvantage post-hoc methods that may use different features for the same concept across contexts. 24 D Steering 
+
+In initial experiments, we found that different steering strategies provided better results for dense+post-hoc SAE vs DPB features. In particular, for SAEs, single-layer steering provides a better tradeoff between fluency and concept activation, while for DPB, multi-layer steering works better. We thus compare the two using the best available method for each approach, multi-layer for DPB, and single-layer for SAE. For SAEs we steer at the middle layer of the model (layer 12). Multi layer steering exploits the parity bottleneck’s structural advantage: perturbations at each layer are denoised by subsequent layers’ bottlenecks. This allows small, distributed nudges to compound coherently without accumulating off-manifold noise. The effective alpha range is much lower (2– 10) compared to single-feature steering (20–75) because perturbations are applied at every layer simultaneously. The same concept definitions, seed texts, LLM judge, and scoring rubric are used for both models. The scaling factor α is swept to trace the concept-fluency tradeoff, but differ between PT and baseline due to the aforementioned reasons. 
+
+D.1 Steering Mechanisms Obtaining steering vector Both models use the same contrastive procedure to obtain steering vectors: 1. Collect positive texts (containing the target concept) and negative (contrastive) texts. 2. Run the model, record feature activations on each set. 3. Compute the difference in mean feature activations between positive and negative sets. 4. Retain the top-k features with the largest positive differential activation. 
+
+Steering vector application For post-hoc SAEs, steering vectors v are top k weighted sums of the the decoder column Wdec [i] normalized to unit norm. For Parity Transformer with DPB, L0 features are standard basis one-hot vectors, while L1+ features are the parity-basis vector. For the baseline, steering vector v is added to the residual stream at the SAE’s hook point during generation: 
+
+x ← x + α · v. For Parity Transformer, since the decoder matrix is not materialized, steering is done by editing the active features and/or their activations. 
+
+D.2 Concept Definition and Feature Selection 
+
+For both models, we define 100 target concepts of simple semantic categories (e.g., “religion,” “space,” “war”) generated by an GPT4o, rather than drawing from Neuronpedia concept databases like in Luo et al. [2026]. This ensures neither model is advantaged by concept granularity mismatched to its capacity: at the 1.3B parameter scale, features tend to be broader than the fine-grained concepts in databases designed for larger models. 
+
+D.3 Evaluation Protocol 
+
+For each concept and steering strength α, we generate text from 30 diverse seed prefixes drawn from AG News (covering business, technology, sports, and science domains). Each generated text is scored by an LLM judge (GPT-4o-mini) on two dimensions: • Concept relevance (0–2): To what extent did the generated text shift toward the target concept compared to unsteered generation from the same seed? • Fluency (0–2): Is the text grammatically correct and naturally flowing? Scores are averaged across seeds for each (concept, α) pair, yielding a single (fluency, concept) point. Sweeping over α traces a Pareto frontier: 
+
+Judge prompt for Concept score 
+
+Below is a BASELINE text (normal model output) and a STEERED text (output after concept injection). Both continue from the same prompt. 25 Your job is to rate whether the STEERED text shows a coherent semantic shift that includes the target concept compared to the BASELINE. The steered text may also shift toward related or co-occurring concepts — this is acceptable and should not be penalized as long as the target concept is present. Only penalize if the shift is toward concepts clearly antithetical to or unrelated to the target. Rate the concept presence on a scale from 0 to 2: - 0: the steered text shows NO shift toward the concept compared to baseline, or shifts in an antithetical direction - 0.5: very subtle hints or slight vocabulary shifts toward the concept - 1: moderate presence of concept-related words, themes, or references (co-occurring related concepts are fine) - 1.5: strong presence of the concept throughout the text - 2: the text is dominated by the concept 
+
+Judge prompt for fluency 
+
+Please act as an impartial judge and evaluate the fluency of the sentence fragment provided below. Focus solely on fluency, disregarding its completeness, relevance, coherence with any broader context, or informativeness. Begin your evaluation by briefly describing the fluency of the sentence, noting any unnatural phrasing, awkward transitions, grammatical errors, or repetitive structures that may hinder readability. After providing your explanation, rate the sentence’s fluency on a scale from 0 to 2, where 0 indicates the sentence is not fluent and highly unnatural (e.g., incomprehensible or repetitive), 1 indicates it is somewhat fluent but contains noticeable errors or awkward phrasing, and 2 indicates the sentence is fluent and almost perfect. 26 E Example steered completions 
+
+Figure 7: Steering examples 
+
+## F Compute Requirements 
+
+Training a single 1.3B ParityTransformer on 20B tokens takes around 160 B200 hours, for an approximate cost of $640, while a 200m ParityTransformer takes around 32 B200 hours, for an approximate cost of $128. We trained 2 variants each for each size for a total of $1,536 to train the ParityTransformer models. Training the dense baselines took under $300. Additionally, the data-poisoning experiments cost around 16 B200 hours, for a total of $64. Training SAE baselines took around 64 B200 hours for a total of $256. The total cost to reproduce all experiments is around $2,200. We estimate that we spent less than $15,000 including preliminary experiments. 27 G Model configuration reference 
+
+Training details for each model are given in table 5. At the 1.3 B (Large) scale we report two dense baseline models: GPT-Large is used for the perfor-mance evaluations in §3.1; GPT-Large-cold is the dense baseline reference for the data efficiency estimate §3.1.1 and interpretability experiments elsewhere in the paper. The PT model evaluated in interpretability experiments (§3.3, §3.4, Appendix C) is PT-Large-2L-Aux ; PT-Small-2L is used for the poisoned-document retrieval experiments (§3.5). PT-Large-2L, PT-Small-3L, and the dense baselines appear only in the performance evaluation (§3.1). PT-Large-2L-Aux uses both the variance and reconstruction auxiliary losses, with weight .05 on variance and .1 on reconstruction. All other models use no auxiliary loss. All PT models are trained trained for 20 B tokens from FineWeb-Edu with sequence length 1024. The dense baselines GPT-Large and GPT-small are stopped early once reaching 1% of the validation loss of PT-Large-2L and PT-Small-3L respectively, while using linear learning rate schedules with planned token budget and warmdown fraction given in table 5 as “ wf ”. Peak learning rate is shown as “Muon / AdamW” when the two are decoupled. To provide as fair an estimate of data efficiency for the large dense model as possible, GPT-Large-cold was trained using a token budget chosen to achieve the target validation loss while exhausting the learning rate schedule, with the specific token budget of 3B tokens determined based on extrapolation from initial hyper-parameter sweeps. Table 5: Canonical models used in the paper.                                                               
+
+> Label Params Layers dLevels Peak LR wf
+> Planned Budget (billion tokens) Stopped Budget (billion tokens)
+> Large (1.3B)
+> PT-Large-2L 1.31B 24 2048 28e-3 / 3e-4 0.5 20 20 PT-Large-2L-Aux 1.31B 24 2048 28e-3 / 3e-4 0.5 20 20 GPT-Large 1.31B 24 2048 —8e-3 / 3e-4 0.5 26 6.82 GPT-Large-cold 1.31B 24 2048 —1e-2 0.5 33
+> Small (203M)
+> PT-Small-3L 203M 12 1024 31.2e-2 0.9 20 20 PT-Small-2L 203M 12 1024 21.2e-2 0.9 20 20 GPT-Small 205M 12 1024 —6e-3 0.4 10 2.13
+
+ParityTransformer hierarchy configurations are detailed in table 6. For a level ℓ, nℓ is the bit-width of the feature index ( 2nℓ features at that level), Kℓ is the number of features active per token, and ∆ℓ is the per-parent budget — the number of children scored per active parent at the previous level. ∆0 is undefined since L0 has no parents. The L0 ( ℓ=0 ) features are basis-aligned with the residual stream; L1+ features are the parity hashes described in §2. Table 6: Per-level dictionary configuration for the ParityTransformer variants in Table 5.                             
+
+> Variant Level ℓnℓ(features = 2 nℓ)Kℓ∆ℓ
+> 2L variants: PT-Large-2L, PT-Large-2L-Aux, PT-Small-2L 0log 2d(d=1024 or 2048 )16 —115 (32,768) 32 256 3L variant: PT-Small-3L 010 (1024) 16 —115 (32,768) 32 256 217 (131,072) 64 256
+
+28
