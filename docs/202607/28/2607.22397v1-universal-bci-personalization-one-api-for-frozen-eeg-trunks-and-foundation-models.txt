@@ -1,0 +1,843 @@
+Title: Universal BCI Personalization: One API for Frozen EEG Trunks and Foundation Models
+
+URL Source: https://arxiv.org/pdf/2607.22397v1
+
+Published Time: Mon, 27 Jul 2026 00:52:40 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# Universal BCI Personalization: One API for Frozen EEG Trunks and Foundation Models 
+
+Sergey Musienko 
+
+sergey@nimbusbci.com 
+
+Abstract 
+
+Frozen EEG encoders proliferate; per-model fine-tune defaults do not scale. We present 
+
+Nimbus Personalizer : one contract encode → Bayesian head → BrainState (optional affine mid-tier) that sits on heterogeneous frozen trunks without a new personalization stack per architecture. Thesis (systems): the contribution is the trunk-agnostic API—not LDA-on-embeddings as an ML novelty—so OEMs integrate once and swap trunks. Evidence: the same surface runs on five classical trunks {EEGNet, Shallow, Deep, Conformer, ATCNet } × 
+
+four MI datasets (18 cells) and on a foundation encoder (REVE) under the same Personalizer. Where embedding capacity exists, the head is a cheap default mid-point versus warm-start fine-tune or PEFT, costing orders of magnitude less adaptation wall time while recovering much of the fine-tune accuracy gain; calibration-only-when-clean holds in 12 /18 cells. Head gains are supporting evidence that the API is useful where capacity exists. Subject-level confidence intervals identify the clearest dataset and span zero elsewhere. All results are exploratory (subject-level bootstrap, no confirmatory tests); the decision logic for when to escalate adaptation is addressed in our companion work on the control layer. 
+
+## 1 Introduction 
+
+Deep MI encoders are no longer a single architecture: EEGNet [Lawhern et al., 2018], Shal-low/Deep ConvNets [Schirrmeister et al., 2017], EEG Conformer [Song et al., 2023], and ATCNet [Altaheri et al., 2023] (among others) all ship as plausible frozen trunks. Session and subject shift remain central failure modes [Lotte et al., 2018, Jayaram et al., 2016]. Our controlled stress here is a synthetic channel-mix stress grid that induces channel mixing and bias (Section 3)—a proxy for recoverable distribution change, not a claim that we have already covered every clinical shift type. The industrial reflex—fine-tune each trunk per user—does not scale as the set of available trunks grows. We ask a systems question: 
+
+Can one personalization API sit on many frozen EEG trunks without per-model fine-tune defaults—and where is that shared surface worth using? 
+
+We answer with Nimbus Personalizer : wrap a frozen encode function, fit a Bayesian head (default LDA) on calibration embeddings, optionally apply a mid-tier affine recovery map, and expose predictions as BrainState . The contribution is not “LDA on frozen features”— that recipe is classical—but a trunk-agnostic personalization contract that makes cheap head adaptation the default integration path across architectures, with encoder fine-tune / PEFT kept as optional, priced escape hatches. 
+
+Relation to companion work. This paper and its companion [Musienko, 2026] form a diptych. The companion establishes the control logic and gating mechanisms for when to spend labels or escalate adaptation levels; the present work focuses on the architectural framework required to execute that logic across diverse frozen models—the trunk-agnostic abstraction that 1arXiv:2607.22397v1 [cs.HC] 24 Jul 2026 makes a single personalization path deployable. The contribution here is that shared surface itself, and the accuracy–cost cells show where it earns its keep. 
+
+Empirical questions. 
+
+1. (Primary) Does one Personalizer API run on heterogeneous frozen trunks (classical + foundation) without per-trunk redesign? 2. Where does the Bayesian head improve utility under shift (supporting: capacity-dependent usefulness)? 3. Is that cheap path competitive with fine-tune / PEFT on cost (EEGNet classical; REVE foundation, including LoRA)? 4. How often does soft cal-only-when-clean transfer, versus a strict ordinal mid-tier schedule? 
+
+Main takeaway. Ship one Personalizer API; treat fine-tune / PEFT as priced escape hatches. The interface is the product; head gains are evidence it is useful where capacity exists—not a claim that one classifier always wins. 
+
+Contributions. 
+
+1. A trunk-agnostic personalization contract—wrap a frozen encoder, fit a Bayesian head on calibration embeddings, optionally apply an affine mid-tier, expose structured predictions— that runs unchanged across five classical trunks and one foundation trunk ( §2– §3). 2. A multi-trunk map of where the stream head improves utility under severe shift, with subject-level confidence intervals ( §4). 3. A transferability analysis of the ladder across 18 trunk ×dataset cells, distinguishing a reliable calibration-only-when-clean default (12 /18) from a conditional strict-ordinal schedule (5 /18) (§5). 4. An accuracy–cost comparison positioning the head as a cheap default versus warm-start fine-tune and PEFT on every classical trunk and on foundation REVE ( §6). 5. A head-family study (LDA/QDA/Softmax) that scopes QDA-dominance to a channel-mix-on-BNCI phenomenon rather than a universal head property, via a cross-stress replication (§7). 
+
+## 2 Personalizer API 
+
+2.1 Contract 
+
+The product chain is deliberately thin: Listing 1: Minimal Personalizer usage (product sketch). 
+
+> from nimbus_bci import wrap, Personalizer enc = wrap(model.encode, model_id="trunk") adapter = Personalizer(encoder=enc, head="lda", classes=["left", "right"]) adapter.fit(X_cal, y_cal)
+> # Each state is a structured object, not a bare label: # {"intent": "left", "confidence": 0.87, "uncertainty": 0.13, # "alternatives": [("right", 0.13)]}
+> states = adapter.predict(X_stream)
+
+2Frozen trunk  
+
+> epochs embeddings
+> Personalizer
+> Bayesian head
+> App state
+> intent + uncertainty
+> One API · many trunks
+
+Figure 1: Nimbus Personalizer surface: any frozen trunk that maps trials to embeddings plugs into the same Bayesian head and structured app-state contract (intent + uncertainty). 
+
+Encoder boundary. Integrators supply a frozen mapping from trials to embedding rows Z ∈
+
+Rn×d (callable, sklearn transformer, or torch module method). Adapters exist for BrainDecode-style trunks (including foundation encoders such as REVE); the classical evaluation uses five conv–attention trunks trained per subject then frozen. 
+
+Heads. Default head is LDA; QDA and an optional Softmax head share the same Personalizer interface (Section 7). Multi-trunk transfer results below lock LDA for comparability with the companion cost story. 
+
+App state. Predictions are not bare labels: each call returns intent hypotheses with predictive uncertainty suitable for downstream decision presets. Decision heuristics that choose whether to escalate are out of scope for this paper (companion control layer). 
+
+2.2 Ladder levels under one API 
+
+We evaluate three personalization levels that the API can express without changing the trunk: 
+
+• L0 — calibration-only Personalizer: Bayesian head fit on calibration embeddings only; no adaptation labels (adaptation-fit cost counted as zero in the shared utility below). 
+
+• L1 — stream Personalizer: L0 head plus online updates on labeled adaptation trials (LDA default). 
+
+• L2 — affine map + head: supervised affine map on embeddings, then the same Personalizer head. 
+
+Notation. Factory / trunk softmax is the pretrained encoder’s own classifier (called L0 in the companion control-layer paper [Musienko, 2026]). Here L0 is always the calibration-only Personalizer head. Frozen always means encoder weights fixed; it never means “no Personalizer.” Cost bake-offs report trunk softmax as a separate factory baseline (Section 6.2). Full fine-tune (L3) is an escape hatch on every classical trunk in the transfer suite (Sec-tions 6.1, 6.2); the EEGNet denser baselines and Hub REVE bake-off (Section 6.3) add interme-diate adaptation arms (LoRA, last-layer FT) on one classical and one foundation trunk. 33 Evaluation protocol 
+
+3.1 End-to-end pipeline 
+
+Figure 2 is the single picture of what happens to the data before any accuracy or wall number in this paper. Experimental pipeline    
+
+> Motor-imagery
+> datasets
+> BNCI / Zhou /
+> Kumar / Shin
+> Preprocess
+> 8 30 Hz bandpass
+> epoch 0.5 2.5 s
+> Session roles
+> calibration adaptation
+> evaluation
+> Train encoder on
+> calibration, freeze;
+> map trials embeddings
+> Optional synthetic channel-mix stress on adaptation & evaluation EEG
+> mix toward a random channel permutation + signed bias
+> levels {0, 0.25, 0.5, 0.75}; 0 = no synthetic stress
+> L0: cal-only head
+> (Personalizer) or
+> factory trunk
+> softmax (control)
+> L1: online head
+> update on 40
+> labeled trials
+> Comparators:
+> linear probe,
+> affine map, full
+> fine-tune
+> Score on evaluation
+> utility = accuracy
+> fit-time & label costs
+
+Figure 2: Experimental data flow shared with the companion ladder paper. Motor-imagery epochs are bandpass-filtered, assigned to calibration / adaptation / evaluation sessions, used to train then freeze an encoder, optionally stressed with synthetic channel mixing on adaptation and evaluation EEG, mapped to embeddings, then personalized (L0/L1; optional L2 affine map; L3 fine-tune hatch) and scored under shared utility (1). 
+
+Datasets and sessions. We use public motor-imagery corpora via MOABB [Aristimunha et al., 2021] (Table 1). Every subject uses a three-session geometry: calibration = first session, 
+
+adaptation = middle session(s), evaluation = last session. Labeled adaptation budget is n=40 trials when available (Shin clamps to n=20 because the adaptation session is short). Table 1: Datasets in the 18-cell classical map (plus REVE separately). 
+
+Dataset Subjects Classes Notes BNCI2014-004 9 2 Primary offline MI Zhou2016 4 3 Supporting; small n
+
+Kumar2024 18 2 Post-first sessions are online with feedback Shin2017-A 9 2 Short adaptation session ⇒ n=20 clamp 
+
+Preprocessing. Epochs use a shared motor-imagery filter bank: bandpass 8–30 Hz , time window [0 .5, 2.5] s after cue (same band for all classical trunks so cross-trunk comparisons stay fair). Foundation REVE cells that need a wider band use 1–40 Hz under the same window; we do not mix bands inside a classical cell. 
+
+Trunk training and freeze. For each subject and trunk, the encoder is trained on clean 
+
+calibration trials only, then frozen. All personalization operates on embeddings Z obtained by a forward pass through the frozen encoder; the Personalizer never updates trunk weights except in the L3 escape hatch. 4Trunks. Classical map: {EEGNet, Shallow, Deep, Conformer, ATCNet }. Kumar runs the three trunks available in that suite (EEGNet, Shallow, Conformer)—18 cells total. Foundation REVE is evaluated separately under the same Personalizer contract (Section 6.3). 
+
+Synthetic channel-mix stress. After the trunk is frozen we optionally perturb the concate-nated adaptation and evaluation raw multi-channel EEG (not the embeddings) with a controlled operator: a convex mix toward a random channel permutation plus a signed per-channel bias, at stress levels {0, 0.25 , 0.5, 0.75 }. Level 0 disables the synthetic operator; natural session structure may still differ from calibration (especially Kumar). Calibration stays clean. We do not claim this exhausts physical electrode displacement, SNR drop, or every clinical shift—those are out of scope here. 
+
+Adaptation arms scored on evaluation. L0 = calibration-only Personalizer; L1 = online head updates on the labeled adaptation stream; L2 = optional affine map on embeddings then head (protocol mid-tier); L3 = warm-start full fine-tune when the trunk supports it. A matched linear probe appears in cost figures as a control on the same frozen embeddings, not as a ladder level. Primary reported cells use n=40 labeled adaptation trials (Shin: n=20). 
+
+Utility. Levels are compared under a shared utility that trades classification accuracy against adaptation fit time and labeled budget, defined with the companion control-layer paper [Musienko, 2026] as 
+
+U = acc − λw · tadapt − μn · (nadapt /N max ), (1) where tadapt is adaptation fit time in seconds (not end-to-end latency) and nadapt is the number of labeled stream trials spent ( nadapt =0 at L0). The two penalties are in accuracy-equivalent units: λw is the accuracy cost of one second of fit time, and μn is the accuracy cost of a full 
+
+Nmax -trial labeled block. Our primary cells use Nmax =80 with λw=0.02 and μn=0.05; in product terms this reads as “one second of adaptation fit time is priced at 2 pp of accuracy, and a full 80-trial labeled block at 5 pp,” which makes L0/L1/L2 comparable across trunks while keeping the expensive option (full fine-tune) disfavored unless it buys substantial accuracy. These specific weights are an engineering prior, not a fitted optimum; we verified the central cost conclusion (capping at L1/L2 is preferred to always fine-tuning) is robust across a 5 ×5 grid 
+
+λw ∈ { 0.005 , 0.01 , 0.02 , 0.05 , 0.1} × μn ∈ { 0.01 , 0.03 , 0.05 , 0.1, 0.2}: the fraction of cells where full fine-tune is the oracle utility winner stays in 0 .00–0 .28 (BNCI), 0 .03–0 .39 (Kumar), and 0.00–0 .50 (Zhou), and the L1/L2 cap beats always-fine-tune on mean utility at the fixed weights on all three datasets. Subject means; exploratory. 
+
+## 4 Where the Personalizer helps 
+
+The claim in this section concerns stream Personalizer (L1): where does it beat cal-only Personalizer (L0)? We measure the full synthetic channel-mix stress grid {0, 0.25 , 0.5, 0.75 }
+
+(Section 3); trunk-level detail below focuses on severity 0 .75, with the mid-severity sweep in Figure 4. Figure 3 plots severe gains (∆ UL1 −L0 , blue) on every trunk ×dataset cell; orange bars are an optional mid-tier step in the same API (affine-Z then head, ∆ UL2 −L1 ), not a separate component. Figure 3 and Table 2 report which ladder level wins by mean utility at severity 0 .75. L1 and L2 are both cheap relative to full fine-tune (wall times within ∼1.2–1.8 × of each other); the priced contrast with L3 is deferred to Section 6. 5EEGNet     
+
+> Shallow
+> Deep
+> Conformer
+> ATCNet
+> 0.050
+> 0.025
+> 0.000
+> 0.025
+> 0.050
+> Mean utility gain
+> BNCI2014-004 · n=40
+> EEGNet
+> Shallow
+> Deep
+> Conformer
+> ATCNet
+> 0.2
+> 0.1
+> 0.0
+> 0.1
+> 0.2
+> Zhou2016 · n=40
+> stream calibration-only ( U)
+> affine head ( U)
+> EEGNet
+> Shallow
+> Conformer
+> 0.050
+> 0.025
+> 0.000
+> 0.025
+> 0.050
+> Mean utility gain
+> Kumar2024 · n=40
+> EEGNet
+> Shallow
+> Deep
+> Conformer
+> ATCNet
+> 0.050
+> 0.025
+> 0.000
+> 0.025
+> 0.050
+> Shin2017-A · n=20
+> Stream Personalizer vs calibration-only (severe channel-mix; same API)
+
+Figure 3: Severe channel-mix stress: stream Personalizer vs cal-only (blue) is the claim of this section; orange is optional affine mid-tier on top of the same head. Zhou: head helps on every trunk. BNCI: strong on several trunks; ATCNet stays near cal-only. Kumar/Shin: mixed—boundaries on the claim, not failures of the API. 
+
+Zhou — clearest win. Under severe shift, ∆ UL1 −L0 > 0 for every trunk (range ≈ +0 .009 to +0 .18): one API, five trunks, head recovery when capacity exists. Affine is not automatic: it adds utility on EEGNet, Conformer, and ATCNet, while Shallow and Deep remain L1-best by mean U (Table 2). 
+
+BNCI — often useful, not automatic. Head gains are positive for Shallow, Conformer, Deep, and EEGNet ( ≈ +0 .01 to +0 .05); ATCNet’s best mean utility remains L0 in this cell. Deep stays at L1; Shallow/EEGNet/Conformer take the optional L2 step. The API still runs; recovery depends on trunk capacity. 
+
+Kumar / Shin — boundaries. On Kumar severe the winner splits across the three trunks: stream head (L1) on EEGNet, affine (L2) on Shallow, and cal-only (L0) on Conformer. Shin (short adaptation session, n= 20) is likewise mixed: cal-only (L0) on EEGNet/Shallow, stream head (L1) on Deep, affine (L2) on Conformer/ATCNet. These cells bound overclaim: Personalizer is the default integration path, not a guarantee that L1 beats L0 under every shift. 
+
+Not only severe. Figure 4 aggregates the same 18 cells across the full severity grid. At severity 0, stream head beats cal-only in only 5 /18 cells (cal-only-when-clean). Already at 0 .25 the count rises to 12 /18, peaks at 16 /18 for 0 .5, and remains 13 /18 at the severe slice 0 .75. Per-dataset mean ∆ UL1 −L0 turns positive under mid shift on Zhou/BNCI; Kumar stays near 6Table 2: Severe cell (0 .75): mean-utility winner under the shared Personalizer ladder. Shin uses 
+
+n=20; others n=40. 
+
+Dataset n EEGNet Shallow Deep Conformer ATCNet BNCI 9 L2 L2 L1 L2 L0 Zhou 4 L2 L1 L1 L2 L2 Kumar 18 L1 L2 — L0 —Shin 9 L0 L0 L1 L2 L2 
+
+zero—a boundary, not a severe-only artifact. This sweep uses one shift family (synthetic channel mixing); other perturbations (electrode drop, SNR) are out of scope here. 0 0.25 0.5 0.75    
+
+> Synthetic channel-mix stress level
+> 0
+> 5
+> 10
+> 15
+> Cells with  U(L1  L0) > 0 (/18)
+> 5/18
+> 12/18
+> 16/18
+> 13/18
+> Suite: stream head beats calibration-only
+> 00.25 0.5 0.75
+> Synthetic channel-mix stress level
+> 0.02
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> Mean  U(L1  L0)
+> Per-dataset mean head gain
+> BNCI
+> Zhou
+> Kumar
+> Shin
+> Personalizer head across synthetic channel-mix severities
+
+Figure 4: Personalizer head across severities (18 trunk ×dataset cells; same channel-mix protocol). Left: cells with positive mean ∆ UL1 −L0 . Right: per-dataset mean of that gain. Mid shift already recovers; severe is the detailed slice above, not the only supporting point. 
+
+## 5 Transferability of the ladder across cells 
+
+Having shown where the stream head helps, we ask what strict ordinal pattern repeats across the 18 trunk ×dataset cells (Figure 5, Table 3). This is a secondary boundary analysis—not the main contribution. 
+
+• Clean → L0: cal-only Personalizer best by mean U at severity 0. 
+
+• Severe → L2: optional affine mid-tier best at severity 0 .75 (stronger than “L1 helps”; Section 4). 
+
+• Strict ordinal: both of the above (suite flag principle holds ). 
+
+Interpretation. The Personalizer API is universal in the engineering sense: one contract, many trunks, runnable ladder levels. Cal-only-when-clean is the reliable operational default (12 /18; BNCI EEGNet/Shallow are clean exceptions after recalculation). Requiring severe →L2 is a strict mid-tier schedule: it holds on 9 /18 cells (Zhou 3 /5), and the joint ordinal flag on 5/18. That is consistent with Section 4: stream head recovery is broader than “always take affine.” Policy escalation remains a design principle for recoverable structure, not a universal law—aligned with the companion paper [Musienko, 2026], now at trunk resolution. 7BNCI Zhou Kumar Shin                                              
+
+> EEGNet
+> Shallow
+> Deep
+> Conformer
+> ATCNet
+> no yes yes yes
+> no yes yes no
+> yes yes no
+> yes yes yes no
+> yes yes no
+> Clean best = calibration-only (L0)
+> BNCI Zhou Kumar Shin
+> EEGNet
+> Shallow
+> Deep
+> Conformer
+> ATCNet
+> yes yes no no
+> yes no yes no
+> no no no
+> yes yes no yes
+> no yes yes
+> Severe best = affine (L2)
+> BNCI Zhou Kumar Shin
+> EEGNet
+> Shallow
+> Deep
+> Conformer
+> ATCNet
+> no yes no no
+> no no yes no
+> no no no
+> yes yes no no
+> no yes no
+> Strict ordinal (both)
+> Same Personalizer ladder across trunks (18 cells)
+
+Figure 5: Transfer map for the same Personalizer ladder (18 cells). Green = criterion holds; red = fails; dash = trunk not in suite. Cal-only-when-clean transfers often; requiring severe →L2 is a strict mid-tier schedule and is much more conditional. Table 3: Pooled and per-dataset transfer counts (exploratory; mean-U winners). Strict ordinal = clean →L0 and severe →L2. 
+
+Slice Clean →L0 Severe →L2 Strict ordinal Zhou 5/5 3/5 3/5BNCI 3/5 3/5 1/5Kumar 3/3 1/3 1/3Shin 1/5 2/5 0/5
+
+Pooled 12 /18 9/18 5/18 
+
+Statistical caveat (counts are small). The pooled counts rest on 18 trunk ×dataset cells. A Wilson 95% CI on the 12 /18 cal-only-when-clean rate is [0 .44 , 0.84]: the interval includes the 0 .5chance rate, and against that null the one-sided p = 0 .119 does not survive Holm/BH correction across the count-claim family. The strict-ordinal 5 /18 ([0 .12 , 0.51]) is not significant against the 0.25 null for two independent conditions ( p = 0 .481), and severe →L2 (9 /18, [0 .29 , 0.71]) is at chance. The counts therefore support a soft, dataset-dependent tendency (strong on Zhou, weak on Shin) rather than a quantified universal rule; “reliable default” above means operationally, not statistically at n=18. 
+
+## 6 Adaptation cost 
+
+Cost evidence has one core comparison on every classical trunk (Personalizer vs warm-start full FT, plus a linear-probe control) and two spotlight extended baseline configurations (EEGNet classical reference; Hub REVE foundation reference). Last-layer FT and LoRA—intermediate adaptation methods between the head and full fine-tune—stay in the spotlights: they are architecture-specific rather than universally available across the multi-trunk map. 
+
+6.1 Adaptation fit cost across trunks 
+
+Figure 6 reports mean adaptation fit wall time at severity 0 .75 (same transfer protocol; subject means): L1/L2/L3 on every classical trunk. Cal-only L0 has zero stream adaptation fit by construction. On CUDA, L1/L2 stay in the millisecond-to-tens-of-ms band on BNCI and sub-8second on Zhou, while L3 is ∼0.05–0.8 s depending on trunk (ATCNet the slowest)—still far above the Personalizer head. Accuracy for the same L3 cells is in Section 6.2. This is fit cost, not inference latency. EEGNet 
+
+> Shallow
+> Deep
+> Conformer
+> ATCNet
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+> Adaptation fit time (s)
+> 3 ms 5 ms
+> 93 ms
+> 26 ms
+> 46 ms 47 ms
+> 4 ms 6 ms
+> 91 ms
+> 8 ms 11 ms
+> 0.26 s
+> 18 ms 24 ms
+> 0.71 s
+
+BNCI2014-004 · severe · n=40 
+
+> EEGNet
+> Shallow
+> Deep
+> Conformer
+> ATCNet
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+> Adaptation fit time (s)
+> 6 ms 8 ms
+> 0.13 s
+> 38 ms
+> 58 ms
+> 78 ms
+> 6 ms 8 ms
+> 93 ms
+> 11 ms 14 ms
+> 0.32 s
+> 20 ms 27 ms
+> 0.79 s
+
+Zhou2016 · severe · n=40 
+
+> Bayesian head (L1)
+> Affine + head (L2)
+> Full FT (L3)
+
+Personalizer adapt cost vs full FT (L0 wall = 0; L3 = all classic trunks) 
+
+Figure 6: Adaptation fit time under the same Personalizer API (severe, n= 40; CUDA). Blue: stream Personalizer (L1); orange: affine+head (L2); black: full FT (L3) on every classical trunk. Independent y-scales per dataset. Cal-only L0 stream wall is zero. 
+
+6.2 Personalizer vs full fine-tune (all classical trunks) 
+
+Core block. On every classical trunk we compare cal-only Personalizer (L0), stream Personalizer (L1), a matched sklearn linear probe on the same frozen Z, and warm-start full FT (L3) under the transfer protocol (Figure 7, Table 4; severe, n=40, CUDA). Wall times alone were in Figure 6; here we close the accuracy–cost loop and ask whether Bayesian personalization is just “any head on Z.” 9EEGNet 
+
+> Shallow
+> Deep
+> Conformer
+> ATCNet
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+> Accuracy
+> BNCI2014-004 · accuracy
+> EEGNet
+> Shallow
+> Deep
+> Conformer
+> ATCNet
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+> Zhou2016 · accuracy
+> Cal-only (L0)
+> Bayesian head (L1)
+> Linear probe
+> Full FT (L3)
+> EEGNet
+> Shallow
+> Deep
+> Conformer
+> ATCNet
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+> Adaptation fit time (s)
+> 31×
+> 2×
+> 24×
+> 33×
+> 40×
+> BNCI2014-004 · adapt fit time
+> EEGNet
+> Shallow
+> Deep
+> Conformer
+> ATCNet
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8  
+
+> 21×
+> 2× 14×
+> 29×
+> 39×
+> Zhou2016 · adapt fit time
+> L0 wall (=0)
+> L1 wall
+> Linear-probe wall
+> L3 wall
+
+Core: L0 / Bayesian head / linear probe / full FT (severe · n=40) Figure 7: Core multi-trunk cost block (severe, n= 40). Top: accuracy for cal-only (L0), stream Personalizer (L1), linear probe on frozen Z, and warm-start full FT (L3). Bottom: adapt fit wall (L0 stream wall is zero) with L3/L1 ratios. Per-trunk recovery ratios are in Table 4. Table 4: Core severe n= 40: mean accuracy for cal-only L0, Bayesian L1, linear probe (LP), and warm-start L3; L3/L1 wall ratio. Recovery = ( acc L1 − acc L0 )/(acc L3 − acc L0 ). “ ≥FT” means acc L1 ≥ acc L3 .
+
+Dataset Trunk Acc L0 Acc L1 Acc LP Acc L3 Recovery Wall L3/L1 BNCI EEGNet 0.514 0.550 0.514 0.548 ≥FT ∼31 ×
+
+BNCI Shallow 0.495 0.572 0.580 0.553 ≥FT ∼2×
+
+BNCI Deep 0.497 0.573 0.536 0.594 78% ∼24 ×
+
+BNCI Conformer 0.500 0.578 0.537 0.618 66% ∼33 ×
+
+BNCI ATCNet 0.501 0.508 0.510 0.602 8% ∼40 ×
+
+Zhou EEGNet 0.333 0.540 0.422 0.498 ≥FT ∼21 ×
+
+Zhou Shallow 0.390 0.425 0.445 0.543 23% ∼2×
+
+Zhou Deep 0.335 0.470 0.462 0.482 92% ∼14 ×
+
+Zhou Conformer 0.338 0.398 0.377 0.488 40% ∼29 ×
+
+Zhou ATCNet 0.333 0.425 0.453 0.527 47% ∼39 ×
+
+Accuracy. On most trunks the Bayesian head recovers a large fraction of the L3 gain over cal-only (often ∼65%–90%) and beats the matched linear probe (EEGNet/Deep/Conformer on both datasets). Shallow and ATCNet are the probe-competitive cells: LP can edge L1 by a few points while both stay far below L3 wall cost—so Personalizer is not magically always best on raw accuracy, but it remains the chosen default (same API, UQ/ BrainState ). BNCI Shallow is still the Pareto win vs FT: L1 matches or beats L3 at ∼2× wall. ATCNet on BNCI remains the capacity boundary where L3 buys accuracy the cheap heads do not. 10 Mid severity, not only severe. Figure 7 and Table 4 use severity 0 .75 as the hard accuracy slice (largest FT residual). At mid severity the head is closer to FT: across BNCI+Zhou subject cells, stream L1 matches or beats warm-start L3 on accuracy in about half of cells at 0 .25/0 .5(∼52%/ ∼57%) versus ∼43% at 0 .75. Wall L3/L1 ratios stay in the same expensive band at every severity, so mid shift strengthens the “head first” default; severe is where FT most often still buys residual pp. 
+
+Cost. Except Shallow ( ∼2×), L3/L1 wall ratios sit in the ∼14 ×–∼41 × band on CUDA—the same qualitative pricing as the REVE bake-off: FT is the expensive hatch. Under (1) , stopping at L1/L2 is usually preferred unless the accuracy budget explicitly buys L3. 
+
+Spotlight: EEGNet denser baselines. For one classical reference trunk we keep a denser baseline configuration against trunk-softmax frozen, LoRA, and last-layer FT (Figure 8, Table 5). This is a spotlight, not the multi-trunk claim: last-layer / LoRA are EEGNet-specific intermediate adaptation methods. Bake-off walls are protocol-different from ladder L1 (hence ∼23 × on the EEGNet bake-off vs ∼21 ×–40 × in Table 4); both say FT is not the default. Frozen Bayesian  
+
+> head
+> Linear
+> probe
+> LoRA Last-layer
+> FT
+> Full FT
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> Accuracy
+
+BNCI2014-004 · accuracy    
+
+> Frozen Bayesian
+> head
+> Linear
+> probe
+> LoRA Last-layer
+> FT
+> Full FT
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> head recovers 154% of FT acc
+
+Zhou2016 · accuracy    
+
+> Frozen Bayesian
+> head
+> Linear
+> probe
+> LoRA Last-layer
+> FT
+> Full FT
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> Adaptation fit time (s)
+> FT 22.6× head wall
+
+BNCI2014-004 · adapt fit time     
+
+> Frozen Bayesian
+> head
+> Linear
+> probe
+> LoRA Last-layer
+> FT
+> Full FT
+> 0.000
+> 0.025
+> 0.050
+> 0.075
+> 0.100
+> 0.125 FT 22.3× head wall
+
+Zhou2016 · adapt fit time 
+
+> Spotlight: EEGNet denser baselines (severe · n=40; cost bake-off)
+
+Figure 8: Spotlight — EEGNet denser baselines (cost bake-off; severe, n= 40): trunk-softmax frozen, Bayesian head, linear probe, LoRA, last-layer FT, full FT. Same visual grammar as the REVE spotlight (head → linear → last/full); not a claim that every classical trunk exposes the same intermediate adaptation knobs. 11 Table 5: EEGNet severe n= 40 cost bake-off means (trunk-softmax frozen baseline; final evaluation metrics). When FT ≤ frozen we report absolute accuracies (recovery ratio vs FT ∆ acc is not meaningful). Bake-off wall ratio = wall FT /wall head .
+
+Dataset Acc frozen Acc head Acc FT vs FT Bake-off wall BNCI 0.523 0.550 0.512 beats FT ∼23 ×
+
+Zhou 0.393 0.540 0.488 beats FT ∼22 ×
+
+6.3 Spotlight: foundation REVE 
+
+The same Personalizer ladder runs on Hub REVE [El Ouahidi et al., 2025] without a new API (Figure 9): under severe shift, L1 lifts mean utility on Zhou and Kumar; BNCI (3-channel) stays near chance—capacity, not contract, is the limit. As a foundation spotlight we then price the head against linear probe, point LoRA (FFN/head linears; the PEFT intermediate method that is unfair to judge on tiny EEGNet alone), and mean-pooled last-layer / full FT under a matched label budget (Figure 10, Table 6; Modal L40S, warm-start CE with early stopping). Full FT uses a pooled Linear head with differential LR (backbone 10 −5, head 10 −3) rather than the encoder’s raw token-level classifier, which is a weak strawman on multi-channel REVE. L0 L1 L2          
+
+> 0.30
+> 0.35
+> 0.40
+> 0.45
+> 0.50
+> 0.55
+> Mean utility U  0.505 0.499 0.495
+> U L1 L0 = -0.005
+> BNCI
+> L0 L1 L2
+> 0.365
+> 0.384
+> 0.363
+> U L1 L0 = +0.019
+> Zhou
+> L0 L1 L2
+> 0.490
+> 0.520
+> 0.492
+> U L1 L0 = +0.031
+> Kumar
+> Spotlight: REVE Personalizer ladder (severe · n=40)
+
+Figure 9: Frozen REVE under the same L0/L1/L2 Personalizer ladder (severe, n= 40). Head (L1) helps on Zhou and Kumar; BNCI remains a capacity boundary. 12 Bayesian   
+
+> head
+> Linear
+> probe
+> LoRA Last-layer
+> FT
+> Full FT
+> 0
+> 2
+> 4
+> 6
+> 8
+> accuracy (pp)
+> +4.7
+> +5.8
+> +8.7
+> +3.0 +2.8
+
+Zhou2016 · acc vs frozen (pp)   
+
+> Bayesian
+> head
+> Linear
+> probe
+> LoRA Last-layer
+> FT
+> Full FT
+> 0
+> 2
+> 4
+> 6+5.8
+> +4.2
+> +4.9
+> +2.1
+> +3.8
+
+Kumar2024 · acc vs frozen (pp)  
+
+> Bayesian
+> head
+> Linear
+> probe
+> LoRA Last-layer
+> FT
+> Full FT
+> 0
+> 2
+> 4
+> 6
+> Adaptation fit time (s)
+> ×2
+> ×8
+> ×6
+> ×36
+
+Zhou2016 · adapt fit time  
+
+> Bayesian
+> head
+> Linear
+> probe
+> LoRA Last-layer
+> FT
+> Full FT
+> 0
+> 2
+> 4
+> 6
+> ×1
+> ×16
+> ×12
+> ×51
+
+Kumar2024 · adapt fit time 
+
+> Spotlight: REVE denser baselines (severe · n=40; accuracy × price)
+
+Figure 10: Spotlight — Hub REVE denser baselines (severe, n= 40). Top: ∆acc vs frozen Personalizer (cal fit only). Bottom: adaptation fit wall. Arms: head / linear / LoRA / last / full — LoRA is the honest PEFT intermediate method on a large pretrained trunk (EEGNet LoRA alone is not). Last-layer / full FT use the same mean-pooled Linear head as LoRA (not the encoder’s raw token-level classifier); full FT uses differential LR. Table 6: Frozen REVE severe n= 40: Personalizer vs LoRA / last-layer / full FT (mean accuracy and adapt wall; Modal L40S; pooled-head FT recipe). ∆ acc is vs frozen Personalizer (cal fit only). Wall ratio = wall /wall head . Zhou: 4; Kumar: 18. 
+
+Dataset Acc frozen Acc head Acc LoRA Acc last Acc full Wall LoRA/head Wall full/head Zhou 0.365 0.412 0.452 0.395 0.393 ∼8× ∼36 ×
+
+Kumar 0.490 0.548 0.539 0.511 0.528 ∼16 × ∼51 ×
+
+Price. Personalizer adapt wall stays sub-second ( ∼0.15 s); point LoRA sits at ∼8×–16 × head wall; pooled last-layer / full FT at ∼6×–51 ×.
+
+Pareto. Even with a fair pooled-head FT recipe (differential LR; Dropout/BN in eval), short full FT at n= 40 does not overturn the head default: on Kumar the head still leads (+5 .8 pp vs LoRA +4 .9, full +3 .8, last +2 .1); on Zhou LoRA is the best PEFT intermediate method (+8 .7 pp at ∼8×), while pooled last/full stay near +3 pp at much higher wall. A prior last-layer arm using the encoder’s raw token-level classifier looked stronger but was an unfair high-capacity strawman relative to the encode contract—we do not cite it. 
+
+Claim boundary. We do not claim that frozen REVE + Personalizer matches cal-trained EEGNet absolute accuracy. We claim a cheap API mid-point on a foundation trunk: escalate to LoRA / encoder FT only when the accuracy budget justifies ∼8×–50 × adapt cost. 13 7 Head choice: LDA versus QDA versus Softmax 
+
+The multi-trunk transfer map (Sections 4–5) locks LDA as a fixed baseline. This section asks an API-design question that the baseline cannot answer: should the Personalizer contract hardcode 
+
+one classifier, or expose an interchangeable head parameter ( head="lda"|"qda"|"softmax" )? A single hardcoded head is only safe if one classifier is universally best; if head optimality is dataset- or stress-dependent, a modular head is the correct contract. We therefore ran QDA and Softmax alongside LDA on every classical trunk × dataset cell (severe and clean, n= 40; Table 7). On the EEGNet reference trunk the picture is: QDA edges LDA on BNCI (+0 .008 
+
+U , accuracy 0 .558 vs 0 .550) but loses on Zhou ( −0.040), while Softmax is roughly two orders of magnitude slower to fit ( ∼0.46s vs ∼0.004s) without a utility payoff—so across the field no single head dominates, and under the shared utility QDA is the best head on BNCI for every trunk while on Zhou the best head is dataset-dependent. A caveat matters for the API design: channel mixing—the operator used throughout this paper—is the stress family where quadratic boundaries happen to shine, so the BNCI QDA edge in Figure 11 is the favorable case. Appendix A validates the same heads under three further stress families and finds LDA more stable overall, which is precisely why LDA remains the API default rather than QDA. Table 7: Multi-trunk head family under the shared utility, severe channel-mix (0 .75; BN-CI/Zhou/Kumar n= 40, Shin short-stream n= 10). Mean utility U by trunk × dataset; bold =best head per row. QDA is best Personalizer head in 13 /20 cells; on BNCI it wins 4 /5 overall (ATCNet stays factory-best under U ); elsewhere the winner is dataset-dependent.                                                                                                                                   
+
+> Dataset Trunk Ufrozen ULDA UQDA USoftmax best BNCI eegnet 0.522 0.525 0.533 0.496 QDA BNCI shallow 0.481 0.546 0.564 0.518 QDA BNCI deep 0.468 0.548 0.604 0.509 QDA BNCI conformer 0.483 0.552 0.564 0.496 QDA BNCI atcnet 0.501 0.483 0.500 0.481 frozen Zhou eegnet 0.393 0.515 0.475 0.507 LDA Zhou shallow 0.372 0.399 0.436 0.361 QDA Zhou deep 0.362 0.448 0.425 0.456 SM Zhou conformer 0.335 0.371 0.357 0.351 LDA Zhou atcnet 0.365 0.398 0.408 0.413 SM Shin eegnet 0.497 0.511 0.526 0.485 QDA Shin shallow 0.478 0.502 0.498 0.496 LDA Shin deep 0.498 0.502 0.521 0.508 QDA Shin conformer 0.503 0.507 0.519 0.490 QDA Shin atcnet 0.497 0.492 0.492 0.475 frozen Kumar eegnet 0.511 0.508 0.532 0.493 QDA Kumar shallow 0.516 0.494 0.495 0.482 frozen Kumar deep 0.501 0.540 0.527 0.499 LDA Kumar conformer 0.497 0.491 0.504 0.481 QDA Kumar atcnet 0.480 0.494 0.504 0.505 SM
+
+On BNCI severe, QDA is the top arm for 4 /5 trunks (ATCNet stays factory-best under U ); the EEGNet QDA gain over LDA is modest (+0 .008 U ). Across the 20-cell matrix QDA is the best Personalizer head in 13 /20 cells. QDA dominance does not generalize: on Zhou, Shin, and Kumar the best head is dataset-dependent (LDA/QDA/Softmax/frozen each win on different cells), and on Kumar/Shin the factory decoder still wins some cells under U . The honest reading is that head-choice under severe shift is not governed by a single rule ; it depends on the trunk ×dataset pair, and no head (including QDA) is universally best. 14 How head choice varies. Head choice varies along three axes. Statistically , subject-level paired-bootstrap 95% CIs first average repeated trunk measurements within each participant, then resample participants. The QDA-over-LDA gain on BNCI is +0 .022 U , [+0 .001 , +0 .049], 
+
+n= 9 subjects; the L1-over-L0 gain on Zhou is +0 .080, [+0 .002 , +0 .162], n= 4. For BNCI, Kumar, and Shin, the L1–L0 intervals span zero. Across datasets , on a held-out Shin/Kumar sweep the structural claim (the default head closes most of the room available to denser intermediate adaptation methods) generalizes , but the head-dominance pattern does not: QDA beats factory under U in 9 /10 BNCI/Zhou cells but only 7 /10 of the pooled field, and the BNCI/Zhou “ATCNet capacity boundary” inverts on Shin (∆ U =+ 0.043) and Kumar (∆ U =+ 0.042). Across stress families , re-running the head family under three further synthetic operators (amplitude scaling, channel dropout, SNR noise; 5 trunks × 3 datasets) the pooled QDA-minus-LDA effect is near zero or negative ( −0.015, −0.006, +0 .001; only feature shift trends positive at +0 .007); the full per-cell sweep is reported in Appendix A. Together these results place QDA’s advantage in the channel-mix-on-BNCI setting. LDA therefore remains the API default, with QDA available to benchmark per trunk ×dataset ×stress. Figure 11 maps the full field; the 18-cell ladder map uses Kumar ×{ EEGNet, Shallow, Conformer }, while Table 7 and Figure 11 also report Kumar Deep/ATCNet from the same harness as extra cells outside that count. EEGNet                                                   
+
+> Shallow
+> Deep
+> Conformer
+> ATCNet
+> BNCI
+> Zhou
+> Shin
+> Kumar
+> 0.52 0.48 0.47 0.48 0.50
+> 0.39 0.37 0.36 0.33 0.36
+> 0.50 0.48 0.50 0.50 0.50
+> 0.51 0.52 0.50 0.50 0.48
+> Factory U
+> EEGNet
+> Shallow
+> Deep
+> Conformer
+> ATCNet
+> BNCI
+> Zhou
+> Shin
+> Kumar
+> +0.01 +0.08 +0.14 +0.08 -0.00
+> +0.08 +0.06 +0.06 +0.02 +0.04
+> +0.03 +0.02 +0.02 +0.02 -0.00
+> +0.02 -0.02 +0.03 +0.01 +0.02
+> QDA factory U
+> EEGNet
+> Shallow
+> Deep
+> Conformer
+> ATCNet
+> BNCI
+> Zhou
+> Shin
+> Kumar
+> QDA QDA QDA QDA Fac
+> LDA QDA SM LDA SM
+> QDA LDA QDA QDA Fac
+> QDA Fac LDA QDA SM
+> Best head under U
+> 0.30
+> 0.35
+> 0.40
+> 0.45
+> 0.50
+> 0.55
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> Fac
+> LDA
+> QDA
+> SM
+> Personalizer head-family field (severe channel-mix)
+
+Figure 11: Personalizer head-family field across 5 trunks × 4 datasets (severe channel-mix 0.75). Left: factory (trunk softmax) utility—broken everywhere under severe shift. Middle: QDA −factory ∆ U (QDA helps where > 0); QDA-dominance is concentrated on BNCI. Right: best head under U per cell—no single head wins across the field. Kumar Deep/ATCNet are extra head-bakeoff cells outside the 18-cell ladder map. 
+
+Does QDA clear the label tax? At n= 40 the utility’s label term is μn(n/ 80) = 0 .025. On BNCI QDA clears it for four of five trunks (only ATCNet stays at parity with the factory decoder). On Zhou every head clears the label tax over frozen, but the best head varies. On Kumar, where the frozen decoder is comparatively strong under severe shift, the label tax is 
+
+not cleared on Shallow (1 /5 cells)—spending labels on a head loses utility versus doing nothing there. Label-tax clearance is therefore common but not universal. 
+
+Default head. LDA remains the API default (no optional dependency, chosen for comparability across the multi-trunk map). The multi-trunk field downgrades QDA from a candidate universal default to a BNCI-concentrated strong option : on BNCI it is the best head under U for 4/5 trunks (ATCNet stays factory-best), but on the other three datasets the integrator should benchmark LDA/QDA/Softmax per trunk ×dataset rather than assume one. Softmax stays optional for UQ-oriented deployments. 15 8 Discussion 
+
+API surface. Nimbus Personalizer is a single contract: wrap any frozen encode , personalize with a Bayesian head, optionally escalate to affine-Z, ship BrainState . The primary contribution is that shared surface (systems), not a new classifier family: OEM integrators integrate once and swap trunks instead of standing up a fine-tune / PEFT pipeline per architecture. In that light the head-family study of Section 7 is a validation of API flexibility, not an ML-novelty claim: because head optimality is dataset- and stress-dependent, the Personalizer must keep heads modular (an interchangeable parameter) rather than hardcoded, with LDA as the safe default. Head and cost cells show where the surface earns its keep when capacity exists, and that cal-only is a cheap no-op when clean already wins. 
+
+Downstream consumers of BrainState . The Personalizer stops at a structured prediction object: primary intent, normalized uncertainty, and ranked alternatives—not a bare label. The uncertainty is empirically calibrated where it matters most: under severe shift the LDA head’s expected calibration error falls well below the frozen trunk’s on both primary datasets (BNCI 0.22 → 0.10, Zhou 0 .27 → 0.09; EEGNet, n= 40), so the BrainState confidence field is a signal a downstream controller can act on rather than an uninterpreted score. A future Decision Engine can treat those fields as inputs to observe–allocate–adapt loops without changing the encoder–head contract. We deliberately do not specify allocation rules here: the public core exposes calibrated signals; control logic that spends resources remains a separate layer [Musienko, 2026]. 
+
+Runtime and storage cost of the head. The cost story is not only adaptation fit time (Section 6). At inference, the Personalizer head adds a single matrix operation on top of the frozen forward pass: measured per-trial latency on an Apple MPS device is 2 .1 ms p50 for EEGNet and 7 .6 ms for the larger Shallow trunk ( n= 9, BNCI), well within a real-time BCI loop. On the storage side, personalization under full fine-tune checkpoints the entire trunk per user, whereas the Personalizer persists only the head’s sufficient statistics: on foundation REVE the trainable-parameter contrast is stark—full fine-tune updates ∼6.9×10 7 parameters, point LoRA ∼6.1×10 4, last-layer ∼1.5×10 3, and the Bayesian head zero (it stores only class means and covariance). Per-user state therefore scales with embedding dimension, not trunk size, which is what makes the head the deployable default for a multi-user OEM surface. 
+
+Foundation trunks. Larger frozen foundation encoders fit the same design insofar as they expose a frozen trial-to-embedding map. On pretrained REVE the Personalizer remains far cheaper than short last-layer / full fine-tune; point LoRA is the PEFT intermediate method that is unfair to reject from EEGNet-only walls (Figure 10). Absolute REVE accuracy stays below cal-trained classical trunks; the thesis is one API with a cheap personalization mid-point, not foundation SOTA. We note for the BCI reader that classical Riemannian pipelines (e.g., tangent-space LDA on signal covariances) give strong session transfer on raw EEG but cannot be applied directly to the frozen embedding spaces of deep or foundation trunks; the Personalizer head is what bridges deep representation learning with instant Bayesian calibration on those embeddings. 
+
+Other synthetic stresses (supporting, not remapped). The multi-trunk severity map and cost figures in this paper use one synthetic operator family—channel mixing—plus natural session structure as a clean/gate check, which keeps the ladder comparable across trunks. Earlier BNCI2014-004 EEGNet recovery cells under a different protocol (LOSO factory, same-day cal/eval, n= 20) also stress one-channel dropout and mild channel mixing; because that timing harness differs from the ladder suite, we report those cells separately in Appendix B rather than 16 merge them with the ladder-transfer ratios here. Physical electrode displacement and clinical SNR remain untested. 
+
+Scope and limitations. Our evaluation is scoped to specific boundaries, stated positively. 
+
+• Ladder schedule. The ordinal severity →level pattern is conditional rather than law-like: strict ordinal escalation holds on 5 /18 cells and severe →L2 on 9 /18, so we report calibration-only-when-clean (12 /18) as the reliable default and the stricter schedule as dataset-dependent. 
+
+• Stress coverage. The main severity sweep uses synthetic channel mixing for cross-trunk comparability; physical electrode displacement and clinical SNR remain for future work, and the Table 9 supporting cells are reported as a separate protocol rather than a remapping of the ladder. 
+
+• Control layer. Allocation rules that spend labels or compute are out of scope here and treated in the companion control-layer paper. The head-dominance boundaries (L1 does not universally beat L0; no single best head; in-termediate PEFT methods stay per-trunk spotlights) are consolidated in the §7 boundaries paragraph. 
+
+Statistics. All cells are subject means over small samples: BNCI n= 9, Zhou n= 4, Kumar 
+
+n= 18, Shin n= 29 (budget clamped to n= 20). Subject-level paired-bootstrap 95% CIs ( §7; 
+
+nboot =2000, seed 0) average repeated trunk measurements within participant before resampling participants. The L1-over-L0 gain is nonzero only on Zhou and the QDA-over-LDA gain only on BNCI; the other intervals span zero. Kumar online sessions differ from offline MI; the REVE cost bake-off covers Zhou and Kumar only (BNCI is 3-channel and stays near chance under the same contract). All results are exploratory; no confirmatory tests were pre-registered. 
+
+## 9 Conclusion 
+
+Nimbus Personalizer’s contribution is a trunk-agnostic contract—wrap, Bayesian head, optional affine recovery, BrainState —that runs across five heterogeneous classical trunks and four datasets, and extends to Hub REVE under the same surface without a new personalization stack. Where capacity exists, that surface is a cheap mid-point versus warm-start FT / PEFT; where clean already wins, cal-only is the right no-op (12 /18). Strict ordinal escalation is conditional (5 /18), not the product headline. Ship the Personalizer API as the default personalization path; keep fine-tune / PEFT as priced escape hatches; let companion work decide when to spend. 
+
+## Acknowledgments 
+
+Exploratory multi-trunk results were produced with an internal benchmark suite accompanying Nimbus Personalizer; the suite is not required to use the Personalizer API. 17 References 
+
+Hamdi Altaheri, Ghulam Muhammad, and Mansour Alsulaiman. Physics-informed attention tem-poral convolutional network for EEG-based motor imagery classification. IEEE Transactions on Industrial Informatics , 19(2):2249–2258, 2023. Bruno Aristimunha et al. MOABB: trustworthy algorithm benchmarking for BCIs. Journal of Neural Engineering , 2021. Yassine El Ouahidi, Jonathan Lys, Philipp Th¨ olke, Nicolas Farrugia, Bastien Pasdeloup, Vincent Gripon, Karim Jerbi, and Giulia Lioi. REVE: A foundation model for EEG — adapting to any setup with large-scale pretraining on 25,000 subjects. In Advances in Neural Information Processing Systems , 2025. URL https://brain-bzh.github.io/reve/ .Vinay Jayaram, Morteza Alamgir, Yasemin Altun, Bernhard Sch¨ olkopf, and Moritz Grosse-Wentrup. Transfer learning in brain–computer interfaces. In IEEE Computational Intelligence Magazine , volume 11, pages 20–31, 2016. Vernon J. Lawhern, Amelia J. Solon, Nicholas R. Waytowich, Stephen M. Gordon, Chou P. Hung, and Brent J. Lance. EEGNet: a compact convolutional neural network for EEG-based brain–computer interfaces. Journal of Neural Engineering , 15(5):056013, 2018. Fabien Lotte, Laurent Bougrain, Andrzej Cichocki, Maureen Clerc, Marco Congedo, Alain Rakotomamonjy, and Florian Yger. A review of classification algorithms for EEG-based brain–computer interfaces: a 10 year update. Journal of Neural Engineering , 15(3):031005, 2018. Sergey Musienko. When should a deployed BCI decoder spend adaptation resources? a resource ladder for frozen encoders, 2026. Companion preprint (resource-aware gating). Robin Tibor Schirrmeister, Jost Tobias Springenberg, Lukas Dominique Josef Fiederer, Martin Glasstetter, Katharina Eggensperger, Michael Tangermann, Frank Hutter, Wolfram Burgard, and Tonio Ball. Deep learning with convolutional neural networks for EEG decoding and visualization. Human Brain Mapping , 38(11):5391–5420, 2017. Yonghao Song, Qingqing Zheng, Bingchuan Liu, and Xiaorong Gao. EEG Conformer: convolu-tional transformer for EEG decoding and visualization. IEEE Transactions on Neural Systems and Rehabilitation Engineering , 31:710–719, 2023. 18 A Cross-stress replication of the head family 
+
+The main paper scopes the head-family result (Section 7) to the synthetic channel-mix operator used throughout. To check whether the QDA-dominance finding is an artifact of that one operator or a property of the head, we re-ran the same LDA/QDA/Softmax head bake-off under three further synthetic stress families—amplitude scaling, channel dropout, and SNR noise—on the same five classical trunks × three datasets (BNCI, Zhou, Kumar; 60 cells at severity 0 .75, 
+
+n= 40). This appendix reports that sweep in full so a reader can judge the head family across artifact types, not only channel mixing. 
+
+Protocol. Each stress family perturbs the raw multi-channel evaluation EEG (not the embed-dings) with the same calibration/adaptation/evaluation geometry and the same frozen trunks as the main paper. Amplitude scaling multiplies each channel by a subject-specific factor; channel dropout zeros a random channel; SNR noise adds white Gaussian noise to reach a target SNR. All are applied at the severe level; calibration stays clean. Utility uses the shared definition (1) ;subject-level means and percentile bootstrap 95% CIs use nboot =2000, seed 0. 
+
+Does QDA beat LDA under each stress? Table 8 pools the per-subject QDA-minus-LDA utility delta across the field. The effect is near zero or negative under three of the four families; only channel mixing (the main-paper operator) and feature shift trend positive, and only amplitude scaling’s CI excludes zero (in the wrong direction). QDA dominance is therefore not a stress-family-independent property of the head. Table 8: Cross-stress pooled QDA-minus-LDA utility delta (60-cell field, 5 trunks × 3 datasets, severity 0 .75). Percentile bootstrap 95% CI; nboot =2000, seed 0. “CI ∋ 0” = interval includes zero. Channel mixing is the main-paper operator, reported here for reference.                             
+
+> Stress family Pooled ∆ U(QDA −LDA) 95% CI ncells CI ∋0Amplitude scaling −0.015 [−0.027 ,−0.004] 15 no (QDA worse) Channel dropout −0.006 [−0.017 ,+0 .005] 15 yes Feature shift +0 .007 [−0.008 ,+0 .021] 15 yes SNR noise +0 .001 [−0.009 ,+0 .011] 15 yes
+
+Where does QDA still win? Figure 12 maps the win-rate (cells where QDA is the best Personalizer head) by stress family and trunk. Even in the most QDA-favorable family (feature shift), QDA wins only 9 /15 cells, and the per-trunk win-rate never exceeds chance by a wide margin. The takeaway is consistent with the main paper: LDA is the safe default and QDA is a per-cell option to benchmark, not a universally preferred head. 19 0.02 0.01 0.00 0.01 0.02                        
+
+> Pooled QDA LDA U(95% CI)
+> Amplitude
+> scaling
+> Channel
+> dropout
+> Feature
+> shift
+> SNR
+> noise
+> -0.015
+> -0.006
+> +0.007
+> +0.001
+> QDA vs LDA by stress family
+> EEGNet Shallow Deep Conformer ATCNet
+> Amplitude scaling
+> Channel dropout
+> Feature shift
+> SNR noise
+> 33% 33% 33% 33% 33%
+> 33% 33% 33% 67% 33%
+> 67% 33% 67% 33% 100%
+> 33% 0% 33% 33% 33%
+> QDA win-rate (best head) by stress × trunk
+> Appendix: head family across four synthetic stress families (severe 0.75)
+
+Figure 12: Cross-stress head-family summary (severity 0 .75). Left: pooled QDA-minus-LDA ∆U with 95% bootstrap CI per stress family (blue where the CI excludes zero). Right: fraction of cells where QDA is the best head, by stress ×trunk (60 cells). QDA wins are sparse and stress-dependent; no family produces QDA dominance across trunks. 
+
+Interpretation. The cross-stress sweep closes the “what about other artifacts?” question empirically: the head family is robust as an API (it runs and recovers under all four families) but the ranking of heads is not. Physical electrode displacement and clinical SNR under real recording conditions remain for future work; the four synthetic families here are a controlled proxy, and they already show that any universal head-choice claim would be premature. 
+
+## B Supporting recovery cells under a separate protocol 
+
+These BNCI2014-004 EEGNet cells use a different protocol than the 18-cell ladder map: a leave-one-subject-out factory decoder, same-day calibration/evaluation, and a labeled budget of n=20 rather than n= 40. They corroborate that the Personalizer recovers cheaply when the factory decoder is gated below 0 .70, but because the timing harness differs from the ladder suite their fit-wall ratios ( ∼30 ×) are not comparable to, and must not be merged with, the ladder-transfer CUDA L3/L1 ratios reported in the main text. We list them here for completeness, not as a remapping of the main severity sweep. Table 9: Supporting BNCI2014-004 EEGNet cells under a separate protocol (LOSO factory, same-day cal/eval, n= 20). ∆ acc is Personalizer minus frozen; wall ratio is fine-tune / Personalizer adapt fit. Exploratory. 
+
+Synthetic stress Frozen acc Pers. acc ∆acc Wall FT/Pers. 1-channel dropout 0.654 0.740 +0 .086 ∼30 ×
+
+Mild channel mix 0.542 0.756 +0 .214 ∼34 ×
+
+20
