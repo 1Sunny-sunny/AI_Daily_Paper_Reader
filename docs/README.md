@@ -1,63 +1,57 @@
 ## 最新日报
-- 最新运行日期：2026-07-30
-- 运行时间：2026-07-30 05:20:16 北京时间
+- 最新运行日期：2026-07-31
+- 运行时间：2026-07-31 05:44:09 北京时间
 - 运行状态：成功
-- 本次总论文数：15
+- 本次总论文数：13
 - 精读区：5
-- 速读区：10
+- 速读区：8
 
 ### 今日简报（AI）
-今日精读脑机接口顶会论文，攻克长期稳定解码的死穴，并速览了突触可塑性与医疗AI落地的新进展。  
-最值得关注两个方向：自监督解耦学习让神经信号泛化逼近满分，循环自适应框架则为植入式接口提供了终身学习方案。  
-普通读者不妨从“中风康复的可解释AI需求”入手，立刻能看到技术如何真正照进病房。
-- 详情：[/202607/30/README](/202607/30/README)
+今日精读两篇9分研究，速览三篇高效论文，聚焦脑机接口VR假肢视觉反馈与赫布可塑性极限环学习。  
+最值得关注的是：封闭环路EEG反馈可提升模拟假肢视觉的真实性，而赫布突触可塑性足以自发涌现稳定振荡模式。  
+建议普通读者优先理解这两种“学习型”脑启发机制的潜力，它们正让机器更自然协调。
+- 详情：[/202607/31/README](/202607/31/README)
 
 ### 精读区论文标签
-1. [Self-Supervised Consistency Enhanced Disentangled Learning for Neural Decoding Generalization in Brain-Machine Interface](/202607/30/2607.24023v1-self-supervised-consistency-enhanced-disentangled-learning-for-neural-decoding-generalization-in-brain-machine-interface)  
-   标签：评分：10.0/10、query:sr
-   evidence：脑机接口中的神经解码泛化
-2. [A Cyclic Adaptation-Generalization Framework with Uncertainty-Guided Self-Paced Learning for Long-Term Brain-Machine Interfaces](/202607/30/2607.24031v1-a-cyclic-adaptation-generalization-framework-with-uncertainty-guided-self-paced-learning-for-long-term-brain-machine-interfaces)  
+1. [Evaluating Closed-Loop EEG Feedback for Simulated Prosthetic Vision in Immersive VR: A Sham-Controlled Feasibility Study](/202607/31/2607.23889v1-evaluating-closed-loop-eeg-feedback-for-simulated-prosthetic-vision-in-immersive-vr-a-sham-controlled-feasibility-study)  
    标签：评分：9.0/10、query:sr
-   evidence：面向长期脑机接口的循环适应泛化框架
-3. [Towards simultaneous decoding of kinetic and kinematic movement parameters during grasp and lift task by noninvasive brain imaging](/202607/30/2607.24081v1-towards-simultaneous-decoding-of-kinetic-and-kinematic-movement-parameters-during-grasp-and-lift-task-by-noninvasive-brain-imaging)  
+   evidence：基于脑电引导的神经自适应训练用于模拟假体视觉
+2. [Learning limit cycles via Hebbian synaptic plasticity](/202607/31/2607.24478v1-learning-limit-cycles-via-hebbian-synaptic-plasticity)  
    标签：评分：9.0/10、query:sr
-   evidence：从EEG解码运动和动力学参数用于脑机接口
-4. [EEGForceFusion: Joint Tokenised-Continuous Representation Learning for Subject-Independent Grasp Force Decoding](/202607/30/2607.24126v1-eegforcefusion-joint-tokenised-continuous-representation-learning-for-subject-independent-grasp-force-decoding)  
+   evidence：Hebbian可塑性诱导极限循环，模拟神经节律学习
+3. [Sequence-SOD: Bio-inspired Sequence-aware Spiking ObjectDetection for Event Cameras](/202607/31/2607.26703v1-sequence-sod-bio-inspired-sequence-aware-spiking-objectdetection-for-event-cameras)  
    标签：评分：9.0/10、query:sr
-   evidence：联合令牌化连续学习实现EEG抓取力解码
-5. [Joint Text-Audio Alignment for EEG-to-Text Decoding in Chinese Speech Production and Perception](/202607/30/2607.25626v1-joint-text-audio-alignment-for-eeg-to-text-decoding-in-chinese-speech-production-and-perception)  
+   evidence：用于事件相机目标检测的脉冲神经网络，具有时间动态特性
+4. [Phoneme- vs. Character-Level Targets and Selective State-Space Models for Intracortical Brain-to-Text](/202607/31/2607.26751v1-phoneme--vs-character-level-targets-and-selective-state-space-models-for-intracortical-brain-to-text)  
    标签：评分：9.0/10、query:sr
-   evidence：从EEG信号解码中文语音为文本
+   evidence：皮层内脑到文本解码，音素/字符目标
+5. [Detecting seizure onset and offset times using human intelligence: A critical-transitions-based approach](/202607/31/2607.27105v1-detecting-seizure-onset-and-offset-times-using-human-intelligence-a-critical-transitions-based-approach)  
+   标签：评分：9.0/10、query:sr
+   evidence：用于癫痫检测的脑电时间解码
 
 ### 速读区论文标签
-1. [Synaptic clustering emerges from learning and supports covariance discrimination](/202607/30/2607.24503v1-synaptic-clustering-emerges-from-learning-and-supports-covariance-discrimination)  
+1. [The Sparsity Ceiling: Where Spiking Networks Can and Cannot Trade Activity for Energy](/202607/31/2607.26648v1-the-sparsity-ceiling-where-spiking-networks-can-and-cannot-trade-activity-for-energy)  
    标签：评分：8.0/10、query:sr
-   evidence：研究功能性突触簇及其在神经计算和学习中的作用
-2. [From Dyad to Triad: Eliciting XAI Requirements in Stroke Rehabilitation](/202607/30/2607.25423v1-from-dyad-to-triad-eliciting-xai-requirements-in-stroke-rehabilitation)  
+   evidence：研究脉冲神经网络稀疏性及其对准确率的影响，与神经编码相关
+2. [Navigation driven by bidirectional information transmission between sensing and actuation](/202607/31/2607.26798v1-navigation-driven-by-bidirectional-information-transmission-between-sensing-and-actuation)  
    标签：评分：8.0/10、query:sr
-   evidence：中风康复脑机接口的可解释AI需求启发
-3. [Neonatal Hypoxic-ischaemic Encephalopathy Classification from the EEG and HRV Signals Using a Conformer based Masked Autoencoder](/202607/30/2607.23554v1-neonatal-hypoxic-ischaemic-encephalopathy-classification-from-the-eeg-and-hrv-signals-using-a-conformer-based-masked-autoencoder)  
+   evidence：导航中的双向信息传输模型，类比神经解码
+3. [Spiking Photonic Neurons Based on Two-Section InP Quantum-Well Lasers Integrated on Silicon](/202607/31/2607.26950v1-spiking-photonic-neurons-based-on-two-section-inp-quantum-well-lasers-integrated-on-silicon)  
+   标签：评分：8.0/10、query:sr
+   evidence：研究光子神经元的尖峰动态，模拟生物模式
+4. [Directional Influence Function: Estimating Training Data Influence in Constrained Learning](/202607/31/2607.23388v3-directional-influence-function-estimating-training-data-influence-in-constrained-learning)  
    标签：评分：7.0/10、query:sr
-   evidence：基于EEG解码的新生儿脑病分类
-4. [Stress-Testing EEG Foundation Models for Clinical Decoding: Dataset Identity and Targeted Negative Controls](/202607/30/2607.24519v1-stress-testing-eeg-foundation-models-for-clinical-decoding-dataset-identity-and-targeted-negative-controls)  
+   evidence：约束学习中的影响函数用于模型可解释性
+5. [CogEEGAgent: Toward Autonomous Cognitive EEG Analysis with Grounded Execution and Selection-Aware Verification](/202607/31/2607.25045v1-cogeegagent-toward-autonomous-cognitive-eeg-analysis-with-grounded-execution-and-selection-aware-verification)  
    标签：评分：7.0/10、query:sr
-   evidence：基准测试EEG基础模型的临床解码能力，关注跨被试时间解码
-5. [A Hierarchical Validity-Audit Framework for Neural Mass Models in Simulation-Based Inference: From Observational Coverage to Mechanistic Interpretation](/202607/30/2607.24874v1-a-hierarchical-validity-audit-framework-for-neural-mass-models-in-simulation-based-inference-from-observational-coverage-to-mechanistic-interpretation)  
+   evidence：基于LLM代理的自主认知EEG分析，直接支持神经解码与可解释性
+6. [An Attention-Based Framework for Alzheimers Disease Classification Using Resting-State fMRI](/202607/31/2607.26746v1-an-attention-based-framework-for-alzheimers-disease-classification-using-resting-state-fmri)  
    标签：评分：7.0/10、query:sr
-   evidence：神经群体模型的有效性审计框架提升机制可解释性
-6. [When Branch-Local Shunting Helps: A Gain-Load-Alignment Principle for Dendritic E/I Networks](/202607/30/2607.24990v1-when-branch-local-shunting-helps-a-gain-load-alignment-principle-for-dendritic-ei-networks)  
+   evidence：使用基于注意力的模型从fMRI解码脑活动进行阿尔茨海默病分类
+7. [TreeCCA: Canonical Correlation Analysis via Gradient-Boosted Trees](/202607/31/2607.27027v1-treecca-canonical-correlation-analysis-via-gradient-boosted-trees)  
    标签：评分：7.0/10、query:sr
-   evidence：分析树突分流抑制如何影响神经网络中的群体读出
-7. [LGFNet: A CTC-Guided Local-Global Fusion Framework for Single-Channel Sleep Staging](/202607/30/2607.25197v1-lgfnet-a-ctc-guided-local-global-fusion-framework-for-single-channel-sleep-staging)  
+   evidence：提出使用梯度提升树的可解释CCA方法，可应用于关联神经活动与外部变量
+8. [From Classification to Regression: Using a Fruitfly to Solve Equations](/202607/31/2607.27196v1-from-classification-to-regression-using-a-fruitfly-to-solve-equations)  
    标签：评分：7.0/10、query:sr
-   evidence：CTC引导的单通道脑电睡眠分期框架
-8. [Structure over Depth: A Single-Block Spatio-Temporal Transformer for Multi-Entity Reasoning](/202607/30/2607.23077v1-structure-over-depth-a-single-block-spatio-temporal-transformer-for-multi-entity-reasoning)  
-   标签：评分：6.0/10、query:sr
-   evidence：用于时间动态建模的时空Transformer
-9. [The SpiNNaker2 chip: a many-core platform for flexible and scalable brain-inspired computing](/202607/30/2607.24396v1-the-spinnaker2-chip-a-many-core-platform-for-flexible-and-scalable-brain-inspired-computing)  
-   标签：评分：6.0/10、query:sr
-   evidence：桥接深度学习与类脑计算的神经形态芯片
-10. [CADENCE: A Cardiac Atom Dictionary for Interpretable Neural Concept Extraction from ECG Foundation Models](/202607/30/2607.25244v1-cadence-a-cardiac-atom-dictionary-for-interpretable-neural-concept-extraction-from-ecg-foundation-models)  
-   标签：评分：6.0/10、query:sr
-   evidence：稀疏自编码器从ECG模型中提取可解释概念
+   evidence：果蝇启发式回归框架，利用局部模式库
 

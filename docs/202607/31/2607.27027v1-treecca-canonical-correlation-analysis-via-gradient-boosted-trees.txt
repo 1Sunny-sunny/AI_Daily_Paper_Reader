@@ -1,0 +1,876 @@
+Title: TreeCCA: Canonical Correlation Analysis via Gradient-Boosted Trees
+
+URL Source: https://arxiv.org/pdf/2607.27027v1
+
+Published Time: Thu, 30 Jul 2026 01:05:24 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# TreeCCA: Canonical Correlation Analysis via Gradient-Boosted Trees 
+
+James Chapman 
+
+chapmajw@gmail.com 
+
+# Abstract 
+
+Gradient-boosted trees dominate tabular machine learning, yet canonical correla-tion analysis has always relied on linear or neural encoders. We propose TreeCCA ,the first method to train gradient-boosted tree ensembles end-to-end as CCA en-coders, inheriting their plug-and-play reliability: no architecture design, familiar hyperparameters, and strong performance with defaults. The technical enabler is the Eckart-Young (EY) loss, which supplies closed-form per-sample gradients that slot directly into any standard GBT library (XGBoost, LightGBM) as a custom objective. TreeCCA is the first CCA method to combine nonlinear accuracy with native interpretability: every tree split selects one feature, so gain importances reveal which inputs drive cross-view correlation at no extra cost. We demonstrate these properties on synthetic benchmarks, where TreeCCA matches or exceeds Deep CCA (2.61 vs. 2.43 on Signed Power; 2.93 vs. 2.89 on Hermite), and on a sparse benchmark with zero linear cross-view covariance, where TreeCCA recovers the true support with Precision@ S = 1 .00 at p = 50 while PMD finds no signal. On the UCI HAR sensor-fusion benchmark, TreeCCA achieves comparable ac-curacy to Deep CCA at 5× lower cost, while XGBoost gain importances directly validate a physics-motivated hypothesis about the data — an interpretation not readily available with neural encoders. Across five popular tabular multi-view datasets, TreeMCCA consistently matches or exceeds linear CCA in both nonlinear correlation extraction and downstream classification accuracy. 
+
+# 1 Introduction 
+
+Canonical Correlation Analysis (CCA) [Hotelling, 1936] finds projections of two matched views that maximise cross-view correlations. Multi-omics is one domain where CCA has found significant application: integrating genomics, transcriptomics, and proteomics has revealed gene-expression-to-genotype associations and brain–behaviour relationships that no single-view analysis could un-cover [Parkhomenko et al., 2007, Smith et al., 2015]. Gradient-boosted trees dominate tabular benchmarks [Grinsztajn et al., 2022, Shwartz-Ziv and Armon, 2022], yet no CCA method has ever used them as encoders. We propose TreeCCA : the first method to train gradient-boosted tree ensembles as CCA encoders. The enabling observation is that the Eckart-Young (EY) loss [Chapman et al., 2024] provides closed-form per-sample gradients and a no-spurious-local-minima guarantee, properties that make CCA tractable via any GBT library’s custom objective API with no modification to the library itself. Two practical implementation insights complete the picture: an incremental embedding cache and principled unit Hessians (§4). 
+
+Contributions. 
+
+> Preprint. arXiv:2607.27027v1 [cs.LG] 29 Jul 2026
+
+• First GBT-based CCA. The EY loss provides closed-form per-sample gradients that plug directly into any GBT library’s custom objective API with no modification to the library, and its global optimization landscape is well-characterized (§3). • Efficient training. An incremental embedding cache ( 50 –100 × speedup at R = 500 ) and principled unit Hessians ensure stability and speed (§4). • TreeCCA outperforms Deep CCA on synthetic benchmarks (Signed Power: 2.61 ± 0.04 
+
+vs. 2.43 ± 0.04 ; Hermite: 2.93 ± 0.02 vs. 2.89 ± 0.02 , 5 seeds) (§5.1). • Generalisation at scale. On Split MNIST ( N = 54 k, K = 50 ), TreeCCA outperforms Deep CCA on validation TCC (total correlation captured; 30.4 vs. 25.5); DCCA overfits (train/val = 1 .95 ×), TreeCCA does not ( 1.04 ×) (§5.1.1). • Nonlinear feature recovery. On a sparse benchmark with zero-linear-covariance signal, TreeCCA achieves perfect precision while PMD stays at random baseline. On UCI HAR, the learned feature importances are consistent with a physics-motivated hypothesis about magnitude-driven cross-sensor signal (§5.2). • Extensions. TreeMCCA generalises to M > 2 views and is evaluated on five real-world multi-view benchmarks (§5.2.2; synthetic four-view validation in Appendix K). A siamese single-encoder variant (TreeCCA-SSL) shows that tree encoders can exploit cross-view signals structurally invisible to any affine encoder, opening an avenue for tree-based tabular SSL (Appendix L). 
+
+# 2 Related Work 
+
+Linear and kernel CCA. Classical CCA [Hotelling, 1936, Hardoon et al., 2004] finds optimal linear projections in closed form; Uurtio et al. [2017] and Yang et al. [2021] provide comprehensive reviews of CCA methods, regularisation variants, and applications. Kernel CCA (KCCA) applies CCA in reproducing kernel Hilbert spaces [Hardoon et al., 2004], achieving O(N 2) memory complexity and requiring regularisation for generalisation. A unified implementation of many CCA variants is available as an open-source library [Chapman, 2021]. 
+
+Deep CCA. Andrew et al. [2013] introduced Deep CCA, training neural encoders end-to-end on a CCA objective. Wang et al. [2015] extended it to stochastic mini-batch objectives and Wang et al. [2016] to variational formulations. The Eckart-Young (EY) loss was developed as an unconstrained CCA objective and demonstrated with neural encoders at scales up to 582K features (UK Biobank genetics). Deep CCA is the primary nonlinear CCA baseline, but neural networks frequently underperform gradient-boosted trees on tabular benchmarks [Grinsztajn et al., 2022, Shwartz-Ziv and Armon, 2022] due to threshold structure, feature interactions, and moderate sample sizes — precisely the regime where multi-omics and clinical CCA applications live. 
+
+Sparse CCA. PMD [Witten et al., 2009] is the dominant practical approach: an L1 penalty on loading vectors identifies the sparse feature subset driving cross-view correlation. Considerable research effort has gone into the underlying combinatorial problem — exact sparse CCA is NP-hard [Li et al., 2024] — but no sparsity penalty overcomes the linear objective’s blindness to signals with zero linear cross-view covariance. TreeCCA provides structural sparsity without any penalty: every split selects one feature, so gain concentrates on the discriminative subset. Feature diagnostics (gain, cover, split frequency) are richer than a scalar loading, and nonlinear cross-view signals are handled naturally. 
+
+Gradient-boosted trees on tabular data. Extensive benchmarks [Grinsztajn et al., 2022, Shwartz-Ziv and Armon, 2022] show that XGBoost and LightGBM [Chen and Guestrin, 2016, Ke et al., 2017] outperform neural networks on most tabular datasets. Despite this dominance, no prior work uses GBTs as CCA encoders. Despite the superficially similar name, Canonical Correlation Forests [Rainforth and Wood, 2015] are entirely unrelated: they are a supervised classification method that uses CCA inside each tree node as a split criterion, with no connection to multi-view CCA or unsupervised representation learning. 2Self-supervised learning for tabular data. SCARF [Bahri et al., 2022], SubTab [Ucar et al., 2021], and SAINT [Somepalli et al., 2021] are neural tabular SSL methods. Joint-embedding objectives such as VICReg [Bardes et al., 2022] and Barlow Twins [Zbontar et al., 2021] have driven progress in vision SSL but use neural encoders throughout. TreeCCA opens the possibility of joint-embedding SSL with tree encoders, which we hypothesise may be better suited to tabular feature structure. The primary barrier remains augmentation design: no canonical structure-preserving augmentation exists for general tabular data, and we leave this to future work. 
+
+# 3 Preliminaries 
+
+3.1 The Eckart-Young (EY) Loss 
+
+CCA seeks matrices W1 ∈ Rp1×K and W2 ∈ Rp2×K such that the columns of X1W1 and X2W2 are maximally correlated across views and mutually decorrelated within each view. Classical CCA solves this via a generalised eigenvalue problem requiring inversion of within-view covariance matrices, which is unstable near singularity and architecture-specific (gradients pass through the encoder). The Eckart-Young loss [Chapman et al., 2024] reformulates CCA as unconstrained minimisation over the embedding matrices Z1, Z 2 directly, bypassing the eigenvalue problem entirely. For centred embeddings Zvc = Zv − ¯Zv ∈ RN ×K , define the symmetrised cross-covariance and within-view covariance: 
+
+C = 1
+
+N − 1
+
+ Z⊤
+
+> 1c
+
+Z2c + Z⊤
+
+> 2c
+
+Z1c
+
+, (1) 
+
+V = 1
+
+N − 1
+
+ Z⊤
+
+> 1c
+
+Z1c + Z⊤
+
+> 2c
+
+Z2c
+
+. (2) The loss and its gradient per sample i of view 1 are: 
+
+LEY (Z1, Z 2) = −2 tr( C)
+
+| {z }
+
+> cross-view attraction
+
++ ∥V∥2
+
+> F
+
+| {z } 
+
+> covariance penalty
+
+, (3) 
+
+∂LEY 
+
+∂Z 1,i 
+
+= 4
+
+N − 1
+
+ − Z2c,i + V Z1c,i 
+
+, (4) and symmetrically for Z2,i . The minimum value is − PKk=1 ρ2
+
+> k
+
+, the negative sum of squared canonical correlations, and every local minimum is a global minimum — so optimisation provably recovers the CCA solution. 
+
+The enabling property for TreeCCA is architecture-agnosticity: the gradient in Eq. (4) depends only on the empirical embeddings Z1, Z 2, not on how they were produced. Any encoder — including a GBT ensemble — can therefore be trained end-to-end simply by supplying these per-sample gradients as a custom objective, with the guarantee that doing so converges to embeddings that maximise the canonical correlations. Why alternating regression does not achieve the same, and why the EY formulation is necessary, is discussed in Appendix B. 
+
+3.2 GBT Training with Custom Objectives 
+
+XGBoost and LightGBM [Chen and Guestrin, 2016, Ke et al., 2017] use histogram-based split finding and accept custom objectives that supply explicit gradient and Hessian arrays. Each TreeCCA round fits 2K scalar trees; each tree costs O(N p ) via the histogram approximation, giving total complexity 
+
+O(R · K · N · p) for R boosting rounds, N training samples, K embedding dimensions, and p input features per view. 
+
+# 4 TreeCCA 
+
+4.1 Two-Encoder TreeCCA 
+
+Two boosters B1 : X1 → Z1 ∈ RN ×K and B2 : X2 → Z2 ∈ RN ×K are trained end-to-end. Each embedding dimension k is a separate scalar booster trained on the k-th column of the normalised 3Algorithm 1 TreeCCA 
+
+Require: X1 ∈ RN ×p1 , X2 ∈ RN ×p2 ; embedding dim K; rounds T ; learning rate η
+
+Ensure: Boosters {bv,k }; embed new data as ˆZv = [ bv, 1(Xv ), . . . , b v,K (Xv )]  
+
+> 1:
+
+Initialise 2K scalar boosters bv,k , base margin ← k-th PCA direction of Xv 
+
+> 2:
+
+Zv ← PCA K (Xv ) {initial embeddings, v ∈ { 1, 2}} 
+
+> 3:
+
+for t = 1 , . . . , T do  
+
+> 4:
+
+˜Gv ← 4 
+
+> N−1
+
+ −Z¯vc + VZvc 
+
+, normalised {EY gradient from current (Z1, Z 2), both views simultaneously (Jacobi; Eq. 5)}  
+
+> 5:
+
+bv,k += tree( Xv , ˜Gv,k , H =1) {fit and add one new tree per booster; v ∈ { 1, 2},
+
+k ∈ { 1, . . . , K }} 
+
+> 6:
+
+Zv,k ← Zv,k + η ∆b(t)
+
+> v,k
+
+(Xv ) {update cached embedding with new tree only; v ∈ { 1, 2},
+
+k ∈ { 1, . . . , K }} 
+
+> 7:
+
+end for  
+
+> 8:
+
+return {b1,k }Kk=1 , {b2,k }Kk=1 
+
+gradient ˜Gv (Eq. 5), so any GBT library with a custom scalar objective suffices. At each round, both gradient matrices are computed from the current (Z1, Z 2) before either booster is updated. Algorithm 1 gives the full procedure. The same design works with LightGBM; an alternative joint design using XGBoost’s multi-output API is compared in Appendix D. 
+
+Embedding cache. GBT predictions are additive: Z(t+1) = Z(t) + η tree t(X). Re-evaluating all 
+
+t trees each round costs O(R2N K ) total, which dominates at R > 200 . We maintain a cached Z
+
+and increment it by evaluating only the new tree, reducing cost to O(RN K ) — a 50 –100 × speedup at R = 500 .
+
+Gradient and Hessian. GBT libraries require two arrays per round: a per-sample gradient gi
+
+and Hessian hi, used to compute optimal leaf values via w∗ = − P gi / (P hi + λ) (λ: L2 leaf regularisation). 
+
+Unit Hessians. We set hi = 1 for all samples, giving denominator nℓ + λ and leaf value equal to the average gradient over the leaf — the standard gradient-boosted regression update (Hessian of  
+
+> 12
+
+(y − ˆy)2 is also 1). The true EY Hessian 4  
+
+> N−1
+
+Vkk is near-zero at PCA initialisation ( Vkk ≈ 0), which collapses the denominator to λ ≈ 1 regardless of leaf size, giving a gradient sum over nℓ ≈ 90 
+
+samples rather than an average, causing immediate divergence. 
+
+Gradient normalisation. The raw EY gradient bracket (−Z¯vc + VZvc ) varies in magnitude across components and scales as O(1 /√N ), so without normalisation the effective learning rate differs per component and per dataset size. Normalising both views jointly to a fixed target standard deviation: 
+
+˜Gv = −Z¯vc + VZvc 
+
+max  σ(G1), σ (G2), ϵ  · σtarget , σtarget = 0 .1, (5) makes leaf updates O(η · σtarget /n ℓ) regardless of N , decoupling training speed from dataset size and making η uniformly interpretable. Full derivation in Appendix I. 
+
+Initialisation. Each encoder’s base margin is set to the unscaled PCA projection Z(0)  
+
+> v
+
+= Uv [: , :K]
+
+(economy SVD of the centred view). All non-zero initialisations perform well in practice; we found unscaled PCA marginally best across five seeds (Appendix G). 
+
+Convergence. The EY loss has no spurious local minima under joint gradient descent: every critical point of LEY (Z1, Z 2) over the full embedding matrices is a global minimum (see §3). This guarantee applies to the continuous joint objective and does not extend to the alternating GBT update, which is a two-timescale non-smooth procedure; formal convergence guarantees for alternating boosting remain open. Empirically, TCC plateaus within 200–500 rounds with no divergence or sub-optimal fixed points across all benchmarks (Figure 3). 44.2 TreeMCCA: Multi-View Extension 
+
+The two-view EY gradient (Eq. 4) extends naturally to M ≥ 2 views. The all-pairs EY objective is 
+
+L = P 
+
+> i<j
+
+LEY (Zi, Z j ), and its gradient with respect to view i (before normalisation) is: 
+
+Gi = − X 
+
+> j̸=i
+
+Zjc + Zic 
+
+(M − 1) Vii + X 
+
+> j̸=i
+
+Vjj 
+
+ . (6) At M = 2 , TreeMCCA reduces exactly to TreeCCA. Results on five real-world multi-view datasets are in §5.2.2; a synthetic four-view benchmark is in Appendix K. 
+
+4.3 TreeCCA-SSL: Siamese Single-Encoder Variant 
+
+TreeCCA extends to self-supervised learning via a siamese variant in which a single shared booster is trained on independently augmented views. The algorithm and theoretical analysis are deferred to Appendix L. 
+
+# 5 Experiments 
+
+Default hyperparameters and hardware are listed in Appendix C. Pseudocode for all new methods is provided in Appendix L and K; code will be made available via GitHub upon acceptance. 
+
+5.1 TreeCCA as a Nonlinear CCA: Comparison with Kernel CCA and Deep CCA Synthetic benchmarks. We evaluate on two synthetic benchmarks with K = 3 shared latent dimensions, 5 Gaussian noise dimensions per view ( pv = 8 ), N = 3000 , 20% test split, noise 
+
+σ = 0 .15 . Performance is measured by Total Correlation Captured (TCC) = PKk=1 |ρtest  
+
+> k
+
+|,maximum K. The Signed-Power benchmark encodes latents zk ∼ N (0 , 1) as a cube root in one view and a cube in the other — bijective but nonlinear maps that reduce the linear feature-to-latent correlation to ≈ 0.55 . The Hermite benchmark uses x1k = H2(zk) = z2 
+
+> k
+
+− 1 (even) and x2k = H3(zk) = z3 
+
+> k
+
+− 3zk (odd): probabilists’ Hermite polynomials are orthogonal under the Gaussian measure, so corr( H2(z), H 3(z)) = 0 for z ∼ N (0 , 1) . Linear CCA is therefore structurally blind to the signal — the views share no linear cross-covariance regardless of how the projections are chosen. Table 1 reports peak test TCC over 5 seeds ( {42 , 0, 1, 2, 3}, 500 rounds). TreeCCA tops both baselines: on Signed Power it reaches 2.61 ± 0.04 vs. 2.43 ± 0.04 for Deep CCA ( +7 .5% ) and 
+
+2.28 ± 0.03 for KCCA; on Hermite all three nonlinear methods far exceed linear CCA (near-zero at 
+
+0.14 ), with TreeCCA at 2.93 ± 0.02 edging Deep CCA ( 2.89 ) and KCCA ( 2.68 ). Convergence curves are shown in Appendix A (Figure 3); TreeCCA reaches competitive TCC within 100–150 rounds, without the O(N 2) memory of KCCA. Wall-clock scaling with N is characterised in Appendix F; multi-seed stability curves are in Appendix J. Table 1: Peak test TCC (mean ± std, 5 seeds, N = 3000 , K = 3 , 500 rounds). KCCA: RBF kernel, 
+
+c = 0 .1, γ = 0 .1, O(N 2) training, ∼13s. DCCA: EY loss, 128–64 hidden units, Adam, 1000 epochs. TreeCCA: 500 rounds, ∼50s. Benchmark Linear CCA KCCA (RBF) DeepCCA TreeCCA (ours) Signed Power 1.63 ± 0.04 2.28 ± 0.03 2.43 ± 0.04 2.61 ± 0.04 
+
+Hermite 0.14 ± 0.06 2.68 ± 0.05 2.89 ± 0.02 2.93 ± 0.02 
+
+Training time <0.1s ∼13s ∼300s ∼50s Memory O(N p ) O(N 2) O(N p ) O(N p )
+
+Scalable N > 20 k ✓ × ✓ ✓
+
+Feature importance × × × ✓
+
+55.1.1 Scale: Split MNIST 
+
+To test whether the performance gap holds at realistic scale, we split the MNIST [LeCun et al., 1998] digit image dataset ( N = 60 ,000 , 28 ×28 pixels each) into left and right halves (392 pixels per view), adding 10% dropout noise to each view independently, and train with K = 50 components. This is a pure generalisation test: more components than classes (10), large N , and a high-dimensional signal that a poorly regularised method will overfit. Table 2 shows the result. Deep CCA memorises the training set (train TCC = 49 .7) but generalises poorly (val TCC = 25 .5), a 1.95 × train/val ratio. TreeCCA reaches a lower training TCC ( 31 .6) but generalises better ( 30 .4), a 1.04 × ratio. XGBoost’s built-in regularisation — depth limits, minimum child weight, subsampling — prevents the encoder from fitting noise in the training split. This is the natural behaviour of gradient-boosted trees on moderate-N datasets and is precisely the regime of most multi-omics and clinical applications. Table 2: Split MNIST: left vs. right half-image views ( K = 50 , Ntr = 54 ,000 , Nval = 6 ,000 , seed 42). TCC = PKk=1 |ρk|, max = 50 .Method Train TCC Val TCC Train/Val Linear CCA 13.87 9.41 1.47 ×
+
+DeepCCA (EY) 49.69 25.46 1.95 ×
+
+TreeCCA (ours) 31.59 30.44 1.04 ×
+
+5.1.2 Sensor Fusion: UCI HAR 
+
+The UCI HAR dataset [Anguita et al., 2013, Dua and Graff, 2019] records inertial sensor data from smartphones worn by 30 volunteers performing six activities. We use the raw 2.56-second windows and independently feature-extract the accelerometer and gyroscope channels, treating them as two views. Each view is represented by 36 features: 9 time-domain statistics (mean, std, min, max, q25, q75, RMS, IQR, range) per axis × 3 axes, plus 9 magnitude features (the L2 norm of each statistic across axes). The magnitude features are motivated by the Newton–Euler rotational dynamics: the centripetal acceleration ω × (ω × r) is quadratic in the angular velocity magnitude |ω|, a signal that is nonlinear in any single axis but present in the norm. We train with K = 6 (one component per activity class) using 5 seeds. Linear CCA and TreeCCA are evaluated on test TCC and linear probe accuracy for the 6-way activity classification task. Table 3: UCI HAR accelerometer ↔ gyroscope ( K = 6 , p = 36 , 5 seeds). Linear CCA is deterministic (no std). Deep CCA: EY loss, 128–64 hidden, Adam. Method Test TCC Probe acc. Time/seed Linear CCA 2.63 0.182 <1s Deep CCA 4.67 ± 0.06 0.510 ± 0.010 80s TreeCCA (ours) 4.32 ± 0.22 0.466 ± 0.021 17s Both TreeCCA and Deep CCA substantially outperform linear CCA ( +64% TCC). Deep CCA has a small edge in TCC and probe accuracy, at 5× the wall-clock cost. TreeCCA does not require a GPU; for very large-scale applications, GPU-accelerated training is a drop-in option via XGBoost and LightGBM’s native GPU backends. The deeper practical advantage is ease of iteration: gradient-boosted trees require no architecture search, perform well at the moderate sample sizes typical of multi-omics and clinical CCA applications, and are robust to hyperparameter choice with sensible defaults. Neural encoders, by contrast, typically require tuning of architecture width, depth, and learning rate to realise their potential. A systematic sweep over depth and learning rate confirms TreeCCA’s robustness (Appendix E). For a practitioner starting a new multi-view analysis, TreeCCA is the natural first step. The further distinction is interpretability: unlike neural encoders, XGBoost’s gain importances identify which features drive the cross-sensor signal, making the model’s reasoning legible to practitioners. We examine those importances directly in §5.2.1, where they are consistent with a physics-motivated hypothesis about angular velocity magnitude — an analysis structurally impossible to perform with a neural encoder. 65.2 Nonlinear Feature Recovery: TreeCCA vs. Sparse CCA Structural impossibility of linear sparse CCA. PMD [Witten et al., 2009] assumes cross-view correlation is driven by a small subset of features. This is operationalised by an L1 penalty on linear loading vectors. But the penalty acts on the linear objective: even perfect feature selection cannot recover a signal whose linear cross-view covariance is zero. TreeCCA achieves structural sparsity 
+
+without any penalty: because each split in a decision tree selects exactly one feature as the split criterion, gain concentrates on features that genuinely reduce the EY loss. Features irrelevant to the cross-view signal receive no splits and accumulate zero gain regardless of ambient dimension. 
+
+Synthetic sparse recovery benchmark. S = 5 true features per view encode a nonlinear signal: 
+
+x1k = sgn( zk)|zk|0.5 and x2k = z2 
+
+> k
+
+− 1 (Hermite H2, zero linear cross-view covariance). The remaining p − S features are pure Gaussian noise. N = 500 , K = 5 , 5 seeds. We evaluate 
+
+Precision@ S: fraction of the top-S importance-ranked features that are truly causal. 
+
+Figure 1: Sparse feature recovery on nonlinear signal ( sgn( z)|z|0.5 ↔ z2 − 1, zero linear cross-covariance). Left : Precision@ S vs. ambient dimension p; TreeCCA (blue) achieves 1.00 at p = 50 
+
+and degrades gracefully, PMD (orange) stays at random baseline throughout. Right : TCC vs. p;TreeCCA maintains substantial TCC while PMD remains near zero at all p. Mean ± std over 5 seeds. Table 4: Sparse feature recovery on nonlinear signal ( S = 5 , N = 500 , 5 seeds, mean ± std). 
+
+p Method Precision@ S TCC 50 PMD 0.06 ± 0.05 0.43 ± 0.19 
+
+TreeCCA 1.00 ± 0.00 2.31 ± 0.24 
+
+200 PMD 0.02 ± 0.04 0.54 ± 0.15 
+
+TreeCCA 0.78 ± 0.13 1.75 ± 0.55 
+
+500 PMD 0.02 ± 0.04 0.38 ± 0.06 
+
+TreeCCA 0.26 ± 0.14 1.24 ± 0.32 
+
+2000 PMD 0.00 ± 0.00 0.35 ± 0.11 
+
+TreeCCA 0.06 ± 0.12 0.60 ± 0.17 
+
+7PMD’s failure here is structural, not a matter of tuning: the benchmark signal has zero linear cross-view covariance by construction (Hermite orthogonality), so no L1 penalty on a linear objective can recover the causal features. PMD serves as a reference demonstrating this structural limitation, not as a competitive nonlinear sparse baseline. TreeCCA, by contrast, achieves perfect precision at p = 50 
+
+and degrades gracefully — precision 0.78 at p = 200 , 0.26 at p = 500 — while PMD stays near zero throughout. Even at p = 2000 (p/N = 4 ), where neither method recovers the true support, TreeCCA retains a substantial TCC advantage ( 0.60 vs. 0.35 ). 
+
+5.2.1 Interpretable Feature Selection on Real Data: UCI HAR 
+
+If the magnitude features in the HAR dataset encode the centripetal acceleration structure we hypothesised, they should appear prominently in XGBoost’s learned feature importances — and should do so more strongly for the gyroscope (which directly measures angular velocity ω) than for the accelerometer (which measures the combined linear and centripetal acceleration). Figure 2 shows the result. We use XGBoost’s gain importance: the total reduction in the EY loss objective achieved by splits on each feature, summed across all trees and all K = 6 boosters. For the gyroscope view, magnitude features account for 47% of total gain, with the top two features being gyr_mag_iqr and gyr_mag_std — both encoding the variability of |ω| over the window. For the accelerometer, magnitude features account for 26% of gain, with single-axis range features dominating (locomotion direction is already highly discriminative for the accelerometer). This result makes the feature selection legible in a way that is impossible with DCCA: the gain importances are consistent with the physical intuition that drove the feature engineering. Practitioners can inspect which statistics the model actually uses, remove redundant features, and re-run in seconds. 
+
+Figure 2: Top-20 XGBoost feature importances (gain, summed across K = 6 boosters) for gyroscope (left) and accelerometer (right) views on UCI HAR, seed 42. Magnitude features (orange) account for 47% of gyroscope gain and 26% of accelerometer gain, consistent with the Newton–Euler physics motivation. DCCA has no equivalent: its feature weights are a 64 × 36 matrix with no interpretable structure. 
+
+5.2.2 Multi-View Dataset Sweep 
+
+To assess breadth, we evaluate on five publicly available multi-view datasets (Table 5): Caltech101-7 (6 views, 7 classes), 3Sources (3 views, news articles from three outlets, 6 classes), NUS-WIDE (5 views, image tags and features, 12 classes), Handwritten (6 views, digits in multiple descriptor spaces, 10 classes), and MSRC-v5 (5 views, image descriptors, 7 classes) [Zhang et al., 2024]. These benchmarks have been used by recent deep CCA methods [He et al., 2024, Jin et al., 2015, Yuan et al., 2019]. Each dataset is evaluated with K = C−1 components ( C classes) and 5 seeds. Both methods use all M views jointly: MCCA and TreeMCCA. We report test TCC and linear probe accuracy on the concatenation of all M view embeddings. No preprocessing beyond standardisation is applied to TreeMCCA; XGBoost’s histogram split finding handles high-dimensional views natively. TreeMCCA achieves higher TCC than MCCA on all five datasets. Accuracy gains are largest on 3Sources and MSRC-v5, where the cross-view signal is most nonlinear. Handwritten is the one 8Table 5: Multi-view dataset sweep (mean ± std, 5 seeds). K = C−1 components per dataset (C = number of classes). Both methods use all M views jointly: MCCA and TreeMCCA (train_treecca_multiview ). Acc = linear probe accuracy on concatenated M -view embed-dings.                                                                         
+
+> MCCA TreeMCCA Dataset M/KTCC Acc TCC Acc Caltech101-7 6/6 3.77 ±0.14 0.900 ±0.017 5.16 ±0.09 0.913 ±0.018
+> 3Sources 3/5 1.30 ±0.69 0.176 ±0.083 3.63 ±0.11 0.706 ±0.026
+> NUS-WIDE 5/11 3.03 ±0.11 0.349 ±0.019 5.28 ±0.18 0.365 ±0.022
+> Handwritten 6/9 4.56 ±0.03 0.911 ±0.009 5.43 ±0.05 0.872 ±0.021
+> MSRC-v5 5/6 1.67 ±0.07 0.662 ±0.063 3.47 ±0.22 0.862 ±0.063
+
+exception on accuracy: MCCA achieves 0.911 vs TreeMCCA’s 0.872 , despite TreeMCCA capturing substantially more cross-view variance (TCC 5.43 vs 4.56 ) — higher TCC does not always imply higher linear-probe accuracy when MCCA already embeds the discriminative signal well. t-SNE visualisations of the test embeddings are in Appendix M. 
+
+5.3 TreeCCA-SSL 
+
+Full details and results are in Appendix L. On a synthetic benchmark where the cross-view signal is invisible to any affine encoder, TreeCCA-SSL reaches accuracy 0.630 — 3.8× above random chance ( 0.167 ) and well above PCA ( 0.159 ) — showing that tree encoders can exploit cross-view structure that linear methods structurally cannot. Principled augmentation design for general tabular data remains an open problem. 
+
+# 6 Conclusion 
+
+We have shown that gradient-boosted trees can be trained end-to-end as CCA encoders by treating the EY loss as a custom GBT objective (§4). The result is a nonlinear CCA method with no bespoke training code and no architecture search. The experiments demonstrate that TreeCCA offers three properties in a single method: • Nonlinear and sparse signal recovery. TreeCCA matches or exceeds Deep CCA on synthetic benchmarks (Table 1) and generalises substantially better at scale ( N = 54 k,
+
+K = 50 ; train/val ratio 1.04 × vs. 1.95 ×; Section 5.1.1). On a sparse benchmark with zero linear cross-view covariance, TreeCCA achieves Precision@ S = 1 .00 at p = 50 while PMD finds no signal at any p (Table 4; Section 5.2). • Interpretability. On UCI HAR, XGBoost gain importances directly validate a Newton– Euler physics hypothesis about angular velocity magnitude (Section 5.2.1) — an insight not readily available with neural encoders. • Practical breadth. TreeCCA achieves comparable accuracy to Deep CCA on UCI HAR at 5× lower wall-clock cost. TreeMCCA exceeds linear CCA on TCC across all five heterogeneous multi-view benchmarks, with the largest gains where features are most nonlinear (Table 5). The method extends naturally to M > 2 views and self-supervised learning (Sections 4.2, 5.3). 
+
+Limitations. Sparse recovery precision degrades at high p/N ; column subsampling is a natural remedy. Formal convergence theory for alternating GBT updates remains open. For SSL, the primary open problem is principled tabular augmentation design. 
+
+# References 
+
+Galen Andrew, Raman Arora, Jeff Bilmes, and Karen Livescu. Deep canonical correlation analysis. In Proceedings of the 30th International Conference on Machine Learning (ICML) , 2013. 9Davide Anguita, Alessandro Ghio, Luca Oneto, Xavier Parra, and Jorge Luis Reyes-Ortiz. A public domain dataset for human activity recognition using smartphones. ESANN 2013 Proceedings, European Symposium on Artificial Neural Networks, 2013. UCI Machine Learning Repository. Dara Bahri, Brendan Dolan-Gavitt, Talip Ucar, and Shiv Agrawal. SCARF: Self-supervised con-trastive learning using random feature corruption. In International Conference on Learning Representations (ICLR) , 2022. Adrien Bardes, Jean Ponce, and Yann LeCun. VICReg: Variance-invariance-covariance regularization for self-supervised learning. In International Conference on Learning Representations (ICLR) ,2022. James Chapman. CCA-Zoo: A collection of regularised, deep learning based, kernel, and probabilistic CCA methods in a scikit-learn style framework. Journal of Open Source Software , 2021. James Chapman, Lennie Wells, and Ana Lawry Aguila. Unconstrained stochastic CCA: Unifying multiview and self-supervised learning. In International Conference on Learning Representations (ICLR) , 2024. arXiv:2310.01012. Tianqi Chen and Carlos Guestrin. XGBoost: A scalable tree boosting system. In Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining , 2016. Dheeru Dua and Casey Graff. UCI machine learning repository, 2019. URL https://archive. ics.uci.edu/ml .Gene H. Golub and Hongyuan Zha. The canonical correlations of matrix pairs and their numerical computation. In Adam Bojanczyk and George Cybenko, editors, Linear Algebra for Signal Processing , volume 69 of IMA Volumes in Mathematics and its Applications , pages 27–55. Springer, New York, 1995. Léo Grinsztajn, Edouard Oyallon, and Gaël Varoquaux. Why tree-based models still outperform deep learning on tabular data. In Advances in Neural Information Processing Systems , volume 35, 2022. David R. Hardoon, Sandor Szedmak, and John Shawe-Taylor. Canonical correlation analysis: An overview with application to learning methods. Neural Computation , 16(12):2639–2664, 2004. Junlin He, Jinxiao Du, Susu Xu, and Wei Ma. Preventing model collapse in deep canonical correlation analysis by noise regularization. In Advances in Neural Information Processing Systems , volume 37, pages 82375–82410, 2024. Harold Hotelling. Relations between two sets of variates. In Biometrika , volume 28, pages 321–377, 1936. Cheng Jin, Wenhui Mao, Ruiqi Zhang, Yuejie Zhang, and Xiangyang Xue. Cross-modal image clustering via canonical correlation analysis. In Proceedings of the Twenty-Ninth AAAI Conference on Artificial Intelligence , pages 151–159, 2015. doi: 10.1609/aaai.v29i1.9181. Guolin Ke, Qi Meng, Thomas Finley, Taifeng Wang, Wei Chen, Weidong Ma, Qiwei Ye, and Tie-Yan Liu. LightGBM: A highly efficient gradient boosting decision tree. In Advances in Neural Information Processing Systems , 2017. Yann LeCun, Léon Bottou, Yoshua Bengio, and Patrick Haffner. Gradient-based learning applied to document recognition. Proceedings of the IEEE , 86(11):2278–2324, 1998. Yongchun Li, Santanu S. Dey, and Weijun Xie. On sparse canonical correlation analysis. In Advances in Neural Information Processing Systems , volume 37, 2024. arXiv:2401.00308. Elena Parkhomenko, David Tritchler, and Joseph Beyene. Genome-wide sparse canonical correlation of gene expression with genotypes. In BMC Proceedings , volume 1, pages 1–5, 2007. Tom Rainforth and Frank Wood. Canonical correlation forests. arXiv preprint arXiv:1507.05452 ,2015. Ravid Shwartz-Ziv and Amitai Armon. Tabular data: Deep learning is not all you need. Information Fusion , 81:84–90, 2022. 10 Stephen M Smith, Thomas E Nichols, Diego Vidaurre, Anderson M Winkler, Timothy EJ Behrens, Matthew F Glasser, Kamil Ugurbil, Deanna M Barch, David C Van Essen, and Karla L Miller. A positive-negative mode of population covariation links brain connectivity, demographics and behavior. Nature Neuroscience , 18(11):1565–1567, 2015. Gowthami Somepalli, Micah Goldblum, Avi Schwarzschild, C Bayan Bruss, and Tom Goldstein. SAINT: Improved neural networks for tabular data via row attention and contrastive pre-training. In NeurIPS Workshops , 2021. Talip Ucar, Ehsan Hajiramezanali, and Lindsay Edwards. SubTab: Subsetting features of tabular data for self-supervised representation learning. In Advances in Neural Information Processing Systems , 2021. Viivi Uurtio, João M Monteiro, Jaz Kandola, John Shawe-Taylor, Delmiro Fernandez-Reyes, and Juho Rousu. A tutorial on canonical correlation methods. ACM Computing Surveys , 50(6), 2017. Laurens van der Maaten and Geoffrey Hinton. Visualizing data using t-SNE. Journal of Machine Learning Research , 9:2579–2605, 2008. Weiran Wang, Raman Arora, Karen Livescu, and Jeff Bilmes. On deep multi-view representation learning. In Proceedings of the 32nd International Conference on Machine Learning (ICML) ,2015. Weiran Wang, Xinchen Yan, Honglak Lee, and Karen Livescu. Deep variational canonical correlation analysis. arXiv preprint arXiv:1610.03454 , 2016. Daniela M. Witten, Robert Tibshirani, and Trevor Hastie. A penalized matrix decomposition, with applications to sparse principal components and canonical correlation analysis. Biostatistics , 10 (3):515–534, 2009. Zhiqiang Xu and Ping Li. Towards practical alternating least-squares for CCA. In Advances in Neural Information Processing Systems , volume 32, 2019. Xinghao Yang, Weifeng Liu, Wei Liu, and Dacheng Tao. A survey on canonical correlation analysis. 
+
+IEEE Transactions on Knowledge and Data Engineering , 33(6):2349–2368, 2021. Haoliang Yuan, Yu Guo, Furao Shen, and Jinxi Zhao. Multiview uncorrelated locality preserving projection. IEEE Transactions on Neural Networks and Learning Systems , 30(7):1942–1950, 2019. Jure Zbontar, Li Jing, Ishan Misra, Yann LeCun, and Stéphane Deny. Barlow twins: Self-supervised learning via redundancy reduction. In Proceedings of the 38th International Conference on Machine Learning (ICML) , 2021. Chuanbin Zhang, Long Chen, Zhaoyin Shi, and Weiping Ding. Latent information-guided one-step multi-view fuzzy clustering based on cross-view anchor graph. Information Fusion , 102:102025, 2024. doi: 10.1016/j.inffus.2023.102025. 
+
+# NeurIPS Paper Checklist 
+
+1. Claims 
+
+Question: Do the main claims made in the abstract and introduction accurately reflect the paper’s contributions and scope? Answer: [Yes] Justification: All quantitative claims (TCC values, percentage improvements) are backed by reported experimental results with stated seeds, datasets, and hyperparameters. 2. Limitations 
+
+Question: Does the paper discuss the limitations of the work performed by the authors? Answer: [Yes] 11 Justification: A Limitations paragraph in the Conclusion discusses degradation at high p/N ,the absence of formal convergence guarantees, and the open problem of tabular augmentation design for SSL. 3. Theory assumptions and proofs 
+
+Question: For each theoretical result, does the paper provide the full set of assumptions and a complete (and correct) proof? Answer: [Yes] Justification: Proposition 1 states assumptions explicitly and is proved in full in Appendix L. 4. Experimental result reproducibility 
+
+Question: Does the paper fully disclose all the information needed to reproduce the main experimental results of the paper? Answer: [Yes] Justification: Seeds, hyperparameters, and hardware are stated in Appendix C. All synthetic DGPs are given in closed form. Pseudocode for all new methods is provided in the appendix; code will be made available via GitHub upon acceptance. 5. Open access to data and code 
+
+Question: Does the paper provide open access to the data and code? Answer: [Yes] Justification: Pseudocode for all new methods is provided in the appendix; code will be made available via GitHub upon acceptance. All real-world datasets are publicly available (UCI HAR [Anguita et al., 2013]). 6. Experimental setting/details 
+
+Question: Does the paper specify all training and test details? Answer: [Yes] Justification: Hyperparameters, data splits, and evaluation protocols are in Appendix C and within each section. 7. Experiment statistical significance 
+
+Question: Does the paper report error bars? Answer: [Yes] Justification: Multi-seed experiments (5 seeds) report mean ± std in Tables 1, 3, 4, and 5. The Split MNIST experiment (Table 2) does not report error bars; DCCA at this scale (N = 54 k, K = 50 , 1000 epochs) requires substantial compute per run. 8. Experiments compute resources 
+
+Question: Does the paper provide sufficient information on compute? Answer: [Yes] Justification: All experiments run on an Apple M3 MacBook Pro. Runtimes are stated throughout. 9. Code of ethics 
+
+Question: Does the research conform with the NeurIPS Code of Ethics? Answer: [Yes] Justification: Foundational statistical method with no direct path to harmful applications. 10. Broader impacts 
+
+Question: Does the paper discuss societal impacts? Answer: [Yes] Justification: The primary application domain (multi-omics) has positive scientific impact. No direct negative societal impacts beyond general dual-use concerns. 11. Safeguards 
+
+12 Question: Does the paper describe safeguards for responsible release? Answer: [N/A] Justification: Statistical learning algorithm and experiment code; no misuse risks analogous to generative models or scraped datasets. 12. Licenses for existing assets 
+
+Question: Are creators of assets properly credited? Answer: [Yes] Justification: All datasets cited. XGBoost and LightGBM cited [Chen and Guestrin, 2016, Ke et al., 2017] and used under Apache 2.0. 13. New assets 
+
+Question: Are new assets well documented? Answer: [Yes] Justification: Pseudocode for all new methods is provided in the appendix; a public repository will be made available upon acceptance. 14. Crowdsourcing and research with human subjects 
+
+Question: Does the paper include crowdsourcing or human subjects details? Answer: [N/A] Justification: No crowdsourcing or human subjects. 15. Declaration of LLM usage 
+
+Question: Does the paper describe LLM usage? Answer: [N/A] Justification: LLMs were used for writing assistance only, not as part of the core methodol-ogy. 
+
+# A Convergence Curves 
+
+Figure 3: Test TCC (solid) and train TCC (dashed) vs. boosting round for TreeCCA, with Linear CCA, KCCA, and DeepCCA (EY loss) shown as horizontal baselines. Left : Signed Power; TreeCCA reaches 2.62 ( +56% over linear, +8% over DCCA). Right : Hermite; linear CCA is near-zero (0.13); TreeCCA reaches 22 × improvement (99% of oracle), marginally above DCCA. 
+
+# B TreeCCA as Alternating Regression 
+
+Why alternating least squares converges to CCA. Classical CCA can be solved by alternating regression [Golub and Zha, 1995, Xu and Li, 2019]. Given fixed embeddings Z2 = X2W2, the 13 optimal linear encoder for view 1 is the solution to the least-squares problem 
+
+min 
+
+> W1
+
+∥X1W1 − Z2∥2 
+
+> F
+
+, giving W1 ← (X⊤ 
+
+> 1
+
+X1)−1X⊤ 
+
+> 1
+
+Z2,
+
+and symmetrically for W2. Convergence to the CCA solution follows because the alternating update is a block coordinate descent on the CCA objective: at each step, the within-view Gram matrix 
+
+X⊤ 
+
+> v
+
+Xv is implicitly used to normalise the projection, enforcing the CCA orthonormality constraint 
+
+W ⊤ 
+
+> v
+
+Σvv Wv = IK in the limit. Each subproblem has a unique closed-form solution, and the objective decreases monotonically, so convergence is guaranteed [Xu and Li, 2019]. 
+
+Why this approach fails for gradient-boosted trees. Replacing the linear learner with a GBT encoder in the alternating LS framework breaks in two ways. 
+
+Scale and component collapse. The LS objective ∥Z1 − Z2∥2 
+
+> F
+
+drives Z1 → Z2, collapsing both embeddings toward the same point. GBT leaf regularisation ( λ∥leaf ∥2) then shrinks both toward zero. Even if collapse is prevented for one component, without orthogonality constraints all K dimensions converge to the same dominant direction. 
+
+The normalisation bottleneck. In the linear case, normalisation is implicit: the closed-form solution automatically accounts for the within-view covariance. For a GBT there is no closed-form solution; normalisation would require refitting all trees from scratch after each step to enforce Z⊤ 
+
+> v
+
+Zv =(N − 1) IK , making the method computationally prohibitive. 
+
+How the EY loss resolves both problems. The EY gradient 
+
+G1,i ∝ − Z2c,i + V Z1c,i 
+
+resolves both failure modes structurally. The cross-view term −Z2c,i is the alternating LS signal; the within-view term +VZ1c,i penalises covariance expansion, replacing the implicit normalisation constraint with an explicit gradient penalty. No separate normalisation step is required, and GBT leaf regularisation then provides step-size control without collapsing the embeddings. 
+
+Gauss-Seidel vs. Jacobi. Classical alternating regression is strict Gauss-Seidel: update W1, re-compute Z1, then compute G2 from the fresh Z1. TreeCCA uses Jacobi: both gradients G1, G 2 are computed from the same (Z1, Z 2) before either booster is updated. In practice the two schedules are indistinguishable — peak TCC differs by ≤ 0.004 on both benchmarks (Appendix H) — and Jacobi is preferred for its simplicity. 
+
+# C Experimental Details 
+
+Hardware and software. All experiments run on a single MacBook Pro (Apple M3). Python 3.12, XGBoost 2.1, LightGBM 4.3, scikit-learn 1.5, NumPy 1.26. 
+
+GBT hyperparameters (all experiments unless stated). TreeCCA ( train_treecca , de-fault): K scalar XGBoost Boosters per view. tree_method=’hist’ , base_score=0.0 ,
+
+learning_rate=0.1 , max_depth=5 , subsample=0.8 , colsample_bytree=0.8 ,
+
+min_child_weight=5 . HAR experiment: learning_rate=0.05 , max_depth=3 (reduced depth prevents overfitting on p = 36 features). TreeCCA-Joint ( train_treecca_joint ): same parameters plus multi_strategy=’multi_output_tree’ , base_score=[0.0]*K . Unit Hessians are used throughout (§4). 
+
+DCCA configuration. Two hidden layers: [128 , 64] units, ReLU activations, BatchNorm. Adam optimiser, learning rate 10 −3, 1000 epochs. Trained via PyTorch Lightning on CPU. Split MNIST: 
+
+[1024 , 1024] units, no BatchNorm. 
+
+Reproducibility. All synthetic datasets use numpy.random.default_rng with seed 42 (single-seed experiments) or seeds {42 , 0, 1, 2, 3} (multi-seed experiments). 14 D GBT Design Comparison: TreeCCA vs. TreeCCA-Joint 
+
+A central implementation question is how to structure the K-dimensional encoder per view. We compare three configurations on both benchmarks (Figure 4): • TreeCCA (train_treecca ): K independent scalar XGBoost boosters per view. Recom-mended default. • TreeCCA-LightGBM (train_treecca_lgbm ): same independent architecture using LightGBM, isolating the library effect. • TreeCCA-Joint (train_treecca_joint ): one multi_output_tree XGBoost booster per view, all K gradient columns coupled in a single split-finding pass. 
+
+Fair comparison: trees per view. TreeCCA adds K trees per view per round while TreeCCA-Joint adds 1. Running TreeCCA-Joint for K× as many rounds equalises the cumulative tree count. On this axis (Figure 4, centre), TreeCCA-Joint converges faster per tree on both benchmarks: joint split-finding aggregates K gradient signals and is more information-efficient per tree. 
+
+Wall-clock time. Despite needing fewer trees, TreeCCA-Joint is slower in wall-clock time (Figure 4, right): each joint tree maintains K-wide histograms, and this overhead exceeds the per-tree saving. 
+
+Library effect and recommendation. TreeCCA and TreeCCA-LightGBM nearly coincide, con-firming library choice has negligible impact when the architecture is fixed. Use TreeCCA when training speed matters (the common case); use TreeCCA-Joint when model size or inference latency is a priority. 
+
+Figure 4: TreeCCA vs. TreeCCA-Joint vs. TreeCCA-LightGBM on signed-power (top) and Hermite (bottom). Left : vs rounds (TreeCCA adds K trees per round). Centre : vs trees per view (fair) — TreeCCA-Joint converges faster per tree. Right : vs wall-clock — TreeCCA is faster in practice. 
+
+# E Hyperparameter Sensitivity 
+
+Figure 5 shows that TreeCCA is broadly robust to hyperparameter choice: across max_depth 
+
+∈ { 3, 4, 5, 6} and learning_rate ∈ { 0.10 , 0.20 } (500 rounds, seed 42), peak test TCC varies by less than 0.07 . The only configuration that underperforms is lr = 0 .05 , which has not converged at 500 rounds; any faster learning rate works well. 15 Figure 5: Hyperparameter sensitivity heatmap (signed-power benchmark). Performance is robust at 
+
+lr ≥0.10 across all depths tested. 
+
+# F Scalability 
+
+Each TreeCCA round fits 2K scalar trees, giving total complexity O(R · K · N · p). Figure 6 plots test TCC against wall-clock time for sweeps over N (left, fixed p = K = 3 ) and p (right, fixed 
+
+N = 5 ,000 ). The key message: the TCC ceiling is the same at every scale. Curves shift right as N or p grows, but all reach the same final performance within 200 rounds. Per-round timing remains well under one second even at N = 100 ,000 or p = 3 ,000 on a single CPU core. 
+
+Figure 6: TreeCCA convergence. Test TCC vs. wall-clock time on the signed-power benchmark. 
+
+Left : varying N (fixed p = K = 3 ) — consistent with O(N ) per-round cost. Right : varying p (fixed 
+
+N = 5 ,000 ) — consistent with O(N p ).
+
+# G Initialisation Ablation 
+
+Figure 7 compares five initialisation strategies on the Hermite benchmark, averaged over 5 random seeds. PCA unscaled (the default) reaches the highest peak test TCC. All non-zero strategies eventually escape the saddle; zero initialisation is permanently stuck because G = 0 exactly when 
+
+Z = 0 .16 Figure 7: Initialisation comparison on the Hermite benchmark (mean ± std, 5 seeds). PCA unscaled (default) converges fastest and reaches the highest peak TCC. All non-zero strategies escape the saddle; zero init is permanently stuck. 
+
+# H Jacobi vs. Gauss-Seidel Updates 
+
+As discussed in Appendix B, TreeCCA uses Jacobi updates (both gradients computed before either booster is updated), whereas Gauss-Seidel would re-predict Z1 after updating B1 before computing 
+
+G2. Figure 8 confirms the two schedules are indistinguishable empirically. 
+
+Figure 8: Gauss-Seidel vs. Jacobi on signed-power (left) and Hermite (right). Both schedules achieve identical peak TCC. 
+
+# I GBT Custom Objectives: Gradient, Hessian, and Leaf Values 
+
+This section is a self-contained derivation of the two implementation choices in TreeCCA — gradient normalisation and unit Hessians — starting from how XGBoost’s custom objective API works. 
+
+How XGBoost uses a custom objective. At each boosting round, the user supplies two length-N
+
+arrays: a per-sample gradient gi and a per-sample Hessian hi. XGBoost grows one tree by finding 17 the split partition that maximises gain, then assigns each leaf Iℓ the optimal weight 
+
+w∗ 
+
+> ℓ
+
+= −
+
+X
+
+> i∈I ℓ
+
+gi
+
+X
+
+> i∈I ℓ
+
+hi + λ ,
+
+where λ is the L2 leaf regularisation (default 1). The prediction update is ∆ˆ yi = η · w∗
+
+> ℓ(i)
+
+, where η is the learning rate. The denominator controls step size. For standard least-squares regression, gi = ˆ yi − yi and hi = 1 
+
+(Hessian of 12 (yi − ˆyi)2), giving denominator nℓ + λ and leaf value equal to the average residual in the leaf, shrunk by λ. This averaging is what makes gradient boosting stable: each leaf summarises rather than accumulates its samples. 
+
+The raw EY gradient. The EY gradient with respect to Z1,i,k is (Eq. 4): 
+
+gEY  
+
+> i
+
+= 4
+
+N − 1
+
+ −Z2c,i,k + [ VZ1c]i,k 
+
+.
+
+At PCA-unscaled initialisation, embedding columns have unit ℓ2 norm, so the bracket term has magnitude O(1 /√N ) per element (dominated by −Z2c,i,k ). The factor 4  
+
+> N−1
+
+makes the full gradient 
+
+O(1 /N √N ).
+
+Choice 1 (correctness): Unit Hessians. We pass hi = 1 for all samples. The leaf formula becomes 
+
+w∗ 
+
+> ℓ
+
+= −
+
+P 
+
+> i∈I ℓ
+
+gi
+
+nℓ + λ ,
+
+i.e. the average gradient in the leaf. This is identical to the standard gradient-boosted regression update (Hessian of 12 (y − ˆy)2 is also 1). The alternative — the true EY Hessian hi = 4  
+
+> N−1
+
+Vkk — is O(1 /N 2) at PCA initialisation ( V (0)  
+
+> kk
+
+=2/(N − 1) ): 
+
+h(0)  
+
+> i
+
+= 8(N − 1) 2 =⇒ denominator = 94 · 82999 2 + 1 ≈ 0.00008 + 1 ≈ 1.
+
+The leaf size term is negligible; λ dominates. The leaf value equals the gradient sum over nℓ samples rather than the average — roughly nℓ ≈ 94 × too large — and training diverges immediately. This problem does not improve as training proceeds: even at Vkk = 1 the true Hessian is 4/(N − 1) ≈
+
+0.0013 , giving denominator 94 × 0.0013 + 1 ≈ 1.12 , still λ-dominated. Unit Hessians are therefore required for correctness. 
+
+Choice 2 (practical contribution): Gradient normalisation. With unit Hessians and the raw gradient (including the 4  
+
+> N−1
+
+prefactor), the leaf value is 
+
+w∗ 
+
+> ℓ
+
+= −
+
+P gEY 
+
+> i
+
+nℓ + λ = − 4
+
+N − 1 · mean( gbracket  
+
+> ℓ
+
+).
+
+For N = 3 ,000 this is ≈ 0.0013 × O(1 /√N ) ≈ 0.000024 per round — converging to the same solution, just √N ≈ 55 × more slowly than necessary. More importantly, the update scale depends on N : the same learning rate gives very different effective step sizes on different dataset sizes. We therefore drop the 4  
+
+> N−1
+
+factor and normalise the bracket jointly across both views: 
+
+˜Gv = −Z¯vc + VZvc 
+
+max  σ(G1), σ (G2), ϵ  · 0.1.
+
+The result has standard deviation ≈ 0.1 at every round regardless of N or the current state of V. Leaf updates are then O(η · 0.1/n ℓ) at any dataset size: the learning rate is uniformly interpretable, and no per-N re-tuning is required. This is a practical contribution, not a mathematical necessity. 18 Summary. Unit Hessians are required for correctness: the true EY Hessian causes the λ term to dominate the denominator, giving gradient sums rather than averages and causing divergence. 
+
+Gradient normalisation is a practical contribution: training without it converges to the same solution but O(√N ) more slowly, and the effective learning rate varies with N . Together they implement the standard regression-tree update rule — gradient-averaged-over-leaf — at consistent speed across all dataset sizes. Figure 9 shows the diagonal Vkk rising from ≈ 0 toward ≈ 1 during training. This reflects the growth of within-view embedding variance as the EY objective is minimised and is shown as an optimisation diagnostic; it does not enter the gradient or Hessian arrays passed to XGBoost. 
+
+Figure 9: Per-component Vkk over boosting rounds (seed 42). Vkk rises from ≈ 0 at PCA-unscaled initialisation toward ≈ 1 by round ∼200, reflecting growth of within-view embedding variance as training converges. This is an optimisation diagnostic; it does not affect the gradient or Hessian arrays passed to XGBoost. 
+
+# J Multi-Seed Stability Curves 
+
+Figure 10: Peak test TCC (mean ± std, 5 seeds {42 , 0, 1, 2, 3}) on both benchmarks. TreeCCA (blue) vs. linear CCA (grey). Numerical summary in Table 1. 
+
+# K TreeMCCA: Experimental Results 
+
+The only change from Algorithm 1 is the gradient in line 5: the all-pairs EY objective P 
+
+> i<j
+
+LEY (Zi, Z j ) yields a gradient for view m that aggregates attraction from all other views. At M = 2 this reduces exactly to Algorithm 1. 19 Algorithm 2 TreeMCCA (multi-view extension of Algorithm 1) 
+
+Require: Views X1, . . . , X M ∈ RN ×pm ; embedding dim K; rounds T ; learning rate η
+
+Ensure: K scalar boosters per view; embed via ˆZm = [ bm, 1(Xm), . . . , b m,K (Xm)]  
+
+> 1:
+
+Initialise M K scalar boosters bm,k , base margin ← k-th PCA direction of Xm 
+
+> 2:
+
+Zm ← PCA K (Xm) {initial embeddings, m ∈ { 1, . . . , M }} 
+
+> 3:
+
+for t = 1 , . . . , T do  
+
+> 4:
+
+˜Gm ← − P  
+
+> j̸=m
+
+Zjc + Zmc 
+
+(M −1) Vmm + P  
+
+> j̸=m
+
+Vjj 
+
+, normalised {all-pairs EY gradient from current embeddings, all m simultaneously (Jacobi)}  
+
+> 5:
+
+bm,k += tree( Xm, ˜Gm,k , H =1) {fit and add one new tree per booster; all m, k} 
+
+> 6:
+
+Zm,k ← Zm,k + η ∆b(t)
+
+> m,k
+
+(Xm) {update cached embedding with new tree only; all m, k} 
+
+> 7:
+
+end for  
+
+> 8:
+
+return {bm,k }M,K m=1 ,k =1 
+
+We construct a four-view dataset ( N = 3000 , K = 3 ) using four distinct nonlinear transforms of the same latents: v0 = sgn( z)|z|1/3, v1 = sgn( z)|z|3, v2 = z2 − 1 (Hermite H2, even), v3 = z3 − 3z
+
+(Hermite H3, odd). Hermite-orthogonal pairs ( v0–v2, v2–v3) have near-zero linear cross-correlation, making linear CCA progressively less effective as M grows. Figure 11 reports average pairwise test TCC across all  M
+
+> 2
+
+ pairs for M ∈ { 2, 3, 4}. Linear CCA average collapses below 1.0 at M = 4 ; TreeMCCA degrades gracefully. Crucially, only the gradient computation changes across M — no encoder architecture modification is needed. 
+
+Figure 11: Average pairwise test TCC vs. boosting round for M = 2 , 3, 4 views. Dashed lines show linear CCA average pairwise baseline. As M grows, linear CCA collapses (dashed) while TreeCCA maintains substantially higher per-pair TCC. 
+
+# L TreeCCA-SSL: Full Experimental Details 
+
+The key differences from Algorithm 1: a single set of K boosters is shared across both views; augmented views are resampled each round so the full forward pass is required (no incremental cache); and the gradient is symmetrised over both augmentation directions. At inference, the boosters are applied to the original unaugmented features. 
+
+Data Generating Process Latent factors and class labels. Klat = 6 orthonormal factors Zk ∼ N (0 , 1) are drawn and orthogonalised. Class y = arg max k |Zk|.20 Algorithm 3 TreeCCA-SSL (siamese single-encoder variant) 
+
+Require: Unlabelled data X ∈ RN ×p; augmentation A; embedding dim K; rounds T ; learning rate η
+
+Ensure: K scalar boosters {bk}; embed via ˆZ = [ b1(X), . . . , b K (X)]  
+
+> 1:
+
+Initialise K scalar boosters bk with random orthogonal base margins  
+
+> 2:
+
+Z ← random orthogonal init of shape N × K 
+
+> 3:
+
+for t = 1 , . . . , T do  
+
+> 4:
+
+Draw two independent augmented views: V ∼ A (X), V ′ ∼ A (X) 
+
+> 5:
+
+Zk ← b(t) 
+
+> k
+
+(V ), Z′ 
+
+> k
+
+← b(t) 
+
+> k
+
+(V ′) {full forward pass each round; augmented views change}  
+
+> 6:
+
+˜G, ˜G′ ← 4  
+
+> N−1
+
+(−Z′ 
+
+> c
+
++ VZc), 4  
+
+> N−1
+
+(−Zc + VZ′
+
+> c
+
+), normalised {EY gradient, both directions}  
+
+> 7:
+
+bk += tree  V, 12 ( ˜Gk + ˜G′
+
+> k
+
+), H =1  {shared booster updated on symmetrised gradient}  
+
+> 8:
+
+end for  
+
+> 9:
+
+return {bk}Kk=1 {apply to original X, not augmented views} 
+
+Sign-interaction features. Each of D = 60 observed features encodes a product interaction: 
+
+Xj = Zaj · sgn( Zbj ), aj̸ = bj , (7) normalised to unit standard deviation. The magnitude |Xj | = |Zaj | is class-informative, but the sign depends on the unobserved reference factor Zbj . Key properties: • PCA-fatal : Cov( X) = ID — all linear directions are equivalent. No linear combination of 
+
+X correlates with any |Zk|.• Tree-amenable : |Xj | = |Zaj | — trees recover |Zaj | > c via the pair of splits Xj > c and 
+
+Xj < −c.
+
+Augmentation. At each round, two independent views are drawn: 
+
+Vj = Xj · flip j + σε j , V ′ 
+
+> j
+
+= Xj · flip ′ 
+
+> j
+
++ σε ′ 
+
+> j
+
+, (8) where flip iid 
+
+∼ Uniform( {− 1, +1 }) and ε, ε ′ ∼ N (0 , 1) , all mutually independent, σ = 0 .2.
+
+Theoretical Analysis Proposition 1 (Affine encoders cannot extract cross-view signal) . Let f (V ) = V W + 1b⊤ be any affine encoder (including PCA). Under augmentation Eq. (8) , the expected cross-view covariance of any representation is zero: 
+
+EV,V ′
+
+Cov( f (V ), f (V ′))  = W ⊤E[V ⊤V ′]W = 0 .
+
+No cross-view objective can learn from these augmented views using an affine encoder. PCA also fails because Cov( X) = ID makes all linear directions equivalent. Proof. For any features j, l :
+
+E[Vj V ′ 
+
+> l
+
+] = E[Xj Xl]E[flip j ]E[flip ′
+
+> l
+
+]
+
+| {z }
+
+> = 0
+
++ σ2E[εj ]E[ε′
+
+> l
+
+]
+
+| {z }
+
+> = 0
+
++cross terms = 0 ,
+
+since E[flip] = 0 and ε, ε ′ are independent with mean zero. Hence E[V ⊤V ′] = 0 .
+
+Results 
+
+TreeCCA-SSL is trained with Kemb = 5 embedding dimensions, N = 4000 , 1500 rounds, random orthogonal initialisation. Downstream performance: linear probe accuracy on the 6-way classification task (6 classes, random chance = 0 .167 ). The key intuition is that the class-informative signal lives in the magnitudes |Xj | = |Zaj |, not in the signs. A linear encoder cannot recover this because Cov( X) = ID : all linear directions are 21 equivalent and the cross-view signal cancels in expectation (Proposition 1). Trees can recover it by learning paired splits {Xj > c } ∪ { Xj < −c}, which extract |Xj | implicitly. The oracles in Table 6 bracket the achievable performance at each level of privileged information: • PCA (|X|): a cheating oracle that knows to take absolute values before applying PCA. It cannot be matched by an unsupervised method that sees only X.• Oracle |X|: a linear probe trained directly on the clean (noise-free) magnitude features 
+
+|Xj |. Stronger than PCA (|X|) because it skips the PCA compression step. • Oracle |Z|: a linear probe on the true latent factors Zk themselves — the theoretical ceiling, unreachable in practice. 
+
+Figure 12: TreeCCA-SSL on the sign-interaction benchmark ( N = 4000 , K = 6 classes). Left :linear probe accuracy vs. boosting round. TreeCCA-SSL (blue, 0.63) rises nearly 4× above PCA (X)
+
+(0.159, ≈ random). Centre : EY objective vs. round. Right : feature importance by latent factor. Table 6: Linear probe accuracy on sign-interaction SSL benchmark ( Klat = 6 , N = 4000 , 5-dim embedding, seed 42). Method Accuracy Notes Random chance 0.167 1/K lat , lower bound PCA (X) + linear probe 0.159 Provably at random chance (Prop. 1) 
+
+TreeCCA-SSL 0.630 No labels, no knowledge of sign structure PCA (|X|) + linear probe 0.799 Oracle: knows to take | · | before PCA Oracle |X| 0.991 Oracle: linear probe on clean magnitude features Oracle |Z| true latents 0.994 Theoretical ceiling Proposition 1 proves PCA is stuck at random chance; the empirical result ( 0.159 ≈ 1/6) confirms this. TreeCCA-SSL reaches 0.630 (3.8× above random) with no labels and no knowledge of the sign structure — placing it well above the linear baseline and meaningfully below the oracle that cheats by knowing | · | is the right preprocessing. The remaining gap to 0.799 reflects augmentation noise (σ = 0 .2): the flip augmentation corrupts the sign information that a cheating oracle exploits, so the achievable ceiling for an honest method is lower than PCA (|X|).
+
+# M Multi-View Embedding Visualisations 
+
+Figure 13 shows t-SNE projections [van der Maaten and Hinton, 2008] of the test-set embeddings for each real-world dataset (seed 42, concatenated M -view embeddings coloured by class label). Linear CCA embeddings (top row) are often poorly separated; TreeMCCA embeddings (bottom row) show substantially tighter class clusters, consistent with the probe accuracy gains in Table 5. 22 Figure 13: t-SNE of test embeddings. Top row : Linear CCA (pairwise average projection). Bottom row : TreeMCCA (all-views joint). Each column is one dataset; points coloured by class label. Seed 42, K = C−1 components. 23
