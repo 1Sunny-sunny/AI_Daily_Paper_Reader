@@ -1,57 +1,48 @@
 ## 最新日报
-- 最新运行日期：2026-07-31
-- 运行时间：2026-07-31 05:44:09 北京时间
+- 最新运行日期：2026-08-01
+- 运行时间：2026-08-01 05:58:08 北京时间
 - 运行状态：成功
-- 本次总论文数：13
-- 精读区：5
-- 速读区：8
+- 本次总论文数：10
+- 精读区：4
+- 速读区：6
 
 ### 今日简报（AI）
-今日精读两篇9分研究，速览三篇高效论文，聚焦脑机接口VR假肢视觉反馈与赫布可塑性极限环学习。  
-最值得关注的是：封闭环路EEG反馈可提升模拟假肢视觉的真实性，而赫布突触可塑性足以自发涌现稳定振荡模式。  
-建议普通读者优先理解这两种“学习型”脑启发机制的潜力，它们正让机器更自然协调。
-- 详情：[/202607/31/README](/202607/31/README)
+今日精读 10 篇脑机接口前沿研究，聚焦脑电基础模型的跨任务迁移与高效情感解码。  
+最值得关注：脑电基础模型如何泛化到语音解码，以及群组级神经同步实现低成本情感量化。  
+建议读者跟进脑电大模型的泛化边界，探索无需海量标注的情感脑机接口应用。
+- 详情：[/202608/01/README](/202608/01/README)
 
 ### 精读区论文标签
-1. [Evaluating Closed-Loop EEG Feedback for Simulated Prosthetic Vision in Immersive VR: A Sham-Controlled Feasibility Study](/202607/31/2607.23889v1-evaluating-closed-loop-eeg-feedback-for-simulated-prosthetic-vision-in-immersive-vr-a-sham-controlled-feasibility-study)  
+1. [Does EEG Foundation Models Transfer to Speech? A Benchmark on Overt and Imagined Speech Decoding](/202608/01/2607.27268v1-does-eeg-foundation-models-transfer-to-speech-a-benchmark-on-overt-and-imagined-speech-decoding)  
    标签：评分：9.0/10、query:sr
-   evidence：基于脑电引导的神经自适应训练用于模拟假体视觉
-2. [Learning limit cycles via Hebbian synaptic plasticity](/202607/31/2607.24478v1-learning-limit-cycles-via-hebbian-synaptic-plasticity)  
+   evidence：评估EEG基础模型在显性和想象语音解码上的表现
+2. [Toward Annotation-Efficient Continuous Emotion Arousal Quantification via Group-Level EEG Dynamic Neural Synchrony](/202608/01/2607.28204v1-toward-annotation-efficient-continuous-emotion-arousal-quantification-via-group-level-eeg-dynamic-neural-synchrony)  
    标签：评分：9.0/10、query:sr
-   evidence：Hebbian可塑性诱导极限循环，模拟神经节律学习
-3. [Sequence-SOD: Bio-inspired Sequence-aware Spiking ObjectDetection for Event Cameras](/202607/31/2607.26703v1-sequence-sod-bio-inspired-sequence-aware-spiking-objectdetection-for-event-cameras)  
-   标签：评分：9.0/10、query:sr
-   evidence：用于事件相机目标检测的脉冲神经网络，具有时间动态特性
-4. [Phoneme- vs. Character-Level Targets and Selective State-Space Models for Intracortical Brain-to-Text](/202607/31/2607.26751v1-phoneme--vs-character-level-targets-and-selective-state-space-models-for-intracortical-brain-to-text)  
-   标签：评分：9.0/10、query:sr
-   evidence：皮层内脑到文本解码，音素/字符目标
-5. [Detecting seizure onset and offset times using human intelligence: A critical-transitions-based approach](/202607/31/2607.27105v1-detecting-seizure-onset-and-offset-times-using-human-intelligence-a-critical-transitions-based-approach)  
-   标签：评分：9.0/10、query:sr
-   evidence：用于癫痫检测的脑电时间解码
+   evidence：通过动态神经同步从EEG解码连续情绪唤醒度
+3. [Rethinking EEG-Based Disease Diagnosis: Decoupling Instance Representation Learning from Subject-Level Supervision](/202608/01/2607.27274v1-rethinking-eeg-based-disease-diagnosis-decoupling-instance-representation-learning-from-subject-level-supervision)  
+   标签：评分：8.0/10、query:sr
+   evidence：基于脑电时间序列实例解码提取受试者诊断信息
+4. [Stimulus-Evoked Network Dynamics in Human Cortical Organoids: From a Graph-Computational Framework to Repeated-Stimulation Depression](/202608/01/2607.28068v1-stimulus-evoked-network-dynamics-in-human-cortical-organoids-from-a-graph-computational-framework-to-repeated-stimulation-depression)  
+   标签：评分：8.0/10、query:sr
+   evidence：图计算框架建模刺激诱发的神经群体时空动态
 
 ### 速读区论文标签
-1. [The Sparsity Ceiling: Where Spiking Networks Can and Cannot Trade Activity for Energy](/202607/31/2607.26648v1-the-sparsity-ceiling-where-spiking-networks-can-and-cannot-trade-activity-for-energy)  
-   标签：评分：8.0/10、query:sr
-   evidence：研究脉冲神经网络稀疏性及其对准确率的影响，与神经编码相关
-2. [Navigation driven by bidirectional information transmission between sensing and actuation](/202607/31/2607.26798v1-navigation-driven-by-bidirectional-information-transmission-between-sensing-and-actuation)  
-   标签：评分：8.0/10、query:sr
-   evidence：导航中的双向信息传输模型，类比神经解码
-3. [Spiking Photonic Neurons Based on Two-Section InP Quantum-Well Lasers Integrated on Silicon](/202607/31/2607.26950v1-spiking-photonic-neurons-based-on-two-section-inp-quantum-well-lasers-integrated-on-silicon)  
-   标签：评分：8.0/10、query:sr
-   evidence：研究光子神经元的尖峰动态，模拟生物模式
-4. [Directional Influence Function: Estimating Training Data Influence in Constrained Learning](/202607/31/2607.23388v3-directional-influence-function-estimating-training-data-influence-in-constrained-learning)  
+1. [EEG-EditBench: Probing Visual Information in EEG-Image Retrieval Models with Controlled Image Edits](/202608/01/2607.27857v1-eeg-editbench-probing-visual-information-in-eeg-image-retrieval-models-with-controlled-image-edits)  
    标签：评分：7.0/10、query:sr
-   evidence：约束学习中的影响函数用于模型可解释性
-5. [CogEEGAgent: Toward Autonomous Cognitive EEG Analysis with Grounded Execution and Selection-Aware Verification](/202607/31/2607.25045v1-cogeegagent-toward-autonomous-cognitive-eeg-analysis-with-grounded-execution-and-selection-aware-verification)  
+   evidence：诊断基准测试探究EEG-图像检索模型匹配所用的视觉信息
+2. [S-CEReBrO: Breaking the Memory Barrier in Continuous EEG Monitoring](/202608/01/2607.27913v1-s-cerebro-breaking-the-memory-barrier-in-continuous-eeg-monitoring)  
    标签：评分：7.0/10、query:sr
-   evidence：基于LLM代理的自主认知EEG分析，直接支持神经解码与可解释性
-6. [An Attention-Based Framework for Alzheimers Disease Classification Using Resting-State fMRI](/202607/31/2607.26746v1-an-attention-based-framework-for-alzheimers-disease-classification-using-resting-state-fmri)  
+   evidence：流式EEG Transformer，恒定内存连续监测，支持BCI时序解码
+3. [Synchronization, Kinematic Waves and Spike-Phase-Separation in Feedback Ising Neural Networks on Heterogeneous Graphs](/202608/01/2607.28275v1-synchronization-kinematic-waves-and-spike-phase-separation-in-feedback-ising-neural-networks-on-heterogeneous-graphs)  
    标签：评分：7.0/10、query:sr
-   evidence：使用基于注意力的模型从fMRI解码脑活动进行阿尔茨海默病分类
-7. [TreeCCA: Canonical Correlation Analysis via Gradient-Boosted Trees](/202607/31/2607.27027v1-treecca-canonical-correlation-analysis-via-gradient-boosted-trees)  
-   标签：评分：7.0/10、query:sr
-   evidence：提出使用梯度提升树的可解释CCA方法，可应用于关联神经活动与外部变量
-8. [From Classification to Regression: Using a Fruitfly to Solve Equations](/202607/31/2607.27196v1-from-classification-to-regression-using-a-fruitfly-to-solve-equations)  
-   标签：评分：7.0/10、query:sr
-   evidence：果蝇启发式回归框架，利用局部模式库
+   evidence：反馈Ising神经网络中锋电位相位分离与群体发放动力学
+4. [Stabilizability of neural fields from thick subsets](/202608/01/2607.26883v1-stabilizability-of-neural-fields-from-thick-subsets)  
+   标签：评分：6.0/10、query:sr
+   evidence：Amari型神经场模型及外部控制输入；将刺激/控制与神经活动动态关联的数学框架
+5. [ZUNA1.1: A more flexible EEG foundation model for Denoising and Super-resolution](/202608/01/2607.27308v1-zuna11-a-more-flexible-eeg-foundation-model-for-denoising-and-super-resolution)  
+   标签：评分：6.0/10、query:sr
+   evidence：灵活的脑电重建与去噪基础模型，为神经信号分析提供支持
+6. [HealthCAT: An Interpretable Encoder-only Transformer Framework for Health Indicator Prediction and Temporal Interpretation of Wearable Sensor Data](/202608/01/2607.27635v1-healthcat-an-interpretable-encoder-only-transformer-framework-for-health-indicator-prediction-and-temporal-interpretation-of-wearable-sensor-data)  
+   标签：评分：6.0/10、query:sr
+   evidence：可解释Transformer用于时间序列逐时间步解释
 
