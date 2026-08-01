@@ -1,6 +1,11 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-08-02 <!--dpr-date:20260802-->
+    * <a class="dpr-sidebar-brief-link" href="#/202608/02/README">📝 今日简报</a>
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202608/02/2607.27710v1-nmine-normalized-mutual-information-neural-estimation" data-sidebar-item="{&quot;title&quot;: &quot;NMINE: Normalized Mutual Information Neural Estimation&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2607.27710v1-nmine-normalized-mutual-information-neural-estimation&quot;, &quot;score&quot;: &quot;7.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;归一化互信息估计；互信息是关联外部变量与神经活动的基本数学框架&quot;}">NMINE: Normalized Mutual Information Neural Estimation</a>
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202608/02/2607.28212v1-causal-discovery-with-inverted-self-attention-for-multivariate-time-series" data-sidebar-item="{&quot;title&quot;: &quot;Causal Discovery with Inverted Self-attention for Multivariate Time Series&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2607.28212v1-causal-discovery-with-inverted-self-attention-for-multivariate-time-series&quot;, &quot;score&quot;: &quot;7.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;多变量时间序列因果发现，可迁移至外部变量与神经活动关系建模&quot;}">Causal Discovery with Inverted Self-attention for Multivariate Time Series</a>
   * 2026-08-01 <!--dpr-date:20260801-->
     * <a class="dpr-sidebar-brief-link" href="#/202608/01/README">📝 今日简报</a>
     * 精读区
