@@ -1,6 +1,13 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-08-03 <!--dpr-date:20260803-->
+    * <a class="dpr-sidebar-brief-link" href="#/202608/03/README">📝 今日简报</a>
+    * 精读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202608/03/2607.27568v1-recognition-and-label-free-adaptation-across-recording-sessions-in-surface-emg-gesture-decoding" data-sidebar-item="{&quot;title&quot;: &quot;Recognition and Label-Free Adaptation Across Recording Sessions in Surface-EMG Gesture Decoding&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2607.27568v1-recognition-and-label-free-adaptation-across-recording-sessions-in-surface-emg-gesture-decoding&quot;, &quot;score&quot;: &quot;9.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;表面肌电手势解码及跨记录会话自适应，用于肌电控制&quot;}">Recognition and Label-Free Adaptation Across Recording Sessions in Surface-EMG Gesture Decoding</a>
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202608/03/2607.26483v1-reconstructing-backpropagation-from-forward-fluctuations-in-noise-modulated-neural-networks" data-sidebar-item="{&quot;title&quot;: &quot;Reconstructing Backpropagation from Forward Fluctuations in Noise-modulated Neural Networks&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2607.26483v1-reconstructing-backpropagation-from-forward-fluctuations-in-noise-modulated-neural-networks&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;在噪声调制网络中利用前向统计重建反向传播，解释脉冲式学习机制&quot;}">Reconstructing Backpropagation from Forward Fluctuations in Noise-modulated Neural Networks</a>
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202608/03/2607.26632v1-an-extended-perron-frobenius-operator-filter-for-nonlinear-state-estimation" data-sidebar-item="{&quot;title&quot;: &quot;An extended Perron-Frobenius operator filter for nonlinear state estimation&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2607.26632v1-an-extended-perron-frobenius-operator-filter-for-nonlinear-state-estimation&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;可用于神经时序解码的非线性状态估计滤波方法&quot;}">An extended Perron-Frobenius operator filter for nonlinear state estimation</a>
   * 2026-08-02 <!--dpr-date:20260802-->
     * <a class="dpr-sidebar-brief-link" href="#/202608/02/README">📝 今日简报</a>
     * 速读区
