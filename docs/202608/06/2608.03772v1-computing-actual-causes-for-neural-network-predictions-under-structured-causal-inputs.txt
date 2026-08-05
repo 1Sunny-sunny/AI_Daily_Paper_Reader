@@ -1,0 +1,1303 @@
+Title: Computing Actual Causes for Neural Network Predictions under Structured Causal Inputs
+
+URL Source: https://arxiv.org/pdf/2608.03772v1
+
+Published Time: Wed, 05 Aug 2026 01:12:56 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# Computing Actual Causes for Neural Network Predictions under Structured Causal Inputs 
+
+# Jannick Strobel, Muqsit Azeem, Stefan Leue 
+
+University of Konstanz {jannick.strobel, muqsit.azeem, stefan.leue}@uni-konstanz.de 
+
+Abstract 
+
+Explaining the predictions of neural networks is a central challenge in trustworthy AI. Existing explanation methods, such as those based on feature attribution or minimal suffi-cient sets, typically treat input features as independent, which can yield misleading explanations when inputs exhibit struc-tured dependencies. We address this by formalizing explana-tions as Halpern–Pearl (HP) actual causes, modeling input de-pendencies using Boolean Structural Causal Models (SCMs). We compute HP causes by applying bound propagation and branch-and-bound techniques, while providing formal guaran-tees of completeness and minimality. Our experiments show that we substantially outperform brute-force and ILP base-lines in scalability, and outperform heuristic search as graph size grows, computing all minimal actual causes on instances with search spaces of up to 2.3 × 10 13 candidate (cause, con-tingency) pairs, on SCMs with up to 28 nodes, within a 180s per-instance budget. In a case study, we further show that ignoring input dependencies inflates the number of reported causes, 14.9% of which are spurious under our SCM. 
+
+# 1 Introduction 
+
+Explaining the predictions of neural networks (NNs) is a central challenge in trustworthy AI (Zhang et al. 2021). A useful explanation should identify why a particular predic-tion was made, and which feasible counterfactual changes would have altered it. Many existing explanation methods rely on attribution scores that quantify the importance of in-put features, often under an implicit feature-independence assumption (Salih et al. 2025). However, in practice, in-puts often exhibit structured causal dependencies: medical findings may constrain diagnoses, and high expenses may lead to negative cashflow while having an average income. Without accounting for these dependencies, a counterfac-tual explanation may vary negative cashflow directly instead of tracing it back to high expenses, so the root cause gets obscured among the other features it influences. More gener-ally, because changing one feature may constrain, determine, or invalidate changes to others, ignoring these dependencies can lead to misleading or even spurious explanations (Aas, Jullum, and Løland 2021; Slack et al. 2020). This motivates explanations with explicit structural causal semantics. In order to represent this semantics, we adopt 
+
+Preprint. Under review. 
+
+Halpern–Pearl (HP) actual causality (Halpern and Pearl 2005; Halpern 2015). In this view, explaining a prediction means identifying minimal sets of features/variables whose values, if changed under an appropriate contingency, would change the prediction outcome. To ensure that such counter-factual changes respect the structure of the input domain, we model feature dependencies using Structural Causal Models (SCMs) (Pearl 2009). We assume that the SCM faithfully models the causal dependencies of the real-world domain, and thereby the dependencies present in the data on which the network is trained. Such SCMs can either be manually de-rived from domain knowledge, or learned from observational data via structure learning methods (Zheng et al. 2018). We assume that such an SCM is given. Our goal is to com-pute HP actual causes, i.e., causal explanations, for a given NN prediction of an input whose feature dependencies are specified by a given SCM. Importantly, such explanations need not be unique (Chock-ler, Kelly, and Kroening 2025). Several minimal sets of vari-ables may each be an actual cause of the same prediction. In a loan-risk model, for instance, one high-risk prediction might be explained by income alone, another by high expenses. Returning only one cause can hide these independent rea-sons, and for auditing and debugging we want the full set of minimal causal explanations, not just a single witness. In our experiments, 68.7% of instances have more than one minimal cause. Computing HP actual causes requires searching over can-didate cause sets and contingencies via interventions . An intervention sets a candidate cause to an alternative value, producing the counterfactual that shows whether the predic-tion would have changed. A contingency holds some of the other features fixed at their actual values, ruling out con-founding from those features. This search is computationally hard in general (Eiter and Lukasiewicz 2006). Most existing work on actual-cause computation studies discrete causal or logical models without an NN predictor (Leitner-Fischer and Leue 2013; Coenen et al. 2022; Ibrahim and Pretschner 2020). Conversely, most NN explanation methods explain the predictor directly, without enforcing that counterfactual inputs respect an explicit SCM (Salih et al. 2025). The set-ting we study combines both: an SCM defines the structured input space, while an NN maps the resulting variables to a prediction. This combination raises a difficult search prob-arXiv:2608.03772v1 [cs.AI] 4 Aug 2026 lem, since one must reason simultaneously over candidate causes, contingencies, and the NN’s prediction. 
+
+Our key idea is to compute HP actual causes by apply-ing bound propagation and branch-and-bound techniques. Instead of enumerating individual interventions and contin-gencies, we group them into regions of SCM-consistent in-puts. We then propagate sound bounds through the SCM and the NN via Interval Bound Propagation (IBP) (Gowal et al. 2019). During branch-and-bound (Bunel et al. 2020), regions that provably preserve the prediction are pruned, while regions that provably change it witness actual causal-ity. Inconclusive regions are refined by splitting and recursive invocation. We focus on Boolean SCMs. Their variables can repre-sent categorical, thresholded, or logical properties, such as income status in a loan application or the presence of a clin-ical finding, while interventions and contingencies have a clear finite semantics. This lets us isolate the core algorith-mic problem of exact HP-cause computation. At the same time, Boolean structural equations can be relaxed into mul-tilinear functions that agree with the original SCM on all Boolean assignments. As a result, we can reason soundly about whole regions of SCM-consistent inputs, rather than enumerating individual assignments one by one. 
+
+Our contributions can be summarized as follows: 
+
+• We formalize NN explanation under structured input de-pendencies as the computation of Halpern–Pearl actual causes over SCM-constrained inputs. 
+
+• We introduce CausEx BaB , a sound and complete algo-rithm that combines multilinear relaxations of Boolean structural equations with bound propagation and branch-and-bound to return all minimal actual causes and minimum-cardinality witness contingencies. The search may be restricted to causes of size at most kmax , preserv-ing soundness and completeness within that bound. 
+
+• We introduce synthetic SCM–NN benchmarks with trained NNs of varying capacity, and show that 
+
+CausEx BaB substantially outperforms brute-force enu-meration and ILP-based causality computation, and out-performs heuristic search as graph size grows, scaling to SCMs with up to 28 nodes and worst-case search spaces of up to 2.3 × 10 13 candidate cause–contingency pairs, and a 66.7% majority at 30 nodes, with a 180s timeout. 
+
+• In a case study for the U.S. Supplemental Nutrition As-sistance Program (SNAP), CausEx BaB outperforms all baselines and shows that ignoring input dependencies more than doubles the median number of reported causes, 14.9% of which are spurious under our SCM. 
+
+# 2 Background 
+
+We give only a brief overview here. Please see App. A and the cited references for a detailed background. 
+
+Structural Causal Models (Pearl 2009). We use SCMs to represent causal relationships between variables. An SCM is a tuple M = ( ⃗U ,⃗ V , F) with exogenous variables ⃗ U =
+
+{U1, . . . , U d}, endogenous variables ⃗ V = {X1, . . . , X d},and structural equations F = {f1, . . . , f d} such that Xj := 
+
+fj (PA j , U j ), where PA j ⊆⃗ V \ { Xj } are the endogenous parents of Xj . A context ⃗u fixes ⃗ U and thereby determines all of ⃗ V . We consider binary SCMs, where Xj ∈ { 0, 1}
+
+and each fj is a Boolean function. An intervention X ← x
+
+represents externally forcing X to value x, overriding its usual causal mechanism, by replacing its structural equation with X := x.
+
+Notation. We use ⃗ V ,⃗ X, and ⃗ W to denote vectors of vari-ables. When combined with set-theoretic operators such as 
+
+⊆, \, and | · | , we identify these vectors, by abuse of notation, with their underlying sets. In Sec. 3, where candidate causes and contingencies are manipulated only as sets, we write C
+
+and W without an arrow. 
+
+Halpern and Pearl’s Actual Causality (Halpern 2015). 
+
+SCMs do not by themselves specify what counts as the cause of an event. Halpern and Pearl’s actual causality fills this gap and has gone through several revisions. We adopt the lat-est, modified definition of actual causality (Halpern 2015), which avoids known problems with preemption and spuri-ous causes at lower complexity. According to this definition, given (M,⃗ u), a set of variables ⃗ X =⃗x is an actual cause of an outcome φ if ( AC1 ) (M,⃗ u) |=⃗ X =⃗x and (M,⃗ u) |= φ,(AC2 ) there exist ⃗ W ⊆⃗ V \⃗ X with actual value ⃗w and ⃗x ′̸ =⃗x
+
+such that (M,⃗ u) |= [ ⃗ X ←⃗x ′,⃗ W ←⃗w] ¬φ, and ( AC3 )⃗ X
+
+is minimal, i.e., no strict subset of ⃗ X satisfies AC1 and AC2. Intuitively, AC1 requires that the cause and the outcome both hold in the actual context, AC2 requires that changing ⃗ X un-der some contingency ⃗ W leads to ¬φ, and AC3 requires that no part of ⃗ X alone would suffice. A contingency ⃗ W is a set of other variables held fixed at their actual values ⃗w while ⃗ X
+
+is changed, so other variables that also affect φ cannot mask or compensate for the change. 
+
+Neural Networks (NNs). We consider NNs that map a vector of Boolean variables to a continuous value, formally represented as the mapping N : {0, 1}d → R, N (⃗x) = 
+
+σL ◦ σL−1 ◦ · · · ◦ σ1(⃗x) where σ i(z) = max(0 , w i · z + bi)
+
+is a ReLU-activated linear layer. 
+
+Branch-and-Bound based Neural Network Analysis. 
+
+NN verification decides whether a property of N ’s output holds over an input region: given bounds on the inputs, it computes sound bounds on N ’s output. IBP (Gowal et al. 2019) propagates an input box through each layer using in-terval arithmetic. When bounds are inconclusive, Branch-and-Bound (BaB) (Bunel et al. 2020) splits the region into sub-regions and recomputes bounds on each, until the prop-erty is certified, refuted, or all sub-regions are explored. 
+
+# 3 Approach 
+
+We compute actual causes of NN predictions under struc-tured input dependencies, modeled by an SCM M, under the modified HP definition of actual causality. We present our approach through a running example. We first show how exhaustive actual-cause computation searches over can-didate causes and contingencies, and then explain how CausEx BaB replaces this enumeration with bound propa-gation and branch-and-bound over regions. 
+
+Problem Setup. The context ⃗u induces the actual assign-ment ⃗x and prediction y = N (⃗x) (Sec. 2). We say an assign-ment ⃗x ′ satisfies the outcome φ if N (⃗x ′) ∈ S, for some fixed 
+
+acceptance set S ⊆ R that specifies what counts as the out-come. This set is a modeling choice, orthogonal to the rest of our approach. Throughout this section, including the running example, we take S = [ τ, ∞), where τ is a hard threshold on the output. Sec. 4 instead specifies φ via a distance metric. 
+
+φ holds when N (⃗x ′) lies within a threshold distance of the actual output, i.e., S becomes an interval around it. Our goal is to find all sets of variables ⃗ X ⊆⃗ V that are actual causes 
+
+(AC1–AC3) of φ, witnessed by an intervention ⃗ X ←⃗x ′ that, under some contingency, falsifies φ.
+
+3.1 Running Example and Exhaustive Search 
+
+We illustrate our algorithm using a concrete example. Con-sider a bank that uses an NN to predict the default risk of loan applicants. Given information about an applicant, the NN outputs a risk score y ∈ [0 , 1] indicating the proba-bility of loan default. The bank classifies an applicant as 
+
+high risk if y ∈ S, for S = [ τ, ∞), with τ = 0 .5, and as low risk otherwise. We model five binary applicant fea-tures: X1 (high income), X2 (negative cashflow), X3 (high expenses), X4 (unsecured exposure), and X5 (has guaran-tor). These features are causally related: high income can cause high expenses; high expenses combined with no high income can cause negative cashflow; negative cashflow with-out a guarantor indicates unsecured exposure. We formalize this as a Structural Causal Model. Fig. 1 il-lustrates the SCM with its structural equations together with the NN classifier N . Each endogenous variable Xi is de-termined by its causal parents and an exogenous variable 
+
+Ui via a structural equation. For root nodes (without par-ents), Xi = Ui. For non-root nodes, Xi is a node-specific Boolean function of its parents, combined with Ui via XOR. Concretely, X3 = X1 ⊕ U3, X2 = ( X3 ∧ ¬ X1) ⊕ U2, and 
+
+X4 = ( X2∧¬ X5)⊕U4. The exogenous variables U1, . . . , U 5
+
+encode all background factors not explicitly modeled. Their role is to capture uncertainty: even with high income, high expenses are not guaranteed, and negative cashflow without a guarantor does not necessarily lead to unsecured expo-sure. Given a fixed context ⃗u = ( u 1, . . . , u 5), all endoge-nous features are fully determined, and the predictor output 
+
+y = N (X1, . . . , X 5) can be computed. We fix the following context for this example throughout the paper: ⃗u = (1 , 1, 0, 1, 0) . This induces the actual assign-ment ⃗x = (1 , 1, 1, 0, 0) 1: the applicant has high income, neg-ative cashflow, high expenses, no unsecured exposure, and no guarantor. The predictor outputs y = N (⃗x) = 0 .66 ≥ τ ,so the bank classifies the applicant as high risk . Our goal is to find minimal sets of features ⃗ X ⊆ { X1, . . . , X 5} that are actual causes of this classification, that is, interventions that, under some contingency, would push the prediction below τ
+
+and flip the applicant to low risk .     
+
+> 1Computed in topological order: X1=1 ,X3=1 ,X5=0 ,X2=1 ,X4=0 .
+
+SCM 
+
+NN                      
+
+> X1
+> High Income
+> X1=U1X2
+> Negative Cashflow
+> X2= ( X3∧ ¬ X1)⊕U2
+> X3
+> High Expenses
+> X3=X1⊕U3
+> X4
+> Unsecured Exposure
+> X4= ( X2∧ ¬ X5)⊕U4
+> X5
+> Has Guarantor
+> X5=U5
+> X1X2X3X4X5
+
+y = N (X1, . . . , X 5)     
+
+> High Risk: y≥0.5Low Risk: y < 0.5
+> 1
+
+Figure 1: Loan risk SCM, as presented in Sec. 3.1. 
+
+Exhaustive search enumerates every candidate cause set 
+
+C ⊆⃗ V assigning its variables the cause role and fixing them to their counterfactual values ⃗x ′ 
+
+> C
+
+(i.e. the Boolean com-plements of their actual values). Checking AC2 for C then amounts to determining whether some contingency makes the intervention C ←⃗x ′ 
+
+> C
+
+falsify φ. For this, we enumerate every subset W ⊆⃗ V \ C. Variables in W take the contin-gency role and are fixed to their actual values ⃗w, while the remaining variables ⃗ V \ (C ∪ W ) take the natural role and follow their structural equations. Each choice of W thus in-duces one fully-determined counterfactual assignment ˜⃗x and prediction N (˜⃗x). If N ( ˜⃗x) /∈ S for some W , then C satisfies AC2, witnessed by W . Otherwise, C is not a cause. To enforce minimality (AC3), we enumerate candidate cause sets by increasing size, discarding any set that is a superset of an already-found cause. For each remaining can-didate, check contingencies by increasing size, so the first one falsifying φ is a minimum-cardinality witness. Both the num-ber of candidate cause sets and the number of contingencies per candidate grow exponentially in |⃗ V |, so this exhaustive approach quickly becomes infeasible. 
+
+3.2 The CausEx BaB Algorithm 
+
+Rather than checking candidate cause and contingency pairs one at a time, we reason about regions that represent many possible role assignments at once. To this end, we mark a variable undecided when it has not been resolved to nat-ural , in which case it follows its structural equation, or to 
+
+contingency , in which case it is fixed to its actual value. Fig. 2 presents an overview of our approach, which we refer to as CausEx BaB . We analyze each region using sound output bounds. Conclusive regions are pruned or confirmed without examining their assignments individually, while inconclusive regions are refined by resolving one undecided variable and recursively analyzing the two resulting subregions. Input Assignment  
+
+> Role Assignment
+> SCM Output Bounds
+> NN Output Bound
+> Bound Confirms Cause
+> Bound Rejects Cause
+> Complete Set of Cause Witnesses
+> SCM
+> NN
+> X1
+> · · ·
+> Xn
+> [y, y ]
+> x1
+> · · ·
+> xn
+> SCM [x1, x 1]
+> · · ·
+> [xn, x n]
+> NN
+> 
+> 
+
+# CausEx BaB  
+
+> Propagate Bounds Propagate Bounds
+> Conclusive?
+> No
+> Split
+> recursively solve subproblems by refining role assignments
+> Yes
+> Confirm
+> Prune
+> update Cause Witness
+> 1
+
+Figure 2: Overview of CausEx BaB . For a selected candidate cause, an input together with a role assignment ( cause / contingency 
+
+/ natural / undecided ) is propagated first through the SCM via interval arithmetic and then through the NN via IBP, to obtain an NN output bound. If this bound is conclusive, the region is pruned or confirmed, and a confirmed region yields a cause witness; otherwise, the role assignment is split into subproblems, and the process repeats recursively on each subproblem. 
+
+Representing Contingencies as Regions. For a fixed can-didate cause set C, assigning every remaining variable either the natural or contingency role specifies one possible contingency. CausEx BaB compactly represents many such assignments using partial role assignments , in which vari-ables may remain undecided . A region B consists of a partial role assignment together with an interval [ℓX , h X ] for each variable X ∈⃗ V , representing the values that X may take across the contingencies captured by the region. For cause 
+
+and contingency variables, this interval collapses to the cor-responding fixed value. For natural variables, it is induced by the structural equation, while for undecided variables it is the hull of the natural and contingency possibilities. We write B0(C) for the initial region of candidate cause set C, in which the variables in C take the cause role and all remaining variables are undecided . This region represents all possible contingencies for C. We next explain how its intervals are computed and propagated through the SCM. 
+
+Propagating Bounds. To propagate intervals through the Boolean SCM, we use the continuous relaxations of Boolean functions as used in Petersen et al. (2022). 
+
+• NOT (a) = 1 − a • OR (a, b ) = a + b − ab 
+
+• AND (a, b ) = ab • XOR (a, b ) = a + b − 2ab 
+
+These relaxations are exact on Boolean inputs. Each relax-ation is multilinear. As a result, the extrema of a single relaxed gate over its parents’ interval bounds are always attained at a corner of the corresponding interval box. This gives the tightest possible interval for that gate alone. On [0 , 1] , NOT, AND, and OR are additionally monotonic in each argument (NOT decreasing, and AND and OR increasing). For these gates, evaluating the appropriate interval endpoints suffices, whereas the non-monotonic XOR gate requires evaluating all four corners. The resulting map bound SCM processes the variables of M in topological order, applying the ap-propriate role rule using each variable’s already-computed parent bounds. bound NN then propagates the resulting fea-ture bounds through N via IBP (Gowal et al. 2019). Affine layers are bounded using interval arithmetic, and each ReLU maps an interval [ℓ, h ] to [max(0 , ℓ ), max(0 , h )] .
+
+CausEx BaB . Our algorithm, presented in Alg. 1, com-putes minimal causes with minimum-cardinality contingen-cies that satisfy AC1–AC3. 2 AC1 is satisfied by assumption. The search only considers actual instances where φ already holds ( y ∈ S). The algorithm establishes AC2 and enforces AC3 by pruning or confirming regions based on their bounds 
+
+[ℓ, h ] on N (⃗x ′). A region can be pruned if [ℓ, h ] ⊆ S (every input satisfies φ) and confirmed if [ℓ, h ] ∩ S = ∅ (every input falsifies φ). For our threshold instantiation S = [ τ, ∞), this specializes to ℓ ≥ τ and h < τ respectively. CausEx BaB 
+
+encompasses the following steps: 1. Enumerate candidates. We consider candidate cause sets C ⊆⃗ V by increasing size k = 1 , . . . , |⃗ V |. Before searching a candidate, we check whether some already-confirmed cause C′ is a strict subset of C. If so, C cannot be minimal, and we skip it without further computation. Because candidates are visited in increasing order of size, this check guarantees AC3 minimality of every cause set we report. For a surviving candidate C, we initialize a queue Q with the single region B0(C), in which the vari-ables in C take the cause role and every other variable is undecided . This region represents all possible contin-gencies for the intervention on C.2. Compute bounds and classify. We repeatedly pop a re-gion B from Q. Let W = contingency( B) be the vari-ables already assigned the contingency role. If W ∗̸ = ⊥
+
+and |W | ≥ | W ∗|, no refinement of B can yield a smaller contingency, so we prune it. Otherwise, bound SCM prop-agates the intervals induced by B through M to obtain bounds [⃗ℓ,⃗ h ] on every endogenous variable.We then prop-agate these feature bounds through N via bound NN to obtain bounds [ℓ, h ] on N for all assignments represented by B. If [ℓ, h ] ⊆ S, then every input in B still satisfies 
+
+φ, so no contingency in this region can falsify it, and we 
+
+prune B. If [ℓ, h ] ∩ S = ∅, every input represented by B
+
+falsifies φ, so we confirm B. Resolving all remaining un-
+
+> 2
+
+Alg. 1 searches all candidate sizes k = 1 , . . . , |⃗ V |. The outer loop may be capped at kmax < |⃗ V | to reduce computation, in which case completeness holds only for causes of size at most kmax .Algorithm 1: CausEx BaB 
+
+Input: ⃗x with N (⃗x) ∈ S, SCM M, NN N , set S
+
+Output: Set of all (C, W ∗) pairs  
+
+> 1
+
+C∗ ← ∅  
+
+> 2
+
+for k = 1 , . . . , |⃗ V | do  
+
+> 3
+
+for each k-subset C ⊆⃗ V do  
+
+> 4
+
+if ∃ (C′, W ′) ∈ C ∗ s.t. C′ ⊊ C then skip  
+
+> 5
+
+Q ← {B 0(C)} 
+
+> 6
+
+W ∗ ← ⊥ // best cont. for C so far, ⊥ = none found yet  
+
+> 7
+
+while Q̸ = ∅ do  
+
+> 8
+
+B ← pop( Q) 
+
+> 9
+
+W ← contingency( B)
+
+// get cont. vars. from B 
+
+> 10
+
+if W ∗̸ = ⊥ and |W | ≥ | W ∗| then prune  
+
+> 11
+
+else  
+
+> 12
+
+[⃗ ℓ,⃗ h ] ← bound SCM (M, B) 
+
+> 13
+
+[ℓ, h ] ← bound NN (N, [⃗ℓ,⃗ h ])  
+
+> 14
+
+if [ℓ, h ] ⊆ S then prune  
+
+> 15
+
+else if [ℓ, h ] ∩ S = ∅ then  
+
+> 16
+
+if W ∗ = ⊥ or |W | < |W ∗| then 
+
+W ∗ ← W 
+
+> 17
+
+else  
+
+> 18
+
+j ← selectVar( B) 
+
+> 19
+
+Q ← Q ∪ {B [j : natural ]} 
+
+> 20
+
+Q ← Q ∪ {B [j : contingency ]}
+
+// branch selected node and add to queue  
+
+> 21
+
+if W ∗̸ = ⊥ then C∗ ← C ∗ ∪ { (C, W ∗)}
+
+// witness found: record C 
+
+> 22
+
+return C∗
+
+decided variables to natural yields the smallest witness contingency represented by B, which we retain only if it is smaller than the best one found for C so far. Otherwise, the bounds are inconclusive, and we refine B.3. Refine. To refine an inconclusive region, we select one 
+
+undecided variable using a branching heuristic (see Sec. 4, App. E.10), and split B into two children: one where that variable is resolved to natural , and one where it is resolved to contingency . Both children are added back to Q. Once Q is empty, if a witness contingency was found for C, we add the pair (C, W ∗) to C∗.This yields two guarantees: (i) candidate ordering enforces AC3, and (ii) continuing the search after the first witness contingency while pruning regions whose committed con-tingency is no smaller than the current best witness yields a minimum-cardinality contingency (see Rem. 2 in App. C). 
+
+Remark 1 (Restricted intervention set) . For clarity, Alg. 1 assumes that all endogenous variables may appear in candi-date causes. In practice, cause interventions may instead be restricted to a user-specified set I ⊆⃗ V , for example by ex-cluding administrative variables. Candidate causes are then     
+
+> {X1}
+> X2
+> X3
+> PP
+> X3
+> PP
+> {X2}
+> X4
+> PC
+> {X3}
+> C
+> {X4}
+> P
+> {X5}
+> X4
+> PP
+
+Figure 3: CausEx BaB search tree for k = 1 on our running example. Each root child (e.g. {X1}) is a candidate cause 
+
+(pink). At each branch, the left child resolves the branching variable to natural (blue) and the right child to contin-gency (orange). C = confirmed, P = pruned. 
+
+drawn from I, while the remaining variables, whether inside or outside I, may still serve as contingency variables. 
+
+Algorithm illustration on the running example in Fig. 3. 
+
+Recall S = [ τ, ∞) with τ = 0 .5 for this example. Ini-tially, X1 is fixed to cause and every other variable is left 
+
+undecided . The initial bounds [0 .08 , 1.00] are inconclusive (neither [ℓ, h ] ⊆ S nor [ℓ, h ]∩S = ∅), so the search branches on X2, and both children branch again on X3 for the same reason. All four resulting leaves have bounds entirely in S
+
+and satisfy φ, so {X1} is pruned entirely. For {X3} and 
+
+{X4}, fixing the singleton leaves nothing else undetermined, so both bounds resolve to a single point without branching: 
+
+0.41 (outside S) confirms {X3} as a cause, while {X4}’s point lies in S and is pruned. {X5} (bounds [0 .35 , 0.83] )and {X2} are both inconclusive and branch once on X4: for 
+
+{X5} both children’s bounds lie in S and are pruned, while for {X2} the natural child is pruned but the contingency 
+
+child’s bounds lie outside S, falsifying φ and confirming 
+
+{X2} as a second cause with witness contingency {X4}.Concretely, intervening on negative cashflow alone does not flip the classification unless unsecured exposure is also held at its actual value X4=0 , the contingency. This leaves {X2}
+
+and {X3} as confirmed causes of size k = 1 .Every candidate of size k = 2 , . . . , 5 is either a superset of {X2} or {X3} and skipped, or checked and pruned, so no cause larger than k = 1 exists for our running example: {X3}
+
+(high expenses ) and {X2} (negative cashflow ) with witness contingency {X4} (unsecured exposure ) are the only two minimal causes. The minimal sufficient set for this instance is the single set {X2, X 3}, exactly the union of the two causes. Computing actual causes is more informative here: it identifies X2 and X3 as independently responsible, each with its own witness contingency, rather than only the combined sufficient set, which does not reveal that either feature alone already suffices to flip the classification. App. B works through a different context on the same SCM that does produce a cause of size k = 2 .
+
+Correctness and Termination. Theorem 1. Given an SCM M, NN N , and N ’s actual input ⃗x with N (⃗x) ∈ S, Alg. 1 terminates. It returns exactly the set of all actual causes of φ (characterized by AC1–AC3). 3 For     
+
+> 3If the maximum cause size is capped at kmax <|⃗V|, this guar-
+
+each returned cause, it also returns a minimum-cardinality contingency. 
+
+Please refer to the App. C.1 for the full proof of Thm. 1. 
+
+Complexity. For a candidate cause C with |C| = k,the search resolves |⃗ V | − k non-cause variables. In the worst case, the resulting binary search tree contains 
+
+P|⃗V |− ki=0 2i = 2 |⃗V |− k+1 − 1 regions, including the initial region. Hence, the overall number of regions is at most 
+
+P|⃗V |
+
+> k=1
+
+ |⃗V |
+
+> k
+
+ 
+
+2|⃗V |− k+1 − 1
+
+
+
+< 2 · 3|⃗V |, which is O(3 |⃗V |).See App. D for details. 
+
+# 4 Experiments 
+
+We evaluate CausEx BaB on both synthetic benchmarks and a case study. The synthetic benchmarks allow us to systemati-cally vary graph size, causal structure, maximum cause size, and NN capacity, while the case study demonstrates applica-bility to a real decision-making setting. Because established benchmarks for HP-cause computation in NNs with struc-tured causal inputs are limited, we generate the synthetic benchmarks described below. 
+
+4.1 Experimental Setup 
+
+We ran all experiments on an NVIDIA L40S GPU, an AMD EPYC 9375F CPU (32 cores), 192 GB RAM, and Ubuntu 24.04.4 LTS. We compare CausEx BaB against brute-force enumeration ( BF ), a search-based baseline ( ACI ) (Reyd, Diaconescu, and Dessalles 2025), and a constraint-based (ILP ) formulation (Ibrahim and Pretschner 2020) , encod-ing ReLU via Big-M constraints and solved with SCIP (Ho-jny et al. 2025), using a 180s timeout per run. For fair-ness, BF includes the same superset pruning, batched GPU evaluation, and JIT-compiled SCM/NN evaluation used by 
+
+CausEx BaB . Unless stated otherwise, CausEx BaB uses the 
+
+width_large branching heuristic; App. E.10 reports on alternative heuristics. 
+
+SCM Generation. Following the benchmark protocol of Aryan, Chockler, and Mousavi (2026), we gen-erate Barabási–Albert (BA)-style preferential-attachment DAGs (Barabási and Albert 1999) by adding nodes sequen-tially and allowing each new node to select only earlier nodes as parents. This yields a small number of hub variables and many sparsely connected variables. Each endogenous vari-able is assigned an AND or OR structural equation with equal probability ( p = 0 .5), and each incoming edge is inde-pendently negated with probability p = 0 .2. We also run the same experiments on DAGs generated using the Erdős–Rényi (ER) model (Erdős and Rényi 1959) and observe consistent runtime trends (App. E.4). 
+
+Neural Network Generation. To obtain a nontrivial task over SCM-generated inputs, we use a frozen, randomly ini-tialized multilayer perceptron (MLP) with two hidden layers as a teacher network (Goldt et al. 2020). We normalize its output to [0 , 1] , add Gaussian noise, and train a student NN   
+
+> antee holds only for actual causes with |C| ≤ kmax . See App. C.1, Rem. 4.
+
+6 10 14 18 22 26 30 34 
+
+Number of SCM nodes 
+
+10 0
+
+10 1
+
+10 2
+
+> Median Runtime (s)  timeout: 180s
+> CausEx BaB
+> BF
+> ILP
+> ACI
+
+1
+
+Figure 4: Runtime as a function of the number of SCM nodes. Lines show median runtimes over nine runs per configura-tion, with shaded regions indicating the interquartile range. A point is marked with × if that configuration and all subse-quent ones time out for that method. to approximate it. Given the actual output y, we set the ac-ceptance set to S = [ y − ε, y + ε], with ε = 0 .3. Thus, an intervention yielding output y′ falsifies φ if |y′ − y| > ε .Each configuration is evaluated on three independently generated graphs and three sampled contexts per graph, yielding nine runs per configuration. 
+
+Validation against exhaustive search. On every instance completed by both methods, CausEx BaB and exhaustive BF 
+
+return exactly the same set of minimal causes. 
+
+4.2 Results 
+
+We first evaluate how CausEx BaB scales with the number of SCM nodes relative to BF , ACI , and ILP , before reporting a series of additional experiments. 
+
+Number of SCM nodes (Fig. 4). We vary the number of nodes from 6 to 34 in increments of 2, compute all minimal causes, and use the m4 architecture 4 (256 × 128 × 64 × 32 ). 
+
+CausEx BaB completes all runs up to n = 28 , with median runtime increasing from 3.6s to 34.5s. At n = 30 , 33% of runs time out; at n = 32 , 88.9% time out; and all runs time out from n = 34 . BF completes all runs up to n = 20 but times out from n = 22 onward. At n = 20 , its median runtime is 92.0s, vs. 5.8s for CausEx BaB . ILP times out on one run at n = 6 , on 89% of runs at n = 8 , and on all runs from n = 10 . ACI is fastest for small graphs ( n ≤ 10 ,median below 3s), but its runtime rises sharply at n = 12 
+
+and it times out on the majority of runs from n = 14 and on all runs from n = 16 . Wilcoxon signed-rank tests show that CausEx BaB is significantly faster than ILP and ACI at almost every tested n (p < 0.05 ), while the difference from 
+
+BF becomes significant from n = 18 onward. Across the 115 completed CausEx BaB runs, 68.7% yield multiple minimal causes, 13.0% yield exactly one, and 18.3% yield none. 
+
+> 4Tab. 2 (App. E.2) lists the full range of tested architectures.
+
+Further Results. Additional experiments confirm the im-portance of causal structure and show that CausEx BaB re-mains robust across network, graph, and search settings. 
+
+Independence baseline. Treating input features as causally independent finds 59% more causes that are 20% larger on average, recovers only 33% of the true minimal causes, and 
+
+74 .3% of what it finds is valid but not minimal under the SCM (App. E.11). 
+
+Neural network size. Varying the NN architecture from 96 to 8160 hidden ReLU units while fixing the SCM at 10 nodes has little effect on the runtimes of CausEx BaB , BF , and ACI ,whereas ILP times out on the majority of runs (App. E.2). 
+
+Scalability. Restricting the maximum cause size searched to kmax = 8 , CausEx BaB completes almost all runs up to 
+
+n = 38 and still solves instances at n = 56 (App. E.6). 
+
+Connected components. Runtime is driven primarily by graph size, while the number of components has a smaller, non-monotone effect that is largely explained by variation in the number of minimal causes to enumerate (App. E.7). 
+
+Sparsity. Runtime shows no systematic dependence on graph density, with median runtimes remaining within 26 –47 sacross m=1 , . . . , 8 (App. E.8). 
+
+Branch selection. The default width_large heuristic clearly outperforms the alternatives, resolving 51 .2% of un-decided variables per pruned branch and avoiding all time-outs at the largest tested size (App. E.10). 
+
+Maximum cause size. Increasing kmax from 1 to 8 leaves 
+
+CausEx BaB ’s median runtime essentially unchanged at 5.3–
+
+5.5s, whereas the baselines become slower (App. E.5). 
+
+Cause sizes. Minimal causes span a broad range of sizes; restricting the search to kmax =8 would retain only 59 .4% of the causes found by unrestricted search (App. E.9). 
+
+4.3 Case Study: SNAP Quality-Control Targeting 
+
+As a case study, we build an SCM from the Certification of Eligible Households Regulation (Office of the Federal Regis-ter 2026) of the Supplemental Nutrition Assistance Program (Leftin et al. 2026) and use it to compute causes for decisions made by an NN, trained on USDA’s SNAP Quality Control data (U.S. Department of Agriculture, Food and Nutrition Service 2026), that flags certified households for benefit-error reviews. CausEx BaB computes actual causes for every flagged household in a median runtime of 4.60 s, while BF 
+
+takes a median runtime of 43 .24 s and ILP and ACI time out on 3/11 and 10 /11 instances respectively. Treating the in-puts as independent instead of respecting the SCM raises the median number of causes found from 23 to 50 , and 14 .9% 
+
+of them turn out to be spurious. See App. F. 
+
+# 5 Related Work 
+
+HP actual causality has been extensively studied in discrete, non-neural models (Leitner-Fischer and Leue 2013; Coenen et al. 2022; Ibrahim and Pretschner 2020), but computing HP causes for NN predictions under structured causal inputs remains underexplored. Closest to our setting, Ibrahim and Pretschner (2020) compute exact HP causes via an ILP en-coding that scales poorly with neural network components. Reyd, Diaconescu, and Dessalles (2025) search heuristically, without formal guarantees and possibly returning incomplete or non-minimal sets. Chockler, Kelly, and Kroening (2025) compute multiple actual causes for black-box image classi-fiers via repeated querying, but assume independent features. Aryan, Chockler, and Mousavi (2026) use an incomplete continuous gradient-based search. We instead provide for-mal guarantees along three dimensions: (i) minimality of the computed causes, (ii) minimality and sufficiency of the used contingencies, and (iii) computation of all valid HP actual causes, over an SCM-structured input space, while scaling to substantially larger instances than the baselines. Feature-attribution methods such as LIME (Ribeiro, Singh, and Guestrin 2016) and SHAP (Lundberg and Lee 2017), and causal variants that relax the independence as-sumption via a given causal graph (Heskes et al. 2020), re-turn importance scores rather than HP actual causes. Minimal abductive explanations (Bassan and Katz 2023) are a dual notion, where a fixed value alone guarantees the prediction rather than a change alone altering it. 
+
+# 6 Discussion 
+
+We keep the SCM separate from the NN because the two components serve different roles. The SCM provides explicit intervention semantics and domain knowledge, while the NN remains the fixed predictive model whose output is being ex-plained. Although the NN may learn statistical dependencies that overlap with those encoded by the SCM, these depen-dencies are not explicitly represented as causal mechanisms. The two components could instead be combined in a neural SCM, but this would require a model specifically learned as an SCM rather than an arbitrary pretrained predictor. 
+
+Beyond Boolean SCMs. For continuous SCMs, verifica-tion methods can still reason soundly about continuous input regions, but exact enumeration of all minimal HP causes no longer reduces to a finite search over assignments. One must specify the admissible intervention space and the relevant no-tion of minimality. Extending our guarantees to that setting is therefore an important but separate problem. Towards this, we experimented with tighter bounds via β-CROWN (Wang et al. 2021). Each iteration’s bound computation took sub-stantially longer to run than IBP, and did not improve overall runtime in our Boolean setting. We conjecture it may help once inputs are continuous. 
+
+# 7 Conclusion 
+
+We formalized NN explanation under structured input depen-dencies as the computation of Halpern–Pearl actual causes over SCM-constrained inputs. We introduced CausEx BaB , a sound and complete algorithm that returns all minimal ac-tual causes together with minimum-cardinality witness con-tingencies. Across SCM–NN benchmarks, CausEx BaB sub-stantially outperforms brute-force, ILP-based, and heuristic search baselines as graph size grows. Future work includes an extension to continuous domains as well as bounding the maximum cause size automatically from the graph structure, an evaluation of our approach on larger networks and ad-ditional real-world datasets, and integrating gradient-based candidate generation with branch-and-bound refinement. Acknowledgements 
+
+The work of Leue, Azeem and Strobel was partially funded through the DFG research grant LE 1342/4 “SCADNet -Structural Causal Analysis of Deep Neural Networks”. 
+
+# References 
+
+Aas, K.; Jullum, M.; and Løland, A. 2021. Explaining indi-vidual predictions when features are dependent: More accu-rate approximations to Shapley values. Artificial Intelligence ,298: 103502. Aleksandrowicz, G.; Chockler, H.; Halpern, J. Y.; and Ivrii, A. 2017. The Computational Complexity of Structure-Based Causality. Journal of Artificial Intelligence Research , 58: 431–451. Aryan, K.; Chockler, H.; and Mousavi, M. R. 2026. Differen-tiable causal search. In Fifth conference on causal learning and reasoning .Barabási, A.-L.; and Albert, R. 1999. Emergence of Scaling in Random Networks. Science , 286(5439): 509–512. Bassan, S.; and Katz, G. 2023. Towards Formal XAI: For-mally Approximate Minimal Explanations of Neural Net-works. In Sankaranarayanan, S.; and Sharygina, N., eds., 
+
+Tools and Algorithms for the Construction and Analysis of Systems , volume 13993, 187–207. Cham: Springer Nature Switzerland. ISBN 978-3-031-30822-2 978-3-031-30823-9. Series Title: Lecture Notes in Computer Science. Bunel, R.; Turkaslan, I.; Torr, P. H. S.; Kumar, M. P.; Lu, J.; and Kohli, P. 2020. Branch and bound for piecewise linear neural network verification. Journal of Machine Learning Research , 21(1). Chockler, H.; Kelly, D. A.; and Kroening, D. 2025. Multiple Different Black Box Explanations for Image Classifiers. In Lynce, I.; Murano, N.; Vallati, M.; Villata, S.; Chesani, F.; Milano, M.; Omicini, A.; and Dastani, M., eds., Frontiers in Artificial Intelligence and Applications . IOS Press. ISBN 978-1-64368-631-8. Coenen, N.; Dachselt, R.; Finkbeiner, B.; Frenkel, H.; Hahn, C.; Horak, T.; Metzger, N.; and Siber, J. 2022. Explaining Hyperproperty Violations. In Shoham, S.; and Vizel, Y., eds., Computer Aided Verification , volume 13371, 407–429. Cham: Springer International Publishing. ISBN 978-3-031-13184-4 978-3-031-13185-1. Series Title: Lecture Notes in Computer Science. Eiter, T.; and Lukasiewicz, T. 2001. Complexity results for structure-based causality. In Proceedings of the 17th inter-national joint conference on artificial intelligence - volume 1, IJCAI’01, 35–40. Seattle, WA, USA: Morgan Kaufmann Publishers Inc. ISBN 1-55860-812-5. Eiter, T.; and Lukasiewicz, T. 2006. Causes and explanations in the structural-model approach: Tractable cases. Artificial Intelligence , 170(6-7): 542–580. Erdős, P.; and Rényi, A. 1959. On random graphs I. Publi-cationes Mathematicae Debrecen , 6: 290–297. Goldt, S.; Advani, M. S.; Saxe, A. M.; Krzakala, F.; and Zdeborová, L. 2020. Dynamics of stochastic gradient descent for two-layer neural networks in the teacher–student setup*. 
+
+Journal of Statistical Mechanics: Theory and Experiment ,2020(12): 124010. Gowal, S.; Dvijotham, K.; Stanforth, R.; Bunel, R.; Qin, C.; Uesato, J.; Arandjelovic, R.; Mann, T. A.; and Kohli, P. 2019. Scalable Verified Training for Provably Robust Image Clas-sification. In 2019 IEEE/CVF International Conference on Computer Vision (ICCV) , 4841–4850. Seoul, Korea (South): IEEE. ISBN 978-1-7281-4803-8. Halpern, J. Y. 2015. A modification of the Halpern-Pearl def-inition of causality. In Proceedings of the 24th international conference on artificial intelligence , IJCAI’15, 3022–3033. Buenos Aires, Argentina: AAAI Press. ISBN 978-1-57735-738-4. Halpern, J. Y. 2016. Actual Causality . The MIT Press. Cambridge: The MIT Press. ISBN 978-0-262-33661-1 978-0-262-03502-6. Halpern, J. Y.; and Pearl, J. 2005. Causes and explanations: a structural-model approach. Part I: Causes. The British Journal for the Philosophy of Science , 56(4): 843–887. Heskes, T.; Bucur, I. G.; Sijben, E.; and Claassen, T. 2020. Causal shapley values: exploiting causal knowledge to ex-plain individual predictions of complex models. In Proceed-ings of the 34th international conference on neural informa-tion processing systems , Nips ’20. Vancouver, BC, Canada: Curran Associates Inc. ISBN 978-1-7138-2954-6. Hojny, C.; Besançon, M.; Bestuzheva, K.; Borst, S.; Chmiela, A.; Dionísio, J.; Eifler, L.; Ghannam, M.; Gleixner, A.; Göß, A.; Hoen, A.; van der Hulst, R.; Kamp, D.; Koch, T.; Kofler, K.; Lentz, J.; Maher, S. J.; Mexi, G.; Mühmer, E.; Pfetsch, M. E.; Pokutta, S.; Serrano, F.; Shinano, Y.; Turner, M.; Vigerske, S.; Walter, M.; Weninger, D.; and Xu, L. 2025. The SCIP optimization suite 10.0. Technical Report, Opti-mization Online. Ibrahim, A.; and Pretschner, A. 2020. From Checking to Inference: Actual Causality Computations as Optimization Problems. In Hung, D. V.; and Sokolsky, O., eds., Au-tomated Technology for Verification and Analysis , volume 12302, 343–359. Cham: Springer International Publishing. ISBN 978-3-030-59151-9 978-3-030-59152-6. Series Title: Lecture Notes in Computer Science. Leftin, J.; Monkovic, M.; Yang, F.; Bonelli, S.; and Maula, J. C. 2026. Technical documentation for the fiscal year 2024 supplemental nutrition assistance program quality control database and the QC minimodel. Technical report, Math-ematica, prepared for the U.S. Department of Agriculture, Food and Nutrition Service. Leitner-Fischer, F.; and Leue, S. 2013. Causality checking for complex system models. In VMCAI , volume 7737 of 
+
+Lecture notes in computer science , 248–267. Springer. Lundberg, S. M.; and Lee, S.-I. 2017. A unified approach to interpreting model predictions. In Guyon, I.; von Luxburg, U.; Bengio, S.; Wallach, H. M.; Fergus, R.; Vishwanathan, S. V. N.; and Garnett, R., eds., Advances in neural information processing systems 30: Annual conference on neural infor-mation processing systems 2017, december 4-9, 2017, long beach, CA, USA , 4765–4774. Office of the Federal Register. 2026. Code of federal regula-tions, title 7, part 273 – certification of eligible households. Pearl, J. 2009. Causality: Models, reasoning and inference .USA: Cambridge University Press, 2 edition. ISBN 0-521-89560-X. Petersen, F.; Borgelt, C.; Kuehne, H.; and Deussen, O. 2022. Deep differentiable logic gate networks. In Proceedings of the 36th international conference on neural information pro-cessing systems , Nips ’22. New Orleans, LA, USA: Curran Associates Inc. ISBN 978-1-7138-7108-8. Reyd, S.; Diaconescu, A.; and Dessalles, J.-L. 2025. Search-ing for actual causes: Approximate algorithms with ad-justable precision. In NeurIPS 2025 workshop on CauScien: Uncovering causality in science .Ribeiro, M. T.; Singh, S.; and Guestrin, C. 2016. "Why Should I Trust You?": Explaining the Predictions of Any Classifier. In Proceedings of the 22nd ACM SIGKDD In-ternational Conference on Knowledge Discovery and Data Mining , 1135–1144. San Francisco California USA: ACM. ISBN 978-1-4503-4232-2. Salih, A. M.; Raisi-Estabragh, Z.; Galazzo, I. B.; Radeva, P.; Petersen, S. E.; Lekadir, K.; and Menegaz, G. 2025. A Perspective on Explainable Artificial Intelligence Meth-ods: SHAP and LIME. Advanced Intelligent Systems , 7(1): 2400304. Slack, D.; Hilgard, S.; Jia, E.; Singh, S.; and Lakkaraju, H. 2020. Fooling LIME and SHAP: Adversarial Attacks on Post hoc Explanation Methods. In Proceedings of the AAAI/ACM Conference on AI, Ethics, and Society , 180–186. New York NY USA: ACM. ISBN 978-1-4503-7110-0. U.S. Department of Agriculture, Food and Nutrition Service. 2026. Supplemental nutrition assistance program quality control public-use data files, fiscal year 2024. Wang, S.; Zhang, H.; Xu, K.; Lin, X.; Jana, S.; Hsieh, C.-J.; and Kolter, Z. 2021. Beta-CROWN: efficient bound prop-agation with per-neuron split constraints for neural network robustness verification. In Proceedings of the 35th interna-tional conference on neural information processing systems ,Nips ’21. Red Hook, NY, USA: Curran Associates Inc. ISBN 978-1-7138-4539-3. Zhang, Y.; Tino, P.; Leonardis, A.; and Tang, K. 2021. ASurvey on Neural Network Interpretability. IEEE Trans-actions on Emerging Topics in Computational Intelligence ,5(5): 726–742. Zheng, X.; Aragam, B.; Ravikumar, P. K.; and Xing, E. 2018. DAGs with NO TEARS: Continuous optimization for struc-ture learning. In Bengio, S.; Wallach, H.; Larochelle, H.; Grauman, K.; Cesa-Bianchi, N.; and Garnett, R., eds., Ad-vances in neural information processing systems , volume 31. Curran Associates, Inc. A Detailed Preliminaries 
+
+A.1 SCMs 
+
+We use Structural Causal Models to represent and reason about the causal relationships between variables in a system. An SCM is a tuple M = ( ⃗ U ,⃗ V , F) (Pearl 2009) with exogenous variables ⃗ U = {U1, . . . , U d}, endogenous vari-ables ⃗ V = {X1, . . . , X d}, and structural equations F =
+
+{f1, . . . , f d} such that 
+
+Xj := fj (PA j , U j ), j = 1 , . . . , d, (1) where PA j ⊆⃗ V \ { Xj } denotes the set of endogenous parents (direct causes) of Xj .This formulation defines how each variable is generated from its direct causes and some exogenous influence. It cap-tures both the causal structure (via the dependencies among variables) and the functional relationships that determine how each variable is computed from its causes. Given a specific assignment ⃗u = ( u 1, . . . , u d) to the ex-ogenous variables, called a context , the values of the endoge-nous variables ⃗ V are determined by recursive application of the structural equations. Each SCM corresponds to a directed acyclic graph (DAG) where each edge represents a direct causal influence. The nodes are represented by the variables Xj while the (directed) edges are represented by Xi → Xj ⇔ Xi ∈ PA j .
+
+Binary SCMs. A binary SCM is a SCM in which all en-dogenous variables take values in the Boolean domain, i.e., 
+
+Xj ∈ { 0, 1} for j = 1 , . . . , d . The exogenous variables Uj
+
+need not be binary. Each structural equation fj is a Boolean function, typically expressed using the operators ∧, ∨, and ¬.
+
+Interventions. An intervention refers to setting a variable to a specific value, independent of its usual causes. Given an endogenous variable X := fX (PA X , U X ), the intervention 
+
+X ← x modifies the model by replacing this equation with the assignment X := x. This enables us to quantify the causal effect of a variable by analyzing how the system behaves when it is manipulated externally, regardless of its original causes. 
+
+Counterfactuals. Interventions modify the SCM so that we can analyze how changes to one variable affect other variables at the population level. In contrast, counterfactuals explain "What would have happened if . . . ?", focusing on individual-level scenarios. They are computed by first deter-mining the values of the exogenous variables from the ob-served effect and then applying an intervention to the model. 
+
+A.2 Halpern and Pearl’s Actual Causality 
+
+SCMs allow us to compute the effects of interventions and simulate alternative scenarios but do not specify what counts as a cause in a particular instance, especially when multiple variables influence the effect. Halpern and Pearl’s definition of actual causality extends this framework by providing cri-teria to identify a minimal, explanatory cause of a specific observed event. This enables reasoning about responsibility and supports the generation of fine-grained causal explana-tions. We adopt the modified definition of actual causal-ity (Halpern 2015), which avoids known problems with pre-emption and spurious causes at lower complexity than earlier versions of the definition. 
+
+Definition. We denote the set of endogenous variables by ⃗V = {X1, . . . , X d}. In the following, we use Halpern and Pearl’s notation, where subsets of ⃗ V are used to define can-didate causes and counterfactual contingencies. A context ⃗u is a specific assignment to all exogenous vari-ables in a SCM. Fixing a context determines the values of all endogenous variables via the structural equations, and there-fore defines the actual world in which causal relationships are evaluated. Let (M,⃗ u) be a causal model with context ⃗u. A set of variables ⃗ X taking values ⃗x is an actual cause of an outcome 
+
+φ in (M,⃗ u) if the following conditions are satisfied: 
+
+AC1 (M,⃗ u) |=⃗ X =⃗x and (M,⃗ u) |= φ. That is, ⃗ X =⃗x
+
+is only considered a cause of φ if both the assignment and the outcome actually occur in the context ⃗u.
+
+AC2 There exists a set ⃗ W ⊆⃗ V \⃗ X of endogenous vari-ables and alternative values ⃗x ′̸ =⃗x for ⃗ X, such that if ⃗w
+
+denotes the actual values of the variables in ⃗ W in context 
+
+(M,⃗ u), then 
+
+(M,⃗ u) |= [ ⃗ X ←⃗x ′,⃗ W ←⃗w] ¬φ. 
+
+This means that by holding a set of variables fixed at their actual values, changing ⃗ X alone is enough to prevent φ
+
+from occurring. The triple (⃗ W ,⃗ w,⃗ x ′) serves as a witness showing that ⃗X ←⃗x ′ satisfies condition AC2 and thus qualifies as a cause of φ.
+
+AC3 ⃗ X is minimal. No subset of ⃗ X satisfies both AC1 and AC2. The modified definition restricts contingencies to the vari-ables’ actual values in the given context ⃗u, rather than allow-ing arbitrary counterfactual settings. This prevents a variable from being designated a cause based only on a constructed contingency that never actually occurred, and instead focuses on whether the candidate cause made a difference under the conditions that actually held. 
+
+# B Running Example: Additional Context 
+
+We show CausEx BaB on another context of our running ex-ample (Sec. 3.1, Fig. 1): ⃗u = (0 , 1, 1, 1, 1) . This induces the factual assignment ⃗x = (0 , 0, 1, 1, 1) 5: the applicant has no high income, no negative cashflow, high expenses, un-secured exposure, and a guarantor. The predictor outputs 
+
+y = N (⃗x) ≥ τ , so the bank classifies the applicant as high risk . As before, our goal is to find minimal sets of features                          
+
+> 5Computed in topological order: X1=U1= 0 ,X3=X1⊕
+> U3= 1 ,X5=U5= 1 ,X2= ( X3∧ ¬ X1)⊕U2= 0 ,X4=(X2∧ ¬ X5)⊕U4= 1 .
+
+⃗X ⊆ { X1, . . . , X 5} that are actual causes of this classifi-cation, that is, interventions that, under some contingency, would push the prediction below τ and flip the applicant to 
+
+low risk .We illustrate this procedure on this context (Fig. 5). Ini-tially, X1 is fixed to cause and every other variable is left 
+
+undecided . The initial bounds, [0 .07 , 0.96] , are inconclu-sive, so the search branches on X3. Both resulting children (X3 is contingency and X3 is natural ) are inconclusive. Branching on X2 in the branch where X3 is natural shows that both children falsify φ, confirming {X1} as a cause. We select the one with the smaller contingency. In the branch where X3 is contingency , both children of X2 satisfy φ
+
+and are pruned. For {X2}, the bounds already resolve to a single point, 0.97 , since fixing X2 leaves nothing else un-determined, and this point satisfies φ, so {X2} is pruned without any branching. {X3} is inconclusive and branches once on X2, but both children satisfy φ and are pruned. {X4}
+
+and {X5} resolve to a single point like {X2} and are pruned the same way. This leaves {X1} as the only confirmed cause of size k = 1 .      
+
+> {X1}
+> X3
+> X2
+> CC
+> X2
+> PP
+> {X2}
+> P
+> {X3}
+> X2
+> PP
+> {X4}
+> P
+> {X5}
+> P
+> {X1, . . . }{X2, X 3}
+> P
+> {X2, X 4}
+> P
+> {X2, X 5}
+> P
+> {X3, X 4}
+> X2
+> PC
+> {X3, X 5}
+> X2
+> X4
+> PPP
+> {X4, X 5}
+> P
+
+Figure 5: CausEx BaB search trees for k = 1 (top) and k =2 (bottom) on this context. At each branch, the left child resolves the branching variable to natural (blue) and the right child to contingency (orange). C = confirmed, P = pruned. In the k = 2 tree, candidates containing X1 are skipped as supersets of the already-confirmed {X1}.Enumerating potential causes for k = 2, candidates containing X1 are skipped to satisfy AC3 (minimality). 
+
+{X2, X 3}, {X2, X 4}, and {X2, X 5} are each conclusive and pruned immediately, without branching. {X3, X 4} is incon-clusive and branches once on X2: the natural child satisfies 
+
+φ and is pruned, while the contingency child falsifies φ,confirming {X3, X 4} as a second cause with witness contin-gency {X2}. {X3, X 5} is inconclusive and also branches on 
+
+X2, where its natural child needs a further branch on X4 to be conclusive. All resulting children satisfy φ, so {X3, X 5}
+
+is pruned entirely. {X4, X 5} is conclusive and pruned im-mediately. This leaves two minimal causes for this context: 
+
+{X1} (high income ) and {X3, X 4} (high expenses , unse-cured exposure ) with witness contingency {X2} (negative cashflow ). If the five features are instead treated as causally inde-pendent (no edges between X1, . . . , X 5), the same modi-fied Halpern–Pearl definition yields three minimal causes: 
+
+{X1, X 3}, {X1, X 4}, and {X3, X 4}, each without a contin-gency, since natural and contingency coincide once every variable is a root. The minimal sufficient sets for the same instance, a distinct dual notion (a set whose fixed value alone guarantees the classification regardless of the rest), happen to coincide exactly with these three sets. Modeling the causal structure changes which causes are found. {X1} alone qual-ifies as a cause only because its effect propagates through 
+
+X3, X 2, X 4, whereas under independence no single feature suffices. Methods that treat inputs as independent will there-fore often only find larger causes, missing that a smaller one can already be responsible once its downstream propagation is accounted for. 
+
+# C Additional Details on the Approach 
+
+Remark 2. Halpern’s degree of responsibility of C as a cause of φ is defined as 1/(N + 1) , where N is the size of the smallest witnessing contingency (Halpern 2016). Since Step 2 searches for exactly this minimal N , deg( C) is ob-tained directly as a byproduct of the search. The smaller the contingency, the higher the responsibility. 
+
+C.1 Proof of Theorem 1 
+
+Theorem 1. Given an SCM M, NN N , and N ’s actual input ⃗x with N (⃗x) ∈ S, Alg. 1 terminates. It returns exactly the set of all actual causes of φ (characterized by AC1–AC3). 6 For each returned cause, it also returns a minimum-cardinality contingency. Proof. Termination. The algorithm considers finitely many candidate cause sets. For a fixed candidate C, every recur-sive branch resolves one previously undecided variable by assigning it either the natural or contingency role, so ev-ery root-to-leaf path has length at most |⃗ V | − | C|, and the search tree is finite. Therefore Alg. 1 terminates. 
+
+Correctness. AC1. Every candidate C is evaluated in the actual context ⃗u, where C trivially takes its actual value, and φ holds since N (⃗x) ∈ S by assumption. Hence every candidate satisfies AC1. 
+
+AC2. Let C be returned via some confirmed region B,i.e., [ℓ, h ] ∩ S = ∅. Given bound SCM and bound NN are sound, every completion represented by B falsifies φ. Let 
+
+WB = {X ∈⃗ V \ C : B(X) = contingency } be the con-tingency variables already committed in B. Resolving every remaining undecided variable to natural yields one such completion, namely the intervention [C ←⃗x ′ 
+
+> C
+
+, W B ←⃗w B],      
+
+> 6If the maximum cause size is capped at kmax <|⃗V|, this guar-antee holds only for actual causes with |C| ≤ kmax . See App. C.1, Rem. 4.
+
+where ⃗w B are the actual values of WB. Since this completion is represented by B, it falsifies φ, so WB is a valid witness contingency and C satisfies AC2. 
+
+AC3 and completeness. We prove jointly, by induction on 
+
+k = |C|, that after all candidates of size at most k have been processed: (i) every returned candidate of size at most 
+
+k satisfies AC1–AC3, and (ii) every actual cause of size at most k has been returned. 
+
+Base case ( k = 1 ). Every returned candidate satisfies AC1 and AC2 by the argument above. A singleton has no proper nonempty subset, so it trivially satisfies AC3. Conversely, let C be an actual cause with |C| = 1 ; since variables are binary, its unique witness value is the complement ⃗x ′ 
+
+> C
+
+. It cannot be skipped, since no smaller candidate has yet been processed, and the per-candidate search described under AC2 is exhaustive over contingencies, so its witness is found and 
+
+C is returned. 
+
+Inductive step. Assume (i) and (ii) hold for all sizes smaller than k; consider size k.For (i), let C be a returned candidate with |C| = k; it satisfies AC1–AC2 as above. Suppose toward contradiction that some D ⊊ C satisfies AC1–AC2. Since C is finite, D
+
+contains an inclusion-minimal such subset D∗, which then satisfies AC3 too, i.e., D∗ is an actual cause with |D∗| < k .By the induction hypothesis, D∗ was already returned, so C
+
+would have been skipped as its superset – a contradiction. Hence C satisfies AC3. For (ii), let C be an actual cause with |C| = k. By the induction hypothesis, every candidate already returned is a genuine actual cause of smaller size; since C is minimal, none of these is a subset of C, so C is not skipped. We next argue that C’s witness may be taken to be the full complement ⃗x ′ 
+
+> C
+
+: if some AC2 witness for C left a variable Xj ∈ C at its actual value, then C \ { Xj }, together with Xj added to the contingency, would witness the same intervention and hence also satisfy AC1–AC2 – contradicting the minimality of C.So C’s witness contingency W pairs with the complement ⃗x ′ 
+
+> C
+
+, and the corresponding role assignment is represented by the initial region for C. This region cannot be pruned by output bounds, since its completion falsifies φ, nor by contingency cardinality until a witness of no greater size has already been secured for C. The search therefore finds a witness for C, and C is returned. This establishes (i) and (ii) for size k, completing the induction. Hence Alg. 1 returns exactly the set of all actual causes. 
+
+Minimum-cardinality contingency. When a region B is con-firmed, resolving every remaining undecided variable to 
+
+natural yields contingency WB. Every other completion represented by B has contingency WB ∪ W ′ for some W ′,and hence cardinality at least |WB|, so WB is the smallest contingency represented by B. Since the search continues after a first witness is found, discarding only regions whose committed contingency already has cardinality at least |W ∗|
+
+for the current incumbent W ∗ – and no such region can im-prove on W ∗, by the previous sentence – the contingency retained when the search for C terminates has minimum cardinality among all witnesses for C.
+
+Remark 3. The theoretical guarantees above assume ex-act arithmetic. In the implementation, every fully resolved witness is re-evaluated using high-precision arithmetic be-fore being returned. To avoid floating-point error causing an incorrect prune or confirmation, decisions within a numeri-cal tolerance of the acceptance-set boundary are treated as inconclusive and refined further. This adds negligible over-head, since the recheck only fires once per returned witness, and rules out large numerical errors, though errors within the tolerance margin itself are not eliminated. 
+
+Remark 4. The algorithm can optionally restrict the outer search to candidate sizes k = 1 , . . . , k max instead of k =1, . . . , |⃗ V |, to terminate early. In that case, the guarantee above only holds up to kmax . A minimal cause larger than 
+
+kmax is then never enumerated as a candidate. Bounding 
+
+kmax is often desirable regardless of runtime, since smaller cause sets are more likely to be interpretable and actionable by a human, whereas a very large cause set may be less desirable as an explanation even when valid. 
+
+Remark 5. Halpern and Pearl’s definition does not specify what counts as an outcome φ for continuous-valued models such as our NN predictor. The acceptance set S is how we close this gap. The soundness and completeness above hold for any choice of S: changing S changes which outcome φ
+
+Alg. 1 decides and the concrete prune/confirm conditions it uses, but not the algorithm itself or its guarantees. A returned pair (C,⃗ w ∗) is thus guaranteed to be an actual cause of this specified outcome .
+
+# D Complexity Analysis 
+
+For a candidate cause C with |C| = k, full enumeration checks every possible contingency by assigning each of the 
+
+|⃗V | − k remaining variables to natural or contingency ,giving 2|⃗V |− k assignments per candidate. Summed over all candidate sizes k = 1 , . . . , |⃗V |, this yields a worst-case search space of 
+
+P|⃗V |
+
+> k=1
+
+ |⃗V |
+
+> k
+
+ · 2|⃗V |− k ≤ 3|⃗V |,
+
+i.e., in the worst case every intervenable variable is either a 
+
+cause , a contingency , or natural .This worst-case bound is consistent with the underlying de-cision problem’s known intractability. Deciding whether a set of variables is an actual cause is NP-complete for binary mod-els and ΣP 
+
+> 2
+
+-complete for general models under Halpern and Pearl’s original definition (Eiter and Lukasiewicz 2001), and 
+
+DP 
+
+> 2
+
+-complete under the modified definition we adopt (Alek-sandrowicz et al. 2017). No polynomial-time algorithm is therefore expected to exist for our problem under standard complexity-theoretic assumptions. 
+
+CausEx BaB searches the same space, but not by directly enumerating full assignments. For a candidate cause C with 
+
+|C| = k, the search resolves the n = |⃗ V | − k non-cause variables one at a time: each region branches into two chil-dren, one resolving the next undecided variable to natural 
+
+and one to contingency . In the worst case, where a can-didate stays inconclusive until every variable is resolved, this produces a full binary search tree of depth n contain-ing Pni=0 2i = 2 n+1 − 1 regions in total: 2n fully-resolved leaves, matching the 2|⃗V |− k assignments full enumeration also checks for this candidate, plus 2n − 1 additional internal regions in which at least one non-cause variable is still unde-cided , a state full enumeration never represents, since it only ever constructs fully-resolved assignments. Summed over all candidate sizes, the overall number of regions CausEx BaB 
+
+visits is therefore at most 
+
+P|⃗V |
+
+> k=1
+
+ |⃗V |
+
+> k
+
+ 
+
+2|⃗V |− k+1 − 1
+
+
+
+< 2 · 3|⃗V |,
+
+the same order, O(3 |⃗V |), as full enumeration’s space, but with roughly twice as many distinct states to visit: every candidate’s 2|⃗V |− k − 1 internal undecided regions on top of the 2|⃗V |− k leaves it shares with full enumeration. Beyond visiting more states, each one, leaf or internal, also costs more: it requires a call to bound SCM and bound NN ,whereas full enumeration evaluates N directly, once per leaf. Since a bound computation costs more than one such forward pass, our worst case can be more expensive per candidate than full enumeration in absolute terms, not just in state count. A real speedup thus requires most branches to be pruned or confirmed well before full depth, avoiding both the extra states and their higher per-state cost. 
+
+# E Additional Experimental Results 
+
+Unless stated otherwise, each configuration is evaluated on 3 independently generated graphs and 3 sampled contexts per graph, yielding 9 runs per configuration. Lines in the runtime plots below show medians over these runs, with shaded regions indicating the interquartile range. A point is marked with × if that configuration and all subsequent ones timed out for that method. Graph, context, and teacher-network randomness are all derived deterministically from a single per-instance base seed. 
+
+E.1 Number of SCM Nodes 
+
+Full per-configuration results underlying Fig. 4 (Sec. 4) are given here. Tab. 1 gives the node-scaling results. 
+
+E.2 Neural Network Size 
+
+Fig. 6 shows the network-size runtime plot, Tab. 2 the ar-chitecture configurations, and Tab. 3 the full per-architecture results. 
+
+E.3 Statistical Significance 
+
+For the node-scaling and network-scaling experiments, we test whether CausEx BaB ’s runtime differs significantly from each baseline’s using a Wilcoxon signed-rank test, match-ing runs by graph and context (i.e. comparing CausEx BaB 
+
+and a baseline on the exact same graph instance and sam-pled context, not across different ones). Tab. 4 reports p-values vs. number of SCM nodes and Tab. 5 vs. network architecture. In the node-scaling experiment, the difference against ILP and ACI is significant ( p < 0.05 ) at nearly ev-ery tested n, while the difference against BF only becomes s2 s3 m4 m5 l6 l7 xl8 
+
+Network architecture 
+
+10 0
+
+10 1
+
+10 2
+
+> Median Runtime (s)  timeout: 180s
+> CausEx BaB
+> BF
+> ILP
+> ACI
+
+1
+
+Figure 6: Runtime vs. neural network architecture, for all methods. significant from n = 18 nodes onward, matching its close runtimes at smaller graph sizes. In the network-scaling ex-periment, CausEx BaB remains significantly faster than ILP at every tested architecture, but ACI is significantly faster than 
+
+CausEx BaB throughout, and the difference against BF is not significant at any architecture, consistent with BF ’s close (if slightly higher) runtimes there. 
+
+E.4 ER Graphs: Number of SCM Nodes 
+
+The main paper’s benchmarks (Sec. 4) use Barabási–Albert (BA) graphs. To check whether our results are specific to that graph model, we repeat the node-scaling experiment on Erdős–Rényi (ER) graphs at matched density, otherwise using the identical setup ( m4 architecture, kmax = |V |, 3 graphs × 3 contexts per configuration). 6 10 14 18 22 26 30 34 
+
+Number of SCM nodes 
+
+10 0
+
+10 1
+
+10 2
+
+> Median Runtime (s)  timeout: 180s
+> CausEx BaB
+> BF
+> ILP
+> ACI
+
+1
+
+Figure 7: Runtime vs. number of SCM nodes on ER graphs, for all methods. Cf. Fig. 4 for the matched BA-graph result. The relative ordering of methods and the overall shape of each curve matches the BA result (Fig. 7): CausEx BaB times out on zero runs through n = 28 on both graph types, BF ’s timeout rate jumps from 0% to 100% between n = 20 and 
+
+n = 22 on both, and ILP is already unusable by n ≥ 10 –12 
+
+on both. The main quantitative difference is at the largest Table 1: Median runtime (s) vs. number of SCM nodes n, computing all minimal causes ( kmax = |V |), m4 architecture (Fig. 4).                                                                            
+
+> n6810 12 14 16 18 20 22 24 26 28 30 32 34
+> CausEx BaB 3.6 3.9 4.3 4.6 5.0 5.2 5.9 5.8 6.7 8.1 15.3 34.5 122.3 †180.0 †180.0 ‡
+> BF 3.6 5.8 4.2 4.8 5.4 6.6 17.6 92.0 180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡
+> ILP 7.0 †180.0 †180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡
+> ACI 0.1 0.3 2.8 37.1 180.0 †180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡
+> †
+
+median over a batch that includes at least one timed-out run (capped at 180s) ‡every run in the batch timed out 
+
+Table 2: Network architecture configurations used in the net-work scaling experiments. Total units refers to the sum of all hidden layer widths. 
+
+Label Total units 
+
+s2 96 
+
+s3 224 
+
+m4 480 
+
+m5 992 
+
+l6 2016 
+
+l7 4064 
+
+xl8 8160 Table 3: Median runtime (s) vs. neural network architecture, 
+
+n = 10 nodes, computing all minimal causes ( kmax = |V |)(Fig. 6). Arch. s2 s3 m4 m5 l6 l7 xl8                             
+
+> CausEx BaB 3.9 4.0 3.8 3.9 4.1 4.0 4.4
+> BF 4.1 3.7 3.7 3.8 4.6 4.2 4.1
+> ILP 12.4 180.0 †180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡
+> ACI 2.6 2.3 1.9 2.6 2.6 2.9 2.6
+> †
+
+median over a batch that includes at least one timed-out run (capped at 180s) ‡every run in the batch timed out 
+
+graph sizes: CausEx BaB ’s own timeout onset comes slightly earlier and steeper on ER than on BA (66.7% timeout at 
+
+n = 30 and 100% at n = 32 , vs. 33% and 88.9% at the same sizes on BA), and ACI ’s collapse likewise comes about two nodes earlier (100% timeout already at n = 14 on ER, vs. 
+
+n = 16 on BA). ILP is the only method that fares slightly 
+
+better on ER at the smallest sizes (0% timeout at n = 6 , vs. 11% on BA). Full per-configuration results are in Tab. 6. 
+
+E.5 Maximum Cause Size kmax 
+
+We vary kmax from 1 to 8, fixing the graph size at 18 nodes and using the m4 architecture (Fig. 8). CausEx BaB ’s median runtime is essentially flat at 5.3–5.5s across all values of 
+
+kmax , while BF grows steadily from 4.5s at kmax = 1 to 14.2s at kmax = 8 (though it never times out at this graph size). ILP solves kmax = 1 (median 1.8s) but times out on every run for kmax ≥ 2. ACI completes all runs through 
+
+kmax = 5 (median growing from 0.05s to 14.4s) but times out on the majority of runs from kmax = 6 and on all runs by kmax = 7 . Full per-configuration results are in Tab. 7. 1 2 3 4 5 6 7 8
+
+kmax 
+
+10 0
+
+10 1
+
+10 2
+
+> Median Runtime (s)  timeout: 180s
+> CausEx BaB
+> BF
+> ILP
+> ACI
+
+1
+
+Figure 8: Runtime vs. maximum cause size kmax for all methods, n = 18 nodes, m4 architecture. 
+
+E.6 Scalability 
+
+Because the competing methods time out consistently beyond 20 nodes, we evaluate CausEx BaB alone, fixing kmax = 8 ,on graphs with up to 56 nodes (Fig. 9, Tab. 8). CausEx BaB 
+
+completes almost every run up to n = 38 , with a single exception at n = 32 (11% timeout). Beyond n = 40 the timeout rate rises, though not monotonically (44% at both 
+
+n = 44 and n = 46 , but 0% at n = 48 ), and even at the largest tested size, n = 56 , 11% of runs still complete within the 180s budget. For reference, a graph with n = 56 
+
+intervenable nodes and kmax = 8 has a worst-case search space of P8
+
+> k=1
+
+ 56 
+
+> k
+
+·256 −k ≈ 5.8×10 23 candidate (cause set, contingency) pairs. Fig. 10 plots the number of search-tree nodes CausEx BaB actually evaluates against this bound. The number evaluated stays many orders of magnitude below it, and the gap widens further as n grows, i.e. pruning eliminates an increasing fraction of the theoretical search space at larger graph sizes. 
+
+E.7 Connected Components 
+
+By construction, the BA preferential-attachment model al-most surely produces a single connected component, since every new node must attach to at least m existing nodes. To test robustness beyond this, we artificially introduce struc-tural disconnection by partitioning the n nodes into c equally-sized subsets and sampling an independent BA DAG within each subset, yielding a graph whose components share no edges. The neural network still receives all n endogenous variables as input, the disconnection affects only the causal structure, not the NN’s feature set. We evaluate graphs of Table 4: Paired Wilcoxon signed-rank test ( p-value) of CausEx BaB ’s runtime against each baseline, matched by graph and context, vs. number of SCM nodes n (cf. Table 1). 
+
+n 6 8 10 12 14 16 18 20 22 24 26 28 30 32 34 
+
+BF 0.203 0.004 0.652 0.820 0.426 0.074 0.004 0.004 0.004 0.004 0.004 0.004 0.031 † – –
+
+ILP 0.004 0.004 0.004 0.004 0.004 0.004 0.004 0.004 0.004 0.004 0.004 0.004 0.031 † – –
+
+ACI 0.004 0.004 0.004 0.004 0.004 0.004 0.004 0.004 0.004 0.004 0.004 0.004 0.031 † – –      
+
+> “–” marks configurations where the test is undefined (every matched pair’s runtime difference is exactly zero, i.e. all methods time out identically), or based on fewer than 6 pairs, too few for any two-sided p-value to reach 0.05 .†marks p-values based on 6–8 pairs, since pairs where both methods time out are dropped as uninformative (identical capped runtime). With 9 paired runs per configuration, the smallest attainable two-sided p-value is 0.004 .
+
+Table 5: Paired Wilcoxon signed-rank test ( p-value) of 
+
+CausEx BaB ’s runtime against each baseline, matched by graph and context, vs. neural network architecture (cf. Ta-ble 3). Arch. s2 s3 m4 m5 l6 l7 xl8                        
+
+> BF 0.820 0.910 0.426 0.734 0.074 1.000 0.359
+> ILP 0.008 0.004 0.004 0.004 0.004 0.004 0.004
+> ACI 0.004 0.004 0.004 0.004 0.004 0.004 0.004
+> With 9 paired runs per configuration, the smallest attainable two-sided p-value is 0.004 .
+
+n ∈ { 20 , 22 , 24 , 26 , 28 } nodes with c ∈ { 1, 2, 3, 4, 5} com-ponents, computing all minimal causes ( kmax = |V |) with the m4 architecture. Fig. 11 shows CausEx BaB runtimes for SCMs with 1 to 5 connected components across five graph sizes. The dominant factor is the number of nodes, with runtime growing steeply with n. The effect of the number of components is smaller and noisier. At n ≤ 24 , more components tend to reduce runtime (e.g. at n = 20 , median drops from 6.2s at c = 1 
+
+to 4.2s at c = 5 ), but the trend is not monotone at every n
+
+and can invert, as seen at n = 28 , where c = 2 is the slowest configuration (median 123.9s, 3 of 9 runs timing out) despite 
+
+c = 1 (44.6s, also affected by a timeout) and c = 5 (30.0s, with no timeouts) both being faster. The main driver is the number of valid causes, which grows substantially and unevenly with more components (e.g. at n = 28 the mean cause count ranges from 2,203 at c = 5 to 11,118 at c = 2 ), so the algorithm must enu-merate a much larger and less predictable solution set as the number of components grows, rather than pruning becom-ing steadily less effective. Pruning efficiency itself changes comparatively little and non-monotonically across c at any fixed n. Full per-configuration results are in Tab. 9. 
+
+E.8 Sparsity 
+
+In the BA model, the attachment parameter m controls how many edges each new node forms, directly determining graph density. At m = 1 the graph reduces to a tree, while larger 
+
+m produces progressively denser graphs with higher average in-degree. We fix n = 28 nodes and vary m ∈ { 1, . . . , 8} to test how edge density affects runtime, computing all minimal causes ( kmax = |V |) with the m4 architecture constant. 30 34 38 42 46 50 54 
+
+Number of SCM nodes 
+
+10 0
+
+10 1
+
+10 2
+
+> Median Runtime (s)  timeout: 180s
+> CausEx BaB
+
+1
+
+Figure 9: CausEx BaB runtime vs. number of SCM nodes on large graphs with kmax = 8 and the m4 architecture. Competing methods timed out consistently at this scale and are omitted. Fig. 12 shows no clear relationship between edge density and runtime. Median runtime stays within a 26–47s band across all tested values of m, with no monotone trend, and variance is high at every value. Only 4 of 72 runs time out, all at m = 4 or m = 7 . Overall, CausEx BaB is robust to edge density at this graph size. Full per-configuration results are in Tab. 10. 
+
+E.9 Cause Sizes 
+
+Fig. 13 shows the distribution of minimal cause sizes |C|
+
+found by CausEx BaB across completed instances of the node-scaling benchmark ( kmax = |V |). Sizes are broadly spread and not concentrated near the minimum. Tab. 11 gives the cumulative share of causes captured as the size cap kmax 
+
+increases. Capping the search at kmax = 8 retains only 59 .4% 
+
+of all minimal causes found by unrestricted search, and even 
+
+kmax = 15 still misses 5.3% . Tab. 12 instead reports, per instance, how many distinct minimal causes are found. 18 .3% 
+
+of instances have none, 13 .0% have exactly one, and the remaining 68 .7% have two or more, with 29 .6% having at least 15. Table 6: Median runtime (s) vs. number of SCM nodes n on ER graphs, computing all minimal causes ( kmax = |V |), m4 
+
+architecture (Fig. 7).                                                                            
+
+> n6810 12 14 16 18 20 22 24 26 28 30 32 34
+> CausEx BaB 3.4 3.7 3.9 4.1 4.4 4.9 4.7 7.9 9.6 9.9 15.4 47.6 180.0 †180.0 ‡180.0 ‡
+> BF 3.4 4.5 4.3 3.8 4.0 5.0 10.9 84.7 180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡
+> ILP 8.4 180.0 †180.0 †180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡
+> ACI 0.1 0.3 2.8 44.8 180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡
+> †
+
+median over a batch that includes at least one timed-out run (capped at 180s) ‡every run in the batch timed out 
+
+Table 7: Median runtime (s) vs. maximum cause size kmax ,
+
+n = 18 nodes, m4 architecture (Fig. 8).                                         
+
+> kmax 12345678
+> CausEx BaB 5.3 5.3 5.3 5.3 5.3 5.3 5.5 5.4
+> BF 4.5 4.8 5.6 7.2 9.5 11.5 13.2 14.1
+> ILP 1.8 180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡180.0 ‡
+> ACI 0.0 0.1 0.2 1.6 14.4 180.0 †180.0 ‡180.0 ‡
+> †
+
+median over a batch that includes at least one timed-out run (capped at 180s) ‡every run in the batch timed out 30 34 38 42 46 50 54 
+
+Number of SCM nodes 
+
+10 8
+
+10 12 
+
+10 16 
+
+10 20 
+
+10 24  
+
+> Search-space size  CausEx BaB evaluated
+> Full enumeration
+
+1
+
+Figure 10: CausEx BaB nodes evaluated versus the theoretical full-enumeration bound, for kmax = 8 and the m4 architec-ture. 
+
+E.10 Branch Selection 
+
+We evaluate seven branching strategies (see Alg. 1, 
+
+selectVar ) on our method alone, using graphs of 20 to 26 nodes in increments of 2, computing all minimal causes (kmax = |V |), and the m4 architecture. The strategies differ in which variable to split on next: 
+
+• topo_asc / topo_desc. Selects the undecided vari-able with the lowest (asc) or highest (desc) topological index, branching from causes toward effects or vice versa. 
+
+• width_large / width_small. Selects the variable with the largest (large) or smallest (small) current interval width, prioritising either the most uncertain or the most nearly resolved dimension. 
+
+• paths_to_output. Selects the variable with the most directed paths to the output node, prioritising vari-ables with the highest structural influence on the predic-tion. 12345 12345 12345 12345 12345
+
+Disconnected Components 
+
+10 0
+
+10 1
+
+10 2
+
+> Runtime (s)
+
+n = 20 n = 22 n = 24 n = 26 n = 28 
+
+> timeout: 180s
+
+1
+
+Figure 11: Runtime of CausEx BaB with varying numbers of connected components and SCM size (BA graphs, m = 6 ). 
+
+• crown_global. Uses CROWN sensitivity scores computed once at the root to rank variables by their in-fluence on the output. 
+
+• random. Selects the next variable to split on uniformly at random among the undecided variables, serving as a baseline. 
+
+width_large , which always selects the undecided vari-able with the widest current interval, clearly outperforms all alternatives (Fig. 14). At the largest tested graph size (n = 26 ), all competing strategies time out on the majority (67–100%) of runs, while width_large completes with-out a single timeout. Fig. 15 shows the pruning efficiency of each strategy. width_large resolves on average 51.2% of undecided nodes per pruned branch, compared to 3.7–16.9% for the other strategies. That is, it prunes branches much earlier in the search tree, avoiding most of the exponential blow-up. We therefore use width_large as the default in all other experiments. Tab. 13 gives the exact mean, standard deviation, and median pruning efficiency for every strategy. 
+
+E.11 Feature Independence 
+
+We run CausEx BaB on the node-scaling benchmark (BA graphs, n = 6 –34 , m4 , kmax = |V |) a second time on each SCM with all edges between endogenous variables removed (causexbab_indep ), then re-check every resulting cause against the true structural equations. Excluding instances where either method timed out ( n ≥ 30 ), 111 of 135 re-main. Table 8: CausEx BaB median runtime (s) on large graphs, kmax = 8 , m4 architecture; competing methods time out throughout this range (Fig. 9). 
+
+n 30 32 34 36 38 40 42 44 46 48 50 52 54 56 
+
+CausEx BaB 7.1 8.3 † 8.7 11.7 18.9 57.3 † 31.1 † 115.9 † 52.6 † 66.2 76.2 † 177.4 † 180.0 † 180.0 †
+
+> †median over a batch that includes at least one timed-out run (capped at 180s)
+
+Table 9: CausEx BaB median runtime (s) vs. number of com-ponents (rows) and SCM size n (columns), computing all minimal causes ( kmax = |V |), m4 architecture (Fig. 11). 
+
+c 20 22 24 26 28 1 6.2 10.5 7.9 12.8 44.6 †
+
+2 5.8 6.2 8.3 15.9 123.9 †
+
+3 5.6 6.0 7.4 17.9 36.9 †
+
+4 4.5 5.5 7.5 13.0 41.1 5 4.2 4.8 6.4 11.2 30.0 
+
+> †median over a batch that includes at least one timed-out run (capped at 180s)
+
+1 2 3 4 5 6 7 8
+
+BA parameter m
+
+10 0
+
+10 1
+
+10 2
+
+> Median Runtime (s)  timeout: 180s
+> CausEx BaB
+
+1
+
+Figure 12: Runtime of CausEx BaB on BA graphs with n = 28 
+
+nodes, varying attachment parameter m.Independence finds 59% more causes that are 20% larger on average, yet recovers only 33% of the true minimal causes. Tab. 14 shows why: three quarters of what it finds is a valid intervention but not minimal, because respecting the SCM would let a smaller cause reach the same effect by propagating to other variables. 
+
+# F Case Study: SNAP Quality-Control Review Targeting 
+
+The Supplemental Nutrition Assistance Program (Leftin et al. 2026) is the largest food-assistance program in the United States. USDA runs Quality Control in order to mea-sure payment error rates, and states carry financial liability for those rates, facing penalties when they stay high and receiving bonuses when they stay low. A review is a full re-investigation of a case and is correspondingly expensive, so Table 10: CausEx BaB median runtime (s) vs. BA attachment parameter m, n = 28 nodes, computing all minimal causes (kmax = |V |) (Fig. 12).                 
+
+> m12345678
+> CausEx BaB 25.9 36.2 31.5 47.3 †30.6 40.4 38.3 †30.2
+> †median over a batch that includes at least one timed-out run (capped at 180s)
+
+6 8 10 12 14 16 18 20 22 24 26 28 30 32 
+
+Number of SCM nodes 
+
+5
+
+10 
+
+15 
+
+20 
+
+> Cause size  |C|
+
+1
+
+Figure 13: Distribution of |C| over minimal actual causes found, vs. number of SCM nodes V , for CausEx BaB with 
+
+kmax = |V |. Boxes show the median and interquartile range over completed instances at each graph size (timeouts and OOM runs excluded), whiskers extend to 1.5× IQR, outliers omitted. only a small sample is reviewed each year. The natural use of a predictive model is therefore review targeting: given a certified household’s eligibility profile, predict how likely it is that the original determination was wrong, and use that to decide which cases to review. 
+
+SCM. Who qualifies for SNAP is codified in the federal regulations governing the program, 7 CFR Part 273 (Office of the Federal Register 2026), as an explicit Boolean combina-tion of an income test, an asset test, and categorical-eligibility pathways. The SCM formalizes this statutory definition di-rectly. Every gate traces to a specific, numbered subsection of this regulation, obtained by reading the text and trans-lating each test directly into a node: for example, 273.9(a) grants an income-test exemption to households that contain “an elderly or disabled member,” which resolves directly to 
+
+has_elderly_or_disabled = OR( has_elderly ,
+
+has_disabled ). Table 11: Cumulative share of the 10885 minimal causes found with size |C| ≤ kmax (i.e. the fraction CausEx BaB 
+
+would still capture if capped at that kmax ; not to be confused with the number of distinct causes per instance in Table 12), over the same completed CausEx BaB runs on graphs of n = 6 
+
+to 32 nodes with kmax = |V |.
+
+kmax n %1 52 0.5 2 181 1.7 5 2012 18.5 8 6466 59.4 10 9079 83.4 15 10307 94.7 Table 12: Number of distinct minimal causes found per in-stance (not to be confused with the cause size |C| in Fig. 13), over 115 completed CausEx BaB runs on graphs of n = 6 to 
+
+32 nodes with kmax = |V |.# causes n %0 21 18.3 1 15 13.0 
+
+≥2 79 68.7 
+
+≥5 59 51.3 
+
+≥10 42 36.5 
+
+≥15 34 29.6 The SCM has 20 binary nodes (Tab. 18): 10 raw leaves, each testing a single Boolean condition (e.g. whether all household members receive SSI, or whether gross income is below the threshold) computed from a group of the file’s 65 raw columns (per-person benefit amounts, household size, income totals) via a threshold or membership test, and 10 de-rived nodes combining them with AND, OR, and NOT gates. Ten of the 20 features are therefore deterministic functions of the others. 
+
+Dataset. We use USDA’s FY2024 SNAP Quality Control public-use file (U.S. Department of Agriculture, Food and Nutrition Service 2026), keeping only the columns needed to determine SNAP eligibility under the SCM, together with the fields needed to select households and construct the label. The raw file has 44 ,891 households. After keeping only complete, determinately-labeled records in contigu-ous US/Guam/Virgin Islands states, 43 ,771 remain, split 
+
+70 /15 /15 into train/val/test ( 30 ,639 /6,565 /6,567 ). 
+
+Neural Network. We train an NN with hidden dimensions 
+
+[256 × 128] , ReLU activations, and a sigmoid output. The model takes a household’s eligibility profile and predicts whether a re-investigation would find an error. Sec. 2’s for-mal treatment of NNs composes only affine and ReLU layers. Bounding this additional sigmoid output layer is a direct ex-tension, since sigmoid is monotone and its bounds follow immediately from the bounds on its input. Error prevalence is close to 40% in every split, already well balanced. On the 20 22 24 26 
+
+Number of SCM nodes 
+
+10 0
+
+10 1
+
+10 2
+
+> Median Runtime (s)  timeout: 180s
+> crown global
+> paths to output
+> random
+> topo asc
+> topo desc
+> width large
+> width small
+
+1
+
+Figure 14: Runtime vs. number of SCM nodes for seven branch-selection strategies. width_large is used as de-fault in all other experiments. 0 25 50 75 100 
+
+Avg. resolved undecided (%) 
+
+width_small 
+
+random 
+
+topo_desc 
+
+crown_global 
+
+paths_to_output 
+
+topo_asc 
+
+width_large 
+
+1
+
+Figure 15: Pruning efficiency (% undecided nodes resolved per branch) of the same seven strategies, mean ± std over all graph sizes and contexts. held-out test split, the NN reaches AUROC 0.622 and accu-racy 0.628 (majority-class baseline 60 .3% ), comparable to a logistic-regression baseline on the same features (AUROC 
+
+0.618 , accuracy 0.620 ): both find only a modest signal, ex-pected for a label that records whether a human caseworker’s original determination was later found wrong rather than a deterministic function of the household’s eligibility profile. This does not affect our evaluation of CausEx BaB itself: the runtime comparison across methods and the comparison be-tween treating inputs as independent versus respecting the SCM are both properties of the causal search over a fixed decision function, not of how well that function predicts the review outcome. The regulation is used to compute the 10 de-rived nodes of the input space, not just the 10 raw leaves, so the network has access to the same derived concepts (e.g. categorically_eligible ,
+
+assets_test_passed ) a caseworker reasons with. The label, recorded in the dataset as STATUS , is a QC reviewer’s finding on a separate, later determination of whether the Table 13: Avg. % of undecided nodes resolved per branch, pooled over all graph sizes and contexts (Fig. 15). Strategy Mean Std Median 
+
+width_large 51.2 5.2 50.8 
+
+crown_global 16.9 13.3 12.7 
+
+paths_to_output 16.9 11.9 14.0 
+
+random 12.3 10.8 9.4 
+
+topo_asc 15.9 12.6 14.9 
+
+topo_desc 15.7 14.4 10.9 
+
+width_small 3.7 3.6 3.3     
+
+> Independence causes %Exactly match an SCM cause 20.7 Valid but not minimal under SCM 74.3 Spurious under SCM 5.0
+
+Table 14: Composition of causes found under the indepen-dence assumption, checked against the true SCM (pooled over 111 instances, 15,776 causes). original certification was correct. 
+
+Computing Causes. We flag a household for review when the NN’s output crosses the standard 0.5 threshold, so the question a cause should answer is: why was this house-hold flagged for review? We draw the held-out test instances flagged by the NN, deduplicated by eligibility profile so re-peated households do not inflate the sample: since the SCM has only 20 binary nodes, many real households share an identical profile, and only 11 distinct profiles exist among flagged households in the test split, so we use all 11 rather than a subsample of them. We run CausEx BaB , brute-force, 
+
+ILP , and ACI on each, searching for witnesses that flip the prediction below 0.5, with kmax = |V | and a 180s timeout per method per instance. 
+
+CausEx BaB completes all 11 instances within budget (me-dian 4.60 s, 0/11 timeouts), finding a median of 23 minimal causes, 33 .7% of them singletons. BF also completes every instance (median 43 .24 s). ILP times out on 3/11 , and ACI 
+
+times out on 10 /11 and succeeds only once (Tab. 15). This reverses the ordering seen in Sec. 4, where ACI is the faster of the two at comparable scale. We conjecture this comes from the SNAP SCM’s structure being a poorer match for ACI ’s heuristic search than the random benchmark graphs, while 
+
+ILP benefits here from a simpler acceptance set S (Rem. 5). 
+
+Causes with vs. without the SCM. To measure what treat-ing the 20 inputs as independent costs in practice, we rerun 
+
+CausEx BaB on a variant of the SCM with the 10 derived-node edges removed, so all 20 features are independent, and re-evaluate every resulting cause through the real structural equations, letting the derived nodes recompute from their true parents instead of staying frozen at their factual value, checking whether the resulting prediction still crosses the 0.5
+
+threshold. Ignoring the dependency structure more than doubles the                
+
+> Method Runtime (s) IQR Timeout
+> CausEx BaB 4.6 [4.6, 4.6] 0/11
+> BF 43.2 [17.8, 49.1] 0/11
+> ILP 122.5 [113.0, 160.6] 3/11
+> ACI 180.0 [180.0, 180.0] 10/11
+
+Table 15: Runtime of all four methods, 180s timeout per method per instance. causes found (median 50 vs. 23 under the SCM, Tab. 16). Of the 1,118 independent-model causes across all 11 instances, 
+
+14 .9% are spurious once downstream nodes are recomputed from their true parents, and 14 .8% coincide with a cause found under the SCM (Tab. 17).         
+
+> Median IQR Range Causes, SCM 23 [20.5, 34.5] [18, 96] Causes, indep. 50 [36.0, 113.5] [18, 475]
+
+Table 16: Causes found treating the 20 SNAP features as in-dependent (no SCM edges) vs. under the SCM, 180s timeout.    
+
+> Independent-model causes (1,118 total) Count (%) Spurious under the SCM 167 (14.9%) Exactly match an SCM cause 166 (14.8%)
+
+Table 17: “Spurious” counts independent-model causes whose intervention no longer flips the prediction below 0.5
+
+once derived nodes are recomputed from their true parents. 
+
+Limitations. The SCM is a simplified version of the real rule: it leaves out deductions, state waivers, and special-household cases, so eligible can disagree with what a caseworker actually decided for a given household. The households in our sample were also already certified for ben-efits, not drawn from all applicants, so our results speak to error risk among certified households rather than eligibility determination in general. Derived nodes such as eligible 
+
+are themselves valid intervention targets under our formal-ism, so a returned cause may name one directly, a counter-factual a caseworker could not realize by acting on that node alone rather than on its determinants. We make no claim that a returned cause is the uniquely correct or most ac-tionable explanation, only that it is a provably minimal one under AC1–AC3. The 14.9% spurious-cause figure is spe-cific to this SCM and this predictor. A more complete SCM or a stronger predictor could yield a different number, so it should be read as evidence from this case study rather than a general estimate for SNAP QC targeting. Node Definition Source 
+
+Raw leaves (10) 
+
+ssi_receipt All members’ SSI benefits > 0 273.2(j)(2)(i)(D) 
+
+tanf_all_members All members’ TANF benefits > 0 273.2(j)(2)(i)(A) 
+
+mn_fip Minnesota Family Investment Program flag TechDoc p.63 
+
+ga_receipt All members’ GA benefits > 0 273.2(j)(4) 
+
+has_elderly Elderly member in unit 273.9(a) 
+
+has_disabled Disabled member in unit 273.9(a) 
+
+gross_income_low ≤ Table F.1 screen 273.9(a)(1)(i) 
+
+net_income_low ≤ Table F.2 screen 273.9(a)(2)(i) 
+
+assets_low_standard Assets ≤ $2,750 273.8(b)/(b)(1) 
+
+assets_low_higher Assets ≤ $4,250 273.8(b)/(b)(1) 
+
+Derived (10) 
+
+tanf_receipt OR( tanf_all_members , mn_fip ) 273.2(j)(2)(i)(A) + TechDoc p.63 
+
+has_elderly_or_disabled OR( has_elderly , has_disabled ) 273.9(a) 
+
+not_elderly_or_disabled NOT( has_elderly_or_disabled ) 273.8(b) 
+
+assets_term_eld AND( has_elderly_or_disabled , assets_low_higher ) 273.8(b) 
+
+assets_term_std AND( not_elderly_or_disabled , assets_low_standard ) 273.8(b) 
+
+assets_test_passed OR( assets_term_eld , assets_term_std ) 273.8(b) 
+
+gross_income_test_passed OR( has_elderly_or_disabled , gross_income_low ) 273.9(a) 
+
+categorically_eligible OR( ssi_receipt , tanf_receipt , ga_receipt ) 273.2(j)(2)(i)/(j)(4) 
+
+income_asset_eligible AND( gross_income_test_passed , net_income_low ,
+
+assets_test_passed )273.9(a) +273.8(a) 
+
+eligible OR( categorically_eligible , income_asset_eligible ) 273.8(a)/273.9(a) 
+
+Table 18: The 20 nodes of the SNAP SCM. Sources are sections of 7 CFR 273 (Office of the Federal Register 2026), with dollar thresholds from the FY2024 Quality Control Technical Documentation (Leftin et al. 2026), Appendix F.
