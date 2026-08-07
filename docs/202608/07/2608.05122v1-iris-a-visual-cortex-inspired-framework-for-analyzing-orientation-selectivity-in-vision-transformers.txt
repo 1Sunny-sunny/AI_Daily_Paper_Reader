@@ -1,0 +1,664 @@
+Title: IRIS: A Visual Cortex-Inspired Framework for Analyzing Orientation Selectivity in Vision Transformers
+
+URL Source: https://arxiv.org/pdf/2608.05122v1
+
+Published Time: Thu, 06 Aug 2026 01:19:42 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# IRIS: A Visual Cortex-Inspired Framework for Analyzing Orientation Selectivity in Vision Transformers 
+
+## Vaishnavi B Mohan ∗
+
+University of Washington, USA 
+
+## Vijayakrishna Naganoor 
+
+Microsoft, USA 
+
+## Yashas Annadani 
+
+TU Munich, Germany 
+
+## Shashank Hegde 
+
+Nvidia, USA 
+
+> ∗
+
+Corresponding author: vbmohan@uw.edu 
+
+## Abstract 
+
+Vision transformers (ViTs) have become the de facto standard for image encoding across many perception tasks. Despite their empirical success, it remains mechanistically unclear how they encode low-level fea-tures, given their lack of inductive biases: ViTs process information globally rather than relying on local structure. Biological visual systems, in contrast, build low-level features, such as orientation selectivity in the primary visual cortex, by combining information from small, localized regions of the visual field. These features are general-purpose representations, shared and required across multiple specialized neural path-ways, unlike higher-level semantic features - which are task-specific. This raises the question of whether such biologically-grounded features arise in ViTs. In this work, we systematically study how orientation selectivity emerges in ViTs by introducing a suite of neuroscience-inspired metrics: representational simi-larity score (RSS), orientation recruitment score (ORS), and orientation tuning bandwidth to quantify how orientation is encoded in representational geometry and as a function of model depth. Through extensive analysis, we find that: (1) the training paradigm is the strongest determinant of orientation selectivity, with models sharing an objective, peaking at comparable relative depths regardless of scale, (2) many units are orientation-selective early in training, with early-to-middle layers recruiting more such units over time, while deeper layers lose selectivity and broaden their tuning toward semantic encoding, and (3) our metrics offer a mechanistic heuristic for how many layers to unfreeze for best downstream generalization. Our framework presents a way to track biologically-grounded features during ViT training, probes how desired properties are encoded in transformer representations, and builds a systematic understanding of how ViTs generalize across tasks. 
+
+# 1 Introduction 
+
+Vision Transformers (ViTs) (Dosovitskiy et al., 2021) have become the dominant general-purpose backbone for computer vision tasks spanning recognition, segmentation (Li et al., 2023), depth estimation (Lin et al., 2025), and embodied navigation (Oquab et al., 2024). Despite this empirical dominance, we understand comparatively little about how their internal representations are organized across depth, or how they learn those features over training. This matters because a 2D image is an impoverished description of the world that produced it: a single object generates a vast, curved manifold of images under changes in viewpoint, illumination, and pose (DiCarlo et al., 2012), making stable, task-relevant structure an ill-posed inverse problem to recover (Marr, 1982). A useful encoder must therefore be both rich, retaining low-level structure, and generalizable, so different downstream tasks can each read out what they need. Biological vision solves this hierarchically: the primary visual cortex (V1) pools over small, local receptive fields, and many simple cells behave as oriented, bandpass filters described by Gabor functions (Hubel and Wiesel, 1962), a code shaped by the efficient-coding pressure of natural image statistics (Barlow, 1961; Olshausen and Field, 1996) and recombined into increasingly complex, task-specific features (Hubel and arXiv:2608.05122v1 [cs.CV] 5 Aug 2026 Extracting activations from each transformer block     
+
+> at 9 relative depths
+> STIMULI EXPERIMENT CONDITION FORWARD PASS + HOOK UNIT DEFINITION METRICS READOUT
+> 3
+> ImageNet-1K to train SAEs
+> Oriented gratings Natural images
+
+ORS, HWHM 
+
+> orientation recruitment score and bandwidth To measure orientation encoded in individual units To measure orientation encoded in representational geometry
+> training objective varies
+> Across paradigm
+> model size varies
+> Across scale
+> Across training epochs
+
+Figure 1: Probing pipeline. Oriented gratings and natural images pass through each frozen backbone, with activations recorded at 9 relative depths. We analyze these two ways: population-level similarity to the orientation manifold (RSS), and per-unit tuning from a sparse dictionary fit on natural images (vector OSI, ORS, von Mises bandwidth). We repeat this across three axes: pretraining paradigm, model scale, and training checkpoint. Wiesel, 1962; Marr, 1982). This code then relays to a dorsal stream equivariant to low-level geometry and a ventral stream invariant to it (Ungerleider and Mishkin, 1982; DiCarlo et al., 2012): one early code, two opposite downstream goals. CNNs make this locality explicit (LeCun et al., 1998); ViTs abandon it, mixing information globally from the first layer (Vaswani et al., 2017) and representing vision differently from CNNs (Raghu et al., 2021), yet they are state of the art. Whether a V1-like oriented code emerges at all in such a globally mixing architecture is therefore a genuine empirical question, and a concrete, interpretable handle on general-purpose representation regardless of computational philosophy if it does. Orientation is a canonical low-level feature with a precise tuning-curve characterization that emerges in the first layers of artificial vision models (Krizhevsky et al., 2012), and it bears on a long-standing debate over whether a good encoder should be invariant or equivariant to input transformations (Cohen and Welling, 2016), usually treated as all-or-nothing. The brain suggests otherwise: invariance and equivariance coexist, resolved by region and task, equivariant in V1 and the dorsal stream, invariant in the ventral stream. Orientation separates the two regimes, since an equivariant representation preserves its geometry while an invariant one collapses it, and representational similarity analysis (Kriegeskorte et al., 2008) is a natural, basis-free measure of this equivariance, testing it layer by layer with a mechanistic lens rather than judging the network only by its output. Our aim is twofold: through orientation selectivity, to identify where in a ViT this shared, generalizable code gives way to task-specific specialization, and, more broadly, to track how training shapes a network’s internal representation rather than judging it only by its loss. 
+
+Overview of Contributions. We present the Internal Representation Interpretability Suite (IRIS), with three contributions: 1. A suite of neuroscience-inspired orientation metrics quantifying orientation selectivity across a ViT’s layers, to be released as a python package — described in Section 3. 2. A systematic analysis of the emergence of orientation code based on training paradigm, model scale, and training dynamics, across five pretraining paradigms, five model families all scale tiers — described in Section 4. 3. A mechanistically grounded criterion for selecting how many layers to unfreeze during fine-tuning to improve downstream generalization — described in Section 5. 2 Related Work 
+
+Mechanistic interpretability of ViTs. Recent progress in mechanistic interpretability has been driven in large part by tooling that makes it easy to open up a transformer and inspect the computation underlying its predictions, building on a framework for describing that computation as interpretable circuits (Elhage et al., 2021; Olsson et al., 2022). Libraries such as TransformerLens (Nanda and Bloom, 2022), NNsight (Fiotto-Kaufman et al., 2025), and, for vision and video, Prisma (Joseph et al., 2025), provide hooking interfaces for extracting raw activations and are now standard infrastructure in the field. A well-established technique is to project these activations into the sparse, overcomplete feature space of a sparse autoencoder (SAE), disentangling polysemantic activations into monosemantic features (Cunningham et al., 2023; Bricken et al., 2023). First established for language models, these tools have since been adapted to vision transformers and CLIP: training patch-level SAEs for interpretable visual concepts (Zaigrajew et al., 2025; Rao et al., 2025), and decomposing CLIP’s representation via text-based analysis (Gandelsman et al., 2024a,b). 
+
+Aligning ViTs with human perception. There have been different approaches in the past trying to evaluate similarities between deep learning computer vision models and biological vision. One of the ini-tial works in this direction, Schrimpf et al. (2018), introduced Brain-Score, based on how well a model’s activations predict primate neural responses and how well its image-by-image error patterns match human behavior. In a related behavioral vein, Tuli et al. (2021) compare the error consistency of CNNs and Vision Transformers with humans. More recently, Raugel et al. (2025) compare model activations directly against fMRI and MEG brain recordings, finding that DINOv3’s representations become brain-like in a develop-mental order that mirrors the maturation timeline of sensory versus prefrontal cortex. Other work instead measures model-human similarity through classical psychophysical measures, such as contrast sensitivity (Akbarinia et al., 2023) and other low-level characteristics of the human visual system (Cai et al., 2025). 
+
+# 3 Methods 
+
+We probe frozen, pretrained ViTs with a controlled battery of oriented stimuli: the stimulus battery (Sec. 3.1), the probing protocol and units (Sec. 3.2), and four complementary metrics of orientation encoding (Sec. 3.3). 
+
+## 3.1 Stimulus Battery 
+
+We probe each ViT model using a battery of synthetic sinusoidal gratings, a standard class of stimuli for characterizing orientation tuning in biological and, more recently, in vision foundation models (Hubel and Wiesel, 1962; Cai et al., 2025). Compared to natural images, these stimuli provide precise control over a small set of interpretable parameters, minimizing variation due to image content. Each stimulus is defined as a sinusoidal grating modulated by a Gaussian envelope, 
+
+xθ = ( x − cx) cos θ + ( y − cy ) sin θyθ = −(x − cx) sin θ + ( y − cy ) cos θG(x, y ) = c cos(2 πf x θ + ϕ) exp 
+
+(
+
+− x2 
+
+> θ
+
++ y2
+
+> θ
+
+2σ2
+
+) (1) where ( x, y ) denote normalized image coordinates, ( cx, c y ) is the center of the Gaussian envelope, and ( xθ , y θ )are the coordinates rotated by the grating orientation θ. The stimulus consists of a sinusoidal carrier with spatial frequency f and phase ϕ, multiplied by a Gaussian envelope of width σ and scaled by contrast c,which is fixed to 1 throughout all experiments. The battery samples orientation uniformly over [0 , π ) at 36 evenly spaced values, phase from ϕ ∈{0, π 
+
+> 2
+
+, π, 3π 
+
+> 2
+
+}, and spatial frequency at five logarithmically spaced values (cycles per image), f ∈ [1, 0.75 P
+
+> 2
+
+],where P is the model patch size and the upper bound is kept below the patch-wise Nyquist frequency to avoid aliasing. 3.2 Probing and Units 
+
+Each stimulus passes through a frozen ViT, with responses extracted from a chosen transformer block. Since models differ in depth, we compare responses at matched relative depths rather than fixed block indices: nine values d ∈ { 0, 0.1, 0.25 , 0.4, 0.5, 0.6, 0.75 , 0.9, 1.0}, each mapped to a block of a model with L blocks as block( d, L ) = round (d (L−1) ), keeping comparisons consistent across architectures with different numbers of blocks. Orientation selectivity, the degree to which a unit responds preferentially to one stimulus orientation over others, is the canonical example of feature selectivity in the visual system, epitomized by V1 simple cells (Hubel and Wiesel, 1962), and a natural first target for testing whether an artificial network builds an analogous, interpretable code. It is conventionally defined at the level of individual computational units , a notion transformer representations do not straightforwardly admit, so we evaluate orientation tuning under three complementary readout bases that make progressively stronger assumptions about the underlying representation. 
+
+Raw coordinates. We treat each (patch token, channel) coordinate of the residual stream as a unit ( D =
+
+dmodel channels, one per patch). The residual stream has no privileged basis, so this is an assumption-light baseline for whether orientation aligns with the model’s native coordinates. 
+
+MLP neurons. We also treat each post-nonlinearity MLP neuron as a unit. Unlike the residual stream, which can be rotated arbitrarily without changing the network’s function, the GELU nonlinearity fixes a privileged basis here, which we use to track a stable per-neuron identity across training checkpoints (Sec. 4.3). 
+
+SAE features. We additionally project activations into the feature space learned by a sparse autoencoder (SAE), following standard practice in mechanistic interpretability (Cunningham et al., 2023). Each dictio-nary feature is treated as a unit, averaged over all patch tokens except the class token; this is our primary readout, since the learned features are the closest thing to a true monosemantic unit. For all readout bases, responses are averaged over patch tokens to obtain a single response per stimulus. We combine responses across phases using the energy model, ¯ru(θ, f ) = 
+
+√ 1
+
+nϕ
+
+∑
+
+> ϕ
+
+ru(θ, ϕ, f )2
+
+¯ru(θ) ≡ ¯ru(θ, f ⋆u ), f ⋆u = arg max  
+
+> f
+
+OSI (¯ru(·, f )) (2) where ru(θ, ϕ, f ) is the response of unit u to a stimulus with orientation θ, phase ϕ, and spatial frequency 
+
+f , and nϕ is the number of sampled phases. For each unit, we then select the spatial frequency f ⋆u that maximizes orientation selectivity (OSI, Sec. 3.3), yielding the phase-invariant tuning curve ¯ ru(θ) used in all subsequent unit-level analyses. Unless otherwise stated, unit-level analyses are reported for the raw-coordinate and SAE-feature bases; the MLP-neuron basis is used only for the training-trajectory analysis (Sec. 4.3). Population-level analyses operate directly on the pooled activation vector a.
+
+## 3.3 Orientation Metrics 
+
+This section defines four orientation metrics: the representational similarity score (RSS), our one population-level measure, and three unit-level measures, the Orientation Selectivity Index (OSI), the Orientation Re-cruitment Score (ORS), and tuning bandwidth, i.e. half-width at half-maximum (HWHM), the width of a unit’s tuning curve at half its peak response above baseline. 
+
+Representational Similarity Score (RSS). We use representational similarity analysis (RSA), a stan-dard neuroscience method for comparing representational geometry across systems with different coordinate bases (Kriegeskorte et al., 2008; Conwell et al., 2024). For each stimulus i, we take the pooled raw activation (mean over patch tokens, class token excluded) as ai, ℓ2-normalize it, and correlate pairwise cosine dissimi-larities with the dissimilarities predicted by stimulus orientation θi (circular distance, 180 ◦ periodicity): 
+
+Dact  
+
+> ij
+
+= 1 − ai · aj
+
+∥ai∥ ∥ aj ∥ , Dorient  
+
+> ij
+
+=
+
+∣∣∠ e i 2( θi−θj )∣∣
+
+π
+
+RSS = Pearson ({Dact  
+
+> ij
+
+}i<j , {Dorient  
+
+> ij
+
+}i<j 
+
+) (3) where ∠ denotes the argument of a complex number. 
+
+RSS is a population-level metric: a high value means stimuli of similar orientation are represented simi-larly and dissimilar ones are pushed apart, preserving orientation’s circular geometry in the representation as a whole. It depends only on pairwise similarities, so it is basis-invariant and directly comparable across mod-els with different architectures, widths, and training objectives (Kriegeskorte et al., 2008); we complement it with a basis-free linear decoding analysis (App. A.2) confirming orientation remains linearly decodable across depths even as this geometry changes. 
+
+Orientation Selectivity Index (OSI). For a single unit, we use the vector OSI, one minus the circular variance of its tuning curve. Since activations may be negative, we first rectify each curve, ˜ r(θk) = ¯ ru(θk) −
+
+min j ¯ru(θj )OSI u =
+
+∣∣∑ 
+
+> k
+
+˜ru(θk) e i 2θk
+
+∣∣∑ 
+
+> k
+
+˜ru(θk) ∈ [0 , 1] . (4) The harmonic 2 θ encodes orientation’s 180 ◦ periodicity. OSI is a continuous, per unit measure of how strongly a unit prefers a single orientation, using the whole curve rather than a hand picked pair of angles. 
+
+Orientation Recruitment Score (ORS). To test whether a unit is genuinely orientation-selective rather than selective by chance, we build a null that mirrors the frequency-selection step in Eq. (2): for each of B
+
+shuffles, we permute orientation labels on each of the five frequency-specific curves, recompute OSI at every frequency, and take the max across frequencies as that shuffle’s null value. This gives the null the same five chances at a high OSI as the real statistic, so selecting the best frequency cannot alone inflate significance. A unit’s p-value is the fraction of null values at least as large as its observed OSI; it counts as selective if 
+
+p < α , and ORS is the fraction of units passing this test. OSI (b)null = max  
+
+> f
+
+OSI (πb(¯ ru(·, f )) ),pu =1 + ∑Bb=1 1
+
+[
+
+OSI (b) 
+
+> null
+
+≥ OSI u
+
+]
+
+B + 1 ,
+
+ORS = 1
+
+N
+
+∑
+
+> u
+
+1[ pu < α ], α = 0 .05 (5) where πb permutes orientation labels for the b-th shuffle, B is the number of shuffles, N the number of units, 
+
+1[·] the indicator function, and α = 0 .05. ORS measures how much of the representation is allocated to orientation, a population count that the per-unit OSI does not provide. 
+
+Tuning bandwidth (HWHM). OSI and ORS establish whether a unit is orientation-selective, and how many are, but not how sharply each is tuned. We therefore fit a von Mises (circular Gaussian) function to the tuning curve of each selective unit. 
+
+r(θ) = b + A exp( κ [cos 2( θ − θpref ) − 1]) ,
+
+HWHM = 12 arccos 
+
+(
+
+1 − ln 2 
+
+κ
+
+) (6) where b and A are the curve’s floor and amplitude, θpref is the unit’s preferred orientation, and κ is the concentration (inverse-variance) parameter fit to the curve. The closed form for HWHM is valid for κ ≥ ln 2; for the rare unit whose fit falls below that, no real half-max crossing exists, so we cap HWHM at 90 ◦, half the 180 ◦ period. Expressed in degrees, HWHM provides an architecture-independent measure of tuning precision that can be compared directly across models and with biological measurements of orientation tuning (Ringach et al., 2002). 
+
+# 4 Experimental Design 
+
+To understand what shapes the orientation code in ViTs, we ask how much of it is attributable to three factors, each isolated in its own study: the training objective (across paradigms), the model’s size (across 0.0 0.5 1.0           
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> HWHM (°) HWHM (°)
+> Hollow circles: Too few selective units (< 20) V1-like
+> 0.0 0.5 1.0
+> Relative depth (block / N)
+> 0
+> 20
+> 40
+> 60
+> 80
+> V1-like
+> 0.0 0.5 1.0
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> ORS ORS
+> 0.0 0.5 1.0
+> Relative depth (block / N)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Across paradigms Same paradigm (contrastive)
+> 0.0 0.5 1.0
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> RSS RSS
+> 0.0 0.5 1.0
+> Relative depth (block / N)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+
+A. B.        
+
+> DINOv3 DINOv2 OpenCLIP MAE DeiT3 AIMv2 OpenCLIP MetaCLIP SigLIP2
+
+Figure 2: Orientation selectivity across training paradigms. A. We show RSS, ORS, and bandwidth (HWHM) against relative depth, one L-tier backbone per paradigm. All show an inverted-U RSS pro-file but diverge in where it decays: DINOv2/DINOv3 sustain it deepest, AIMv2 collapses earliest, and MAE keeps rising to the final layer. The shaded band marks V1-like bandwidths (15 ◦–40 ◦), and hollow circles mark blocks with fewer than 20 significant units. B. The same metrics within the contrastive family isolate data and loss as the only variables. scale), and its training trajectory (across training epochs). Each study holds the other two factors fixed, and all three run the identical probe and stimulus battery described above. 
+
+## 4.1 Across Paradigms 
+
+Setup. We study one representative ViT backbone from widely used pretraining paradigms: contrastive language supervision (OpenCLIP), supervised classification (DeiT III), self-distillation (DINOv2), masked autoencoding (MAE), and autoregressive prediction (AIMv2). We use one model per family at each scale tier, probed identically, so that any difference in the orientation code reflects the objective rather than architecture, scale, or the probe. In order to eliminate confounds like training data or loss function used, we add a within-contrastive control at the same scale: OpenCLIP (LAION-2B, softmax loss), MetaCLIP (curated CommonCrawl, softmax loss; data only changes), and SigLIP 2 (WebLI, sigmoid loss; data, loss, and patch size all change together). We use the contrastive family for this control because it’s the only one with a clean, scale-matched set of checkpoints that vary data and loss one factor at a time; patch size, the main residual confound, is bounded by including both patch-14 and patch-16 models. 
+
+Observations. RSS shows a common inverted-U profile across all five paradigms, but the DINO family sustains it out to a relative depth of 0.6 while AIMv2 collapses by 0.1, with MAE the outlier, still rising at the final layer. ORS shows the same early-layer bias in the number of selective units, with MAE retaining the most at depth, DINOv3 recruiting more than DINOv2, and AIMv2 dropping off earliest. Tuning bandwidth stays V1-like across models (15 ◦–40 ◦), though DINOv3’s larger pool of selective units is more broadly tuned than DINOv2’s smaller, sharper one. 
+
+Findings. This inverted-U depth profile mirrors the primate visual hierarchy: weak selectivity in the retina, a peak in V1, and decline in higher, more semantic areas. DINOv2 and DINOv3 sustain this code over an extended depth range, consistent with their well-documented strength as frozen backbones (Oquab et al., 2024; Sim´ eoni et al., 2025). MAE’s own reported results match its RSS profile exactly: frozen or linear-probe MAE performs poorly (around 75% top-1) while fine-tuned MAE is competitive (around 87.8% for ViT-L) (He et al., 2022), exactly what an RSS that never hands off to a semantic code would predict, supporting our conjecture that MAE needs fine-tuning to convert that low-level code into task-relevant features. AIMv2-L14 is the sharpest contrast: billed by its authors as an encoder for general-purpose visual understanding (Fini et al., 2025), its RSS instead abandons low-level structure early, a profile that cannot plausibly support general-purpose visual features. 
+
+Takeaway. Orientation selectivity reliably emerges in ViTs, sustained longest in the strongest frozen back-bones. Training paradigm has the strongest effect, not data or architecture. 
+
+## 4.2 Across Scale 
+
+Setup. Scale is a primary lever in modern vision models. We evaluate how the orientation code changes with scale by varying network size within family of models: OpenCLIP (B/32, B/16, L/14, H/14; LAION-2B), DINOv2 (S/B/L/G), DeiT III (S/B/L), MAE (B/L/H), and AIMv2 (L/H/1B), spanning roughly 22M to over 1B parameters. As before, we line models up by relative depth rather than by block number, since tiers within a family range from 12 to 48 blocks. Patch size only changes within OpenCLIP; the B/16 vs. B/32 pair, same size, different patch, solely isolates that effect. 
+
+Findings. We use RSS for this comparison because it is comparable across models and layers without depending on a choice of basis. Across every family but one, the RSS curve is nearly identical across scale: the S, B, L, and G/H tiers overlap almost exactly when lined up by relative depth (Fig. 3), indicating that relative depth, not block number, governs the strength of the orientation code. AIMv2 breaks this pattern: it is the only family that keeps 24 blocks at every tier and scales in width instead (App. Table 2), and its RSS curve is also the only one that changes drastically with scale. This suggests depth and width play distinct roles: adding depth at constant width adds compositional degrees of freedom, so the feature space at a given relative depth keeps encoding the same code, while adding width instead changes what gets encoded there. This matches Greff et al. (2017) (added depth in residual networks refines existing features rather than replacing them) and Nguyen et al. (2021) (wide and deep networks do not learn the same things). AIMv2, the only family here that grows width while holding depth fixed, is the clearest case of the second effect. 
+
+Takeaway. Adding more transformer blocks preserves how a feature is composed at each relative depth, while widening each block without depth changes what is encoded there. AIMv2, which scales only width, provides evidence for this. 
+
+## 4.3 Across Training Epochs 
+
+While the comparisons above look at final trained models, here we ask how the orientation code forms over training by probing one network across its training checkpoints. In visual cortex, orientation-selective units are already present at eye-opening, and subsequent development sharpens individual neurons’ tuning curves (Chapman and Stryker, 1993; White et al., 2001). We ask the analogous question of a ViT: does orientation selectivity sharpen with training, and is that change gradual or concentrated in a critical-period-like window? Loss reports how well the network is doing, not what it is doing to get there; a biologically 0.00 0.25 0.50 0.75 1.00                     
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> RSS
+> DeiT3
+> S/16 B/16 L/16 0.00 0.25 0.50 0.75 1.00
+> Relative depth (block / N)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> RSS
+> AIMv2
+> L/14 H/14 1B/14 0.00 0.25 0.50 0.75 1.00
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> RSS
+> DINOv3
+> S/16 B/16 L/16 H+/16 0.00 0.25 0.50 0.75 1.00
+> Relative depth (block / N)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> RSS
+> DINOv2
+> S/14 B/14 L/14 G/14 0.00 0.25 0.50 0.75 1.00
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> RSS
+> OpenCLIP
+> B/32 B/16 L/14 H/14 0.00 0.25 0.50 0.75 1.00
+> Relative depth (block / N)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> RSS
+> MAE
+> B/16 L/16 H/14
+
+Figure 3: We plot RSS vs. relative depth, for each family, across tiers. Tiers overlay almost exactly within every family except AIMv2, the only one that fixes depth and scales width alone, whose RSS curve changes substantially with scale. grounded, interpretable metric lets us see this directly, tells us when the representation matures enough to be useful downstream, and lets us compare its timeline against biological development. 
+
+Setup. We track OpenCLIP ViT-H/14 across its public training checkpoints. At each checkpoint we probe the same oriented-grating battery used in the cross-model analysis, computing per-unit OSI, significance, and circular variance on raw MLP neurons, since the GELU nonlinearity fixes a privileged basis for neurons, unlike the residual stream, which can be rotated arbitrarily without changing the network’s function. At each layer and epoch we report the mean OSI, the fraction of units passing significance (ORS), and the mean circular variance, compared against a random-init (untrained) floor computed the same way. 
+
+Findings. We observe that earlier layers, which are the most orientation-selective, mature this feature very early in training, while later layers keep dropping it gradually across epochs (Fig. 4). This aligns with reports that deep networks converge bottom-up, with early layers reaching their final representation before later ones do (Raghu et al., 2017). As a conjecture, orientation maturity could serve as a proxy for when a layer is done learning, enabling progressive freezing schedules (Brock et al., 2017) that pass gradients only to layers still developing their code. We have not validated that this preserves downstream performance, but if it holds, it could reduce training compute and give a mechanistic criterion for when to freeze each layer. 
+
+Takeaway. Training reshapes orientation encoding rather than simply sharpening it: mid-layers recruit more orientation-selective units than an untrained network, while deeper layers trade orientation encoding for semantic content. This handoff matures earliest in the shallowest layers. 0 10 0 10 1 10 2                           
+
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+> 0.40
+> Mean OSI Mean OSI
+> Mean OSI
+> random-init mean 010 010 110 2
+> Training epoch (log; 0:=untrained)
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> ORS ORS
+> ORS
+> 010 010 110 2
+> 0.60
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> Mean CV Mean CV
+> (lower:=sharper tuning)
+> Circular variance
+> 010 20 30
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+> 0.40
+> Mean OSI: fi nal vs fl oor
+> fi nal (avg. last 10 epochs) untrained
+> 010 20 30
+> Layer
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> ORS: fi nal vs fl oor
+> 010 20 30
+> 0.60
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> Circular variance: fi nal vs fl oor
+> 0510 15 20 25 30
+> Layer depth (0 →31) Orientation Selectivity across training Orientation Selectivity across depth
+> "adult" vs untrained
+
+Figure 4: Orientation selectivity over OpenCLIP ViT-H/14’s training trajectory. Left: we plot mean OSI, ORS, and circular variance against training epoch (log scale, 0 = untrained), one line per layer (dark = shallow, light = deep), against the random-init floor (dashed). Right: we plot the same metrics at the final checkpoint (last 10 epochs, averaged) against the untrained floor, across layer depth; shading marks where training raises (green) or lowers (pink) a layer’s value. Early-to-mid layers recruit more orientation-selective units than they start with; deep layers lose selectivity with training. 
+
+# 5 Implication for Downstream Tasks 
+
+If a ViT’s early layers build a V1-like low-level code, general-purpose and shared the way it is in visual cortex, that code should transfer well across a wide range of otherwise unrelated downstream tasks. We test this by benchmarking the six scale-matched (L-tier) models above as frozen encoders on 9 popular, divergently specialized tasks, using only a minimal linear or 1 ×1-conv read-out so the decoder cannot compensate for what the encoder lacks (full protocol and per-task results in App. A.3). Mean min–max normalized performance across these 9 tasks (App. Eq. 11) serves as a proxy for representation generalizability, in the spirit of pooled-task transfer benchmarks (Zhai et al., 2019). This pooled score tracks the shape of a model’s RSS curve, not merely its presence: DINO, whose RSS peaks broadly at mid-depth, declining gradually, generalizes best; AIMv2-L, whose RSS collapses earliest, generalizes worst; and MAE, whose orientation code never hands off to semantic features and stays strong to the last layer, generalizes almost as poorly despite the reverse profile. This raises a sharper, practical question: if backbones differ in where their low-level code peaks, can that peak also tell us where to start fine-tuning for best performance on a new task? Unfreeze too little, only the deepest layers, and the model lacks the capacity to pack in task-relevant information; unfreeze too much, and it discards low-level structure the network has already built well. This choice matters most where ViTs are reused as one shared trunk across many tasks, as in robotics and autonomous driving (Majumdar et al., 2023; Hu et al., 2023). Representations grow steadily more task-specific with depth (Yosinski et al., 2014), 0.00   
+
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> DINOv3_B
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> LoRA start-layer depth
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> MAE_B
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Normalized score (0–1)  DINOv3_S
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> LoRA start-layer depth
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Normalized score (0–1)  DeiT3_S
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> DINOv3_L
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> LoRA start-layer depth
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> AIMv2_L
+> 0.0 0.2 0.4 0.6 0.8 1.0 RSS (0–1)
+> 0.0 0.2 0.4 0.6 0.8 1.0 RSS (0–1)
+
+Best depth for Fine-tuning: Pooled Performance vs. RSS   
+
+> Pooled performance RSS (frozen encoder) Peak (curve's own colour)
+
+Figure 5: Pooled downstream performance (solid) against a-priori RSS on the frozen backbone (dashed), plotted against relative LoRA start-layer depth for six backbones spanning training paradigm. Performance is min–max normalized per backbone across tasks and seeds, following the same protocol as Figs. 2 and 3. Stars mark each curve’s own peak. The shaded band is the spread across seeds for pooled performance; RSS is computed once on the frozen backbone, so it has no seed spread. and adapting only a subset of layers can match or beat full fine-tuning depending on where the target task diverges from pretraining (Lee et al., 2023). In practice, though, the choice of which layer to start from is either an expensive sweep kept only for its best result, or a fixed truncation depth used by convention, especially in robotics (Nair et al., 2022; Majumdar et al., 2023). We test whether RSS, measured once on the frozen backbone, can tell us where to start unfreezing without a sweep. 
+
+Setup. For a backbone with L transformer blocks, we progressively unfreeze from block k onward and adapt blocks [ k :] with LoRA (Hu et al., 2022) ( r = 8, α = 16; full hyperparameters and the exact depth grid in App. A.4), sweeping k over nine values spanning relative depth d = k/ (L − 1) ∈ [0 , 1], matched across backbones of different depth so results stay comparable. On top of the backbone we train the same lightweight, task-specific decoder heads as the frozen-backbone benchmark (App. A.3). We fine-tune on Taskonomy (Zamir et al., 2018), a popular public benchmark spanning divergent visual tasks, using its tiny split since we sweep this many depths, seeds, and backbones at once, across 9 visual downstream tasks (segmentation, depth, detection, surface normals, reshading, curvature, edges, 2D keypoints, and Euclidean distance; full task definitions in App. A.4), 5 seeds per (task, k) (budget and split details in App. A.4), and report mean min–max normalized performance across tasks for each depth k (App. Eq. 11). We run this protocol across six backbones spanning family and scale. 
+
+RSS Predicts the Optimal Fine-Tuning Depth. Once a backbone is chosen for a task using the frozen-backbone benchmark (App. A.3), RSS on that same frozen backbone tells us where to start fine-tuning it. Figure 5 shows pooled performance when unfreezing and fine-tuning from different depths, for each backbone. The depth that gives the best pooled performance lines up with the depth where RSS, measured once on the frozen encoder, peaks. The two peaks land on or almost exactly on top of each other across all six backbones we test. For the DINOv3 family and for AIMv2-L/14, RSS’s peak lands exactly on the empirical optimum: both peak at relative depth d = 0 .25 for DINOv3 (layer 4 for ViT-S/16, layer 6 for ViT-L/16), and at the much earlier d ≈ 0.1 for AIMv2-L/14. This is not an artifact of selecting a single favored metric: scored against 9 other apriori candidates computed from the same frozen backbone (App. A.5), every one of them performs poorly, and RSS is the only candidate whose peak reliably tracks the true optimum. The curves also make the cost of picking k wrong clear. Performance falls sharply as k approaches the last few blocks: adapting only the deepest layers leaves most of the network’s capacity untouched, without enough room to pack in task-relevant information. Faced with an unknown unfreeze depth, practitioners are left with two options: sidestep the question and adapt the whole model with LoRA (Hu et al., 2022; Dettmers et al., 2023), i.e., k = 0, or sweep across unfreeze depths and keep whichever performs best. The former is often suboptimal: our results show that unfreezing too early can discard low-level structure the frozen backbone had already built well, hurting rather than helping performance, especially for backbones like DINOv3 and MAE, which have already built a rich low-level representation that generalizes well across a wide range of tasks. The latter works, but is computationally expensive to repeat for every new task, seed, and backbone. Based on our tests across six backbones varying in scale and family, RSS is the best a-priori predictor among those we compare, identifying the depth k that gives the best mean pooled performance from the frozen backbone alone, before any fine-tuning. 
+
+Takeaway. RSS, read off the frozen backbone before any fine-tuning, predicts the best depth to unfreeze almost exactly, beating 9 other a-priori candidates and the common default of adapting the whole model. 
+
+# 6 Limitations and Future Work 
+
+Our probing battery relies on synthetic sinusoidal gratings to isolate orientation tuning. While this provides precise parameter control, it does not capture the complexity of how these models process orientation in naturalistic images. Furthermore, our analysis is currently restricted to orientation selectivity; future work should expand this suite to include other foundational V1-like features, such as spatial frequency, color contrast, and motion direction. 
+
+# 7 Conclusion 
+
+We present IRIS, a suite of orientation metrics for probing any vision model and quantifying its orientation selectivity, a low-level feature central to visual encoding, to be released as a python package. IRIS offers a grey-box, mechanistic view of how orientation is encoded across the layers of a ViT: across the backbones we probe, training paradigm is the strongest determinant of how this depth-wise code emerges, relative depth rather than raw block count governs how it holds up with scale, and training reshapes the code rather than simply sharpening it, maturing earliest in the shallowest layers. Building on this, RSS’s shape predicts a frozen encoder’s downstream generalization, and that same curve’s peak serves as an a-priori predictor of which layer to start fine-tuning from for the best downstream performance; the shape of its fall-off past that peak further predicts how much precision that choice requires, all read off the frozen backbone before any fine-tuning. Together, these results form a framework for three practical questions: which encoder to choose for a task, how to fine-tune a chosen encoder, and how to interpret an encoder’s internal representations in terms grounded in visual neuroscience. We see this as a step toward a broader grey-box approach to vision encoders, an fMRI-like probe of the model itself, that could make studying and choosing among them more systematic. References 
+
+Arash Akbarinia, Yaniv Morgenstern, and Karl R. Gegenfurtner. Contrast sensitivity function in deep networks. Neural Networks , 164:228–244, 2023. doi: 10.1016/j.neunet.2023.04.032. Horace B. Barlow. Possible principles underlying the transformation of sensory messages. In Walter A. Rosenblith, editor, Sensory Communication , pages 217–234. MIT Press, Cambridge, MA, 1961. Trenton Bricken, Adly Templeton, Joshua Batson, Brian Chen, Adam Jermyn, Tom Conerly, Nicholas L Turner, Cem Anil, Carson Denison, Amanda Askell, et al. Towards monosemanticity: Decomposing language models with dictionary learning. Transformer Circuits Thread , 2023. Andrew Brock, Theodore Lim, J. M. Ritchie, and Nick Weston. Freezeout: Accelerate training by progres-sively freezing layers, 2017. Yancheng Cai, Fei Yin, Dounia Hammou, and Rafal Mantiuk. Do computer vision foundation models learn the low-level characteristics of the human visual system? In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 20039–20048, 6 2025. Barbara Chapman and Michael P. Stryker. Development of orientation selectivity in ferret visual cortex and effects of deprivation. Journal of Neuroscience , 13(12):5251–5262, 1993. doi: 10.1523/JNEUROSCI. 13-12-05251.1993. Taco Cohen and Max Welling. Group equivariant convolutional networks. In International Conference on Machine Learning , pages 2990–2999, 2016. Colin Conwell, Jacob S. Prince, Kendrick N. Kay, George A. Alvarez, and Talia Konkle. A large-scale examination of inductive biases shaping high-level visual representation in brains and machines. Nature Communications , 15(1):9383, 2024. doi: 10.1038/s41467-024-53147-y. Hoagy Cunningham, Aidan Ewart, Logan Riggs, Robert Huben, and Lee Sharkey. Sparse autoencoders find highly interpretable features in language models. arXiv preprint arXiv:2309.08600 , 2023. Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li Fei-Fei. Imagenet: A large-scale hierarchical image database. In 2009 IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , pages 248–255, 6 2009. doi: 10.1109/CVPR.2009.5206848. Tim Dettmers, Artidoro Pagnoni, Ari Holtzman, and Luke Zettlemoyer. Qlora: Efficient finetuning of quantized llms. In NeurIPS , 2023. James J. DiCarlo, Davide Zoccolan, and Nicole C. Rust. How does the brain solve visual object recognition? 
+
+Neuron , 73(3):415–434, 2012. Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Un-terthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image is worth 16x16 words: Transformers for image recognition at scale. In International Conference on Learning Representations , 2021. Nelson Elhage, Neel Nanda, Catherine Olsson, Tom Henighan, Nicholas Joseph, Ben Mann, Amanda Askell, Yuntao Bai, Anna Chen, Tom Conerly, et al. A mathematical framework for transformer circuits. Trans-former Circuits Thread , 2021. Enrico Fini, Mustafa Shukor, Xiujun Li, Philipp Dufter, Michal Klein, David Haldimann, Sai Aitharaju, Victor G. Turrisi da Costa, Louis B´ ethune, Zhe Gan, Alexander Toshev, Marcin Eichner, Moin Nabi, Yinfei Yang, Joshua Susskind, and Alaaeldin El-Nouby. Multimodal autoregressive pre-training of large vision encoders. In Proceedings of the Computer Vision and Pattern Recognition Conference (CVPR) ,pages 9641–9654, 2025. Jaden Fried Fiotto-Kaufman, Alexander Russell Loftus, Eric Todd, Jannik Brinkmann, Koyena Pal, Dmitrii Troitskii, Michael Ripa, Adam Belfki, Can Rager, Caden Juang, Aaron Mueller, Samuel Marks, Arnab Sen Sharma, Francesca Lucchetti, Nikhil Prakash, Carla E. Brodley, Arjun Guha, Jonathan Bell, Byron C. Wallace, and David Bau. NNsight and NDIF: Democratizing access to foundation model internals. In 
+
+The Thirteenth International Conference on Learning Representations (ICLR) , 2025. URL https:// openreview.net/forum?id=MxbEiFRf39 .Yossi Gandelsman, Alexei A Efros, and Jacob Steinhardt. Interpreting clip’s image representation via text-based decomposition. In International Conference on Learning Representations (ICLR) , 2024a. Yossi Gandelsman et al. Decomposing and interpreting image representations via text in vits beyond clip. In Advances in Neural Information Processing Systems (NeurIPS) , 2024b. Klaus Greff, Rupesh K. Srivastava, and J¨ urgen Schmidhuber. Highway and residual networks learn unrolled iterative estimation. In International Conference on Learning Representations (ICLR) , 2017. Kaiming He, Xinlei Chen, Saining Xie, Yanghao Li, Piotr Doll´ ar, and Ross Girshick. Masked autoencoders are scalable vision learners. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 16000–16009, 6 2022. Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. Lora: Low-rank adaptation of large language models. In ICLR , 2022. Yihan Hu, Jiazhi Yang, Li Chen, Keyu Li, Chonghao Sima, Xizhou Zhu, Siqi Chai, Senyao Du, Tianwei Lin, Wenhai Wang, Lewei Lu, Xiaosong Jia, Qiang Liu, Jifeng Dai, Yu Qiao, and Hongyang Li. Planning-oriented autonomous driving. In CVPR , 2023. D. H. Hubel and T. N. Wiesel. Receptive fields, binocular interaction and functional architecture in the cat’s visual cortex. The Journal of Physiology , 160(1):106–154, 1962. Sonia Joseph, Praneet Suresh, Lorenz Hufe, Edward Stevinson, Robert Graham, Yash Vadi, Danilo Bzdok, Sebastian Lapuschkin, Lee Sharkey, and Blake Aaron Richards. Prisma: An open source toolkit for mechanistic interpretability in vision and video. arXiv preprint arXiv:2504.19475 , 2025. Nikolaus Kriegeskorte, Marieke Mur, and Peter A. Bandettini. Representational similarity analysis-connecting the branches of systems neuroscience. Frontiers in Systems Neuroscience , 2:249, 2008. Alex Krizhevsky, Ilya Sutskever, and Geoffrey E. Hinton. Imagenet classification with deep convolutional neural networks. In Advances in Neural Information Processing Systems , volume 25, 2012. Yann LeCun, L´ eon Bottou, Yoshua Bengio, and Patrick Haffner. Gradient-based learning applied to docu-ment recognition. Proceedings of the IEEE , 86(11):2278–2324, 1998. Yoonho Lee, Annie S. Chen, Fahim Tajwar, Ananya Kumar, Huaxiu Yao, Percy Liang, and Chelsea Finn. Surgical fine-tuning improves adaptation to distribution shifts. In ICLR , 2023. Feng Li, Hao Zhang, Huaizhe Xu, Shilong Liu, Lei Zhang, Lionel M. Ni, and Heung-Yeung Shum. Mask DINO: Towards a unified transformer-based framework for object detection and segmentation. In Pro-ceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2023. Haotong Lin, Sili Chen, Jun Hao Liew, Donny Y. Chen, Zhenyu Li, Guang Shi, Jiashi Feng, and Bingyi Kang. Depth anything 3: Recovering the visual space from any views. arXiv preprint arXiv:2511.10647 ,2025. Arjun Majumdar, Karmesh Yadav, Sergio Arnaud, Yecheng Jason Ma, Claire Chen, Sneha Silwal, Aryan Jain, Vincent-Pierre Berges, Tingfan Wu, Jay Vakil, Pieter Abbeel, Jitendra Malik, Dhruv Batra, Yixin Lin, Oleksandr Maksymets, Aravind Rajeswaran, and Franziska Meier. Where are we in the search for an artificial visual cortex for embodied intelligence? In NeurIPS , 2023. David Marr. Vision: A Computational Investigation into the Human Representation and Processing of Visual Information . W. H. Freeman and Company, 1982. Suraj Nair, Aravind Rajeswaran, Vikash Kumar, Chelsea Finn, and Abhinav Gupta. R3m: A universal visual representation for robot manipulation. In CoRL , 2022. Neel Nanda and Joseph Bloom. Transformerlens. https://github.com/TransformerLensOrg/ TransformerLens , 2022. Thao Nguyen, Maithra Raghu, and Simon Kornblith. Do wide and deep networks learn the same things? uncovering how neural network representations vary with width and depth. In International Conference on Learning Representations (ICLR) , 2021. Bruno A. Olshausen and David J. Field. Emergence of simple-cell receptive field properties by learning a sparse code for natural images. Nature , 381(6583):607–609, 1996. Catherine Olsson, Nelson Elhage, Neel Nanda, Nicholas Joseph, Nova DasSarma, Tom Henighan, Ben Mann, Amanda Askell, Yuntao Bai, Anna Chen, et al. In-context learning and induction heads. Transformer Circuits Thread , 2022. Maxime Oquab, Timoth´ ee Darcet, Th´ eo Moutakanni, Huy Vo, Marc Szafraniec, Vasil Khalidov, Pierre Fernandez, Daniel Haziza, Francisco Massa, Alaaeldin El-Nouby, Mahmoud Assran, Nicolas Ballas, Woj-ciech Galuba, Russell Howes, Po-Yao Huang, Shang-Wen Li, Ishan Misra, Michael Rabbat, Vasu Sharma, Gabriel Synnaeve, Hu Xu, Herv´ e Jegou, Julien Mairal, Patrick Labatut, Armand Joulin, and Piotr Bo-janowski. Dinov2: Learning robust visual features without supervision. Transactions on Machine Learning Research , 2024. URL https://openreview.net/forum?id=a68SUt6zFt .Maithra Raghu, Justin Gilmer, Jason Yosinski, and Jascha Sohl-Dickstein. Svcca: Singular vector canonical correlation analysis for deep learning dynamics and interpretability. In Advances in Neural Information Processing Systems (NIPS) , volume 30, pages 6078–6087, 2017. Maithra Raghu, Thomas Unterthiner, Simon Kornblith, Chiyuan Zhang, and Alexey Dosovitskiy. Do vision transformers see like convolutional neural networks? In Advances in Neural Information Processing Systems , volume 34, pages 12116–12128, 2021. Sonia Rao et al. Steering clip’s vision transformer with sparse autoencoders. arXiv preprint arXiv:2504.08729 ,2025. Jos´ ephine Raugel, Marc Szafraniec, Huy V. Vo, Camille Couprie, Patrick Labatut, Piotr Bojanowski, Valentin Wyart, and Jean-R´ emi King. Disentangling the factors of convergence between brains and computer vision models. arXiv preprint arXiv:2508.18226 , 2025. Dario L. Ringach, Robert M. Shapley, and Michael J. Hawken. Orientation selectivity in macaque v1: Diversity and laminar dependence. Journal of Neuroscience , 22(13):5639–5651, 2002. doi: 10.1523/ JNEUROSCI.22-13-05639.2002. Martin Schrimpf, Jonas Kubilius, Ha Hong, Najib J. Majaj, Rishi Rajalingham, Elias B. Issa, Kohitij Kar, Pouya Bashivan, Jonathan Prescott-Roy, Kailyn Schmidt, Franziska Geiger, Daniel L. K. Yamins, and James J. DiCarlo. Brain-score: Which artificial neural network for object recognition is most brain-like? 
+
+bioRxiv , 2018. doi: 10.1101/407007. Oriane Sim´ eoni, Huy V. Vo, Maximilian Seitzer, Federico Baldassarre, Maxime Oquab, Cijo Jose, Vasil Khalidov, Marc Szafraniec, Seungeun Yi, Micha¨ el Ramamonjisoa, Francisco Massa, Daniel Haziza, Luca Wehrstedt, Jianyuan Wang, Timoth´ ee Darcet, Th´ eo Moutakanni, Leonel Sentana, Claire Roberts, Andrea Vedaldi, Jamie Tolan, John Brandt, Camille Couprie, Julien Mairal, Herv´ e J´ egou, Patrick Labatut, and Piotr Bojanowski. Dinov3, 2025. Shikhar Tuli, Ishita Dasgupta, Erin Grant, and Thomas L. Griffiths. Are convolutional neural networks or transformers more like human vision? arXiv preprint arXiv:2105.07197 , 2021. Leslie G. Ungerleider and Mortimer Mishkin. Two cortical visual systems. In D. J. Ingle, M. A. Goodale, and R. J. W. Mansfield, editors, Analysis of Visual Behavior , pages 549–586. MIT Press, Cambridge, MA, 1982. Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, and Illia Polosukhin. Attention is all you need. In Advances in Neural Information Processing Systems ,volume 30, 2017. Leonard E. White, David M. Coppola, and David Fitzpatrick. The contribution of sensory experience to the maturation of orientation selectivity in ferret visual cortex. Nature , 411:1049–1052, 2001. doi: 10.1038/35082568. Jason Yosinski, Jeff Clune, Yoshua Bengio, and Hod Lipson. How transferable are features in deep neural networks? In NeurIPS , 2014. Vladimir Zaigrajew, Hubert Baniecki, and Przemyslaw Biecek. Interpreting CLIP with hierarchical sparse autoencoders. In Proceedings of the 42nd International Conference on Machine Learning (ICML) , 2025. arXiv:2502.20578. Amir R. Zamir, Alexander Sax, William Shen, Leonidas Guibas, Jitendra Malik, and Silvio Savarese. Taskon-omy: Disentangling task transfer learning. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , 2018. Xiaohua Zhai, Joan Puigcerver, Alexander Kolesnikov, Pierre Ruyssen, Carlos Riquelme, Mario Lucic, Josip Djolonga, Andre Susano Pinto, Maxim Neumann, Alexey Dosovitskiy, Lucas Beyer, Olivier Bachem, Michael Tschannen, Marcin Michalski, Olivier Bousquet, Sylvain Gelly, and Neil Houlsby. A large-scale study of representation learning with the visual task adaptation benchmark. arXiv preprint arXiv:1910.04867 , 2019. A Supplementary Materials 
+
+## A.1 Feature Dictionary 
+
+The raw activations have no privileged basis and is in superposition: they represent more features than its dimensions, so individual coordinates are polysemantic and do not correspond to single computational units. To obtain meaningful units on which per-unit selectivity is well defined, we learn an overcomplete sparse dictionary that recovers individual features as separate directions. 
+
+Training. We use a standard ReLU sparse autoencoder (SAE). For an activation x ∈ RD it computes a sparse code and reconstruction (Eq. 7) and is trained to minimize reconstruction error with an ℓ1 penalty on the code (Eq. 8), with the decoder rows constrained to unit norm so the sparsity penalty cannot be evaded by rescaling. The SAE is fit on the model’s activations for a battery of 256 natural images from Imagenette, a 10-class subset of ImageNet-1k (Deng et al., 2009), taken at the probed block rather than on the gratings, so the dictionary is defined by the distribution the model actually computes with; these images are orientation-balanced so the dictionary is not itself biased toward any orientation. Because each image contributes one activation vector per patch token, the dictionary is fit on 256 × T vectors, where T is the number of patch tokens. The dictionary size, sparsity λ, and number of training steps are held identical across all models, so recruitment, a fraction of dictionary features, is comparable across them. 
+
+c(x) = ReLU (Wenc (x − bdec ) + benc 
+
+),
+
+ˆx = Wdec c(x) + bdec . (7) where x is the block activation, c(x) the sparse code (feature activations) and ˆ x its reconstruction, 
+
+Wenc , W dec and benc , bdec the encoder/decoder weights and biases, λ the sparsity coefficient, and L the reconstruction error. 
+
+L = E[∥ˆx − x∥22
+
+] + λ ∥c(x)∥1 (8) 
+
+Backbone 
+
+> Classfn
+> ImageNet-200 top-1 acc.
+> Sem. segmtn
+> ADE20K mIoU
+> Depth
+> NYU Depth V2
+> δ1
+> Pan. segmtn
+> COCO-Panoptic PQ (proxy mIoU)
+> Pose
+> COCO Keypts PCK@0.5
+> Detection
+> COCO val2017 mAP@50
+> Retrieval
+> GLDv2-clean recall@1
+> Inst. segmtn
+> COCO val2017 mask mAP@50
+> Surf. Nrml.
+> NYU-V2 (drvd.) acc. @11.25 °
+
+DINOv3 0.915 0.465 0.707 0.534 0.688 0.114 0.688 0.088 0.107 DINOv2 0.897 0.418 0.629 0.472 0.873 0.085 0.531 0.060 0.095 SigLIP2 0.859 0.391 0.579 0.419 0.863 0.088 0.875 0.062 0.087 MAE 0.742 0.309 0.586 0.351 0.870 0.070 0.375 0.056 0.118 
+
+DeiT3 0.919 0.375 0.547 0.437 0.848 0.051 0.531 0.039 0.083 
+
+AIMv2 0.883 0.342 0.491 0.365 0.790 0.040 0.875 0.030 0.084 Table 1: Per-task validation performance of each frozen, L-tier backbone under the minimal linear/1 ×1-conv read-out described above (task, dataset, and metric definitions in Table 3). Bold green marks the best backbone per task and bold terracotta the worst; retrieval is a tie for best between two backbones. Metrics are on different scales across columns (accuracy, mAP, mIoU, . . . ) and are not directly comparable across tasks; see Fig. 6 for the pooled, min–max normalized comparison. 
+
+## A.2 Orientation Decoding 
+
+We test whether orientation is linearly recoverable from the population by regressing it from the pooled raw activation. For each grating stimulus i we take the pooled activation ai (mean over patch tokens, class token excluded) as input. Because orientation is 180 ◦-periodic, we regress onto (sin 2 θi, cos 2 θi) rather than θi directly. We fit ridge regression with 5-fold cross-validation within the grating battery, training on the in-fold stimuli and predicting the held-out fold, so no stimulus is used to predict itself: 
+
+yi = (sin 2 θi, cos 2 θi), ˆyi = Ridge CV (ai). (9) where ai is the pooled activation for stimulus i, θi its orientation, ˆ yi the cross-validated prediction, and ¯y the mean target; decodability is 1 for perfect recovery and 0 at the mean-predictor baseline. We report decodability as the cross-validated coefficient of determination over both targets, and recover a predicted orientation to obtain a mean absolute circular error in degrees: decodability = 1 −
+
+∑
+
+> i
+
+∥yi − ˆyi∥2
+
+∑
+
+> i
+
+∥yi − ¯y∥2 ,
+
+ˆθi = 12 atan2(ˆ yi, sin , ˆyi, cos ).
+
+(10) Since stimuli of the same orientation but different phase and spatial frequency fall on both sides of the cross-validation splits, the readout must generalize across those nuisances rather than memorize a specific grating. 
+
+## A.3 RSS Dictates Generalizability 
+
+V1, early visual cortex, encodes orientation, a low-level feature, and is the shared early region of the vi-sual system, which then sends diverging projections to pathways specialized for different tasks, such as spatial localization (dorsal stream) and recognition (ventral stream) (Ungerleider and Mishkin, 1982). This suggests that models extracting these low-level features in their early/middle layers can form rich internal representations leveraged generally across visual tasks. To test this, we benchmark the six scale-matched (L-tier) models across 9 visual tasks with established datasets (Table 3). Each frozen encoder is probed with a minimal, task-specific linear read-out: a single linear layer after global pooling for whole-image tasks (classification, retrieval), or a 1 × 1 convolutional projection at every spatial location for dense tasks (segmentation, depth, normals, detection, pose), with no hidden layers, so the decoder cannot compensate for features the encoder lacks. Classification and semantic segmentation use each dataset’s own official train/val partition; the remain-ing tasks use a deterministic 90:10 split by sorted index, fixed across backbones. Each (backbone, task) pair trains for a fixed epoch budget, clamped to [50 , 250], targeting 10,000 optimizer steps (epochs = clip(round(10 ,000 /steps/epoch) , 50 , 250)). We evaluate periodically and keep the checkpoint with the best validation score on each task’s primary metric. To combine 9 differently-scaled metrics into one score, let s(t, b ) denote backbone b’s best validation score on task t’s primary metric (Table 1). We min–max normalize each task across the six backbones being compared, ˆs(t, b ) = s(t, b ) − min b′ s(t, b ′)max b′ s(t, b ′) − min b′ s(t, b ′) ∈ [0 , 1] ,S(b) = 1
+
+|Tb|
+
+∑
+
+> t∈Tb
+
+ˆs(t, b )(11) where b′ ranges over all 6 backbones with a result on task t, so ˆ s(t, b ) rescales s(t, b ) to [0 , 1] within that task: 0 for the weakest backbone on t, 1 for the strongest, regardless of t’s raw metric scale; and Tb is the set of tasks with a result for backbone b (all 9 in Table 1 for every backbone here), so S(b) in (11) is the mean normalized score across tasks, the backbone-level number plotted in Fig. 6. Tier OpenCLIP DeiT III DINOv2 DINOv3 MAE AIMv2 MetaCLIP SigLIP2                                                
+
+> contrastive supervised self-sup, joint self-sup, joint self-sup, masked autoregressive contrastive contrastive
+> Small –22M / 12 22M / 12 21M / 12 ––––Base 87M / 12 87M / 12 86M / 12 86M / 12 87M / 12 –––Large 307M / 24 307M / 24 307M / 24 300M / 24 307M / 24 300M / 24 307M / 24 307M / 24 Huge 632M / 32 ––840M / 32 632M / 32 600M / 24 ––Giant/1B ––1.1B / 40 ––∼1B / 24 ––
+
+Table 2: Models used in cross-model and cross-scale experiments, grouped by scale tier. Cells report param-eter count / number of transformer blocks. AIMv2 fixes depth at 24 across all tiers and scales width instead, so its Huge/Giant entries are not block-matched to the other families in their row. Table 3: Benchmarked tasks, datasets, and primary metrics. Tracking (MOT16) is registered but excluded: the public mirror was unreachable at data-collection time, leaving 9 of 10 tasks scored. 
+
+Task Dataset Metric Classification Tiny-ImageNet-200 Top-1 acc. Detection COCO val2017 mAP@50 Semantic segmentation ADE20K mIoU Instance segmentation COCO val2017 (instance) Mask mAP@50 Panoptic segmentation COCO-Panoptic PQ-proxy mIoU Depth NYU Depth V2 δ1
+
+Surface normals NYU Depth V2 (derived) Acc. @11.25 °
+
+Pose COCO Keypoints PCK@0.5 Retrieval GLDv2 (mini-subset) Recall@1 
+
+Figure 6: We plot mean min–max normalized performance S(b) (Eq. 11) for the six L-tier frozen backbones, pooled across benchmark tasks (0 = worst, 1 = best backbone per task). DINOv3 generalizes best (0.958), followed by DINOv2 (0.670) and SigLIP2 (0.521); MAE (0.405) and DeiT3 (0.393) are similarly mid-low, and AIMv2 generalizes worst (0.138). APRIORI PREDICTION OF BEST FINE-TUNING DEPTH k USING RSS         
+
+> ENCODER STATE PROBING SWEEP MEASURED CURVE SIMILARITY METRICS
+> RSS peak at block kkN0pooled-performance peak at k
+> N0
+> RSS: best apriori predictor of where to unfreeze kN0Frozen ViT Encoder
+> no fi ne-tuning same metric as panel A
+> RSA probe, every block RSS across transformer blocks
+> Apriori  eval only
+> LoRA on ViT Encoder
+> fi ne-tuning ViT with conv decoder
+> Fine-tune across visual tasks
+> 9 Taskonomy-style tasks
+> Pooled-performance across transformer blocks
+> Fine-tune, Full sweep
+
+Figure 7: Protocol schematic. Top: the frozen backbone is probed once with the RSA battery at every block, giving an a-priori RSS-vs-block curve, no fine-tuning required. Bottom: for each block k, the same backbone is adapted with LoRA on blocks [ k :] and fine-tuned across the 9 Taskonomy-style tasks (5 seeds each), giving an empirical pooled-performance-vs-k curve. RSS’s peak, measured without any fine-tuning, coincides with the pooled-performance peak, making RSS an a-priori predictor of where to unfreeze. 
+
+## A.4 Fine-tuning sweep: full setup 
+
+For a backbone with L transformer blocks (indexed 0 , . . . , L − 1), we progressively unfreeze from block 
+
+k onward, sweeping k over nine values chosen to span the relative depth range d = k/ (L − 1) ∈ [0 , 1]. The nine relative depths are fixed once, on DINOv3 ViT-S/16 ( L = 12): k ∈ { 0, 1, 3, 4, 6, 7, 8, 10 , 11 }, i.e. 
+
+d ∈ { 0, . 09 , . 27 , . 36 , . 55 , . 64 , . 73 , . 91 , 1}. For every other backbone we adapt from the same nine relative depths, rounding each d · (L − 1) to the nearest block index, so results stay comparable across backbones of different depth even though their absolute k’s differ. Blocks before k stay entirely frozen; blocks from k
+
+onward are adapted with LoRA (Hu et al., 2022). For a pretrained linear layer with frozen weight W , LoRA adds a trainable low-rank residual, 
+
+W ′x = W x + αr (BA )x, (12) where A and B are trainable low-rank factors of rank r, α is a fixed scaling constant, and B is zero-initialized so training starts exactly at the pretrained function. We use r = 8, α = 16, and apply Eq. (12) to every linear layer (attention QKV/projection, MLP) in blocks [ k :]; we write this configuration LoRA(dino , k ). On top of the backbone we train the same lightweight, task-specific decoder heads as the frozen-backbone benchmark (Sec. A.3), with no added capacity to compensate for what the backbone lacks. We fine-tune on the tiny split of Taskonomy across 9 dense-prediction tasks derived from Taskonomy’s per-pixel modalities: semantic segmentation (mIoU); depth and Euclidean distance (each scored by δ1 accuracy); object detection, with boxes derived from the segmentation masks (mAP@50); surface normals (accuracy within 11 .25 ◦); reshading (PSNR); and principal curvature, edges, and 2D keypoints (each scored by mean absolute error). Taskonomy-tiny is the best available option for a generalization study of this kind: full Taskonomy is several million images, and here every model is fine-tuned once per unfreeze depth k and per seed (9 depths × 5 seeds × 9 tasks, repeated per backbone), so a larger split is computationally prohibitive at that multiplicative scale. We train for 300 epochs per (task, k, seed), evaluate every 25 epochs, and keep the best checkpoint on each task’s primary metric; as in the benchmarking protocol above, this is best-checkpoint selection over a fixed budget, not early stopping. We repeat every configuration across 5 seeds and report the mean min-max normalized performance S(b) across tasks, exactly as defined in Eq. (11) above, with k
+
+playing the role of the backbone variant b.A.5 Ranking RSS Against 18 A-priori Alternatives 
+
+For DINOv3 ViT-S/16, pooled across the 9 tasks, performance peaks at k = 4. We compare RSS’s ability to predict this peak against 18 other a-priori predictors computed from the frozen backbone alone (before any fine-tuning): 5 orientation metrics (RSS, recruitment, vector OSI, linear decoding accuracy, and von Mises tuning bandwidth) and 4 equivariance metrics (under horizontal flip, 90 ◦ rotation, translation, and their mean), each taken two ways: its value at block k, and its mean over blocks [ k :], for 5 ×2+4 ×2 = 18 predictors total. Each predictor is scored three ways: signed correlation with performance across k (Pearson/Spearman), a composite shape-similarity score between the predictor’s and performance’s curves over k (mean of min– max overlay similarity, shift-tolerant dynamic time warping similarity, and top-half overlap), and argopt-∆, the gap between the block where the predictor peaks and the block where performance peaks. RSS at block 
+
+k ranks first of 18 on every measure: shape similarity 0 .76, |Pearson | = 0 .83, |Spearman | = 0 .92, and its argmax lands exactly on k = 4 (argopt-∆ = 0). The same ranking holds when we score predictors per-task rather than on the pooled curve (composite shape 0 .72, pooled |Spearman | = 0 .60, still first of 18). No single statistic here carries a formal significance test; what makes the result meaningful is that three qualitatively different measures (linear correlation, whole-curve shape, and exact peak location) agree, and agree specifically for RSS out of 18 task-agnostic candidates computed from the frozen model before any fine-tuning was run.
