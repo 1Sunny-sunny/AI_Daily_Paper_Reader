@@ -1,0 +1,878 @@
+Title: Curriculum Multiple Shooting for Robust Training of Neural and Universal Differential Equations
+
+URL Source: https://arxiv.org/pdf/2608.05777v1
+
+Published Time: Fri, 07 Aug 2026 00:52:38 GMT
+
+Number of Pages: 34
+
+Markdown Content:
+# Curriculum Multiple Shooting for Robust Training of Neural and Universal Differential Equations 
+
+Sebastian Persson 
+
+Dynamics of Living Systems Laboratory The Francis Crick Institute London, 1 Midland Rd, United Kingdom 
+
+Giacomo Fabrini ∗
+
+Institute for Chemical and Bioengineering Department of Chemical and Applied Biosciences ETH Zurich Zurich, Vladimir-Prelog-Weg 1-5/10, 8093, Switzerland 
+
+giacomo.fabrini@chem.ethz.ch 
+
+Branwen Snelling ∗
+
+Dynamics of Living Systems Laboratory The Francis Crick Institute London, 1 Midland Rd, United Kingdom 
+
+branwen.snelling@crick.ac.uk 
+
+Fabian Fröhlich 
+
+Dynamics of Living Systems Laboratory The Francis Crick Institute London, 1 Midland Rd, United Kingdom 
+
+fabian.frohlich@crick.ac.uk 
+
+# Abstract 
+
+Neural ordinary differential equations (NODEs) and universal differential equa-tions (UDEs) provide flexible and popular frameworks for learning interpretable dynamical systems from noisy time-series data. However, training these models remains challenging, and versatile methods that robustly handle sparse and noisy data as well as partially observed models are lacking. To address this, we introduce curriculum multiple shooting (CMS), a general-purpose training strategy for fitting ordinary differential equation (ODE) models to time-series data by integrating curriculum learning with multiple shooting. Across twelve benchmarks spanning simulated and real data, and covering NODEs, UDEs, and mechanistic ODEs, CMS accelerates and stabilises training convergence, outperforms state-of-the-art training strategies, and ranks among the best methods in generalisation. Finally, we discuss possible explanations for the strong performance of CMS in light of contemporary theories of what makes training on time-series challenging. 
+
+# 1 Introduction 
+
+Using mathematical models to predict the time-evolution of dynamical systems is a central challenge across many scientific and engineering disciplines. A classical approach is to iteratively construct mechanistic ordinary differential equation (ODE) models and evaluate them by fitting them to time-series data. As this process is labour-intensive, there is growing interest in using machine learning (ML) to learn interpretable dynamical models directly from data. In particular, neural ODEs (NODEs) combine the widely used ODE-based framework to model dynamical systems with the flexibility of neural networks [1]. Universal differential equations (UDEs), also called grey-box models or hybrid NODEs [2–4], extend this idea by modelling known components mechanistically and unknown components with neural networks [5]. This makes UDEs attractive when prior knowledge is available 
+
+> Preprint. arXiv:2608.05777v1 [q-bio.QM] 6 Aug 2026
+
+and/or when data are limited. Accordingly, NODEs and UDEs are increasingly used across domains including biology [6–8], pharmacology/medicine [4, 9–11], epidemiology [12–14], and engineering applications such as automotive modelling [15]. Despite their conceptual appeal, NODEs and UDEs are difficult to train on time-series data [16, 17]. One line of research addresses this challenge by imposing restrictions on what the ML model can learn [18–22]. Here, we instead focus on complementary training strategies given a fixed model structure. Existing strategies include methods from mechanistic ODE training, such as collocation and multiple shooting [23, 24], as well as ML-inspired strategies like curriculum learning and homotopy-based training [16, 25]. However, these strategies often trade off applicability against practicality. For example, collocation-based approaches require densely sampled data and full observation of the ODE model states because they rely on accurate data interpolation [26]. In many application domains [11, 13, 27], however, time-series data are noisy, sparse, irregularly sampled, and the model is often only partially observed. Partial observability can further arise from the model architecture itself, as in augmented NODEs [28]. Meanwhile, hyperparameter tuning can be non-trivial for more broadly applicable training strategies such as multiple shooting [24]. Ideally, a training strategy should be broadly applicable across these settings and robust to tuning, allowing practitioners to focus on modelling rather than training. 
+
+Our contributions are threefold. First, we introduce curriculum multiple shooting (CMS), a general-purpose training strategy for fitting mechanistic ODE, NODE, and UDE models to noisy time-series data in both fully and partially observed settings. Second, we benchmark this method against state-of-the-art training strategies on four NODE/UDE benchmarks using simulated and real data, as well as on eight real-data mechanistic ODE benchmarks. These benchmarks span partial observability, multiscale and stiff dynamics, and noisy or irregularly sampled time-series data. Third, we analyse optimisation traces and loss landscapes to gain intuition for why CMS often improves training. 
+
+# 2 Related work 
+
+Training mechanistic ODEs. A large literature addresses fitting mechanistic ODE models to time-series data. In biology, empirical benchmarks have found that multistart parameter estimation with local second-order optimizers applied to a single-shooting objective (Eq. 2) performs well in practice [27, 29]. Beyond standard single shooting, other training strategies include multiple shooting [30]; collocation methods, which approximate state derivatives from interpolated data and match them to the ODE model right-hand side [26]; and prediction-error [31] and synchronization-based methods [32], both of which use data interpolation to guide model simulations toward the data. All of these strategies have also been tested on NODEs and/or UDEs [12, 14, 16, 21, 23, 24]. 
+
+Improving performance for NODEs and UDEs. Several approaches have been proposed to improve performance. One is to constrain what the ML component can learn, either through soft constraints in the objective via regularization or auxiliary loss terms [4, 6, 19, 20, 22, 33, 34], or through hard constraints encoded directly in the model structure [18, 21, 33, 35]. State augmentation has likewise been proposed to make the underlying dynamics easier to simulate [28]. Several of these methods aim to stabilize training by learning better-conditioned dynamics, which can help mitigate training instabilities such as exploding/vanishing gradients [18–20, 22]. Another line of work focuses on improving training via gradient computation through the ODE solver [36–39]. Roughly, the two main gradient schemes are discretize-then-optimize and optimize-then-discretize. While benchmarks remain limited, the choice of gradient scheme has been suggested to affect training performance in addition to runtime [36]. In App. A.5, we show that our results are robust across both schemes. Complementary to these approaches, we focus on the training strategy itself. Beyond aforementioned methods such as multiple shooting [12], NODE/UDE-targeted strategies have also been proposed. Curriculum learning, often referred to as "growing fits", has been used but remains under-benchmarked [25, 40]. Related sliding-window training [8] and homotopy-based synchronization [16] have also been applied. 
+
+# 3 Problem setup and preliminaries 
+
+This section introduces the model and data setting, and the two training strategies (curriculum learning and multiple shooting) forming the basis of our curriculum multiple shooting strategy. 23.1 Training setup for ODE-based models 
+
+We consider training ordinary differential equations (ODEs) augmented with neural networks on noisy time-series data. These models, known as universal differential equations (UDEs), also called grey-box models or hybrid NODEs [5], describe the time evolution of a state vector u ∈ RM as: 
+
+du
+
+dt = f  u, t, θm, NN (u, t, θn), u(t0) = ut0 (θm), (1) where f combines known mechanistic structure with unknown mechanistic parameters θm and a neural network NN with unknown parameters θn. In the absence of a mechanistic component, i.e., when f = NN (u, t, θn), Eq. 1 reduces to a standard NODE [1]. Training Eq. 1 corresponds to estimating the unknown parameters (θm, θn) by fitting the model to noisy time-series data. We assume data are available for O observables, where for each observable 
+
+o = 1 , . . . , O , measurements are taken at time points {to,j }To 
+
+> j=1
+
+and the corresponding model output is given by the possibly nonlinear observation function ho(u(to,j ), θm). In many applications, such as biology and pharmacology [27, 41], models are only partially observed ( O < M ) and data are irregularly sampled. Both settings are considered in our experiments (Sec. 5). Given this observation model, the parameters in Eq. 1 are estimated by minimizing a single-shooting objective function that quantifies the mismatch between model output and time-series data: 
+
+g =
+
+> O
+
+X
+
+> o=1
+> To
+
+X
+
+> j=1
+
+go
+
+ ho(u(to,j ), θm) , ˜mo,t o,j 
+
+ , (2) where ˜mo,t o,j denotes the noisy measurement of observable o at time to,j . Common choices for go
+
+include mean squared error (MSE) and likelihood-based objectives. When fitting UDEs, optimizing only Eq. 2 can allow the neural component to dominate the dynamics and "cannibalise" the mechanis-tic component [42]. One way to mitigate this is to add neural-network output regularization [21]: 
+
+gout = λO
+
+Z Tt0
+
+∥NN (u(t), t, θn)∥2 dt
+
+!2
+
+, (3) where λO controls the regularization strength. When used, gout is added to the objective in Eq. 2. In general, evaluating Eq. 2 requires numerically solving Eq. 1 with an ODE solver. A possible alternative is to reconstruct interpolants ˜u(t) and d˜ u/dt from the measurements, and then directly compare d˜ u/dt to the right-hand side of Eq. 1. We do not consider that setting here, since it requires the full state u to be observed, which is uncommon in many application domains like biology [27]. 
+
+3.2 Curriculum learning for ODE-based models 
+
+Curriculum learning (CL) is a training strategy in which a model is trained over nc stages on progressively harder tasks [43, 44]. What constitutes a harder task depends on the application. Since training often becomes more difficult over longer time horizons [16, 45] for differential equations of the form in Eq. 1, a natural curriculum is to train on progressively longer time intervals. More formally, if measurements are available on [t0, T ], a curriculum with nc stages is defined by the intervals [t0, t 1], . . . , [t0, t i], . . . , [t0, t nc ], where tnc = T . At stage i, the model is trained using only measurements in [t0, t i].
+
+3.3 Multiple shooting for ODE-based models 
+
+Multiple shooting (MS) is a training strategy in which the time interval [t0, T ] is divided into nw
+
+windows, and the model is fitted separately on each window [24, 30]. As with curriculum learning, the motivation is that fitting multiple shorter trajectories is typically easier than fitting a long trajectory. To define the MS training objective, we partition the time interval [t0, T ] into nw windows with boundaries t0 < t 1 < · · · < t nw = T . We denote the resulting set of windows by Wnw = {wi}nw
+
+> i=1
+
+,3where wi := [ ti−1, t i]. For ease of notation, we drop the observable index o from Eq. 2, write 
+
+(tj , ˜mj ) for the resulting measurement time points and values, and let Mi := { tj : tj ∈ wi } denote the measurement time points in wi. As we assume accurate interpolants of the model state u are unavailable (Sec. 3.1), we introduce additional parameters to estimate, θu0,i , for the initial state of each window. The multiple-shooting objective is computed by solving the model on each window: 
+
+du(i)
+
+dt = f  u(i), t, θm, NN (u(i), t, θn), u(i)(ti−1) = θu0,i , t ∈ wi, (4) followed by summing the data-fitting loss over windows: 
+
+gMS =
+
+> nw
+
+X
+
+> i=1
+
+X 
+
+> tj∈M i
+
+g
+
+
+
+h
+
+
+
+u(i)(tj ), θm
+
+
+
+, ˜mj
+
+
+
+. (5) To enforce continuity between windows, a quadratic penalty is typically added [14, 25]. While plain MS penalizes discrepancies at the window boundary, to allow longer overlapping windows we define the penalty on shared measurement time points between windows, i.e. Pi := Mi ∩ M i+1 :
+
+gcont = λcont  
+
+> nw−1
+
+X
+
+> i=1
+
+X
+
+> t∈P i
+
+u(i)(t) − u(i+1) (t) 22
+
+. (6) Here, λcont controls the penalty strength. While other ways of handling continuity have been proposed [24, 30, 46], we use this common formulation [25], which our CMS strategy builds on. 
+
+# 4 Curriculum multiple shooting 
+
+Our curriculum multiple shooting (CMS) strategy aims to combine the strengths of curriculum learning (CL; Sec. 3.2) and multiple shooting (MS; Sec. 3.3) while mitigating their main limitations. A general challenge in CL is to design curriculum stages that are representative of the final objective [43, 44]. When the time-series data in early CL stages are not representative of the full trajectory, any overfitting incurred there must be corrected during later stages, potentially slowing training. In contrast, MS exposes the full trajectory from the start, but never directly trains on the final single-shooting objective, instead relying on the hard-to-tune continuity penalty ( λcont Eq. 6) to make the MS objective a good surrogate. CMS addresses this by starting from the MS objective and progressively merging shooting windows across curriculum stages until recovering single shooting. This yields easier initial optimization on short trajectories, retains a full-trajectory view throughout training, and gradually transitions to the final objective which reduces sensitivity to λcont .Specifically, CMS starts from a multiple-shooting objective with nw windows spanning [t0, T ]. At curriculum stage s ∈ { 1, . . . , n w}, the window set is W(s) = { [ti−1, t i+s−1] }nw −s+1  
+
+> i=1
+
+, so adjacent windows are merged into longer overlapping windows. The number of windows thereby decreases by one per curriculum stage, and at the final stage s = nw only a single window [t0, T ] remains, recovering the standard single-shooting objective (Eq. 2). When the windows grow, the data-fitting term (Eq. 5) increasingly promotes agreement between neighboring windows in addition to the continuity penalty (Eq. 6), reducing sensitivity to λcont . Pseudocode is given in Alg. 1. While Alg. 1 is presented with a gradient-based optimizer (e.g. Adam), the method is compatible with most local optimizers; for example, in the ODE experiments (Sec. 5) we use a Newton trust-region method. We also found that, instead of penalizing all shared measurement points (Eq. 6), penalizing only the first overlapping point as in plain multiple shooting also works (App. A.5). 
+
+4.1 Hyperparameters 
+
+CMS introduces five hyperparameters. Based on our experiments (Sec. 5 and App. C), we found that three require tuning, whereas the remaining two can be fixed to reasonable default values. To facilitate applying CMS, we summarize practical values here. 4Algorithm 1 Curriculum multiple shooting (CMS) 
+
+Input: Time-series data D = {(tj , ˜mj )}Mj=1 , initial model parameters (θ(0)  
+
+> m
+
+, θ(0)  
+
+> n
+
+)
+
+Hyperparameters: Initial number of windows nw, continuity penalty λcont , cumulative stage epoch budget {Es}nw 
+
+> s=1
+
+with E1 < · · · < E nw , learning rate η, initial window values {θ(1) 
+
+> u0,i
+
+}nw 
+
+> i=1
+> 1:
+
+Initialize (θm, θn) ← (θ(0)  
+
+> m
+
+, θ(0)  
+
+> n
+
+) 
+
+> 2:
+
+Set initial window boundaries t0 < t 1 < · · · < t nw = T and let W(1) = {[ti−1, t i]}nw 
+
+> i=1
+> 3:
+
+for s = 1 , . . . , n w do  
+
+> 4:
+
+k(s) ← |W (s)| ▷ At s = nw, the loss reduces to single-shooting as k(nw ) = 1  
+
+> 5:
+
+for epoch = Es−1 + 1 , . . . , E s do ▷ E 0 := 0  
+
+> 6:
+
+Solve Eq. 4 on all w(s) 
+
+> i
+
+∈ W (s) with (θm, θn, θ(s)
+
+> u0,i
+
+) to obtain u(i,s )(t) 
+
+> 7:
+
+Form the stage objective by evaluating Eqs. 5- 6 on W(s): g(s)CMS ← g(s)MS + g(s)cont  
+
+> 8:
+
+Update (θm, θn, {θ(s)
+
+> u0,i
+
+}n(s) 
+
+> w
+> i=1
+
+) with one optimizer step using ∇g(s)CMS and η 
+
+> 9:
+
+end for  
+
+> 10:
+
+Form longer overlapping windows for the next stage: W(s+1) = {[ ti−1, t i+s ]}nw −si=1  
+
+> 11:
+
+Set θ(s+1)  
+
+> u0,i
+
+← θ(s) 
+
+> u0,i
+
+for i = 1 , . . . , k (s) − 1 
+
+> 12:
+
+end for  
+
+> 13:
+
+return (θm, θn)
+
+The hyperparameters requiring tuning are the learning rate (η), the number of initial multiple-shooting windows (nw), and the continuity penalty (λcont ). For η, values used for conventional single-shooting training (Eq. 2) were sufficient, around 1 × 10 −3. The number of initial multiple-shooting windows, equivalently the number of curriculum stages, controls the initial window length; values of 5 or larger were sufficient. The continuity penalty controls the strength of agreement between adjacent windows; values in the range 0–10 were sufficient. The remaining hyperparameters, for which we found reasonable defaults, are the cumulative stage epoch budget ({Es}nw
+
+> s=1
+
+) and the window-state initialization (θ(1) 
+
+> u0,i
+
+). We found it sufficient to set 
+
+{Es}nw 
+
+> s=1
+
+such that the first third of the total epoch budget ( Enw /3) was allocated equally across the first nw − 1 curriculum stages, with the remaining two thirds allocated to the final single-shooting stage. For θ(1) 
+
+> u0,i
+
+, setting all initial window values to a small constant (e.g. 0.01 ) was sufficient. When the system is fully observed, the observed states u can be used directly. 
+
+# 5 Experiments 
+
+We benchmarked our curriculum multiple shooting (CMS) approach in two settings: (i) fitting UDEs and NODEs, and (ii) fitting mechanistic ODE models to noisy time-series data. The UDE and NODE benchmarks comprised three models of varying complexity and covered both simulated (one model) and real (two models) time-series data. The mechanistic ODE benchmarks provided a complementary robustness test and comprised eight real-data models from the PEtab benchmark collection (Tab. B.1) [27, 47]. All UDE/NODE benchmarks were implemented in Python using the JAX-based packages equinox 
+
+and diffrax [38], whereas the mechanistic benchmarks were implemented in Julia using 
+
+PEtab.jl [48]. All experiments were run on CPUs, with a single model fit typically requiring less than 15 minutes (App. C). Code for all benchmarks is provided in the attached zip file and will be made available in a public repository upon de-anonymization. 
+
+5.1 Models and datasets 
+
+We briefly summarize the UDE and mechanistic ODE models below; full details on model architec-tures and datasets are provided in Appendix B. 
+
+Lotka–Volterra UDE and NODE. The Lotka–Volterra system models prey ( x) and predator ( y)populations in ecology and exhibits oscillatory dynamics, making it challenging to fit [49]. We used simulated noise-corrupted data as in [5, 16], with x and y observed over one period. We considered 5two model architectures. The first, following [5], is a UDE of the form dx/ dt = αx + NN 1(x, y ; θn)
+
+and dy/ dt = −δy + NN 2(x, y ; θn), where NN is a feed-forward neural network and θm = ( α, δ )
+
+are mechanistic parameters. We jointly learned the neural-network parameters θn and the mechanistic parameters (α, δ ). To discourage the network from absorbing the full dynamics and driving (α, δ )
+
+toward zero, we applied output regularization (Eq. 3) [21]. Second, we considered a pure NODE structure (Eq. B.3). 
+
+SIR UDE. We used an SIR (susceptible, infected, and recovered) UDE model of the initial COVID-19 outbreak in the United Kingdom (UK), as described in [12]. The model augments a classical SIR system with a feed-forward neural network to capture quarantine strength (Eq. B.4). We fitted the model to real time-series data from the UK. The model is partially observed, since only the infected and recovered populations are measured, and it exhibits pronounced scale differences across states. 
+
+Double pendulum UDE. We used real data from [50] describing the dynamics of a hard-to-fit double-pendulum system. As in [16], we employed a physics-informed second-order UDE (Eq B.8). 
+
+Mechanistic ODE models. We used eight mechanistic models from the PEtab benchmark collec-tion [27, 47]. These models span diverse biological applications (e.g. cell signaling, gene regulation, and disease spread), and are all paired with real data. They cover a wide range of challenges for model fitting, including stiffness, partial observability, model misspecification, irregular sampling, variation in model size, and changing simulation conditions across measurements (Tab. B.1). 
+
+5.2 Evaluation metrics and baselines 
+
+We briefly summarize the evaluation metrics and baselines used in the experiments. Additional implementation details and hyperparameter tuning procedure are provided in App. C. 
+
+UDE and NODE models. For evaluation, we split the time series into training and validation sets (50/50 for Lotka–Volterra and 70/30 for the other models), and tuned hyperparameters on the training data. Performance was evaluated using mean-squared error (MSE) on each set, hereafter referred to as interpolation and extrapolation MSE, following [16]. MSE was reported at the end of training, with all strategies run for the same number of epochs per model. To account for sensitivity to initialization, each experiment was repeated over 100 random initializations of the neural-network and mechanistic parameters. As some training runs diverged and produced skewed MSE distributions with outliers (Fig. 2), we summarized performance using the median MSE and compared methods using the Wilcoxon rank-sum test, with per-model Holm-corrected p-values [51]. Tables of values are provided in App A. In figures, we used ns ( p ≥ 0.05 ), * ( p < 0.05 ), ** ( p < 0.01 ), and *** ( p < 0.001 ). For baselines , because our experiments include both fully and partially observed models, we com-pared against four state-of-the-art methods applicable to both settings. These where single-shooting training with the Adam optimizer (Adam) [52], curriculum learning with Adam (CL; Sec. 3.2), multiple shooting (MS; Sec. 3.3), and Adam followed by a second-order optimizer with a BFGS Hessian approximation (Adam+BFGS). The latter is a common strategy for training both UDEs and PINNs [5, 53]. Results were reported for the best-performing hyperparameter configuration for each training strategy (Tabs. C.1–C.4). 
+
+Mechanistic ODE models. For evaluation, we counted how many of 1000 training runs from randomly sampled parameter initializations converge to the global minimum (Fig. 3a), a standard metric in systems biology [27, 29]. Since second-order optimizers are effective for mechanistic ODEs [29], we use the Fides trust-region Newton optimizer [54]. We compare CMS against three baselines: plain Fides (control), curriculum learning with Fides (CL), and multiple shooting with Fides (MS). Because our goal was to assess robustness of our CMS strategy rather than maximize performance, we used a small fixed grid of relevant hyperparameter values and report the best-performing combinations (Tab. C.5). 
+
+5.3 Results on UDE and NODE benchmarks 
+
+For the Lotka–Volterra UDE with simulated data, CMS achieved the lowest median extrapolation MSE, with a value of 0.0148 compared to 0.0251 for the second-best method, multiple shooting (Fig. 1b; p = 1 .3 × 10 −3). For interpolation MSE (Fig. 1a), CMS was on par with both curricu-lum learning (0.010 vs. 0.012; p = 0 .37 ) and multiple shooting (0.010 vs. 0.0099; p = 0 .12 ). Adam+BFGS achieved the lowest interpolation MSE (0.0053; p = 1 × 10 −9), but performed sub-6stantially worse than CMS in extrapolation (0.0148 vs. 1.52; p = 7 × 10 −4). Inspection of the fitted training trajectories showed that Adam+BFGS overfitted the training data noise (Fig. A.4), explaining its worse extrapolation error. As a robustness check, we verified that CMS remained top-performing under higher measurement noise and longer simulation horizons (Fig. A.2). 
+
+Figure 1: Benchmark results for the Lotka–Volterra UDE model from 100 multistarts with random parameter initializations. (a,b) Interpolation and extrapolation MSE for each strategy on log 10 scale; p-values reported using the Wilcoxon test. (c,d) Estimated values of the mechanistic parameters. Strikingly, CMS also recovered the Lotka–Volterra UDE mechanistic parameters close to the ground truth (true (α, δ ) = (1 .3, 1.8) , fitted median (1 .0, 1.45) ). In contrast, multiple shooting drove both parameters toward zero (Fig. 1c-d), indicating that the UDE degenerated to a NODE. This was likely because CMS could be trained with stronger output regularization (Eq. 3) without increasing the interpolation MSE (Fig. A.1). While too strong regularization eventually degraded performance for all strategies (Fig. A.1), CMS was more robust, indicating that it is better suited to harder optimization objectives like those induced by strong regularization. Across the remaining NODE and UDE models, CMS was top-performing in extrapolation MSE (Fig. 2). For the Lotka–Volterra NODE (Fig. 2a), CMS matched the best method, curriculum learning (CL) (0.0126 vs. 0.0126; p = 0 .99 ). Adam+BFGS again extrapolated worse than CMS (0.0126 vs. 0.0180; p = 6 .8 × 10 −3), consistent with its lower interpolation MSE reflecting overfitting. For the SIR UDE (Fig. 2b), CMS again matched the best method (CL) (0.0606 vs. 0.0605; p = 0 .47 ), while outperforming the second-best (Adam+BFGS) (0.0606 vs. 0.0759; p = 7 × 10 −11 ). For the double pendulum (Fig. 2c), CMS extrapolated best, slightly outperforming the second best, Adam, in extrapolation MSE (2.45 vs. 2.99; p = 0 .058 ), and clearly in interpolation MSE (0.267 vs. 0.466; 
+
+p = 6 × 10 −6). As CMS was designed to improve upon multiple shooting, we note it substantially improved extrapolation MSE over multiple shooting for the SIR (0.0606 vs. 24.9; p = 5 × 10 −33 )and the pendulum models (2.45 vs. 17.6; p = 7 × 10 −19 ). On the Lotka–Volterra NODE and UDE models, where multiple shooting performed well (Figs. 1–2), CMS was also more robust to hyperparameter choice, particularly the continuity penalty λcont (Fig. A.3). This robustness also transferred across implementations and gradient-computation schemes, with CMS performing well on the Lotka–Volterra models and SIR UDE in complementary Julia-based benchmarks (App. A.5). To assess epoch-wise convergence, we further inspected single-shooting interpolation-MSE curves over epochs (Fig. A.7). CMS reached low MSE in fewer epochs than the other strategies on 3/4
+
+models. The only exception is the non-oscillatory SIR model, where CL converged faster. This is discussed in more detail in App. A.3. In summary, CMS was consistently top-performing in terms of both interpolation and extrapolation MSE, while typically being the fastest to converge during training. 
+
+5.4 Results on mechanistic ODE benchmarks 
+
+To assess the robustness of CMS more broadly, we evaluated it on eight diverse mechanistic ODE models with features that make model fitting challenging (e.g. stiffness, partial observability; Tab. B.1). Using the number of runs, out of 1000 random initialisations, converging to the global optimum as the metric (Fig. 3a), CMS outperformed the single-shooting control on all models by an average fold-change of 8.9 (range: 1.3–40.2). CMS also outperformed multiple shooting on all models and was the best-performing method on 5/8 models (Fig. 3b). CL outperformed the single-shooting control on 7/8 models and was best on the remaining 3/8 models. As all methods used the same small hyperparameter grid, the relative performance of CL and CMS may partly reflect tuning difficulty, since CL has fewer hyperparameters to tune. 7Figure 2: Benchmark UDE results from 100 multistarts with random parameter initializations. Interpolation MSE (top) and extrapolation MSE (bottom) on log 10 scale for the (a) Lotka–Volterra NODE, (b) SIR UDE, and (c) double pendulum models. P-values reported using the Wilcoxon test. Because CL performed well on a subset of benchmarks and has fewer tuning parameters than CMS, making it attractive when effective, we next investigated under which conditions it worked well. Although no single definitive pattern emerged, the results suggested that CL performed best when early curriculum stages were representative of the full problem, for example when each curriculum stage contained all observables (i.e. all model outputs). This is discussed in more detail in Appendix A.4. 
+
+Figure 3: Benchmark results on eight mechanistic ODE models from 1000 multistarts with random parameter initializations. (a) Illustration of the evaluation criterion, i.e. the number of runs converging to the global optimum. (b) Results for each model. Control denotes plain single-shooting optimization. 
+
+5.5 Why does curriculum multiple shooting improve training? 
+
+To gain intuition for the strong performance of CMS, we analysed the training trajectories on the UDE/NODE models using Hessian trace profiles [55]. Small, positive Hessian traces indicate good conditioning of the optimisation problem and are considered favourable for training [16, 55]. CL and CMS consistently showed lower Hessian traces than Adam and MS early in training (Fig. 4a–c), often followed by a gradual increase, consistent with the expected progressive learning behaviour of curriculum approaches. This was also reflected in gradient ℓ2-norm traces (Fig. A.6): CL and CMS kept gradient magnitudes controlled throughout training, with gradients decreasing within stages and increasing at curriculum stage boundaries. By contrast, poor training performance for Adam and MS coincided with larger gradient norms. Large gradients for Adam may result from long time spans for numerical integration by the ODE solver, which, building on the interpretation of NODEs as continuous-depth residual neural networks [1, 56], can make gradients more prone to vanishing or exploding [57]. While CL, MS, and CMS all initially train on shorter trajectories, MS additionally 8relies on a strong continuity penalty to make its windowed loss an effective surrogate for single shooting training, which may introduce large gradients. Motivated by evidence that skip-connections can convexify loss landscapes of residual neural networks by reducing the effective depth [58], we also analysed the loss landscape of the Lotka–Volterra UDE along the top two Hessian eigenvectors, evaluated at the final epoch of stages or overall training (Fig. 4d–g and Fig. A.5). Consistent with [16], Adam exhibited a rugged, non-convex landscape (Fig. 4d), whereas MS (Fig. 4e) and early stages of CL and CMS (Fig. 4f–g) showed smoother, more convex landscapes. Unlike MS, which never transitions to the full single-shooting objective (Eq. 2), CL and CMS eventually progressed to more complex landscapes with multiple plateaus and local minima (see also Fig. A.5 ). However, earlier stages often positioned optimisation in a favourable region before the harder landscape was encountered, as reflected by the small displacement between starting (white square) and final (yellow star) points in later stages. This was particularly evident for CMS, which is exposed to the full trajectory from the start, whereas CL introduces additional training data abruptly, which can lead to larger shifts between stages (Fig. A.5c). Analysis of single-shooting interpolation MSE traces revealed non-monotonic progression in both CL and CMS (Fig. A.7). While such non-monotonicity may reflect a desirable ability to escape local minima, the larger spikes in CL suggest that its early stages are often not representative of the single-shooting objective. In summary, CMS likely achieves strong performance by easing early-phase optimisation while remaining aligned with the single-shooting objective, ultimately recovering it and reducing reliance on a strong continuity penalty. 
+
+Figure 4: Training trajectory analysis across training strategies. (a–c) Hessian trace profiles for the Lotka–Volterra UDE, SIR UDE, and double pendulum UDE models. Data are shown as median (solid lines) and 25th–75th percentiles (shaded intervals) across 100 multistarts. (d–g) Loss-landscape visualisations along the top two Hessian eigenvectors for the Lotka–Volterra UDE, one representative multistart per strategy reaching interpolation MSE < 0.02 . For Adam and MS, the Hessian eigenvec-tors are computed at the final epoch; for CL and CMS at the final epoch of each curriculum stage. 96 Discussion and limitations 
+
+We propose curriculum multiple shooting (CMS), a general-purpose training strategy for fitting mechanistic ODEs, NODEs, and hybrid UDEs to noisy time-series data. Across diverse benchmark problems spanning full and partial observability, noisy and irregularly sampled measurements, and challenging dynamics, CMS was consistently among the top-performing methods (Fig. 1–3). Its strong performance on classical mechanistic ODE fitting tasks (Fig. 3) further demonstrates that our results extend beyond ML to disciplines where mechanistic modelling remains central, such as biology, epidemiology, and pharmacology. More broadly, this suggests that training NODEs and UDEs is fundamentally a hard ODE fitting problem, and that training strategies can transfer from mechanistic ODEs to NODEs/UDEs, and likely also to related discrete-time nonlinear state-space models where multiple-shooting ideas have been used [45]. Our study also has several limitations pointing to relevant future directions. First, we consider only a limited number of NODE and UDE benchmarks, partly because identifying and implementing suitable benchmark problems is labour-intensive. This underscores the need for broader, standardized benchmark collections similar to those available for mechanistic ODEs [27]. Second, the models considered here are low-dimensional ( < 20 states), so it remains unclear how CMS scales to high-dimensional data, such as omics time-series data that are increasingly modeled with NODEs in biology [59, 60]. Third, CMS introduces several tuning parameters. Improving default heuristics and developing robust tuning schemes would further increase its practical usability. 10 Acknowledgments and Disclosure of Funding 
+
+FF, GF, BS and SP were supported by the Francis Crick Institute, which receives its core funding from Cancer Research UK (CC2242), the UK Medical Research Council (CC2242), and the Wellcome Trust (CC2242), as well as the European Union (ERC, DeepMechanism, grant no 101163005). 
+
+# References 
+
+[1] Ricky T. Q. Chen, Yulia Rubanova, Jesse Bettencourt, and David K Duvenaud. Neural Ordinary Differential Equations. In Advances in Neural Information Processing Systems , volume 31. Curran Associates, Inc., 2018. [2] Jennifer Brucker, René Behmann, Wolfgang G. Bessler, and Rainer Gasper. Neural Ordinary Differential Equations for Grey-Box Modelling of Lithium-Ion Batteries on the Basis of an Equivalent Circuit Model. Energies , 15(7):2661, January 2022. ISSN 1996-1073. doi: 10.3390/ en15072661. [3] Tongli Zhang, Ioannis P. Androulakis, Peter Bonate, Limei Cheng, Tomáš Helikar, Jaimit Parikh, Christopher Rackauckas, Kalyanasundaram Subramanian, Carolyn R. Cho, Ioannis P. Androulakis, Peter Bonate, Ivan Borisov, Gordon Broderick, Limei Cheng, Valeriu Damian, Rafael Dariolli, Oleg Demin, Nicholas Ellinwood, Dirk Fey, Abhishek Gulati, Tomas Helikar, Eric Jordie, Cynthia Musante, Jaimit Parikh, Christopher Rackauckas, Julio Saez-Rodriguez, Eric Sobie, Kalyanasundaram Subramanian, Carolyn R. Cho, and on behalf of the Working Group. Two heads are better than one: current landscape of integrating QSP and machine learning. Journal of Pharmacokinetics and Pharmacodynamics , 49(1):5–18, February 2022. ISSN 1573-8744. doi: 10.1007/s10928-022-09805-z. [4] Bob Junyi Zou, Matthew E. Levine, Dessi P. Zaharieva, Ramesh Johari, and Emily B. Fox. Hybrid2 neural ODE causal modeling and an application to glycemic response. In Proceedings of the 41st International Conference on Machine Learning , volume 235 of ICML’24 , pages 62934–62963, Vienna, Austria, July 2024. JMLR.org. [5] Christopher Rackauckas, Yingbo Ma, Julius Martensen, Collin Warner, Kirill Zubov, Rohit Supekar, Dominic Skinner, Ali Ramadhan, and Alan Edelman. Universal Differential Equations for Scientific Machine Learning, November 2021. arXiv:2001.04385 [cs]. [6] Max de Rooij, Natal A. W. van Riel, and Shauna D. O’Donovan. Conditional universal differential equations capture population dynamics and interindividual variation in c-peptide production. npj Systems Biology and Applications , 11(1):84, July 2025. ISSN 2056-7189. doi: 10.1038/s41540-025-00570-6. [7] Marie Steinacker, Yuri Kheifetz, and Markus Scholz. Developing hybrid mechanistic and data-driven personalized prediction models for platelet dynamics, May 2025. arXiv:2505.21204 [cs]. [8] Xiaojun Wu, MeiLu McDermott, and Adam L. MacLean. Data-driven model discovery and model selection for noisy biological systems. PLOS Computational Biology , 21(1):e1012762, January 2025. ISSN 1553-7358. doi: 10.1371/journal.pcbi.1012762. [9] Zhaozhi Qian, William Zame, Lucas Fleuren, Paul Elbers, and Mihaela van der Schaar. Inte-grating Expert ODEs into Neural ODEs: Pharmacology and Disease Progression. In Advances in Neural Information Processing Systems , volume 34, pages 11364–11383. Curran Associates, Inc., 2021. [10] James Lu, Kaiwen Deng, Xinyuan Zhang, Gengbo Liu, and Yuanfang Guan. Neural-ODE for pharmacokinetics modeling and its advantage to alternative machine learning models in predicting new dosing regimens. iScience , 24(7):102804, July 2021. ISSN 2589-0042. doi: 10.1016/j.isci.2021.102804. [11] Dominic Stefan Bräm, Uri Nahum, Johannes Schropp, Marc Pfister, and Gilbert Koch. Low-dimensional neural ODEs and their application in pharmacokinetics. Journal of Pharma-cokinetics and Pharmacodynamics , 51(2):123–140, April 2024. ISSN 1573-8744. doi: 10.1007/s10928-023-09886-4. 11 [12] Raj Dandekar, Chris Rackauckas, and George Barbastathis. A Machine Learning-Aided Global Diagnostic and Comparative Tool to Assess Effect of Quarantine Control in COVID-19 Spread. 
+
+Patterns , 1(9), December 2020. ISSN 2666-3899. doi: 10.1016/j.patter.2020.100145. [13] Yang Ye, Abhishek Pandey, Carolyn Bawden, Dewan Md Sumsuzzman, Rimpi Rajput, Affan Shoukat, Burton H. Singer, Seyed M. Moghadas, and Alison P. Galvani. Integrating artificial intelligence with mechanistic epidemiological modeling: a scoping review of opportunities and challenges. Nature Communications , 16(1):581, January 2025. ISSN 2041-1723. doi: 10.1038/s41467-024-55461-x. [14] Sharv Murgai, Utkarsh Utkarsh, Kyle C. Nguyen, Alan Edelman, Erin C. S. Acquesta, and Christopher Vincent Rackauckas. ABM-UDE: Developing Surrogates for Epidemic Agent-Based Models via Scientific Machine Learning, February 2026. arXiv:2602.21588 [cs]. [15] Tobias Thummerer, Johannes Stoljar, and Lars Mikelsons. NeuralFMU: Presenting a Workflow for Integrating Hybrid NeuralODEs into Real-World Applications. Electronics , 11(19):3202, January 2022. ISSN 2079-9292. doi: 10.3390/electronics11193202. [16] Joon-Hyuk Ko, Hankyul Koh, Nojun Park, and Wonho Jhe. Homotopy-based training of NeuralODEs for accurate dynamics discovery. Advances in Neural Information Processing Systems , 36:64725–64752, December 2023. [17] Maren Philipps, Nina Schmid, and Jan Hasenauer. Current state and open problems in universal differential equations for systems biology. npj Systems Biology and Applications , 11(1):101, August 2025. ISSN 2056-7189. doi: 10.1038/s41540-025-00550-w. [18] Krzysztof M Choromanski, Jared Quincy Davis, Valerii Likhosherstov, Xingyou Song, Jean-Jacques Slotine, Jacob Varley, Honglak Lee, Adrian Weller, and Vikas Sindhwani. Ode to an ODE. In Advances in Neural Information Processing Systems , volume 33, pages 3338–3350. Curran Associates, Inc., 2020. [19] Chris Finlay, Joern-Henrik Jacobsen, Levon Nurbekyan, and Adam Oberman. How to Train Your Neural ODE: the World of Jacobian and Kinetic Regularization. In Proceedings of the 37th International Conference on Machine Learning , pages 3154–3164. PMLR, November 2020. [20] Ivan Dario Jimenez Rodriguez, Aaron Ames, and Yisong Yue. LyaNet: A Lyapunov Framework for Training Neural ODEs. In Proceedings of the 39th International Conference on Machine Learning , pages 18687–18703. PMLR, June 2022. [21] Maren Philipps, Antonia Körner, Jakob Vanhoefer, Dilan Pathirana, and Jan Hasenauer. Non-Negative Universal Differential Equations With Applications in Systems Biology. IFAC-PapersOnLine , 58(23):25–30, January 2024. ISSN 2405-8963. doi: 10.1016/j.ifacol.2024.10. 005. [22] Chaoyang Luo, Yan Zou, Wanying Li, and Nanjing Huang. FxTS-Net: Fixed-time stable learning framework for Neural ODEs. Neural Networks , 185:107219, May 2025. ISSN 0893-6080. doi: 10.1016/j.neunet.2025.107219. [23] Elisabeth Roesch, Christopher Rackauckas, and Michael P. H. Stumpf. Collocation based training of neural ordinary differential equations. Statistical Applications in Genetics and Molecular Biology , 20(2):37–49, April 2021. ISSN 1544-6115. doi: 10.1515/sagmb-2020-0025. [24] Evren Mert Turan and Johannes Jäschke. Multiple Shooting for Training Neural Differential Equations on Time Series. IEEE Control Systems Letters , 6:1897–1902, 2022. ISSN 2475-1456. doi: 10.1109/LCSYS.2021.3135835. [25] Chris Rackauckas, Mike Innes, Yingbo Ma, Jesse Bettencourt, Lyndon White, and Vaibhav Dixit. DiffEqFlux.jl - A Julia Library for Neural Differential Equations, February 2019. [26] Hua Liang and Hulin Wu. Parameter Estimation for Differential Equation Models Using a Framework of Measurement Error in Regression Models. Journal of the American Statistical Association , 103(484):1570–1583, December 2008. ISSN 0162-1459, 1537-274X. doi: 10. 1198/016214508000000797. 12 [27] Helge Hass, Carolin Loos, Elba Raimúndez-Álvarez, Jens Timmer, Jan Hasenauer, and Clemens Kreutz. Benchmark problems for dynamic modeling of intracellular processes. Bioinformatics ,35(17):3073–3082, September 2019. ISSN 1367-4803. [28] Emilien Dupont, Arnaud Doucet, and Yee Whye Teh. Augmented Neural ODEs. In Advances in Neural Information Processing Systems , volume 32. Curran Associates, Inc., 2019. [29] Andreas Raue, Marcel Schilling, Julie Bachmann, Andrew Matteson, Max Schelke, Daniel Kaschek, Sabine Hug, Clemens Kreutz, Brian D. Harms, Fabian J. Theis, Ursula Klingmüller, and Jens Timmer. Lessons Learned from Quantitative Dynamical Modeling in Systems Biology. 
+
+PLOS ONE , 8(9):e74335, September 2013. ISSN 1932-6203. doi: 10.1371/journal.pone. 0074335. [30] H. G. Bock and K. J. Plitt. A Multiple Shooting Algorithm for Direct Solution of Optimal Control Problems*. IFAC Proceedings Volumes , 17(2):1603–1608, July 1984. ISSN 1474-6670. doi: 10.1016/S1474-6670(17)61205-9. [31] Lennart Ljung. Prediction error estimation methods. Circuits, Systems and Signal Processing ,21(1):11–21, January 2002. ISSN 1531-5878. doi: 10.1007/BF01211648. [32] Henry D. I. Abarbanel, Daniel R. Creveling, Reza Farsian, and Mark Kostuk. Dynamical State and Parameter Estimation. SIAM Journal on Applied Dynamical Systems , 8(4):1341–1381, January 2009. doi: 10.1137/090749761. [33] Yuan Yin, Vincent Le Guen, Jérémie Dona, Emmanuel de Bézenac, Ibrahim Ayed, Nicolas Thome, and Patrick Gallinari. Augmenting physical models with deep networks for complex dynamics forecasting*. Journal of Statistical Mechanics: Theory and Experiment , 2021(12): 124012, December 2021. ISSN 1742-5468. doi: 10.1088/1742-5468/ac3ae5. [34] Hananeh Aliee, Till Richter, Mikhail Solonin, Ignacio Ibarra, Fabian Theis, and Niki Kilbertus. Sparsity in Continuous-Depth Neural Networks. Advances in Neural Information Processing Systems , 35:901–914, December 2022. [35] Samuel Greydanus, Misko Dzamba, and Jason Yosinski. Hamiltonian Neural Networks. In 
+
+Advances in Neural Information Processing Systems , volume 32. Curran Associates, Inc., 2019. [36] Derek Onken and Lars Ruthotto. Discretize-Optimize vs. Optimize-Discretize for Time-Series Regression and Continuous Normalizing Flows, July 2020. arXiv:2005.13420 [cs]. [37] Suyong Kim, Weiqi Ji, Sili Deng, Yingbo Ma, and Christopher Rackauckas. Stiff neural ordinary differential equations. Chaos: An Interdisciplinary Journal of Nonlinear Science , 31 (9), September 2021. ISSN 1054-1500. doi: 10.1063/5.0060697. [38] Patrick Kidger. On Neural Differential Equations, February 2022. arXiv:2202.02435 [cs]. [39] Facundo Sapienza, Jordi Bolibar, Frank Schäfer, Brian Groenke, Avik Pal, Victor Boussange, Patrick Heimbach, Giles Hooker, Fernando Pérez, Per-Olof Persson, and Christopher Rack-auckas. Differentiable Programming for Differential Equations: A Review, October 2025. arXiv:2406.09699 [math]. [40] Joel Laudo and Adrian Buganza Tepole. Stable Long-Horizon Neural ODE Reduced-Order Mod-els via Learned Feedback for Biological Growth and Remodeling, April 2026. arXiv:2604.13820 [cs]. [41] Johan Gabrielsson and Daniel Weiner. Pharmacokinetic and Pharmacodynamic Data Analysis: Concepts and Applications, Third Edition . CRC Press, November 2001. ISBN 978-91-86274-92-4. [42] Benjamin Whipple and Esteban A. Hernandez-Vargas. Hybrid Neural Differential Equa-tions to Model Unknown Mechanisms and States in Biology, December 2024. Pages: 2024.12.08.627408 Section: New Results. 13 [43] Yoshua Bengio, Jérôme Louradour, Ronan Collobert, and Jason Weston. Curriculum learning. In Proceedings of the 26th Annual International Conference on Machine Learning , ICML ’09, pages 41–48, New York, NY, USA, June 2009. Association for Computing Machinery. ISBN 978-1-60558-516-1. doi: 10.1145/1553374.1553380. [44] Petru Soviany, Radu Tudor Ionescu, Paolo Rota, and Nicu Sebe. Curriculum Learning: A Survey. International Journal of Computer Vision , 130(6):1526–1565, June 2022. ISSN 1573-1405. doi: 10.1007/s11263-022-01611-x. [45] Antônio H. Ribeiro, Koen Tiels, Jack Umenberger, Thomas B. Schön, and Luis A. Aguirre. On the smoothness of nonlinear system identification. Automatica , 121:109158, November 2020. ISSN 0005-1098. doi: 10.1016/j.automatica.2020.109158. [46] Stefano Massaroli, Michael Poli, Sho Sonoda, Taiji Suzuki, Jinkyoo Park, Atsushi Yamashita, and Hajime Asama. Differentiable Multiple Shooting Layers. In Advances in Neural Information Processing Systems , volume 34, pages 16532–16544. Curran Associates, Inc., 2021. [47] Leonard Schmiester, Yannik Schälte, Frank T. Bergmann, Tacio Camba, Erika Dudkin, Janine Egert, Fabian Fröhlich, Lara Fuhrmann, Adrian L. Hauber, Svenja Kemmer, Polina Lakrisenko, Carolin Loos, Simon Merkt, Wolfgang Müller, Dilan Pathirana, Elba Raimúndez, Lukas Refisch, Marcus Rosenblatt, Paul L. Stapor, Philipp Städter, Dantong Wang, Franz-Georg Wieland, Julio R. Banga, Jens Timmer, Alejandro F. Villaverde, Sven Sahle, Clemens Kreutz, Jan Hasenauer, and Daniel Weindl. PEtab—Interoperable specification of parameter estimation problems in systems biology. PLOS Computational Biology , 17(1):e1008646, January 2021. ISSN 1553-7358. doi: 10.1371/journal.pcbi.1008646. [48] Sebastian Persson, Fabian Fröhlich, Stephan Grein, Torkel Loman, Damiano Ognissanti, Viktor Hasselgren, Jan Hasenauer, and Marija Cvijovic. PEtab.jl: advancing the efficiency and utility of dynamic modelling. Bioinformatics , 41(9):btaf497, September 2025. ISSN 1367-4811. doi: 10.1093/bioinformatics/btaf497. [49] Jake Alan Pitt and Julio R. Banga. Parameter estimation in models of biological oscillators: an automated regularised estimation approach. BMC Bioinformatics , 20(1):82, February 2019. ISSN 1471-2105. doi: 10.1186/s12859-019-2630-y. [50] Michael Schmidt and Hod Lipson. Distilling Free-Form Natural Laws from Experimental Data. 
+
+Science , 324(5923):81–85, April 2009. doi: 10.1126/science.1165893. [51] Sture Holm. A Simple Sequentially Rejective Multiple Test Procedure. Scandinavian Journal of Statistics , 6(2):65–70, 1979. ISSN 0303-6898. [52] Diederik P. Kingma and Jimmy Ba. Adam: A Method for Stochastic Optimization, January 2017. arXiv:1412.6980 [cs]. [53] Pratik Rathore, Weimu Lei, Zachary Frangella, Lu Lu, and Madeleine Udell. Challenges in Training PINNs: A Loss Landscape Perspective. In Proceedings of the 41st International Conference on Machine Learning , pages 42159–42191. PMLR, July 2024. [54] Fabian Fröhlich and Peter K. Sorger. Fides: Reliable trust-region optimization for parameter estimation of ordinary differential equation models. PLOS Computational Biology , 18(7): e1010322, July 2022. ISSN 1553-7358. doi: 10.1371/journal.pcbi.1010322. [55] Zhewei Yao, Amir Gholami, Kurt Keutzer, and Michael W. Mahoney. PyHessian: Neural Networks Through the Lens of the Hessian. In 2020 IEEE International Conference on Big Data (Big Data) , pages 581–590, December 2020. doi: 10.1109/BigData50022.2020.9378171. [56] Stefano Massaroli, Michael Poli, Jinkyoo Park, Atsushi Yamashita, and Hajime Asama. Dissect-ing Neural ODEs. In Advances in Neural Information Processing Systems , volume 33, pages 3952–3963. Curran Associates, Inc., 2020. [57] Razvan Pascanu, Tomas Mikolov, and Yoshua Bengio. On the difficulty of training recurrent neural networks. In Proceedings of the 30th International Conference on Machine Learning ,pages 1310–1318. PMLR, May 2013. 14 [58] Hao Li, Zheng Xu, Gavin Taylor, Christoph Studer, and Tom Goldstein. Visualizing the Loss Landscape of Neural Nets. In Advances in Neural Information Processing Systems , volume 31. Curran Associates, Inc., 2018. URL https://proceedings.neurips.cc/paper/2018/ hash/a41b3bb3e6b050b6c9067c67f663b915-Abstract.html .[59] Intekhab Hossain, Viola Fanfani, Jonas Fischer, John Quackenbush, and Rebekka Burkholz. Biologically informed NeuralODEs for genome-wide regulatory dynamics. Genome Biology ,25(1):127, May 2024. ISSN 1474-760X. doi: 10.1186/s13059-024-03264-0. [60] Till Richter, Weixu Wang, Alessandro Palma, and Fabian J. Theis. Generative models of cell dynamics: from Neural ODEs to flow matching. Communications Biology , 9(1):352, February 2026. ISSN 2399-3642. doi: 10.1038/s42003-026-09758-w. [61] Jarrett Revels, Miles Lubin, and Theodore Papamarkou. Forward-Mode Automatic Differentia-tion in Julia, July 2016. arXiv:1607.07892 [cs]. [62] Ryan N. Gutenkunst, Joshua J. Waterfall, Fergal P. Casey, Kevin S. Brown, Christopher R. Myers, and James P. Sethna. Universally Sloppy Parameter Sensitivities in Systems Biology Models. PLOS Computational Biology , 3(10):e189, 2007. ISSN 1553-7358. doi: 10.1371/ journal.pcbi.0030189. [63] Ch. Tsitouras. Runge–Kutta pairs of order 5(4) satisfying only the first column simplifying assumption. Computers & Mathematics with Applications , 62(2):770–775, July 2011. ISSN 0898-1221. doi: 10.1016/j.camwa.2011.06.002. [64] Gerd Steinebach. Construction of Rosenbrock–Wanner method Rodas5P and numerical bench-marks within the Julia Differential Equations package. BIT Numerical Mathematics , 63(2):27, April 2023. ISSN 1572-9125. doi: 10.1007/s10543-023-00967-x. [65] Xavier Glorot and Yoshua Bengio. Understanding the difficulty of training deep feedforward neural networks. In Proceedings of the Thirteenth International Conference on Artificial Intelligence and Statistics , pages 249–256. JMLR Workshop and Conference Proceedings, March 2010. 15 A Additional Results 
+
+This section introduces additional results, figures, and tables not included in the main text for brevity. It also contains results from a robustness benchmark on UDEs in Julia, complementing the Python based benchmarks in Sec. 5.3. 
+
+A.1 Summary table of benchmark results 
+
+This section contains a table summarizing the benchmark results for the NODE and UDE models in Sec. 5.3 in Tabs. A.1–A.4. Table A.1: Benchmark results for the Lotka–Volterra UDE (Eq. B.2). Interpolation and extrapolation MSE across all 100 multi-starts are reported as median ± median absolute deviation for each training strategy. The best interpolation and extrapolation values are shown in bold. Strategy Interpolation MSE Extrapolation MSE CMS 0.0101 ± 0.00173 0.0148 ± 0.00610 
+
+CL 0.0123 ± 0.00551 0.0785 ± 0.0996 
+
+MS 0.00990 ± 0.00235 0.0251 ± 0.0134 
+
+Adam 0.0242 ± 0.0226 0.188 ± 0.262 
+
+Adam+BFGS 0.00526 ± 0.00131 1.52 ± 2.23 
+
+Table A.2: Benchmark results for the Lotka–Volterra NODE (Eq. B.3). Values are reported as in Tab. A.1. Strategy Interpolation MSE Extrapolation MSE CMS 0.00913 ± 0.00165 0.0126 ± 0.00476 
+
+CL 0.00837 ± 0.000975 0.0126 ± 0.00410 
+
+MS 0.00841 ± 0.00134 0.0128 ± 0.00484 
+
+Adam 0.0103 ± 0.00318 0.0157 ± 0.00794 
+
+Adam+BFGS 0.00569 ± 0.00145 0.0180 ± 0.0135 
+
+Table A.3: Benchmark results for the SIR (Eq. B.4). Values are reported as in Tab. A.1. Strategy Interpolation MSE Extrapolation MSE CMS 0.0113 ± 0.000502 0.0606 ± 0.00378 
+
+CL 0.0111 ± 0.000166 0.0605 ± 0.00137 
+
+MS 13 .3 ± 15 .3 24 .9 ± 29 .1
+
+Adam 0.0142 ± 0.00437 0.0839 ± 0.0175 
+
+Adam+BFGS 0.0115 ± 0.000321 0.0759 ± 0.00373 
+
+Table A.4: Benchmark results for the double pendulum model (Eq. B.8). Values are reported as in Tab. A.1. Strategy Interpolation MSE Extrapolation MSE CMS 0.267 ± 0.127 2.45 ± 1.66 
+
+CL 0.265 ± 0.0687 6.07 ± 5.16 
+
+MS 3.19 ± 2.31 17 .6 ± 10 .1
+
+Adam 0.466 ± 0.204 2.99 ± 1.69 
+
+Adam+BFGS 0.178 ± 0.0167 15 .7 ± 16 .5
+
+16 A.2 Additional Figures 
+
+Fig. A.1 shows the effect of increasing output regularization strength ( λO, Eq. 3) on the train-ing/interpolation MSE of the Lotka–Volterra UDE model. Although too strong regularization ultimately degrades training performance for all strategies, curriculum multiple shooting (CMS) is the most robust. This suggests that CMS is better suited to harder optimization objectives, such as those induced by stronger regularization. 
+
+Figure A.1: Effect of increasing output regularization strength ( λO in Eq. 3) on the interpolation MSE of the Lotka–Volterra UDE model for each training strategy. Results are based on 100 multistarts with random parameter initializations and are shown on a log 10 scale. P-values are reported using the Wilcoxon rank-sum test. The tested λO values are a subset of those considered during hyperparameter tuning (Tabs. C.3–C.4). Fig. A.2 provides robustness checks for CMS on the Lotka–Volterra UDE under higher measurement noise and longer simulation horizons. The strong performance of CMS, particularly for longer time spans, further supports its suitability for training on longer time-series data, which have been shown to make NODE and UDE training more difficult [16]. Fig. A.3 investigates the sensitivity of multiple shooting (MS) and CMS to hyperparameters on the two models where MS performed well. In particular, for the hard-to-tune continuity penalty λcont in Eq. 6, CMS is substantially more robust, achieving lower interpolation MSE over a wider range of values. Fig. A.4 shows an example where the Adam+BFGS training strategy overfits the Lotka–Volterra UDE model, achieving low interpolation MSE but high extrapolation MSE. Finally, Fig. A.5 provides additional loss-landscape visualizations. Overall, these plots show that in later curriculum stages, where the objective becomes harder to optimize, CMS is typically already positioned in a favourable region of the loss landscape. This is reflected by the small displacement between the starting point (white square/triangles) and endpoint (yellow star) within later stages. 17 Figure A.2: Effect of increasing (a) measurement noise and (b) simulation time-span on the Lotka– Volterra UDE model for each training strategy, evaluated using interpolation MSE (top row) and extrapolation MSE (bottom row). Results are based on 100 multistarts with random parameter initializations and are shown on a log 10 scale. Holm-corrected p-values per model are reported using the Wilcoxon rank-sum test, with ns ( p ≥ 0.05 ), * ( p < 0.05 ), ** ( p < 0.01 ), and *** ( p < 0.001 ). Due to computational cost, the same hyperparameter values as in the benchmark in Fig. 1 were used. 
+
+Figure A.3: Sensitivity of interpolation MSE to the hyperparameters (a) continuity penalty ( λcont 
+
+in Eq. 6), (b) number of initial multiple shooting windows shooting windows, and (c) learning rate for the multiple shooting (MS) and curriculum multiple shooting (CMS) training strategies on the Lotka–Volterra UDE (top row) and Lotka–Volterra NODE (bottom row) models. Results are based on 100 multistarts with random parameter initializations and are shown on a log 10 scale. The tested values are those considered during hyperparameter tuning Tabs. C.3– C.4. 18 Figure A.4: Adam+BFGS overfits the Lotka–Volterra UDE training data for the prey and predator observables. Lines shows a representative model fit with low interpolation/training error but high extrapolation/validation error. MSE values are reported in the legend as (interpolation, extrapolation). 
+
+Figure A.5: Loss-landscape visualisations for representative multistarts of the Lotka–Volterra UDE with interpolation MSE < 0.02 , shown along the top two Hessian eigenvectors. Each panel shows one representative multistart for (a–b) curriculum multiple shooting and (c) curriculum learning. Landscapes are evaluated at the final epoch of the corresponding curriculum stages. 19 Figure A.6: ℓ2 norm of the parameter (both neural and mechanistic) gradient of the training objective (e.g. for MS this corresponds to the multiple-shooting objective in Eq. 5) for the Lotka–Volterra UDE (top), Lotka–Volterra NODE (upper middle), SIR UDE (lower middle), and pendulum UDE (bottom) models. Results are based on 100 multistarts with random parameter initializations and are shown on a log 10 scale. Solid lines denote the median, and shaded intervals denote the 25th–75th percentiles across multistarts. Dashed vertical lines indicate the end of curriculum adaptation for the relevant strategies. 
+
+A.3 Additional analysis on UDE/NODE training traces 
+
+As CL performed on par with CMS for the SIR and Lotka–Volterra NODE models (Fig. 2), we next compared their single-shooting (Eq. 2) interpolation-MSE training curves over epochs (Fig. A.7). CMS generally converged fastest, reaching a low MSE within roughly one-third of the training epochs, 20 whereas CL typically required at least two-thirds. The exception was the SIR model (Fig. A.7c), where CL reached a low MSE within two-thirds of the epochs, whereas CMS required the full 
+
+15 000 epochs. SIR was also the only model for which the CL MSE decreased monotonically and, importantly, the model dynamics are non-oscillatory. For the other models, the CL interpolation MSE spiked during early curriculum stages (Fig. A.7). This suggested that CL can overfit when early curriculum stages are fitted to data subsets that are not representative of the full time-series data, for example when they cover only part of an oscillation period. By contrast, because CMS is trained on the full time series, it can explain why it often converged faster. 
+
+Figure A.7: Interpolation-MSE traces over training epochs for the Lotka–Volterra UDE (top), Lotka– Volterra NODE (upper middle), SIR UDE (lower middle), and pendulum UDE (bottom) models. Re-sults are based on 100 multistarts with random parameter initializations shown on a log 10 scale. Solid lines denote the median and shaded intervals the 25th–75th percentiles across multistarts. Dashed vertical lines indicate the end of curriculum adaptation for the relevant strategies. Adam+BFGS is excluded because we could not extract training traces from the BFGS Fides optimizer. 21 A.4 Additional details on mechanistic benchmarks 
+
+This section provides additional discussion of curriculum learning for the mechanistic ODE bench-marks. Since CL is competitive with CMS on a subset of both mechanistic ODE benchmarks and UDE/NODE models (Figs. 2–3), we asked under which conditions CL performs well. Although no single definitive pattern emerges, three models where CL performs strongly (Boehm, Fiedler, and Sneyd; Fig. 3b) share a common feature: each curriculum stage contains all observables (measured model outputs) and all simulation conditions, i.e. experiments in which the model is simulated under different control parameters. This suggests that CL works well in cases where the number of curriculum stages can be chosen such that early curriculum stages are representative of the full problem. To further test this hypothesis, we considered an additional benchmark model, the Bachmann model, which has multiple simulation conditions, many of which appear only at late time points and therefore only in later CL stages. In this case, CL performed poorly (Fig. A.8). While representativeness provides useful intuition for when CL performs well, it does not determine how to chose the number of curriculum stages. Adding more total representative stages improves performance for some mechanistic models (Boehm, Fiedler, and Sneyd), whereas others (Okuonghae and Schwen) perform best with only two stages (Fig. A.8). Similarly, for the NODE/UDE benchmarks, using more representative curriculum stages did not consistently improve training performance for 2/4 models (Tab. C.2). These results suggest that CL is most effective when the problem changes gradually across stages, but that the optimal number of stages remains problem-dependent. In summary, as CL has fewer hyperparameters and is faster than CMS, it remains attractive when it performs well. Our results suggest that this occurs when early curriculum stages are representative of the full time series, for example when all observables are present in early stages or when the dynamics are relatively simple (e.g. non-oscillatory). Otherwise, CMS performs better while remaining competitive on easier problems. A relevant future direction is to develop practical guidance on when CL is sufficient. 
+
+Figure A.8: Number of runs converging to the global minimum out of 1000 multistarts for curriculum learning with different numbers of curriculum stages. For example, for the Boehm model, 24 runs converge with one curriculum stage, corresponding to standard single-shooting training, whereas 913 
+
+runs converge with five stages. The models are the same as in Fig. 3 and Tab. B.1, with the addition of the Bachmann model. For each model, the information within parenthesis denotes the number of model states and number of parameters (ps) to estimate. 22 A.5 Complementary UDE/NODE benchmarks in Julia 
+
+To assess the robustness of CMS to the software ecosystem and gradient-computation method, we complemented the main (Sec. 5) Python UDE/NODE benchmarks with experiments in the Julia SciML ecosystem [5], using PEtab.jl [48]. As described in App. C, with PEtab.jl we used forward-mode automatic differentiation via ForwardDiff.jl [61] to compute gradients. In this setting, sensitivities are computed alongside the discretized ODE solution, so ODE solver error control also acts on the dual components carrying gradient information. This can therefore be considered an optimize-then-discretize gradient-computation scheme. This contrasts with the main Python diffrax -based benchmarks in Sec. 5 (Figs. 1–2), where gradients were computed using 
+
+RecursiveCheckpointAdjoint , corresponding to a discretize-then-optimize scheme. To avoid the computational cost of re-tuning all training strategies, we used the same hyperparameters as in Sec. 5 (Tabs. C.1–C.4) for single-shooting Adam, curriculum learning (CL), multiple shooting (MS), and curriculum multiple shooting (CMS). We did not consider the Adam+BFGS training strategy. As in the main experiments, we ran 100 multistarts. We considered the Lotka–Volterra UDE (Eq. B.2), Lotka–Volterra NODE (Eq. B.3), and SIR UDE (Eq. B.4). We also attempted the double-pendulum UDE (Eq. B.8), but excluded it because a single multistart required more than five days and exceeded our compute budget. This substantial runtime is because forward-mode automatic differentiation scales poorly with the number of estimated parameters [39], and the double pendulum has the largest neural network. All models were trained for the same number of epochs as in the main experiments (App. C). Noticeably, one implementation detail differs from the main CMS experiments. In the main text, we penalize the full overlap between adjacent windows. In the 
+
+PEtab.jl implementation, CMS is implemented at the abstraction level of the PEtab parameter-estimation standard [47], which only allowed us to penalize the first overlapping point, i.e. the MS window boundaries. 
+
+Figure A.9: Complementary UDE/NODE benchmark results from 100 multistarts with random parameter initializations using the Julia SciML ecosystem. Interpolation MSE (top) and extrapolation MSE (bottom) are shown on a log 10 scale for the (a) Lotka–Volterra UDE, (b) Lotka–Volterra NODE, and (c) SIR UDE models. P-values were computed using the Wilcoxon rank-sum test and Holm-corrected within each model. Significance levels are denoted by ns ( p ≥ 0.05 ), * ( p < 0.05 ), ** (p < 0.01 ), and *** ( p < 0.001 ). As in the main experiments (Sec. 5), CMS was consistently top-performing in terms of median extrapolation MSE (Fig. A.9 and Tab. A.5). For the Lotka–Volterra UDE (Fig. A.9a), CMS performed similarly to the second-best method, multiple shooting (0.0152 vs. 0.0176; p = 0 .44 ), and significantly outperformed CL and Adam in extrapolation. For the Lotka–Volterra NODE (Fig. A.9b), CMS again matched the second best MS strategy (0.0121 vs. 0.0131; p = 0 .56 ). We note that plain single-shooting Adam differed in performance from the main Python benchmark, with interpolation 23 MSE increasing from 0.0103 to 0.0171 and extrapolation MSE from 0.016 to 0.062 (Tabs. A.2 and A.5). This highlights that the software ecosystem and gradient-computation method can affect training even when using the same hyperparameters and ODE-solver algorithm. Finally, for the SIR UDE (Fig. A.9c), CMS matched CL in extrapolation MSE, which was the best-performing strategy (0.0589 vs. 0.0589; p = 0 .69 ), while having slightly worse interpolation MSE (0.0123 vs. 0.0113; 
+
+p = 1 .6 × 10 −3). The MS strategy timed out for the SIR UDE, as no multistart completed within the 48-hour compute budget. This reflects poor MS training on this model, which inspection of training traces confirmed. In summary, CMS remains robust when changing both the software ecosystem and gradient-computation method. This robustness holds despite using a different continuity-penalty scheme, where re-tuning could potentially improve performance. The differences in plain Adam performance between the Julia and Python benchmarks further show that implementation details can affect training performance and the optimal hyperparameter configuration. Table A.5: Benchmark results for the Lotka–Volterra UDE, Lotka–Volterra NODE, and SIR UDE models in the Julia SciML ecosystem benchmark. Interpolation and extrapolation MSE are reported as median ± median absolute deviation for each training strategy. The best interpolation and extrapolation values within each model are shown in bold. Model Strategy Interpolation MSE Extrapolation MSE Lotka–Volterra UDE Adam 0.0183 ± 0.0122 0.0525 ± 0.0611 
+
+CL 0.0116 ± 0.00504 0.0851 ± 0.111 
+
+CMS 0.0102 ± 0.00260 0.0152 ± 0.00805 
+
+MS 0.00995 ± 0.00303 0.0176 ± 0.0123 
+
+Lotka–Volterra NODE Adam 0.0171 ± 0.0116 0.0619 ± 0.0754 
+
+CL 0.00954 ± 0.00243 0.0171 ± 0.0107 
+
+CMS 0.00994 ± 0.00199 0.0121 ± 0.00361 
+
+MS 0.00901 ± 0.00131 0.0131 ± 0.00559 
+
+SIR UDE Adam 0.0213 ± 0.0156 0.104 ± 0.0700 
+
+CL 0.0113 ± 0.000667 0.0605 ± 0.00563 
+
+CMS 0.0123 ± 0.00202 0.0589 ± 0.0169 
+
+24 B Benchmark models and data 
+
+This section provides additional details for each benchmark model and its associated time-series dataset. 
+
+B.1 Lotka–Volterra System 
+
+The Lotka–Volterra system is a simplified model of predator ( x) and prey ( y) population dynamics given by 
+
+dx
+
+dt = αx − βxy, 
+
+dy
+
+dt = −δy + γxy, 
+
+(B.1) where α is the prey birth rate, δ is the predator death rate, and ( β, γ ) describe the interaction strength. 
+
+Model architectures . We consider two model classes: a UDE and a black-box NODE. Follow-ing Rackauckas et al. [5], for the UDE we use a structure that incorporates known birth and death terms, while learning the interaction terms: 
+
+dx
+
+dt = αx (t) + NN 1
+
+ x(t), y (t); θθθn
+
+,
+
+dy
+
+dt = −δy (t) + NN 2
+
+ x(t), y (t); θθθn
+
+.
+
+(B.2) For the black-box NODE, the full right-hand side (RHS) is represented by the neural network: 
+
+dx
+
+dt = NN 1
+
+ x(t), y (t); θθθn
+
+,
+
+dy
+
+dt = NN 2
+
+ x(t), y (t); θθθn
+
+.
+
+(B.3) For both models, NN (x, y ; θθθn) is a feed-forward neural network that takes (x, y ) as input and has layer widths [2 , 10 , 10 , 2] . Each layer includes a bias term; swish activations are used in all hidden layers, and the identity function is used in the output layer. 
+
+Figure B.1: Lotka–Volterra UDE and NODE training and validation data for the prey and predator observables. Lines show two representative model fits with different interpolation/training and extrapolation/validation errors. MSE values are reported in the legend as (interpolation, extrapolation). For training, we follow [16] and assume known initial values (x0, y 0) = (0 .44249296 , 4.6280594) .For the UDE, we estimate the mechanistic parameters (α, δ ) and the neural-network parameters θθθn,while for the NODE we estimate only θθθn.25 Training and validation data . For both Lotka–Volterra models, we use simulated data. Follow-ing [16], for the main experiments in Figs. 1 and 2, we simulate Eq. B.1 on the interval [0 .0, 12 .2] 
+
+with sampling interval ∆t = 0 .1, initial values (x0, y 0) = (0 .44249296 , 4.6280594) , and parameter values (α, β, γ, δ ) = (1 .3, 0.9, 0.8, 1.8) . We noise-corrupt the measurements with Gaussian noise with zero mean and standard deviation equal to 5% of the mean of each trajectory. The data are split into training and validation using a 50/50, so we train on measurements in t ∈ [0 .0, 6.1] (62 × 2
+
+measurements) and validate on measurements in t ∈ [6 .2, 12 .2] (62 × 2 measurements). The data, together with representative fits for different MSE values, are shown in Fig. B.1. For the noise-robustness experiments (Fig. A.2), we generate data as above but with noise levels of 10% , 20% , and 50% . For the simulation-horizon experiments, we instead simulate the system on [0 .0, 18 .2] and [0 .0, 22 .2] , using the same sampling interval ∆t = 0 .1. For both robustness experiments, we apply a 50/50 train-validation split. 
+
+B.2 SIR UK UDE System 
+
+The SIR (susceptible, infected, recovered) UDE model was introduced in [12], where Dandekar et al. augmented a standard SIR model to better capture the early dynamics of the COVID-19 outbreak. 
+
+Model architecture . We use essentially the same model structure as in [12], with dynamics 
+
+dS
+
+dt = − βS (t)I(t)
+
+N ,
+
+dI
+
+dt = βS (t)I(t)
+
+N − γI (t) − NN 1
+
+ S(t)/N, I (t)/N, R (t)/N ; θθθn
+
+ · I(t),
+
+dR
+
+dt = γI (t) + δT (t),
+
+dT
+
+dt = NN 1
+
+ S(t)/N, I (t)/N, R (t)/N ; θθθn
+
+ · I(t) − δT (t),
+
+(B.4) where T denotes the quarantined population, (β, γ, δ ) are unknown mechanistic parameters, N =
+
+S + I + R is the total population, and NN is a neural network parameterized by θn that represents a time-varying quarantine strength. Following [12], NN is a feed-forward network with layer widths 
+
+[3 , 10 , 1] , bias terms in each layer, swish activations in the hidden layers, and the identity function in the output layer. Our implementation differs from Dandekar et al. [12] in one respect: we use normalized inputs (S/N, I/N, R/N ) rather than the unnormalized states. This choice is motivated by the observation that unnormalized inputs are highly multi-scale (e.g. S ∝ 10 7 while R ∝ 10 3), leading to large gradients only in the first layer and vanishing gradients in subsequent layers. For model training, we use data from the United Kingdom (UK) (see below) and take the initial time to be the day on which approximately 500 infected cases were observed, corresponding to initial values (S, I, R, T ) = (66000000 , 762 , 26 , 10) . Because the system is only partially observed, with no direct measurements of S or T , we match model outputs to the observables 
+
+obs 1(t) = I(t) + T (t),obs 2(t) = R(t). (B.5) We estimate the mechanistic parameters (β, γ, δ ) and the neural-network parameters θn.
+
+Training and validation data . We use the same UK dataset as in [12], originally obtained from the CSSE at Johns Hopkins University. The dataset contains 79 daily measurements of infected cases (Idata ) and recovered cases ( Rdata ). As in [12], we use a MSE loss comparing measurements on log-scale: 
+
+L = 1
+
+Nobs 
+
+X
+
+> j
+
+  log( obs 1(tj )) − log( Idata (tj )) 2 +   log( obs 2(tj )) − log( Rdata (tj )) 2
+
+,
+
+(B.6) 26 where Nobs denotes the total number of observed measurements across both observables. Note, the 
+
+Idata is assumed to include both the infected ( I) and quarantine ( T ) population from the model. We use a 70/30 split, thus training on measurements in t ∈ [0 , 63] (64 × 2 measurements) and validate on measurements in t ∈ [64 , 79] (32 × 2 measurements), with sampling interval ∆t = 1 .0. The data with fits for different MSE values are shown in Fig. B.2. 
+
+Figure B.2: SIR UDE training and validation data for the infected and recovered observables (Eq. B.5). Lines show two representative model fits with different interpolation/training and extrapo-lation/validation errors. MSE values are reported in the legend as (interpolation, extrapolation). 
+
+B.3 Double Pendulum System 
+
+The double pendulum is a canonical system in classical mechanics. It is governed by four states 
+
+(θ1, θ 2, ω 1, ω 2), describing the angles and angular velocities of the two pendulums relative to the vertical. Its dynamics are naturally second order, but can be written in first-order form as 
+
+dθi
+
+dt = ωi(t), i = 1 , 2,
+
+dωi
+
+dt = fi
+
+ ω1(t), ω 2(t), θ 1(t), θ 2(t), i = 1 , 2,
+
+(B.7) where f1 and f2 can be derived from the Lagrangian formulation of classical mechanics; the full expressions are given in [16]. The double pendulum is a challenging oscillatory system to learn and therefore provides a strong stress test for our CMS method. 
+
+Model architecture . Following [16], we use a physics-informed UDE structure of the form 
+
+dθi
+
+dt = ωi, i = 1 , 2,
+
+dωi
+
+dt = NN i
+
+ ω1(t), ω 2(t), θ 1(t), θ 2(t); θn
+
+, i = 1 , 2,
+
+(B.8) where NN is a feed-forward network with layer widths [4 , 50 , 50 , 2] , bias terms in each layer, swish activations in the hidden layers, and the identity function in the output layer. The data are fully observed, so we use initial values (θ1, θ 2, ω 1, ω 2) = ( −1.13 , −1.30 , −0.53 , −6.15) . For training, we estimate the neural-network parameters θn.
+
+Training and validation data . We use the same real double-pendulum dataset as in Ko et al. [16], originally generated by Schmidt and Lipson [50]. While the double pendulum can exhibit chaotic behaviour, we follow Ko et al. [16] and evaluate on the same short trajectory segment. This short-horizon setting limits the extent to which long-term chaotic divergence affects the comparison of training strategies. We use a 70/30 split, training on measurements in t ∈ [0 .0, 1.71] (160 × 4
+
+measurements) and validating on measurements in t ∈ [1 .72 , 2.14] (40 × 4 measurements). The data with representative fits are shown in Fig. B.3. 27 Figure B.3: Pendulum training and validation data for the (ω1, ω 2, θ 1, θ 2) observables. Lines show two representative model fits with different interpolation/training and extrapolation/validation errors. MSE values are reported in the legend as (interpolation, extrapolation). 
+
+B.4 Mechanistic ODE Models 
+
+The mechanistic ODE models are drawn from the PEtab benchmark collection, which contains a diverse set of models with real time-series data [27, 47]. The collection primarily comprises models from cell biology (e.g. cell signalling and gene regulation) and epidemiology (e.g. COVID-19 progression). From a numerical perspective, these models present a range of challenging training features. Most exhibit stiff dynamics arising from disparate time scales (e.g. fast and slow chemical reactions) [48], state variables spanning multiple orders of magnitude, and non-identifiability leading to sloppy parameter landscapes [27, 62]. Most models are also only partially observed, with observ-ables typically given as functions of multiple state variables (e.g. obs 1 = x + y). Measurements are noisy and often irregularly sampled, with different observables measured at different time points. A subset of models also includes multiple experimental conditions, requiring simulations under different control parameter values for different measurements. We selected eight representative models of varying size from this collection, whose key properties are summarized in Tab. B.1. Overall, they provide a robust stress test for our training strategy. Table B.1: Summary of the eight mechanistic ODE benchmark models fitted to real data. For each model, the number of states, parameters to estimate (Params.), measurements (Meas.), observables (Obs.), experimental conditions (Cond.), as well as the application domain is reported. Model States Params. Meas. Obs. Cond. Domain Boehm 8 9 48 3 1 Biology Bruno 7 13 77 5 6 Biology Elowitz 8 21 58 1 1 Biology Fiedler 6 22 72 2 3 Biology Fujita 9 19 144 3 6 Biology Okuonghae 2 9 92 1 1 Epidemiology Schwen 11 30 286 4 19 Biology Sneyd 6 15 135 1 9 Biology 28 C Additional experiment details 
+
+This section provides additional experimental details, including the software and ODE solvers used, parameter initialization procedures, implementation details for the training strategies evaluated in Sec. 5, and the hyperparameter optimization and selection procedures. 
+
+C.1 Software implementation 
+
+All training strategies considered in this study were implemented by us. The main NODE and UDE benchmarks were implemented in Python using diffrax and equinox [38]. Julia was used for the mechanistic ODE benchmarks, as well as for complementary robustness experiments on the UDE benchmarks, using PEtab.jl [48]. Code for all benchmarks is provided in the attached zip file and will be made available in a public repository upon de-anonymization. For the Python diffrax -based benchmarks, we used the explicit Tsit5 ODE solver [63], with tolerances (atol , rtol) = (10 −8, 10 −8). Gradients were computed using 
+
+RecursiveCheckpointAdjoint , corresponding to a discretize-then-optimize approach in which gradients are obtained by differentiating through the numerical solver. For the Julia PEtab.jl -based benchmarks, we used Tsit5 with (atol , rtol) = (10 −8, 10 −8) for the UDE robustness experiments, and the stiff Rodas5P solver [64], also with (atol , rtol) =(10 −8, 10 −8), for the mechanistic ODE benchmarks. This choice was motivated by previous results showing that models from the PEtab benchmark collection are generally stiff [48]. For gradient computation, we used forward-mode automatic differentiation via ForwardDiff.jl [61], where derivatives are propagated through the numerical solve using dual numbers. In this setting, sensitivi-ties are computed alongside the discretized ODE solution, so solver error control also acts on the dual components carrying gradient information. This has been argued to yield more reliable gradients [39], although other work suggests that discretize-then-optimize approaches can produce more accurate gradients [36]. 
+
+C.2 Computational resources 
+
+All benchmarks were run on CPUs on an institutional cluster. The average time for a Lotka-Volterra training run was between 3 and 15 minutes depending on the training approach, and the requested amount of memory was 16GB. The SIR model trained in under 15 minutes on average also with a requested memory of 16GB. The double pendulum model trained in under 10 minutes on average, with the exception of the Adam+BFGS training approach, where some runs timed out completely at a cut-off of 2 hours. The requested memory for pendulum training runs was 32GB. 
+
+C.3 Initialization of estimated parameters 
+
+For both the mechanistic and NODE/UDE models, we performed multiple training runs from randomly sampled initial parameter values for all training strategies. For the mechanistic models, parameters were initialized using Latin hypercube sampling, which has been shown to outperform uniform random sampling in this setting [29]. All mechanistic models provide parameter bounds, and sampling was performed within those bounds. For the UDE models with unknown mechanistic parameters, namely the SIR and Lotka–Volterra UDEs, mechanistic parameters were Latin hypercube sampled on the log 10 scale within two orders of magnitude of a reference parameter vector θref . For the Lotka–Volterra models, θref was the true parameter vector; for the SIR model, it was the initial parameter vector used for training in [12]. Neural-network parameters were initialized with zero biases and Glorot-uniform weights [65], using a gain of 0.1. This gain is smaller than the default, as NODEs often benefit from initialization at smaller parameter values [38]. 
+
+C.4 Training budgets NODE and UDE benchmarks. Following Ko et al. [16], we trained the Lotka–Volterra UDE and NODE models for 6000 epochs, and the double-pendulum UDE for 4000 epochs. We trained the SIR UDE for 15 000 epochs. This budget was chosen to allow the training strategies to converge, 29 while remaining substantially smaller than the 60 000 epochs used in the original publication [12]. To ensure a fair comparison, all training strategies were run for the same number of epochs for each model. 
+
+Mechanistic ODE benchmarks. For the mechanistic ODE benchmarks, we used a Newton trust-region optimizer with adaptive step lengths and automatic termination criteria. Therefore, different methods did not necessarily run for the same number of iterations. As is standard for these bench-marks [48], we allowed a maximum of 1000 optimizer iterations per run. 
+
+C.5 Training strategy implementation details 
+
+This section provides additional implementation details for the training strategies evaluated in Sec. 5, as well as the output regularization used in the UDE benchmarks. 
+
+C.5.1 Output regularization 
+
+Neural network output regularization was introduced by Philipps et al. [21] to prevent the neural net-work component of a UDE from dominating the dynamics and effectively overriding the mechanistic component, for example by driving mechanistic parameters toward zero. The regularization term is defined in Eq .3, which is repeated here for completness: 
+
+λO
+
+Z Tt0
+
+∥NN (u; θ)∥2 dt
+
+!2
+
+,
+
+where [t0, T ] is the simulation interval, ∥·∥ 2 is the ℓ2 norm, θ denotes the neural network parameters, and λO is a hyperparameter controlling the strength of the regularization. This term is added to the loss function in Eq. 2. In practice, the integral is computed by augmenting the UDE with an additional state ϕ(t),
+
+dϕ
+
+dt = ∥NN (u; θ)∥2, ϕ(t0) = 0 ,
+
+and evaluating λO ϕ(T )2 at the final time. 
+
+C.5.2 Curriculum learning implementation details 
+
+Our curriculum learning strategy is described in Sec. 3.2. It introduces three tunable parameters: the number of curriculum stages nc, the number of epochs per stage, and the stage boundaries ti. Among these, we treated only the number of stages nc as a tunable hyperparameter; its tuning procedure in App. C.6. For the other two parameters, we used default settings that performed well across benchmarks. For the number of epochs per stage, given a fixed total training budget, we found it effective to allocate equal numbers of epochs to stages i = 1 , . . . , n c − 1 over the first third of training, followed by training on the full time series for the remaining two thirds. For the stage boundaries ti, we chose them so that each stage contained approximately the same number of measurements, with at most a one-measurement difference between stages. As discussed in Sec. 5, the boundaries should also be chosen so that the optimization does not change too abruptly between stages, for which distributing measurements approximately evenly is a reasonable heuristic. 
+
+C.5.3 Multiple shooting details 
+
+Our multiple shooting strategy is described in Sec. 3.3 and closely follows the implementation in the DiffEqFlux.jl Julia package [25]. Other variants are possible [46, 24], such as treating and solving the multiple shooting objective as an equality-constrained optimization problem [24]. We focus on the approach of Rackauckas et al. [25], as this is the variant extended by our curriculum multiple shooting method. Multiple shooting introduces three tuning parameters: the number of windows nw, the continuity penalty strength λcont , and the window boundaries ti. Among these, we treat the first two as tunable hyperparameters; their tuning procedure in App. C.6. 30 For the window boundaries, we followed the same principle as for curriculum learning and chose them so that each window contained approximately the same number of measurements. Importantly, we placed splits only at times ti for which measurements were available. To ensure that each window over [ti−1, t i] included all measurements in that interval, we duplicated measurements at the boundaries when needed. It is also possible to split at times without measurements, but for a window to be informative it should contain at least one measurement. 
+
+C.5.4 Curriculum multiple shooting details 
+
+Our curriculum multiple shooting approach is described in detail in Sec. 4. Here, for completeness, we note that we set the number of epochs per stage as in curriculum learning and the initial multiple-shooting window boundaries ti as in multiple shooting. 
+
+C.5.5 Adam + BFGS details 
+
+For the Adam+BFGS strategy, we first trained the model with Adam and then refined the resulting parameters using the Fides Newton trust-region optimizer with a BFGS Hessian approximation [54]. For example, for the Lotka–Volterra UDE benchmark (Fig. 1), each Adam-trained run was subse-quently optimized with Fides . We chose Fides because it has been shown to perform well for mechanistic ODE models [54, 48]. As a trust-region method, it adapts the step size based on the local accuracy of the trust-region approximation. 
+
+C.5.6 Mechanistic ODE model details 
+
+For the mechanistic ODE models, we used the training strategies described above, but replaced Adam with the Fides Newton trust-region optimizer because Fides has been shown to perform well for mechanistic ODEs [54]. As Fides has adaptive step-length, no learning-rate tuning was required. One tuning parameter required by Fides is the Hessian approximation. Here, we used a Gauss–Newton Hessian approximation, which has been shown to outperform BFGS approximations for the mechanistic ODE models considered here [48]. 
+
+C.6 Hyperparameter tuning and selection 
+
+We report the hyperparameter ranges explored for each method together with the final selected values, including those used for the mechanistic models. 
+
+C.6.1 UDE and NODE benchmarks 
+
+For the UDE/NODE benchmark models (Lotka–Volterra UDE, Lotka–Volterra NODE, SIR UDE, and pendulum UDE), hyperparameters for each training strategy were tuned using a two-step linear sweep. We first tuned the learning rate, as poor learning-rate choices led to poor performance regardless of the other hyperparameters. After fixing the learning rate, we swept the remaining hyperparameters around central values and selected one value at a time. Configurations were compared using the training/interpolation loss across 100 random multistarts, summarized by the median. We generally selected the value with the lowest interpolation median loss, except for output regularization (Eq. 3). Because output regularization is intended to prevent the neural network from dominating the dynamics and absorbing mechanistic components, we selected the largest λO whose training loss was not significantly worse than the lowest-median configuration according to a Wilcoxon rank-sum test. We did not perform a full grid search due to the prohibitive computational cost. The explored values and selected settings are reported in Tabs. C.1–C.4. Notably, output regularization (Eq. 3) was generally tuned to be large only for the Lotka–Volterra UDE (Tabs. C.1–C.4). For the Lotka–Volterra NODE and pendulum models without mechanistic parameters, the neural network must represent the full dynamics, so penalizing its output may hinder learning. In the SIR UDE, the neural network is structurally restricted to a specific quarantine-related component (Eq. B.4), making it less likely to replace the full mechanistic dynamics. In the SIR UDE, the neural network is structurally restricted to a specific quarantine-related component (Eq. B.4); strong output regularization may therefore suppress the mechanism it is intended to learn, rather than prevent it from replacing the full dynamics. In contrast, for the Lotka–Volterra UDE, the neural network can in principle explain most of the right-hand side, for example by driving the mechanistic parameters toward zero. 31 Table C.1: Adam training strategy hyperparameter tuning. Shown are the linear search spaces and selected values used for the Adam strategy. Tuned hyperparameters are the learning rate η and the output regularization strength λO (Eq. 3). Model Parameter Search space Selected value LV-UDE 
+
+η [0.001 , 0.01 , 0.05 , 0.1] 0.05 
+
+λO [0.0, 0.1, 1.0, 10 .0, 100 .0, 500 .0, 1000 .0,
+
+3000 .0, 5000 .0, 10 000 .0, 30 000 , 50 000 .0] 1000 .0
+
+LV-NODE 
+
+η [0.001 , 0.005 , 0.01 , 0.05 , 0.1] 0.01 
+
+λO [0.0, 0.1, 1.0, 10 .0, 100 .0, 500 .0, 1000 .0,
+
+5000 .0, 10 000 .0, 50 000 .0] 0.0
+
+SIR UDE η [0.001 , 0.005 , 0.01 , 0.05 , 0.1] 0.005 
+
+λO [0.0, 0.0001 , 0.001 , 0.01 , 0.1, 1.0] 0.001 
+
+Double pendulum η [0.001 , 0.005 , 0.01 , 0.02 0 .05 , 0.1] 0.02 
+
+λO [0.0, 1.0, 500 .0, 500 .0] 0.0
+
+Table C.2: Curriculum learning (CL) training strategy hyperparameter tuning. Shown are the linear search spaces and selected values used for the CL strategy. Tuned hyperparameters are the learning rate η, number of curriculum stages nc and the output regularization strength λO (Eq. 3). Model Parameter Search space Selected value LV-UDE 
+
+η [0.001 , 0.01 , 0.05 , 0.1] 0.01 
+
+nc [3, 5, 9, 13 , 16 , 21 ] 13 
+
+λO [0.0, 0.1, 1.0, 10 .0, 100 .0, 500 .0, 1000 .0,
+
+3000 .0, 5000 .0, 10 000 .0, 30 000 , 50 000 .0] 1000 .0
+
+LV-NODE 
+
+η [0.001 , 0.005 , 0.01 , 0.05 , 0.1] 0.01 
+
+nc [3, 5, 9, 13 , 16 , 21 ] 21 
+
+λO [0.0, 0.1, 1.0, 10 .0, 100 .0, 500 .0, 1000 .0,
+
+5000 .0, 10 000 .0, 50 000 .0] 0.0
+
+SIR UDE 
+
+η [0.001 , 0.005 , 0.01 , 0.05 , 0.1] 0.005 
+
+nc [3, 5, 9, 13 , 16 , 21 ] 21 
+
+λO [0.0, 0.0001 , 0.001 , 0.01 , 0.1, 1.0] 0.0
+
+Double pendulum 
+
+η [0.001 , 0.005 , 0.01 , 0.02 0 .05 , 0.1] 0.005 
+
+nc [3, 5, 9, 13 , 16 , 21 ] 16 
+
+λO [0.0, 1.0, 500 .0, 500 .0] 0.0
+
+32 Table C.3: Multiple shooting (MS) training strategy hyperparameter tuning. Shown are the linear search spaces and selected values used for the MS strategy. Tuned hyperparameters are the learning rate η, number of multiple shooting windows ( nw), continuity penalty ( λcont ) and the output regular-ization strength λO (Eq. 3). Model Parameter Search space Selected value LV-UDE 
+
+η [0.001 , 0.01 , 0.05 , 0.1] 0.05 
+
+nw [3, 4, 5, 9, 13 , 16 , 21 ] 16 
+
+λcont [0.0, 0.001 , 0.01 , 0.1, 1.0, 10 .0, 100 .0,
+
+1000 .0] 10 .0
+
+λO [0.0, 0.1, 1.0, 10 .0, 100 .0, 500 .0, 1000 .0,
+
+3000 .0, 5000 .0, 10 000 .0, 30 000 , 50 000 .0] 1000 .0
+
+LV-NODE 
+
+η [0.001 , 0.005 , 0.01 , 0.05 , 0.1] 0.05 
+
+nw [3, 4, 5, 9, 13 , 16 , 21 ] 16 
+
+λcont [0.0, 0.001 , 0.01 , 0.1, 1.0, 10 .0, 100 .0,
+
+1000 .0] 10 .0
+
+λO [0.0, 0.1, 1.0, 10 .0, 100 .0, 500 .0, 1000 .0,
+
+5000 .0, 10 000 .0, 50 000 .0] 0.0
+
+SIR UDE 
+
+η [0.001 , 0.005 , 0.01 , 0.05 , 0.1] 0.1
+
+nw [4, 5, 6, 9, 16 ] 4
+
+λcont [0.0, 0.1, 1.0, 10 .0, 100 .0, 1000 .0, 10 000 .0] 10 000 .0
+
+λO [0.0, 0.0001 , 0.001 , 0.01 , 0.1, 1.0] 1.0
+
+Double pendulum 
+
+η [0.001 , 0.005 , 0.01 , 0.02 0 .05 , 0.1] 0.05 
+
+nw [6, 8, 13 , 27 , 32 , 40 , 54 ] 13 
+
+λcont [0.0, 0.1, 100 .0, 500 .0] 100 .0
+
+λO [0.0, 1.0, 100 .0, 500 .0] 0.0
+
+Table C.4: Curriculum multiple shooting (CMS) training strategy hyperparameter tuning. Shown are the linear search spaces and selected values used for the MS strategy. Tuned hyperparameters are the learning rate η, number of initial multiple shooting windows stages nw, continuity penalty λcont and the output regularization strength λO (Eq. 3). Model Parameter Search space Selected value LV-UDE 
+
+η [0.001 , 0.01 , 0.05 , 0.1] 0.01 
+
+nw [3, 4, 5, 9, 13 , 16 , 21 ] 16 
+
+λcont [0.0, 0.001 , 0.01 , 0.1, 1.0, 10 .0, 100 .0,
+
+1000 .0] 1.0
+
+λO [0.0, 0.1, 1.0, 10 .0, 100 .0, 500 .0, 1000 .0,
+
+3000 .0, 5000 .0, 10 000 .0, 30 000 , 50 000 .0] 5000 .0
+
+LV-NODE 
+
+η [0.001 , 0.005 , 0.01 , 0.05 , 0.1] 0.01 
+
+nw [3, 4, 5, 9, 13 , 16 , 21 ] 16 
+
+λcont [0.0, 0.001 , 0.01 , 0.1, 1.0, 10 .0, 100 .0,
+
+1000 .0] 1.0
+
+λO [0.0, 0.1, 1.0, 10 .0, 100 .0, 500 .0, 1000 .0,
+
+5000 .0, 10 000 .0, 50 000 .0] 0.0
+
+SIR UDE 
+
+η [0.001 , 0.005 , 0.01 , 0.05 , 0.1] 0.005 
+
+nw [4, 5, 6, 9, 16 ] 16 
+
+λcont [0.0, 0.1, 1.0, 10 .0, 100 .0, 1000 .0] 0.0
+
+λO [0.0, 0.0001 , 0.001 , 0.01 , 0.1, 1.0] 0.0
+
+Double pendulum 
+
+η [0.001 , 0.005 , 0.01 , 0.02 0 .05 , 0.1] 0.05 
+
+nw [6, 8, 13 , 27 , 32 , 40 , 54 ] 8
+
+λcont [0.0, 0.1, 100 .0, 500 .0] 0.1
+
+λO [0.0, 1.0, 100 .0, 500 .0] 0.0
+
+33 C.6.2 Mechanistic ODE benchmarks 
+
+As described in Sec. 5, the mechanistic ODE models were primarily included to assess the robustness of the training strategies and their performance on mechanistic models. For these benchmarks, we therefore performed a small grid search over hyperparameter values and report results for the best-performing configuration, measured by the number of runs converging to the global optimum across 1000 multistarts (Fig. 3). For curriculum learning (CL), we tested 2, 3, 4, and 5 curriculum stages ( nc). For multiple shooting (MS) and curriculum multiple shooting (CMS), we tested 2, 3, 4, and 5 initial windows ( nw), together with continuity-penalty values of 0.0, 1.0, 10.0, and 100.0 for 
+
+λcont . The only exception was the hard-to-train Elowitz model, for which we tested 2–9 windows and curriculum stages, and the Fujita and Zheng models, for which we tested only 2, 3, and 4 windows and curriculum stages because these models contain few measurements at unique time points. The best-performing values, used for Fig. 3, are reported in Tab. C.5. Table C.5: Hyperparameters selected for each training strategy for the mechanistic ODE models. For CL, nc denotes the number of curriculum stages. For MS and CMS, nw denotes the number of initial multiple-shooting windows and λcont the continuity penalty weight. CL MS CMS Model nc nw λcont nw λcont 
+
+Boehm 5 5 0.1 5 0.1 Bruno 5 4 100 4 100 Elowitz 6 3 1 6 0Fiedler 5 4 100 5 10 Fujita 5 2 0.1 2 0Okuonghae 2 2 0.1 2 0.1 Schwen 2 5 100 5 0.1 Sneyd 5 4 100 5 100 34
