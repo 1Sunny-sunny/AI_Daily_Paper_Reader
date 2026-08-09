@@ -1,6 +1,10 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-08-10 <!--dpr-date:20260810-->
+    * <a class="dpr-sidebar-brief-link" href="#/202608/10/README">📝 今日简报</a>
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202608/10/2608.04593v1-rethinking-reservoir-pruning-a-dynamical-perspective-for-echo-state-networks" data-sidebar-item="{&quot;title&quot;: &quot;Rethinking Reservoir Pruning: A Dynamical Perspective for Echo State Networks&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2608.04593v1-rethinking-reservoir-pruning-a-dynamical-perspective-for-echo-state-networks&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;用于回声状态网络的动态模态剪枝，一种时间递归模型剪枝方法，可提高BCI时间解码流程的效率&quot;}">Rethinking Reservoir Pruning: A Dynamical Perspective for Echo State Networks</a>
   * 2026-08-09 <!--dpr-date:20260809-->
     * <a class="dpr-sidebar-brief-link" href="#/202608/09/README">📝 今日简报</a>
     * 速读区
