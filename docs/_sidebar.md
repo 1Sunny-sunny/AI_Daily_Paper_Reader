@@ -1,6 +1,13 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-08-11 <!--dpr-date:20260811-->
+    * <a class="dpr-sidebar-brief-link" href="#/202608/11/README">📝 今日简报</a>
+    * 精读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202608/11/2608.06783v1-design-and-validation-of-a-portable-eeg-tes-platform-supporting-high-rate-eeg-recording-and-temporal-interference-stimulation" data-sidebar-item="{&quot;title&quot;: &quot;Design and Validation of a Portable EEG-tES Platform Supporting High-Rate EEG Recording and Temporal Interference Stimulation&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2608.06783v1-design-and-validation-of-a-portable-eeg-tes-platform-supporting-high-rate-eeg-recording-and-temporal-interference-stimulation&quot;, &quot;score&quot;: &quot;8.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;便携式双向EEG-tES平台，支持闭环脑机交互&quot;}">Design and Validation of a Portable EEG-tES Platform Supporting High-Rate EEG Recording and Temporal Interference Stimulation</a>
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202608/11/2608.06963v1-learning-in-deep-networks-under-dales-constraint" data-sidebar-item="{&quot;title&quot;: &quot;Learning in Deep Networks under Dale&#x27;s Constraint&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2608.06963v1-learning-in-deep-networks-under-dales-constraint&quot;, &quot;score&quot;: &quot;7.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;基于Dale约束的生物学合理学习，非负激活与固定符号突触&quot;}">Learning in Deep Networks under Dale&#x27;s Constraint</a>
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202608/11/2608.07033v1-zipbrain-can-eeg-foundation-models-be-faster-locally-deployable-but-accurate" data-sidebar-item="{&quot;title&quot;: &quot;ZIPBrain: Can EEG Foundation Models Be Faster, Locally Deployable, but Accurate?&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2608.07033v1-zipbrain-can-eeg-foundation-models-be-faster-locally-deployable-but-accurate&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;面向实时无创神经解码的EEG基础模型高效化&quot;}">ZIPBrain: Can EEG Foundation Models Be Faster, Locally Deployable, but Accurate?</a>
   * 2026-08-10 <!--dpr-date:20260810-->
     * <a class="dpr-sidebar-brief-link" href="#/202608/10/README">📝 今日简报</a>
     * 速读区
