@@ -1,0 +1,787 @@
+Title: Lapis: Laplacian Spiking Attention via First-Spike Timing and Membrane Leakage
+
+URL Source: https://arxiv.org/pdf/2608.11865v1
+
+Published Time: Thu, 13 Aug 2026 00:43:32 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# Lapis: Laplacian Spiking Attention via First-Spike Timing and Membrane Leakage 
+
+# Kaiwen Tang 1, Jiaqi Zheng 2, Zixuan Zhu 1, 4, 5 , Yiqun Wang 3, Zhanglu Yan 1∗, Weng-Fai Wong 1
+
+> 1
+
+School of Computing, National University of Singapore 
+
+> 2
+
+Sea AI Lab 
+
+> 3
+
+School of Electrical Engineering, Shanghai Jiaotong University 
+
+> 4
+
+Shanghai Advanced Research Institute, Chinese Academy of Sciences 
+
+> 5
+
+University of Chinese Academy of Sciences, Beijing 
+
+Abstract 
+
+Self-attention has become central to spiking vision transform-ers, yet its query-key scoring is still largely inherited from dense networks. Existing spiking variants either simplify dot product scoring or replace it with discrete operators, but spike timing, the native variable of a spiking network, does not di-rectly define how tokens are related. We propose Lapis, a spik-ing attention mechanism that scores each token pair by the ℓ1
+
+distance between its query and key first-spike latency vectors under time-to-first-spike coding, and maps this distance to an affinity through a Laplacian kernel. The kernel’s exponential decay matches the impulse response of a leaky integrate-and-fire membrane, so the accumulated latency difference deter-mines the decay of a membrane trace, while row normalization reduces to a bit shift under power-of-two rounding. Scoring therefore needs only subtraction, absolute value, and accumu-lation, and removes all multiplication between query and key channels. Under a matched backbone and training schedule, Lapis reaches 96.56% top-1 accuracy on CIFAR-10, within 0.53 points of dot-product scoring. On ImageNet-1K, it re-duces the estimated arithmetic energy of the attention path by 
+
+14 .5× relative to dense dot-product attention. The deployed 6-bit model attains 83.25% top-1 accuracy at an estimated arithmetic energy of 3.28 mJ per image. 
+
+# 1 Introduction 
+
+Spiking neural networks (SNNs) offer a brain-inspired and energy-efficient computing paradigm by processing infor-mation through sparse, event-driven spikes. (Hu et al. 2024) With their growing success in visual recognition and other tasks, increasingly powerful architectures developed for arti-ficial neural networks (ANNs) have been introduced into the spiking domain. In vision, the Vision Transformer (ViT) has made self-attention a central operation for recognition (Tou-vron et al. 2021; Bao et al. 2021), since attention relates every pair of tokens and captures the long-range dependen-cies that local operations miss. However, these architectures are primarily designed for dense, continuous-valued compu-tation and therefore do not naturally align with the temporal representation and local dynamics of SNNs. This mismatch has motivated a range of spiking attention mechanisms that reduce the cost of standard self-attention. Some binarize queries, keys, and values to simplify their in-teractions (Zhou et al. 2022), while others replace pairwise 
+
+> ∗
+
+Corresponding author. Copyright © 2027, Association for the Advancement of Artificial Intelligence (www.aaai.org). All rights reserved. 
+
+multiplication with masking, addition, or spike-gated opera-tions (Yao et al. 2023; Zhou et al. 2024). Although effective in reducing arithmetic cost, these methods largely treat spikes as a computational constraint imposed on attention, rather than as a distinct representation of information. Their pair-wise token similarity functions are therefore derived from simplified dot-product interactions or newly designed dis-crete operators (Xiao et al. 2025; Lee et al. 2025), while the temporal structure carried by spikes remains outside the re-lation function. This motivates a different design direction, which is defining token relations directly from spike timing. TTFS coding makes this opportunity explicit by repre-senting each activation with its first-spike latency (Park et al. 2020; Göltz et al. 2021). Nearby activation values produce nearby firing times, so the latency pattern can serve as a direct relation signal between tokens. Lapis therefore com-pares query and key tokens by the ℓ1 distance between their first-spike latency vectors, rather than by a dot product over encoded activations. To convert temporal distance into inter-action strength, Lapis applies a Laplacian kernel. Its ℓ1 dis-tance accumulates channel-wise latency differences, while its exponential decay assigns larger affinities to token pairs with closer first-spike patterns. The same exponential form follows the subthreshold decay of a leaky integrate-and-fire (LIF) membrane, linking the attention affinity to membrane leakage dynamics. Thus, spike timing determines the rela-tion, and membrane decay determines how strongly the to-kens interact. In this way, attention is no longer a dot-product operation imposed on spikes, but a temporal operation de-fined by the same dynamics that represent and process them. We propose Lapis, a spiking attention mechanism in which token relations are defined by TTFS coding and implemented via membrane leakage dynamics. The module retains the standard query, key, and value structure but replaces dot-product similarity with a temporal-distance formulation. As a result, attention requires no multiplication between query and key channels, and row normalization reduces to a bit shift under power-of-two rounding. It accumulates firing-time dif-ferences between queries and keys into a distance, which a Laplacian kernel then turns into interaction strength, its decay matching neuronal leakage dynamics. As a result, attention requires no dot products, and the exponential mapping is in-duced by the leakage process itself. By removing dense sim-arXiv:2608.11865v1 [cs.NE] 12 Aug 2026 Full precision ANN attention                       
+
+> Representative SNN attention
+> 𝕕
+> 𝕕
+> Attention score from dense activation vectors
+> 0010100
+> 0100010
+> Attention score from spiking activation
+> Lapis (Ours)
+> at timestep
+> Attention score from TTFS-
+> based temporal distance
+> temporal distance
+> 1
+> Readout:
+> Leakage readout
+> Running example
+> 1Membrane potential
+> 2Convert to TTFS
+> 752
+> 642
+> 532
+> 3Temporal Distance
+> 4Leakage Readout
+> 1
+> 1
+> 1
+> 1
+> 1
+> 1
+> 1
+> 1
+> 1
+
+Figure 1: Rethinking query-key scoring with Lapis. ANN attention compares dense activations, while representative spiking attention compares binary states at one timestep. Lapis instead scores from first-spike timing: channel-wise latency differences are accumulated into a single temporal distance, which a leaky trace converts into an affinity by decaying for that duration. ilarity computation, Lapis better matches the sparse nature of spike-based computation. Representation, computation, and neuronal dynamics are unified within a single temporal process. Lapis is evaluated as an attention operator rather than as a complete architecture. All models are trained with quantized activations and converted exactly to TTFS spiking networks. ImageNet models start from a pretrained vision transformer, and all ablations vary a single component under a fixed back-bone and training schedule. Under this protocol, the Lapla-cian relation stays within 0.53 points of dot-product scoring on CIFAR-10, and replacing dot-product attention reduces the estimated energy of the attention path from 100.01 to 6.92 mJ per image on ImageNet-1K. The converted Lapis-L model reaches 83.39% top-1 at 13.20 mJ, and 83.25% at 3.28 mJ once weights are quantized to 6 bits. Our contributions are summarized as follows: 
+
+• We define token relations in spiking attention directly from first-spike latency vectors under TTFS coding. The resulting query-key score uses subtraction, absolute value, and accumulation, eliminating multiplication between query and key channels. 
+
+• We propose Lapis, which maps temporal distance to at-tention affinity through a Laplacian kernel aligned with LIF membrane leakage. This design replaces dot-product score computation and softmax normalization with a spike-native temporal process. 
+
+• We validate Lapis from CIFAR to ImageNet-1K. Lapis reaches 96.56% top-1 accuracy on CIFAR-10 and 83.25% on ImageNet-1K, while reducing the estimated arithmetic energy of the attention path by 14 .5× relative to dense dot-product attention under the same 45-nm operation-level model. 
+
+# 2 Related Work 
+
+2.1 Visual Spiking Neural Networks 
+
+Visual SNNs have become a practical route for energy effi-cient visual recognition. Their progress is commonly orga-nized around ANN-to-SNN conversion and direct training with surrogate gradients (Hu et al. 2024; Tavanaei et al. 2019). ANN-to-SNN conversion starts from a pretrained ANN and replaces continuous layers with spiking neurons. Combining with weights, thresholds, or membrane states cal-ibration, the converted model approximates the source net-work over a certain simulation window. Recent conversion methods improve few-step inference by optimizing mem-brane initialization, shaping activation responses, or explic-itly correcting residual conversion errors (Bu et al. 2022, 2023; Huang et al. 2025). Direct training learns SNNs with surrogate gradients directly instead, and its scalability has been improved by stabilizing spike propagation and adapt-ing deep residual architectures to membrane or spike-domain communication (Fang et al. 2021; Zheng et al. 2021; Deng et al. 2022; Li, Lei, and Yang 2025) Despite these advances, most visual SNNs still follow convolutional or residual back-bones developed from ANNs, and their design mainly targets trainability and energy. They leave open how relations among visual tokens should be measured when information is rep-resented by spike timing rather than dense activations. 
+
+2.2 Spiking and Laplacian Transformers 
+
+Spiking Transformer research has largely focused on adapt-ing Transformer operations like self-attention to spike-based computation. Spikformer introduced spike-form Q, K, and V without softmax (Zhou et al. 2022), while Spike-driven Transformer replaced their interactions with mask operations and sparse additions (Yao et al. 2023). QKFormer later in-troduced linear-complexity Q-K attention (Zhou et al. 2024), while Sorbet extended this line to spiking language models by approximating softmax and normalization with shift-based operations (Tang, Yan, and Wong 2024). Recent variants re-vise either the interaction domain or the scoring rule. STAt-ten computes attention over spatiotemporal blocks, whereas 
+
+α-XNOR accounts for both spike and non-spike matches (Lee et al. 2025; Xiao et al. 2025). Overall, existing meth-ods still derive token relations from adapted attention op-erators, binary matching, or aggregate timing summaries. Using firing-time patterns across channels as the primary re-lation signal remains underexplored. Outside the spiking do-main, EcoTransformer (Gao et al. 2025) replaces dot-product scoring with an ℓ1-based Laplacian kernel, while Laplacian-Former (Feng et al. 2026) further studies Laplacian kernels for efficient dense attention. These works establish Laplacian affinity as a viable relation function for conventional Trans-formers. Lapis instead formulates Laplacian attention over TTFS latencies. 
+
+2.3 Time-to-First-Spike Coding 
+
+Time-to-first-spike (TTFS) coding represents information by the latency of the first spike and is often implemented with at most one spike per neuron, making it attractive for sparse and low-latency inference (Göltz et al. 2021). Early deep models focused on making this sparse code trainable. For example, T2FSNN combined kernel-based TTFS neurons with gradient optimization and early firing (Park et al. 2020), DTA-TTFS introduced dynamic firing thresholds and event-driven backpropagation (Wei et al. 2023), and a recent for-mulation parallelized first-spike and gradient computation while improving output decoding (Che et al. 2026). TTFS has also been extended to Transformers through conversion and hardware co-design. TTFSFormer designs TTFS neu-rons for nonlinear Transformer layers (Zhao et al. 2025), whereas Otters realizes the temporal decay term with opto-electronic device dynamics (Yan et al. 2025). The remaining gap lies in attention rather than coding: first-spike times are used mainly to represent individual activations or implement layerwise computation, but rarely to compare tokens through firing-time patterns across feature channels. 
+
+# 3 Preliminaries 
+
+3.1 Leaky Integrate-and-Fire Model 
+
+The leaky integrate-and-fire (LIF) model describes a neuron by its membrane potential u(t), which integrates incoming input while decaying toward a resting potential urest . Its subthreshold dynamics are given by 
+
+τm
+
+du(t)dt = − u(t) − urest 
+
+ + I(t), (1) where I(t) denotes the input drive and τm > 0 is the mem-brane time constant. When the membrane potential reaches a firing threshold, the neuron emits a spike and its potential is reset. In the absence of input and threshold crossings, the membrane potential follows 
+
+u(t + ∆) − urest =  u(t) − urest 
+
+ exp 
+
+
+
+− ∆
+
+τm
+
+
+
+. (2) The membrane time constant therefore determines how quickly the effect of a past input diminishes with elapsed time (Gerstner et al. 2014). 
+
+3.2 Time-to-First-Spike Coding 
+
+Time-to-first-spike (TTFS) coding represents a neuronal re-sponse by the latency of its first spike relative to the beginning of a finite coding window. Only the first spike contributes to the representation; later spikes do not change the encoded value and can therefore be omitted. TTFS can thus represent an active response with a single event, whereas rate coding represents information through the number of spikes ob-served over time. A neuron that does not emit a spike within the coding window remains silent. The mapping between a value and its spike latency is determined by the encoding rule rather than by TTFS itself (Park et al. 2020; Göltz et al. 2021). 
+
+# 4 Method 
+
+4.1 Overview 
+
+The central idea of Lapis is to form attention weights from spike timing through neuronal leakage. Lapis retains the multi-head query, key, and value projections. For head h,let tQ,h i and tK,h j denote the channel-wise first-spike latency vectors of query token i and key token j, respectively. We define their temporal distance as 
+
+Dhij = tQ,h i − tK,h j 1
+
+, (3) where a smaller Dhij indicates closer agreement between the two first-spike patterns. We convert the temporal distance into a positive, unnor-malized affinity using a Laplacian kernel: 
+
+Ahij = exp − Dhij 
+
+τh
+
+!
+
+, (4) where τh > 0 is a pre-head learnable temporal scale. A smaller τh causes the affinity to decay more rapidly with temporal distance, whereas a larger τh permits larger differ-ences in first-spike timing. The exponential decay follows the subthreshold dynamics of an LIF membrane, provid-ing a leakage-based realization of the temporal affinity. For each query, Lapis accumulates the affinities over all keys and quantizes the resulting normalization factor to a power (a) Lapis Block     
+
+> Norm
+> Spiking FC
+> Lapis attention
+> Norm
+> Spiking FC
+> (b) Lapis Attention
+> Spiking
+> FC
+> Spiking
+> FC
+> Spiking
+> FC
+> Pairwise TTFS Distance
+> Laplacian Affinity
+> Shift-based Norm
+> Equivalent discrete leakage view
+> SN
+> 1. Initialize
+> 2. During timesteps of decay:
+> 1
+> 3. Readout:
+> Spike Neuron
+> Accumulation
+> steps
+> 012...
+> ...
+> SN
+
+Figure 2: Overview of the Lapis block and attention module. A Lapis block follows a residual Transformer structure with Lapis attention and a spiking feed-forward network. Within Lapis attention, the query and key branches provide first-spike latencies whose pairwise ℓ1 distances are mapped to Laplacian affinities. A power-of-two row denominator enables shift-based normalization. The value branch passes through an independent spiking neuron before weighted accumulation. The inset shows the equivalent discrete leakage view: initializing a unit state and applying Dij decay steps yields βDij , equal to the corresponding Laplacian affinity under a unit simulation step. of two. Under fixed-point arithmetic, the final scaling can therefore be implemented by a bit shift. Overall, Lapis forms attention weights from an ℓ1 temporal distance through leakage-based decay and power-of-two nor-malization. Computing the query–key distance requires only subtraction, absolute value, and accumulation over channels, avoiding the channel-wise multiplications required by dot-product scoring. 
+
+4.2 Temporal Query and Key Relations 
+
+We now define the latency vectors used in Eq. (3). For each head h, let 
+
+SQ,h , S K,h ∈ { 0, 1}T ×N ×C (5) be the query and key spike tensors, where T is the simulation length, N is the number of tokens, and C is the channel dimension of the head. We take one simulation step as the unit of latency. For any token spike train X ∈ { 0, 1}T ×C , define the first-spike map ϕ(X) ∈ { 0, . . . , T }C by 
+
+[ϕ(X)] c =
+
+min {n | Xn,c = 1 , 0 ≤ n < T }, if such n exists ,T, otherwise .
+
+(6) The terminal value T denotes no spike within the simulation window. In our TTFS conversion, it is the code for zero activation. The query and key latency vectors are 
+
+tQ,h i = ϕ(SQ,h  
+
+> :,i, :
+
+), tK,h j = ϕ(SK,h  
+
+> :,j, :
+
+). (7) Lapis defines their temporal relation by the ℓ1 distance be-tween the two latency code vectors as Equation 3. Thus, a zero-code entry is treated like any other latency code: if the query and key entries are both T , their contribution to the distance is zero. The next subsection maps Dhij to a positive affinity through membrane leakage. 
+
+4.3 Laplacian Affinity from Membrane Leakage 
+
+Given the temporal distance Dhij , Lapis assigns an affinity to each query–key pair by 
+
+Ahij = exp − Dhij 
+
+τh
+
+!
+
+, (8) where τh > 0 is the temporal scale of head h. A smaller 
+
+τh gives a sharper decay with temporal distance, while a larger τh allows broader timing variation. Channels enter the affinity only through the additive ℓ1 reduction. Lapis first accumulates the scalar Dhij and then maps it to the single affinity Ahij .The exponential form in Eq. (8) matches the subthreshold decay of an LIF membrane. Let 
+
+βh = exp 
+
+
+
+− 1
+
+τh
+
+
+
+, 0 < β h < 1, (9) and consider the discrete leaky recurrence 
+
+ur+1 = βhur , u0 = 1 , (10) with no input and no reset. Proposition 1 (Leakage realization of Lapis affinity) . For any query-key pair (i, j ), the affinity in Eq. (8) is obtained by running the leaky recurrence in Eq. (10) for Dhij steps: 
+
+uDhij = Ahij . (11) 
+
+Proof. By Eq. (10), ur = βrh for any nonnegative integer r.Taking r = Dhij and substituting Eq. (9) gives 
+
+uDhij = βDhij  
+
+> h
+
+= exp − Dhij 
+
+τh
+
+!
+
+= Ahij . (12) The proposition shows that the Lapis affinity can be eval-uated by applying the membrane-leak recurrence for Dhij 
+
+updates. 
+
+Proposition 2 (Properties of the temporal affinity) . For every head h and all token pairs (i, j ):(i) Finite affinity set. Since every first-spike latency lies in 
+
+{0, . . . , T }, we have Dhij ∈ { 0, . . . , CT }, and Ahij ∈ { βrh :
+
+r = 0 , . . . , CT }, so Ahij takes at most CT + 1 distinct values per head. (ii) Positivity and order consistency. Ahij ∈ (0 , 1] , with 
+
+Ahij = 1 if and only if tQ,h i = tK,h j . Moreover, for any keys 
+
+j, ℓ ,
+
+Ahij > A hiℓ ⇐⇒ Dhij < D hiℓ ,
+
+i.e., the affinity is strictly decreasing in the temporal distance. (iii) Latency stability. If the query and key latencies are perturbed by δQ,h i and δK,h j with ∥δQ,h i ∥1 ≤ ηQ and 
+
+∥δK,h j ∥1 ≤ ηK , then 
+
+eAhij − Ahij ≤ ηQ + ηK
+
+τh
+
+.
+
+The proof is given in supplementary material. 
+
+4.4 Lapis Attention 
+
+The affinities in Eq. (8) determine the relative importance of the keys, but their row sums can vary across queries. Using them directly for value aggregation would therefore make the output magnitude depend on both the relative affinities and their total mass. Lapis controls this variation by scaling each affinity row before value aggregation. For query token i, let 
+
+Zhi =
+
+> N
+
+X
+
+> j=1
+
+Ahij . (13) Exact row normalization requires division by the general positive value Zhi . We instead approximate it by the nearest power of two: 
+
+khi = round  log 2 Zhi
+
+ , bZhi = 2 khi . (14) The Lapis attention weight is then 
+
+cW hij = Ahij 
+
+bZhi
+
+= Ahij 2−khi . (15) Since khi is an integer, the scaling in Eq. (15) can be imple-mented by a bit shift under fixed-point arithmetic. For comparison, exact row normalization gives 
+
+W ∗,h ij = Ahij 
+
+Zhi
+
+= softmax j − Dhij 
+
+τh
+
+!
+
+. (16) The following result bounds the approximation introduced by power-of-two scaling. 
+
+Lemma 1 (Power-of-two approximation) . For every query 
+
+i, key j, and head h,
+
+1
+
+√2 W ∗,h ij ≤ cW hij ≤ √2W ∗,h ij . (17) Since khi − log 2 Zhi ≤ 1/2, we have 
+
+2−1/2 ≤ Zhi
+
+bZhi
+
+≤ 21/2,
+
+which gives Lemma 1. A complete derivation is provided in supplementary material. The same scaling factor is applied to every key associated with a query. Consequently, power-of-two scaling preserves the relative affinities and their ordering, while keeping the row mass within [1 /√2, √2] .The value branch remains a spike train. Let SV,h n,j ∈{0, 1}C denote the value spike vector of token j at step 
+
+n. Lapis aggregates the value spikes as 
+
+Yhn,i =
+
+> N
+
+X
+
+> j=1
+
+cW hij SV,h n,j , 0 ≤ n < T. (18) The same token-mixing weights are applied at every simu-lation step, so the temporal structure of the value spikes is retained. The outputs of all heads are then concatenated. 
+
+4.5 Quantized Training and TTFS Conversion 
+
+Lapis is trained as a quantized neural network and converted to a TTFS SNN for inference. This avoids backpropagation through discrete first-spike events. During training, the quan-tized query and key representations are processed by the same Lapis operator defined in the preceding subsections. Let z ∈ { 0, . . . , T } be an integer activation code. We convert it to a binary spike train E(z) ∈ { 0, 1}T as 
+
+[E(z)] n = I[z > 0 ∧ n = T − z] , 0 ≤ n < T, (19) where I[·] is the indicator function. Each positive activation code therefore produces one spike at its assigned time step, and larger codes produce earlier spikes. The encoding is applied elementwise to the quantized activations throughout the network. By construction, the first-spike time of the encoded activa-tion is T (E(z)) = T − z. The conversion therefore preserves the query–key distance: 
+
+T  E(qhi ) − T  E(khj ) 
+
+> 1
+
+= (T − qhi ) − (T − khj ) 1
+
+= qhi − khj 1 .
+
+(20) With the same temporal scale and power-of-two scaling rule, the QNN and the converted SNN produce identical Lapis affinities and attention weights. Model Type Architecture Energy (mJ) ↓ Time step T Top-1 Acc. (%) ↑                                                                   
+
+> DeiT (Touvron et al. 2021) ANN DeiT-B 80.50 –81.80 PVT (Wang et al. 2021) ANN PVT-Large 45.08 –81.70 BEiT (Bao et al. 2021) ANN ViT-B/16 ––83.20 BEiT (Bao et al. 2021) ANN ViT-L/16 ––85.20 Spikformer (Zhou et al. 2022) DT-SNN Spikformer-8-768 21.48 474.81 CML (Zhou et al. 2023) DT-SNN Spikingformer-8-768 16.30 477.64 QKFormer (Zhou et al. 2024) DT-SNN HST-10-768 8.52 181.69 38.91 484.22 Max-Former (Fang et al. 2026) DT-SNN Max-10-768 5.27 178.60 14.87 482.39 MST (Wang et al. 2023) A2S Swin-T (BN) –512 78.51 SpikeZIP-TF (You et al. 2024) A2S SViT-L-32Level 1,270 .4†64 83.82
+> Lapis A2S
+> Lapis-B 1.50 15 80.32
+> Lapis-B (FP) 5.35 15 80.58
+> Lapis-L 3.28 20 83.25
+> Lapis-L (FP) 13.20 20 83.39
+
+Table 1: ImageNet-1K classification at 224 ×224 . DT-SNN denotes direct training, while A2S denotes ANN-to-SNN conversion. Energy is the estimated per-image inference energy under the operation-level models used by the corresponding studies. For Lapis, T is the length of the TTFS coding window, with at most one spike per neuron, rather than the number of recurrent simulation steps. †Derived from SpikeZIP-TF’s reported 19.85 W using 64 steps of 1 ms. 
+
+# 5 Experiment 
+
+5.1 Experimental Setup 
+
+Datasets and models. We evaluate Lapis on CIFAR-10, CIFAR-100, and ImageNet-1K and report top-1 classifica-tion accuracy. We instantiate Lapis at three scales. Lapis-S is used for the CIFAR experiments and all controlled ablations, while Lapis-B and Lapis-L follow the ViT-B and ViT-L con-figurations and are evaluated on ImageNet-1K. The TTFS coding windows are set to T = 15 for Lapis-S and Lapis-B, and T = 20 for Lapis-L. Under the 6-bit deployment set-ting, the model sizes of Lapis-S are 18.0 MB on CIFAR-10 and 18.2 MB on CIFAR-100, while those of Lapis-B and Lapis-L are 70.7 MB and 238.1 MB, respectively. All abla-tion variants use the same Lapis-S backbone and training configuration, with only the component under study being changed. 
+
+Training and conversion. CIFAR models are trained for 100 epochs with a batch size of 128 using AdamW, an initial learning rate of 1 × 10 −4, a weight decay of 0.05, and a cosine schedule with a 5-epoch linear warmup. Unless other-wise specified, CIFAR training uses both logit- and feature-level knowledge distillation. For ImageNet-1K, we initial-ize the backbone from a pretrained ViT, namely BeiT (Bao et al. 2021) and fine-tune it for 60 epochs with a global batch size of 162 and an initial learning rate of 8.5 × 10 −5.Each deployment stage is subsequently recovered by a short quantization-aware fine-tuning process with a batch size of 108 and a learning rate of 2 × 10 −5. Following Section 4.5, the resulting integer activations are mapped to TTFS spikes for SNN inference. 
+
+Implementation. Our models are implemented in PyTorch 2.12 with CUDA 12.8 and trained on NVIDIA RTX PRO 6000 Blackwell Server Edition GPUs with 96 GB of memory. CIFAR experiments use a single GPU, whereas ImageNet ex-periments use distributed data parallel training on up to three GPUs. We use bfloat16 automatic mixed precision, while the ℓ1 distance, exponential affinity, and normalization oper-ations are evaluated in FP32 for numerical stability. Further training and quantization details are provided in the supple-mentary material. 
+
+5.2 Main Result 
+
+Table 1 compares Lapis with representative dense, directly trained, and converted models. Lapis-B and Lapis-L achieve 80.58% and 83.39% top-1 accuracy using 15-step and 20-step TTFS coding windows, respectively. The FP32 Lapis-L model requires an estimated 13.20 mJ per image. Quantizing its body weights to 6 bits reduces the energy to 3.28 mJ while retaining 83.25% accuracy, corresponding to a 4.03 ×
+
+energy reduction. The FP32 Lapis-L model improves over Max-Former at T = 4 by 1.00 percentage point while using 11.2% less energy. It reports 66.1% lower estimated energy than QKFormer at T = 4 . The 6-bit model extends this to 3.28 mJ, the lowest estimated inference energy among the evaluated models above 83% top-1, and 11 .9× below QKFormer at T = 4 .Among conversion-based methods, it matches SpikeZIP-TF to within 0.57 points while using a TTFS coding window as 20 with single spike representation instead of 64 multi-spike simulation steps. Together, these results show that Lapis combines large-scale recognition accuracy with a compact temporal representation and low arithmetic cost. Table 2 reports Lapis-S on CIFAR-10 and CIFAR-100. With full-precision body weights, Lapis-S reaches 96.56% and 81.41%, the highest accuracy among the compared mod-els on both benchmarks, exceeding QKFormer by 0.38 and Method CIFAR-10 CIFAR-100 Spikformer (2022) 95.51 78.21 SD Transformer (2023) 95.60 78.40 QKFormer (2024) 96.18 81.15     
+
+> Lapis-S 96.11 81.02
+> Lapis-S(FP) 96.56 81.41
+
+Table 2: Classification accuracy on CIFAR-10 and CIFAR-100.Lapis-S denotes the 6-bit deployment model, whereas Lapis-S (FP32) uses full-precision body weights. 0.26 points and Spikformer by 1.05 and 3.20 points. Quan-tizing the body weights to 6 bits costs 0.45 and 0.39 points, and the resulting deployment configuration stays within 0.13 points of QKFormer on both benchmarks. The same rela-tion function and low-precision deployment path therefore transfer across model scales. 
+
+5.3 Energy Analysis 
+
+We estimate arithmetic energy using the standard 45 nm operation-level model. The complete accounting protocol is provided in supplementary material. The Laplacian affinity is realized by membrane leakage over a duration set by Dhij .For energy accounting, we conservatively cost each affin-ity evaluation as one lookup over the CT + 1 attainable values per head, which upper-bounds a dedicated leakage circuit. Restricting the estimate to the attention path, dense dot-product attention requires 100.01 mJ per image under the same operation-level model, whereas the Lapis attention path requires 6.92 mJ, a 14.5 × reduction, and 1.96 mJ once body weights are quantized to 6 bits. Relative to the architecture-matched dense execution, Lapis-L with W32 body weights reduces the estimated energy from 283.15 mJ to 13.20 mJ per image, corresponding to a 21 .4× reduction before weight quantization. Using 6-bit body weights further reduces the energy to 3.28 mJ, yielding a 86 .3× reduction over dense execution while retaining 83.25% top-1 accuracy. The two operating points separate the sources of efficiency: single-spike TTFS execution establishes the primary gain, and low-precision weights provide an additional 4.03 × reduction. 
+
+5.4 Ablation Study 
+
+Relation function. Table 3 isolates the relation function under an otherwise identical training configuration. The Laplacian relation reaches 96.56%, remaining within 0.53 points of softmax while outperforming the Gaussian kernel by 5.12 points. The Hamming relation, which retains only binary match between first-spike latencies, reaches 87.92%, confirming that graded temporal distance is necessary for competitive accuracy. It therefore provides the desired oper-ating point for Lapis, which is recognition accuracy close to dot-product attention, together with a query-key score that uses subtraction, absolute value, and accumulation rather than multiplication. Its L1 form also directly matches the TTFS distance and leakage-based decay. Table 3: Kernel ablation on CIFAR-10. All variants use the same Lapis-S backbone and training schedule. Hamming measures the number of channels with unequal first-spike la-tencies, it retains only binary match information and discards graded temporal proximity. “Mult.free” indicates computed without multiplication between query and key vectors. Relation Distance / score Mult.free Top-1 (%) Softmax Dot product - 97.09 Gaussian Squared ℓ2 - 91.44 Hamming Binary match ✓ 87.92 Laplacian ℓ1 ✓ 96.56             
+
+> Normalization Weights Top-1 Energy Exact W32 83.70 13.27 Power-of-two W32 83.39 13.20 Power-of-two W6 83.25 3.28
+
+Table 4: Ablation of the hardware-oriented components on ImageNet-1K. All rows use the same Lapis-L backbone. En-ergy is reported in mJ per image. 
+
+Hardware-oriented components. Table 4 separates the effects of power-of-two normalization and low-precision weights. Replacing exact row normalization with power-of-two scaling changes top-1 accuracy by 0.31 points, showing that general division can be replaced by shift-based scaling while preserving the learned token relations. Moreover, 6-bit body weights lower the estimate to 3.28 mJ while retaining 83.25% accuracy. 
+
+# 6 Discussion 
+
+The experiments support a broader view of spiking atten-tion: spike timing can define the relation space itself, rather than merely encode activations for an inherited attention op-erator. Under a matched training configuration, the Lapla-cian relation stays within 0.53 points of dot-product scoring and clearly outperforms the Gaussian alternative, while its 
+
+ℓ1 form aligns directly with TTFS distance and leakage-consistent decay. The W32 and W6 operating points also clarify the sources of efficiency. Single spike execution and the Lapis attention path already reduce estimated arithmetic energy by 21 .4× before weight quantization, while 6-bit weights provide a further 4.03 × reduction. Together with the exact preservation of query-key distances under TTFS conversion, these results make timing-based relation model-ing compatible with existing vision Transformer backbones and efficient deployment. 
+
+# 7 Conclusion 
+
+We presented Lapis, a Laplacian spiking attention mecha-nism that forms query-key relations from first-spike latency vectors. Lapis maps ℓ1 temporal distance to affinity through leakage-consistent decay and replaces general row normal-ization with power-of-two scaling. On ImageNet-1K, Lapis-L achieves 83.39% top-1 accuracy at an estimated 13.20 mJ with W32 body weights and 83.25% at 3.28 mJ with W6 body weights. The latter corresponds to a 86 .3× reduction in estimated arithmetic energy relative to architecture-matched dense execution. Results on CIFAR-10 and CIFAR-100 fur-ther confirm the effectiveness of the same low-precision de-ployment across model scales. These results establish first-spike timing as an effective and efficient basis for token re-lation modeling in spiking vision networks. 
+
+# References 
+
+Bao, H.; Dong, L.; Piao, S.; and Wei, F. 2021. Beit: Bert pre-training of image transformers. arXiv preprint arXiv:2106.08254 .Bu, T.; Ding, J.; Yu, Z.; and Huang, T. 2022. Optimized po-tential initialization for low-latency spiking neural networks. In Proceedings of the AAAI conference on artificial intelli-gence , volume 36, 11–20. Bu, T.; Fang, W.; Ding, J.; Dai, P.; Yu, Z.; and Huang, T. 2023. Optimal ANN-SNN conversion for high-accuracy and ultra-low-latency spiking neural networks. arXiv preprint arXiv:2303.04347 .Che, K.; Fang, W.; Xue, P.; Huang, Y.; Ma, Z.; and Tian, Y. 2026. Parallel training time-to-first-spike spiking neural net-works. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, 1712–1720. Deng, S.; Li, Y.; Zhang, S.; and Gu, S. 2022. Temporal efficient training of spiking neural network via gradient re-weighting. arXiv preprint arXiv:2202.11946 .Fang, W.; Yu, Z.; Chen, Y.; Masquelier, T.; Huang, T.; and Tian, Y. 2021. Incorporating learnable membrane time con-stant to enhance learning of spiking neural networks. In 
+
+Proceedings of the IEEE/CVF international conference on computer vision , 2661–2671. Fang, Y.; Zhou, D.; Wang, Z.; Ren, H.; Li, L.; Xu, R.; et al. 2026. Spiking neural networks need high-frequency infor-mation. Advances in Neural Information Processing Systems ,38: 103404–103425. Feng, Z.; Lian, S.; Wang, C.; Zhang, M.; Tan, T.; Xu, R.; Meng, W.; and Zhang, X. 2026. LaplacianFormer: Rethink-ing Linear Attention with Laplacian Kernel. arXiv preprint arXiv:2604.20368 .Gao, X.; Xu, X.; Amiraslani, S.; and Xu, H. 2025. EcoTrans-former: Attention without multiplication. arXiv preprint arXiv:2507.20096 .Gerstner, W.; Kistler, W. M.; Naud, R.; and Paninski, L. 2014. Neuronal dynamics: From single neurons to networks and models of cognition . Cambridge University Press. Göltz, J.; Kriener, L.; Baumbach, A.; Billaudelle, S.; Bre-itwieser, O.; Cramer, B.; Dold, D.; Kungl, A. F.; Senn, W.; Schemmel, J.; et al. 2021. Fast and energy-efficient neuro-morphic deep learning with first-spike times. Nature machine intelligence , 3(9): 823–835. Hu, Y.; Zheng, Q.; Li, G.; Tang, H.; and Pan, G. 2024. Toward large-scale spiking neural networks: A comprehensive survey and future directions. arXiv preprint arXiv:2409.02111 .Huang, Z.; Ding, J.; Pan, Z.; Li, H.; Fang, Y.; Yu, Z.; and Liu, J. K. 2025. Converting high-performance and low-latency snns through explicit modeling of residual error in anns. 
+
+IEEE Transactions on Neural Networks and Learning Sys-tems .Lee, D.; Li, Y.; Kim, Y.; Xiao, S.; and Panda, P. 2025. Spiking transformer with spatial-temporal attention. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pat-tern Recognition , 13948–13958. Li, Y.; Lei, Y.; and Yang, X. 2025. Rethinking residual connection in training large-scale spiking neural networks. 
+
+Neurocomputing , 616: 128950. Park, S.; Kim, S.; Na, B.; and Yoon, S. 2020. T2FSNN: Deep spiking neural networks with time-to-first-spike coding. In 
+
+2020 57th ACM/IEEE design automation conference (DAC) ,1–6. IEEE. Tang, K.; Yan, Z.; and Wong, W.-F. 2024. Sorbet: A neu-romorphic hardware-compatible transformer-based spiking language model. arXiv preprint arXiv:2409.15298 .Tavanaei, A.; Ghodrati, M.; Kheradpisheh, S. R.; Masquelier, T.; and Maida, A. 2019. Deep learning in spiking neural networks. Neural networks , 111: 47–63. Touvron, H.; Cord, M.; Douze, M.; Massa, F.; Sablayrolles, A.; and Jégou, H. 2021. Training data-efficient image trans-formers & distillation through attention. In International conference on machine learning , 10347–10357. PMLR. Wang, W.; Xie, E.; Li, X.; Fan, D.-P.; Song, K.; Liang, D.; Lu, T.; Luo, P.; and Shao, L. 2021. Pyramid vision transformer: A versatile backbone for dense prediction without convolutions. In Proceedings of the IEEE/CVF international conference on computer vision , 568–578. Wang, Z.; Fang, Y.; Cao, J.; Zhang, Q.; Wang, Z.; and Xu, R. 2023. Masked spiking transformer. In Proceedings of the IEEE/CVF international conference on computer vision ,1761–1771. Wei, W.; Zhang, M.; Qu, H.; Belatreche, A.; Zhang, J.; and Chen, H. 2023. Temporal-coded spiking neural networks with dynamic firing threshold: Learning with event-driven backpropagation. In Proceedings of the IEEE/CVF interna-tional conference on computer vision , 10552–10562. Xiao, Y.; Wang, S.; Zhang, D.; Wei, W.; Shan, Y.; Liu, X.; Jiang, Y.; and Zhang, M. 2025. Rethinking spiking self-attention mechanism: implementing a-XNOR similar-ity calculation in spiking transformers. In Proceedings of the Computer Vision and Pattern Recognition Conference ,5444–5454. Yan, Z.; Mao, J.; Liu, Q.; Li, F.; Pan, G.; Luo, T.; Zhu, B.; and Wong, W.-F. 2025. Otters: An Energy-Efficient Spik-ingTransformer via Optical Time-to-First-Spike Encoding. 
+
+arXiv preprint arXiv:2509.18968 .Yao, M.; Hu, J.; Zhou, Z.; Yuan, L.; Tian, Y.; Xu, B.; and Li, G. 2023. Spike-driven transformer. Advances in neural information processing systems , 36: 64043–64058. You, K.; Xu, Z.; Nie, C.; Deng, Z.; Guo, Q.; Wang, X.; and He, Z. 2024. Spikezip-tf: Conversion is all you need for transformer-based snn. arXiv preprint arXiv:2406.03470 .Zhao, L.; Huang, Z.; Ding, J.; and Yu, Z. 2025. Ttfsformer: a ttfs-based lossless conversion of spiking transformer. In 
+
+Forty-second International Conference on Machine Learn-ing .Zheng, H.; Wu, Y.; Deng, L.; Hu, Y.; and Li, G. 2021. Going deeper with directly-trained larger spiking neural networks. In Proceedings of the AAAI conference on artificial intelli-gence , volume 35, 11062–11070. Zhou, C.; Zhang, H.; Zhou, Z.; Yu, L.; Huang, L.; Fan, X.; Yuan, L.; Ma, Z.; Zhou, H.; and Tian, Y. 2024. Qk-former: Hierarchical spiking transformer using qk attention. 
+
+Advances in Neural Information Processing Systems , 37: 13074–13098. Zhou, C.; Zhang, H.; Zhou, Z.; Yu, L.; Ma, Z.; Zhou, H.; Fan, X.; and Tian, Y. 2023. Enhancing the perfor-mance of transformer-based spiking neural networks by SNN-optimized downsampling with precise gradient back-propagation. arXiv preprint arXiv:2305.05954 .Zhou, Z.; Zhu, Y.; He, C.; Wang, Y.; Yan, S.; Tian, Y.; and Yuan, L. 2022. Spikformer: When spiking neural network meets transformer. arXiv preprint arXiv:2209.15425 .A Arithmetic Energy Estimation 
+
+A.1 Evaluation Protocol 
+
+We estimate the per-image arithmetic energy under the 45 nm operation model commonly adopted in prior work on spik-ing Transformers. We use 4.6 pJ for an FP32 multiply and accumulate operation and 0.9 pJ for an FP32 accumulation. In Lapis-W6, the linear layers use 6-bit weights, for which we use 0.1 pJ per integer accumulation. The temporal relation and value aggregation do not use quantized body weights and remain charged at 0.9 pJ per accumulation. 
+
+A.2 Window-Level TTFS Activity 
+
+We measure spike activity directly from each trained check-point. Forward hooks are attached to all activation quantizers, and the activity of operator ℓ is computed as 
+
+ρℓ =
+
+P 
+
+> m
+
+I[xℓ,m > 0] 
+
+P 
+
+> m
+
+1 , (21) where the sum is taken over all evaluated samples and tensor elements. Each positive integer activation produces exactly one spike during the complete TTFS window. Therefore, ρℓ
+
+is the fraction of neurons that emit their single spike, rather than a per-timestep firing rate. For a spike-driven operator transferred from dense op-eration count N (ℓ)dense , the corresponding synaptic operation count is 
+
+N (ℓ)AC = ρℓN (ℓ)dense . (22) No additional factor of T is introduced. This is a direct conse-quence of the single-spike TTFS representation. The equiv-alent average activity per timestep is ρℓ/T , but it is not used to scale the operation count. 
+
+A.3 Operation Counts 
+
+Consider a model with L Transformer blocks, N tokens, embedding dimension D, H attention heads, and MLP ex-pansion ratio R. The architecture-matched dense execution uses 
+
+NQKV = 3 LN D 2, (23) 
+
+Nrel = LN 2D, (24) 
+
+Nvalue = LN 2D, (25) 
+
+Nproj = LN D 2, (26) 
+
+NMLP1 = RLN D 2, (27) 
+
+NMLP2 = RLN D 2. (28) All of these operations are counted as dense multiply– accumulates for the ANN reference. For Lapis, the corresponding counts are 
+
+N Lapis QKV = ρattn 3LN D 2, (29) 
+
+N Lapis rel = LN 2D, (30) 
+
+N Lapis value = ρqkv LN 2D, (31) 
+
+N Lapis proj = ρout LN D 2, (32) 
+
+N Lapis MLP1 = ρmlp RLN D 2, (33) 
+
+N Lapis MLP2 = ρhid RLN D 2. (34) Here, ρattn is the activity at the attention input, ρqkv is the mean activity measured at the quantized query, key, and value outputs, ρout is the activity of the spike-coded attention read-out, and ρmlp and ρhid are the activities at the two MLP stages. The temporal relation is deliberately counted densely over all token pairs. Each of its LN 2D operations is charged as an absolute-difference accumulation. We do not apply an additional sparsity factor to this term. This gives a conserva-tive estimate and attributes the reduction entirely to replacing channel-wise multiplication with subtraction, absolute value, and accumulation. 
+
+A.4 Affinity Lookup and Row Scaling 
+
+After the temporal distance is accumulated, each affinity is obtained from the finite set of values associated with its attention head. We conservatively charge one table lookup for every query–key pair, 
+
+NLUT = LHN 2. (35) We use 10 pJ per lookup, which adds approximately 0.15 mJ to Lapis-L. This treatment is conservative with respect to a dedicated leakage circuit. For the dense reference, we do not add a separate cost for the digital exponential. Consequently, the reported advantage does not rely on assuming an expensive softmax implemen-tation. Exact row normalization and power-of-two normalization use the same affinity row sums. They differ only in the final scaling operation. Exact normalization requires 
+
+Ndiv = LHN 2 (36) general scaling operations. Charging each such operation at 4.6 pJ adds approximately 0.07 mJ to Lapis-L. Power-of-two normalization replaces these operations with bit shifts, whose arithmetic cost is treated as negligible in the reported estimate. 
+
+# B Proofs 
+
+B.1 Proof of Proposition 2 
+
+Proof. We prove the three properties separately. 
+
+(i) Finite affinity set. For every channel c, both tQ,h i,c and 
+
+tK,h j,c belong to {0, . . . , T }. Hence, 
+
+tQ,h i,c − tK,h j,c ∈ { 0, . . . , T }.
+
+Since 
+
+Dhij =
+
+> C
+
+X
+
+> c=1
+
+tQ,h i,c − tK,h j,c ,
+
+the distance Dhij is an integer satisfying 
+
+0 ≤ Dhij ≤ CT. 
+
+It therefore belongs to {0, . . . , CT }. Using βh =exp( −1/τ h), the corresponding affinity is 
+
+Ahij = exp − Dhij 
+
+τh
+
+!
+
+= βDhij  
+
+> h
+
+.Consequently, 
+
+Ahij ∈ { βrh : r = 0 , . . . , CT } ,
+
+which contains at most CT + 1 values. 
+
+(ii) Positivity and order consistency. Because τh > 0 and 
+
+Dhij ≥ 0,
+
+0 < exp − Dhij 
+
+τh
+
+!
+
+≤ 1.
+
+Thus, Ahij ∈ (0 , 1] . Moreover, 
+
+Ahij = 1 ⇐⇒ Dhij = 0 ⇐⇒ tQ,h i = tK,h j ,
+
+where the final equivalence follows from the definiteness of the ℓ1 norm. The function 
+
+fh(x) = exp 
+
+
+
+− xτh
+
+
+
+is strictly decreasing on [0 , ∞). Therefore, for any two keys 
+
+j and ℓ,
+
+Ahij > A hiℓ ⇐⇒ Dhij < D hiℓ .
+
+(iii) Latency stability. Let 
+
+etQ,h i = tQ,h i + δQ,h i , etK,h j = tK,h j + δK,h j ,
+
+and define 
+
+eDhij = etQ,h i − etK,h j 1
+
+.
+
+By the reverse triangle inequality, 
+
+eDhij − Dhij ≤
+
+etQ,h i − etK,h j
+
+
+
+−
+
+
+
+tQ,h i − tK,h j
+
+
+
+> 1
+
+(37) 
+
+= δQ,h i − δK,h j 1 (38) 
+
+≤ δQ,h i 1
+
++ δK,h j 1
+
+(39) 
+
+≤ ηQ + ηK . (40) For fh(x) = exp( −x/τ h),
+
+|f ′
+
+> h
+
+(x)| = 1
+
+τh
+
+exp 
+
+
+
+− xτh
+
+
+
+≤ 1
+
+τh
+
+, x ≥ 0.
+
+The mean value theorem therefore gives 
+
+eAhij − Ahij = fh
+
+ eDhij 
+
+
+
+− fh
+
+ Dhij 
+
+ (41) 
+
+≤ 1
+
+τh
+
+eDhij − Dhij (42) 
+
+≤ ηQ + ηK
+
+τh
+
+. (43) This completes the proof. 
+
+B.2 Proof of Lemma 1 
+
+Proof. Recall that 
+
+khi = round  log 2 Zhi
+
+ , bZhi = 2 khi .
+
+Since khi is the nearest integer to log 2 Zhi ,
+
+khi − log 2 Zhi ≤ 12 .
+
+Equivalently, 
+
+− 12 ≤ log 2 Zhi − khi ≤ 12 .
+
+Exponentiating with base two gives 
+
+2−1/2 ≤ 2log 2 Zhi −khi ≤ 21/2.
+
+Using bZhi = 2 khi , this becomes 
+
+1
+
+√2 ≤ Zhi
+
+bZhi
+
+≤ √2.
+
+The exact and power-of-two normalized weights satisfy 
+
+W ⋆,h ij = Ahij 
+
+Zhi
+
+, cW hij = Ahij 
+
+bZhi
+
+.
+
+Therefore, 
+
+cW hij = W ⋆,h ij 
+
+Zhi
+
+bZhi
+
+.
+
+Because W ⋆,h ij > 0, multiplying the preceding bound by 
+
+W ⋆,h ij yields 
+
+1
+
+√2 W ⋆,h ij ≤ cW hij ≤ √2W ⋆,h ij ,
+
+which proves the result. The same identity also gives 
+
+> N
+
+X
+
+> j=1
+
+cW hij = Zhi
+
+bZhi
+
+∈
+
+ 1
+
+√2 , √2
+
+
+
+.
+
+Moreover, every element in a row is multiplied by the same positive factor. Hence, for any keys j and ℓ,
+
+cW hij 
+
+cW hiℓ 
+
+= Ahij 
+
+Ahiℓ 
+
+= W ⋆,h ij 
+
+W ⋆,h iℓ 
+
+,
+
+so power-of-two scaling preserves all pairwise ratios and the ordering of the affinities. 
+
+# C Training and Quantization Details 
+
+Model settings. Lapis-S follows the small vision Trans-former configuration and is used for CIFAR-10, CIFAR-100, and all controlled ablations. Lapis-B and Lapis-L use the corresponding BEiT-B/16 and BEiT-L/16 backbones on ImageNet-1K. The TTFS coding window is set to T = 15 
+
+for Lapis-S and Lapis-B, and to T = 20 for Lapis-L. CIFAR training and distillation. Lapis-S is trained for 100 epochs with a batch size of 128. We use AdamW with an initial learning rate of 1 × 10 −4, a weight decay of 0.05 ,and a cosine schedule with five epochs of linear warmup. The teacher is a BEiT-v2-Large model ini-tialized from the timm ImageNet checkpoint 
+
+beitv2_large_patch16_224 . Before student training, the teacher is adapted separately to CIFAR-10 and CIFAR-100 for 20 epochs with a batch size of 64 and a learning rate of 5 × 10 −5.The student objective combines classification, logit distil-lation, and feature distillation: 
+
+L = 0 .5LCE + 0 .5Llogit + 0 .5Lfeat . (44) The logit term uses soft KL divergence with distillation tem-perature TKD = 4 . For feature distillation, we first apply layer normalization and then minimize the mean squared er-ror between selected intermediate features. Student blocks 2,
+
+5, 8, and 11 are aligned with teacher blocks 5, 11 , 17 , and 
+
+23 , respectively. A learned linear projection maps the stu-dent feature dimension from 384 to the teacher dimension of 
+
+1024 . All relation-function ablations use the same teacher, distillation losses, and training schedule. 
+
+ImageNet fine-tuning. The ImageNet models are initial-ized from pretrained BEiT backbones and first optimized as quantized networks with exact row normalization and full-precision body weights. Lapis-L is fine-tuned for 60 epochs with two warmup epochs, a global batch size of 162, and an initial learning rate of 8.5 × 10 −5. Training uses distributed data parallel execution on three GPUs. Lapis-B is fine-tuned for 50 epochs with a global batch size of 256 and an initial learning rate of 1.3 × 10 −4.Starting from the exact-normalized checkpoint, we re-cover the reported deployment configurations through short quantization-aware fine-tuning. The power-of-two W32 model with a spike-coded attention readout is fine-tuned for 10 epochs with a batch size of 108 and a learning rate of 2 × 10 −5. The power-of-two W6 model is fine-tuned for 10 epochs with the same batch size and learning rate. This stage jointly enables power-of-two normalization, spike-coded attention readout, and 6-bit body weights. No addi-tional warmup is used in either recovery stage. The W6 stage uses a light augmentation recipe with mix_prob =0.1. 
+
+Activation quantization and TTFS conversion. Activa-tions are quantized with learned step-size quantization into nonnegative integer codes 
+
+z ∈ { 0, . . . , T }.
+
+The zero code denotes an inactive neuron. Each positive code emits exactly one spike at 
+
+n = T − z, 0 ≤ n < T. 
+
+Larger activation codes therefore correspond to earlier spikes. The encoding is applied elementwise throughout the network. As established in the main paper, this affine conver-sion preserves the query–key ℓ1 distance and therefore leaves the Lapis affinities unchanged. 
+
+Weight quantization. Lapis-W32 retains full-precision body weights. Lapis-W6 uses 6-bit per-channel quantiza-tion for the weight-bearing linear layers in each Transformer block. These layers include the query, key, and value pro-jections, the attention output projection, and the two MLP projections. The patch embedding and classification head remain in FP32. In the deployment configurations, the attention output is quantized into a spike representation before the output pro-jection. The power-of-two denominator is enabled together with the matching attention-output quantizer and weight pre-cision during quantization-aware fine-tuning. This ensures that both the reported accuracy and the measured spike ac-tivity correspond to the same deployed checkpoint.
