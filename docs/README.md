@@ -1,37 +1,40 @@
 ## 最新日报
-- 最新运行日期：2026-08-14
-- 运行时间：2026-08-14 05:06:58 北京时间
+- 最新运行日期：2026-08-15
+- 运行时间：2026-08-15 05:21:46 北京时间
 - 运行状态：成功
-- 本次总论文数：6
-- 精读区：1
-- 速读区：5
+- 本次总论文数：7
+- 精读区：3
+- 速读区：4
 
 ### 今日简报（AI）
-- 今日共生成 6 篇推荐（精读 1 篇，速读 5 篇）
-- 精读：《Continuous-Latent Predictive Modeling with Semantic Alignment for EEG-Language Foundation Models》（9.0/10）
-- 速读：《Testing the limits of past-adapted explanations by post-endpoint randomisation: anticipatory EEG as a worked case》（7.0/10）, 《Renormalising Generative Models for Active Inference: Foundations, Derivations, and Verification》（6.0/10）, 《Where To Look? : Causal Tracing of Vision Encoders in VLM》（6.0/10）
+- 今日共生成 7 篇推荐（精读 3 篇，速读 4 篇）
+- 精读：《EEG-PRIME: Prototype-Aligned Representation Learning with Multi-Level Conditioning for EEG Decoding》（9.0/10）, 《EEG Decoding Using CNN and LSTM Network》（9.0/10）
+- 速读：《Spiking Neural Networks with Elephant Reinforcement》（7.0/10）, 《Decoding Gene Regulatory Networks from Single-Cell RNA Velocity》（6.0/10）, 《Predictive Allostatic Organization in Recurrent and Spiking Agents Under Partial Observability》（6.0/10）
 - 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202608/14/README](/202608/14/README)
+- 详情：[/202608/15/README](/202608/15/README)
 
 ### 精读区论文标签
-1. [Continuous-Latent Predictive Modeling with Semantic Alignment for EEG-Language Foundation Models](/202608/14/2608.11656v1-continuous-latent-predictive-modeling-with-semantic-alignment-for-eeg-language-foundation-models)  
+1. [EEG-PRIME: Prototype-Aligned Representation Learning with Multi-Level Conditioning for EEG Decoding](/202608/15/2608.13072v1-eeg-prime-prototype-aligned-representation-learning-with-multi-level-conditioning-for-eeg-decoding)  
    标签：评分：9.0/10、query:sr
-   evidence：通过连续潜变量预测与语义对齐进行EEG神经解码
+   evidence：用于跨数据集多任务BCI解码的EEG解码基础模型
+2. [EEG Decoding Using CNN and LSTM Network](/202608/15/2608.13285v1-eeg-decoding-using-cnn-and-lstm-network)  
+   标签：评分：9.0/10、query:sr
+   evidence：基于CNN-LSTM的非侵入式BCI运动想象脑电解码
+3. [Evaluation Resolution Confounds Learning-Rule Comparisons in Model-Brain RSA of Early Visual Cortex](/202608/15/2608.12408v1-evaluation-resolution-confounds-learning-rule-comparisons-in-model-brain-rsa-of-early-visual-cortex)  
+   标签：评分：8.0/10、query:sr
+   evidence：RSA评估模型-脑表征，神经编码模型可解释性
 
 ### 速读区论文标签
-1. [Testing the limits of past-adapted explanations by post-endpoint randomisation: anticipatory EEG as a worked case](/202608/14/2608.12072v1-testing-the-limits-of-past-adapted-explanations-by-post-endpoint-randomisation-anticipatory-eeg-as-a-worked-case)  
+1. [Spiking Neural Networks with Elephant Reinforcement](/202608/15/2608.12839v1-spiking-neural-networks-with-elephant-reinforcement)  
    标签：评分：7.0/10、query:sr
-   evidence：基于设计的推断框架，检验EEG预测是否依赖过去信息
-2. [Renormalising Generative Models for Active Inference: Foundations, Derivations, and Verification](/202608/14/2608.09512v1-renormalising-generative-models-for-active-inference-foundations-derivations-and-verification)  
+   evidence：带记忆的脉冲神经元网络，建模发放活动与兴奋性
+2. [Decoding Gene Regulatory Networks from Single-Cell RNA Velocity](/202608/15/2608.09722v1-decoding-gene-regulatory-networks-from-single-cell-rna-velocity)  
    标签：评分：6.0/10、query:sr
-   evidence：主动推理与重整化生成模型提供跨尺度联系外部变量与内部状态的数学框架
-3. [Where To Look? : Causal Tracing of Vision Encoders in VLM](/202608/14/2608.10758v1-where-to-look--causal-tracing-of-vision-encoders-in-vlm)  
+   evidence：从RNA速率时间观测中重构隐藏动态的稀疏动力逆问题框架
+3. [Predictive Allostatic Organization in Recurrent and Spiking Agents Under Partial Observability](/202608/15/2608.11506v1-predictive-allostatic-organization-in-recurrent-and-spiking-agents-under-partial-observability)  
    标签：评分：6.0/10、query:sr
-   evidence：对视觉编码器内部表征进行因果追踪的可解释AI方法
-4. [Lapis: Laplacian Spiking Attention via First-Spike Timing and Membrane Leakage](/202608/14/2608.11865v1-lapis-laplacian-spiking-attention-via-first-spike-timing-and-membrane-leakage)  
+   evidence：研究脉冲智能体如何组织内部状态以携带预测性信息。
+4. [Kernel Methods for Learning Operators with Multiple Inputs and Outputs](/202608/15/2608.11831v1-kernel-methods-for-learning-operators-with-multiple-inputs-and-outputs)  
    标签：评分：6.0/10、query:sr
-   evidence：脉冲注意力使用首脉冲时序和膜泄漏进行标记评分
-5. [Beyond Local Power: Functional Connectivity Analysis for Subject-Independent Learning Style Recognition](/202608/14/2608.12000v1-beyond-local-power-functional-connectivity-analysis-for-subject-independent-learning-style-recognition)  
-   标签：评分：6.0/10、query:sr
-   evidence：基于EEG功能连接的学习风格识别解码
+   evidence：通用的基于核的算子学习框架，用于函数空间之间的映射
 
