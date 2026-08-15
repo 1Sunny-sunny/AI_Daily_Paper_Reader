@@ -1,0 +1,908 @@
+ROBUST AND EFFICIENT NOISY-LABEL TIME-SERIES
+CLASSIFICATION VIA DYNAMIC TIME WARPING BASED
+GRANULAR BALL COMPUTING
+Ziqiang Li1,3,∗
+ziqiang-li@nitech.ac.jp
+Yun Liu2
+yun-liu@example.ac.jp
+Gouhei Tanaka1,3
+tanaka.gouhei@nitech.ac.jp
+1 Department of Computer Science, Graduate School of Engineering,
+Nagoya Institute of Technology, Nagoya, 466-8555, Japan
+2 Faculty of Information and Human Sciences,
+Kyoto Institute of Technology, Kyoto, 606-8585, Japan
+3 International Research Center for Neurointelligence,
+The University of Tokyo, Tokyo, 113-0033, Japan.
+August 13, 2026
+ABSTRACT
+Dynamic Time Warping (DTW)-based Nearest-Neighbor (NN) classifiers are effective for time-
+series classification but are vulnerable to mislabeled training samples and require numerous DTW
+computations during inference. We propose DTW-based Granular Ball Computing (DTW-GBC),
+which organizes temporally similar training samples into granular balls and performs classification
+at the granule level. We further develop two granular-ball construction strategies for DTW-GBC.
+Experiments on four benchmark datasets with symmetric label noise show that the two DTW-GBC
+variants generally mitigate the performance degradation caused by label noise while requiring sub-
+stantially fewer comparisons than DTW-based 1-NN during inference. These findings suggest that
+DTW-GBC provides a favorable balance between classification robustness and inference efficiency.
+1
+Introduction
+Time-series classification (TSC) is a fundamental task in time-series analysis and has been widely applied in various
+real-world domains [1]. Most supervised TSC methods rely on accurately labeled training data to identify discrimi-
+native temporal patterns. In practical applications, however, obtaining reliable labels is often difficult and expensive.
+Label noise may arise from subjective or inconsistent human annotations, insufficient domain expertise, ambiguous
+temporal patterns, or imperfect automatic labeling systems [2]. Such mislabeled samples can mislead classification
+models and substantially degrade their inference performance [3, 4]. Therefore, developing TSC methods that are
+robust to label noise remains an important research problem.
+Among existing TSC approaches, distance-based classifiers provide a simple yet effective solution by assigning labels
+according to the similarity between test and training samples [5]. In particular, Dynamic Time Warping (DTW)-based
+1-nearest-neighbor (1-NN) classification is widely adopted because DTW can capture similar temporal patterns despite
+local phase shifts, speed variations, and unequal sequence lengths [6]. Nevertheless, this instance-level classification
+mechanism presents two major limitations. First, because 1-NN directly inherits the label of the nearest training
+sample, a mislabeled nearest neighbor can immediately result in an incorrect classification. Second, each test sample
+must be compared with all training samples, and each DTW comparison requires dynamic programming over the two
+arXiv:2608.11704v1  [cs.LG]  12 Aug 2026
+
+
+A PREPRINT - AUGUST 13, 2026
+0
+25
+50
+75
+100
+125
+Time steps
+0
+20
+40
+60
+80
+100
+120
+Time steps
+1
+2
+3
+4
+5
+6
+DTW distance matrix
+Generated granular balls
+TS of class A
+TS of class B
+Figure 1: Overview of the proposed DTW-GBC framework. DTW is first used to compute pairwise distances between
+training time series, with the DTW distance matrix and optimal warping path for one sample pair illustrated on the left.
+These pairwise distances are then used to recursively organize the training samples into granular balls, as illustrated
+on the right, for subsequent granular-ball-level nearest-neighbor classification.
+sequences. Consequently, DTW-based 1-NN may suffer from both degraded robustness under label noise and high
+computational cost during inference.
+Granular Ball Computing (GBC) has recently emerged as an adaptive multi-granularity representation paradigm that
+organizes individual samples into a compact set of granular balls [7]. This granule-level representation is potentially
+suitable for addressing the two limitations of DTW-based 1-NN. Assigning labels at the granule level can reduce the
+direct influence of isolated mislabeled samples, while replacing individual training samples with a smaller number
+of granular balls can reduce the number of comparisons required during inference. However, existing GBC methods
+are generally designed for static data, where granular balls are constructed using geometric operations in a fixed-
+dimensional feature space [8]. Directly extending these methods to time-series data is nontrivial because temporal
+misalignment, variable sequence lengths, and multivariate temporal structures must be considered when measuring
+sample similarity. Despite the effectiveness of DTW in measuring time-series similarity, the construction and recursive
+refinement of granular balls directly in the DTW distance space remain underexplored. Moreover, it remains unclear
+whether such a representation can simultaneously improve robustness to noisy labels and reduce the inference cost of
+DTW-based nearest-neighbor classification.
+To address these issues, we propose Dynamic Time Warping-Based Granular Ball Computing (DTW-GBC) for ro-
+bust and efficient noisy-label time-series classification. DTW-GBC first computes pairwise DTW distances among
+the training samples and then recursively partitions them into granular balls in a coarse-to-fine manner. During infer-
+ence, DTW-GBC performs 1-NN classification at the granular-ball level by comparing each test sample only with the
+generated granular balls, rather than with all individual training samples.
+The main contributions of this work are summarized as follows:
+• We propose DTW-GBC, which constructs granular balls directly in the DTW distance space and enables
+granule-level representation and classification of univariate and multivariate time series.
+• We develop two medoid-based recursive splitting strategies, namely random splitting and label-informed
+splitting.
+• Experiments on four benchmark datasets with symmetric label noise demonstrate that DTW-GBC generally
+alleviates the classification-performance degradation caused by noisy labels while requiring fewer compar-
+isons during inference than the DTW-based 1-NN classifier.
+2
+
+
+A PREPRINT - AUGUST 13, 2026
+The rest of this paper is organized as follows: The related works are introduced in Section 2. Our proposal is described
+in Section 3. The analysis of computational complexity is given in Section 4. The details of experiments are presented
+in Section 5. The conclusion is given in Section 6.
+2
+Related Works
+2.1
+Distance-based Time Series Classification
+Distance-based TSC methods constitute an important branch of TSC, where the distance between time series samples
+is measured using a predefined distance function, and class labels are typically assigned by nearest-neighbor-based
+classifiers [5]. Among various distance measures, DTW is one of the most widely used elastic distance measures
+for time series data [6]. By allowing temporal alignment between two sequences, DTW can capture shape-based
+similarities even in the presence of local phase shifts or speed variations. Owing to this property, the combination
+of DTW and nearest-neighbor classifiers has been widely adopted as a strong baseline for TSC [9]. However, since
+nearest-neighbor predictions directly depend on the labels of retrieved training samples, mislabeled neighbors may
+propagate incorrect class information and degrade classification performance. Moreover, DTW-based nearest-neighbor
+methods operate at the individual-sample level and require repeated pairwise distance computations, which can become
+computationally expensive as the number of time series increases [10]. Therefore, improving both the robustness and
+efficiency of distance-based TSC while preserving the temporal alignment capability of DTW remains an important
+research issue.
+2.2
+Granular Ball Computing
+GBC is an emerging granular computing paradigm that represents observed data using a set of Granular Balls (GBs)
+rather than individual samples [7]. By recursively partitioning data in a coarse-to-fine manner, GBC can describe
+the original sample space with fewer compact data granules, thereby reducing computational cost while preserving
+the main data structure. Moreover, this granule-level representation can improve robustness to noise and outliers
+and provide interpretable local structures for downstream learning [7]. Due to these advantages, GBC has been ap-
+plied to various machine learning tasks, including classification [8], clustering [11] and regression [12]. Currently,
+granular-ball computing methods for time series processing generally rely on a time series encoder (e.g. Echo State
+Networks [13]) followed by a pooling operation to transform temporal features into static feature representations [14].
+Euclidean metric is then used to calculate distances and construct granular-ball representations [15]. In contrast,
+methods that directly compute distances between raw time series for granular-ball construction remain underexplored.
+3
+Dynamic Time Wraping based Granular Ball Computing
+In this section, we describe the details of the proposed DTW-GBC for time series classification. Figure 1 shows the
+overview of the proposed method. The key idea is to construct GBs based on distance between two different time
+series samples measured by DTW.
+For ease of the following description, we represent a multivariate time-series dataset by S =
+ X(i), y(i)	N
+i=1, where
+the i-th element of S is a pair consisting of a matrix X(i) =
+h
+x(i)
+1 , x(i)
+2 , . . . , x(i)
+T (i)
+i
+∈RM×T (i) and the corresponding
+label y(i) ∈Z. The symbols M and T (i) denote the dimensionality and sequence length of X(i), respectively.
+3.1
+Dynamic Time Warping
+To measure the difference between two multivariate time series X
+(i) and X
+(j), a distance matrix D ∈RT (i)×T (j) is
+built. The (m, n)-th element of D, denoted by D[m,n], represents the minimum cumulative distance required to align
+the first m and n elements of the two sequences, respectively. The (m, n)-th element of D is computed recursively
+using dynamic programming, which can be formulated as follows:
+D[m,n] =
+X(i)
+[:,m] −X(j)
+[:,n]
+
+2
+2
++ min
+ D[m−1,n], D[m,n−1], D[m−1,n−1]
+
+,
+(1)
+where ∥·∥2 represents the ℓ2-norm. The recurrence is subject to the standard boundary conditions, with the dynamic
+programming matrix initialized as D[1,1] =
+X(i)
+[:,1] −X(j)
+[:,1]
+
+2
+2. Finally, the DTW distance between X(i) and X(j) is
+3
+
+
+A PREPRINT - AUGUST 13, 2026
+defined as the bottom-right element of D as:
+dDTW(X(i), X(j)) = D[T (i),T (j)].
+(2)
+3.2
+Generation of Granular Balls
+GBC represents data using adaptive GBs (hyperspherical regions) rather than individual points, thereby improving the
+computational efficiency and robustness of downstream tasks. A GB covers several samples S∗, where S∗⊆S. A
+GB is characterized by the center C, the radius r, and the purity p, which are represented as follows:
+C = arg min
+X(i)∈S∗
+X
+X(j)∈S∗
+dDTW(X(i), X(j)),
+(3)
+r =
+1
+|S∗|
+X
+X(i)∈S∗
+dDTW(X(i), C),
+(4)
+p =
+max
+y
+
+n
+i : X(i) ∈S∗, y(i) = y
+o
+|S∗|
+,
+(5)
+where | · | denotes the cardinality of a set. Note that the label of a GB is determined by the majority of samples in S∗.
+The GBs are generated recursively in a coarse-to-fine manner. At the initial stage, all training samples are grouped
+into a single GB, whose center is initialized as the medoid, i.e., the sample with the minimum average DTW distance
+to all other samples. Each GB is then examined to determine whether it should be further partitioned. Let GB+ denote
+a parent GB under examination, and let S+ and p+ denote its sample set and purity, respectively. If the purity of GB+
+is lower than the predefined threshold and it contains a sufficient number of samples, GB+ is split into κ child GBs as
+follows:
+GB+
+split
+−→
+n
+GB(1)
+−, . . . , GB(κ)
+−
+o
+if p+ < ρ ∧|S+| > β,
+(6)
+where GB(1)
+−, . . . , GB(κ)
+−
+denote the resulting κ child granular balls, and ρ and β are the purity threshold and the
+minimum sample-size threshold for splitting, respectively. In this work, we provide two strategies for selecting centers
+in the splitting procedure as follows:
+• The random strategy: κ samples are randomly selected in GB+ as centers.
+• The label-informed strategy: the center of the parent granular ball is first retained as the center of GB(1)
+−.
+Subsequently, one sample is randomly selected from each class other than the class of the parent center,
+yielding the remaining (κ −1) child-ball centers.
+Eventually, all GBs that do not satisfy the splitting criterion defined in Equation (6) are retained to form the final
+granular-ball set.
+3.3
+Granular Ball based Nearest-Neighbor Classification
+The K-nearest neighbors (K-NN) algorithm is a non-parametric supervised learning method that classifies a new
+sample according to the majority label among its K nearest training samples [16]. As a lazy learning method, K-
+NN postpones most computations until the inference stage and therefore does not require an explicit model training
+process. In DTW-GBC, we employ 1-NN classification (K = 1) at the granular-ball level. Given a set of G granular
+balls, denoted by G =
+
+GB(g)	G
+g=1, the distance between the i-th test sample and the g-th granular ball is defined as
+dist
+
+X(i), GB(g)
+= dDTW
+
+X(i), C(g)
+−r(g),
+(7)
+where C(g) and r(g) denote the center and radius of the g-th granular ball, respectively. For each test sample, its
+distance to every granular ball is calculated, and the ball with the minimum distance is selected for prediction. The
+majority label of the selected granular ball is then assigned to the test sample as its predicted label.
+4
+Computational complexity analysis
+Let Ntr and Nte denote the numbers of training and test samples, respectively. For simplicity, we assume that all
+samples have the same sequence length, denoted by T. The detailed procedure for constructing granular balls of our
+4
+
+
+A PREPRINT - AUGUST 13, 2026
+proposed method is presented in Algorithm 1. The training complexity of the proposed DTW-GBC consists mainly
+of two components: pairwise DTW distance computation among the Ntr training samples and recursive granular-ball
+splitting. The former costs O
+ N 2
+trT 2
+when standard DTW is used, corresponding to Procedures 1–5 in Algorithm 1.
+Let D denote the maximum depth of the splitting process. The computational overhead of recursive granular-ball
+splitting, corresponding to Procedures 9–19, is conservatively upper-bounded by O
+ DN 2
+tr
+
+. Therefore, the overall
+complexity of DTW-based granular-ball generation is
+O
+ N 2
+trT 2 + DN 2
+tr
+
+= O
+ N 2
+tr
+ T 2 + D
+
+.
+(8)
+Under the practical condition that D ≪T 2, the pairwise DTW computation dominates the training cost, and the
+overall complexity can be simplified to O
+ N 2
+trT 2
+. The computational complexity during the inference period is
+O
+ NteGT 2
+. Compared with the 1-NN classifier using DTW distance, DTW-GBC requires additional computation
+to construct granular balls, but reduces the inference complexity by comparing each test sample only with the G
+granular ball centers rather than Ntr training samples.
+Algorithm 1 DTW-based Granular Ball Generation
+Input: training dataset Str = {(X(i)
+tr , y(i)
+tr )}Ntr
+i=1, purity threshold ρ, and size threshold β.
+Output: a set of GBs G = {GB(g)}G
+g=1.
+1: for i = 1 to Str do
+2:
+for j = i + 1 to Str do
+3:
+Compute the DTW distance matrix D between X(i) and X(j).
+4:
+end for
+5: end for
+6: Treat all training samples as an initial GB.
+7: Initialize Q with the initial GB.
+8: Initialize G ←∅.
+9: while Q is not empty do
+10:
+Remove a GB from Q and denote it by GB+.
+11:
+Compute its center, radius, label, and purity p+.
+12:
+if p+ ≥ρ or |GB+| ≤β then
+13:
+Add GB+ to G.
+14:
+else
+15:
+Determine κ and initialize the centers according to the selected splitting strategy.
+16:
+Assign each sample to its nearest center.
+17:
+Generate κ child GBs GB(1)
+−, . . . , GB(κ)
+−
+and add them to Q.
+18:
+end if
+19: end while
+20: return G.
+5
+Experiments
+5.1
+Experimental datasets and task settings
+We conducted experiments on four benchmark time-series classification datasets, including two univariate datasets
+selected from the UCR2018 archive [17] and two multivariate datasets adopted from the Multiverse archive [18].
+These datasets cover different numbers of classes, sample sizes, sequence lengths, and data dimensions. Detailed
+statistics of the benchmark datasets are summarized in Table 1.
+To evaluate the robustness of the proposed method against noisy labels, we introduced symmetric label noise [19] into
+the training set while keeping the test set unchanged. Let L denote the number of classes and η denote the predefined
+noise rate. For a training sample with the true label y = i, its noise-contaminated label ˜y is generated as follows:
+P(˜y = j | y = i) =
+
+
+
+1 −η,
+if j = i,
+η
+L −1,
+if j̸ = i.
+(9)
+Accordingly, each label remains unchanged with probability 1 −η, whereas a corrupted label is uniformly reassigned
+to one of the other (L −1) classes. To account for variability introduced by stochastic label corruption, we generate
+5
+
+
+A PREPRINT - AUGUST 13, 2026
+ten independently contaminated versions of the training set for each dataset. The mean values and standard deviations
+of the evaluation metrics on each test set are reported in the Section 5.4.
+Table 1: Overview of experimental datasets
+#Train
+#Test
+#Classes
+#Timesteps
+#Dimension
+Source
+SyntheticControl
+300
+300
+6
+60
+1
+UCR2018
+ECG5000
+500
+4500
+5
+140
+1
+UCR2018
+JapaneseVowels
+270
+370
+9
+7-29
+12
+Multiverse
+ArticularyWordRecognition
+275
+300
+25
+144
+9
+Multiverse
+5.2
+Model and parameter settings
+We denote DTW-GBC using the random splitting strategy and that using the label-informed splitting strategy by
+DTW-GBC-R and DTW-GBC-L, respectively. To investigate whether these two variants achieve greater robustness
+to noisy labels than their original DTW-based counterpart in terms of classification performance, we employed the
+conventional DTW classifier as the baseline. Regarding the hyperparameter settings, we fixed β to 1 for two DTW-
+GBC based methods and searched ρ in {0.5, 0.6, 0.7, 0.8, 0.9, 1}. For DTW-GBC-R, the candidate values of κ for
+each dataset are listed in Table 2, and the optimal value was selected using five-fold cross-validation on the training
+set.
+Table 2: Candidate values of κ on the DTW-GBC-R for each dataset.
+Searching candidates
+SyntheticControl
+{2, 4, 6}
+ECG5000
+{2, 3, 4, 5}
+JapaneseVowels
+{2, 3, 6, 9}
+ArticularyWordRecognition
+{2, 5, 10, 15, 20, 25}
+5.3
+Metrics
+We employed accuracy, the weighted F1-score, and the weighted geometric mean (G-mean) to evaluate the classifica-
+tion performance. These metrics are formulated as follows:
+Accuracy =
+1
+Ste
+Ste
+X
+i=1
+I (yi = ˆyi) ,
+(10)
+F1wtd =
+L
+X
+l=1
+wl
+2PlRl
+Pl + Rl
+,
+(11)
+G-meanwtd =
+v
+u
+u
+t
+L
+X
+l=1
+wlSenl
+L
+X
+l=1
+wlSpel.
+(12)
+where ˆy(i) is the predicted label of the i-th test sample and I(·) is the indicator function, which equals 1 if y(i) = ˆy(i)
+and 0 otherwise. The symbol wl = nl/Nte is the proportion of samples belonging to class l. Moreover, Pl, Rl, Senl,
+and Spel denote the precision, recall, sensitivity, and specificity of class l, respectively.
+5.4
+Results
+The classification results of the three methods at η = 0.1 and η = 0.2 are reported in Tables 3 and 4, respectively.
+Note that κ = 2 was selected for DTW-GBC-R, as it consistently achieved the best validation performance across
+all datasets. At both noise levels, DTW-GBC-R and DTW-GBC-L outperform conventional DTW on all datasets and
+evaluation metrics. When η = 0.1, DTW-GBC-L performs best on SyntheticControl and ArticularyWordRecogni-
+tion, while DTW-GBC-R performs slightly better on ECG5000 and JapaneseVowels. When η = 0.2, DTW-GBC-L
+achieves the best results on three of the four datasets, with DTW-GBC-R performing best on ECG5000. The improve-
+ment over conventional DTW is particularly evident at the higher noise rate. These results indicate that replacing
+6
+
+
+A PREPRINT - AUGUST 13, 2026
+Table 3: Classification performances on four datasets with η = 0.1.
+DTW
+DTW-GBC-R
+DTW-GBC-L
+SyntheticControl
+Accuracy
+0.900±(0.031)
+0.958±(0.025)
+0.962±(0.019)
+F1wtd
+0.900±(0.032)
+0.958±(0.026)
+0.962±(0.020)
+G-meanwtd
+0.939±(0.019)
+0.974±(0.015)
+0.977±(0.012)
+ECG5000
+Accuracy
+0.835±(0.020)
+0.913±(0.032)
+0.907±(0.042)
+F1wtd
+0.856±(0.014)
+0.908±(0.026)
+0.904±(0.038)
+G-meanwtd
+0.887±(0.012)
+0.929±(0.027)
+0.927±(0.031)
+JapaneseVowels
+Accuracy
+0.848±(0.024)
+0.898±(0.036)
+0.897±(0.033)
+F1wtd
+0.849±(0.022)
+0.899±(0.035)
+0.898±(0.034)
+G-meanwtd
+0.912±(0.013)
+0.941±(0.021)
+0.940±(0.019)
+ArticularyWordRecognition
+Accuracy
+0.895±(0.030)
+0.938±(0.022)
+0.955±(0.015)
+F1wtd
+0.894±(0.029)
+0.936±(0.023)
+0.953±(0.018)
+G-meanwtd
+0.944±(0.016)
+0.967±(0.011)
+0.976±(0.008)
+Table 4: Classification performances on four datasets with η = 0.2.
+DTW
+DTW-GBC-R
+DTW-GBC-L
+SyntheticControl
+Accuracy
+0.796±(0.037)
+0.948±(0.031)
+0.960±(0.017)
+F1wtd
+0.796±(0.038)
+0.947±(0.033)
+0.960±(0.017)
+G-meanwtd
+0.874±(0.024)
+0.968±(0.019)
+0.976±(0.010)
+ECG5000
+Accuracy
+0.742±(0.030)
+0.902±(0.017)
+0.894±(0.049)
+F1wtd
+0.786±(0.021)
+0.884±(0.020)
+0.884±(0.052)
+G-meanwtd
+0.827±(0.017)
+0.911±(0.021)
+0.909±(0.045)
+JapaneseVowels
+Accuracy
+0.759±(0.038)
+0.871±(0.037)
+0.881±(0.047)
+F1wtd
+0.760±(0.038)
+0.869±(0.039)
+0.880±(0.049)
+G-meanwtd
+0.857±(0.025)
+0.924±(0.022)
+0.930±(0.028)
+ArticularyWordRecognition
+Accuracy
+0.789±(0.030)
+0.883±(0.031)
+0.929±(0.031)
+F1wtd
+0.786±(0.031)
+0.876±(0.035)
+0.923±(0.037)
+G-meanwtd
+0.884±(0.017)
+0.937±(0.017)
+0.962±(0.017)
+individual training samples with granular-ball-level representations reduces the sensitivity of DTW-based 1-NN clas-
+sification to corrupted training labels, thereby improving robustness under label noise.
+Figure 2 shows the average numbers of comparisons corresponding to the best-performing settings of the three methods
+reported in Tables 3 and 4. Since conventional DTW performs 1-NN classification by comparing each test sample with
+every training sample, it requires 300, 500, 270, and 275 comparisons per test sample on SyntheticControl, ECG5000,
+JapaneseVowels, and ArticularyWordRecognition, respectively. In contrast, the two DTW-GBC variants perform 1-
+NN classification over the generated granular balls, and thus the number of comparisons is directly determined by
+the number of generated balls. As shown in Figure 2, DTW-GBC-R and DTW-GBC-L require an average of only
+38–190 comparisons per test sample across the four datasets and two noise levels, corresponding to reductions of
+approximately 33.5%–92.4% compared with conventional DTW. Overall, DTW-GBC improves robustness to label
+noise while substantially reducing the number of DTW comparisons required during inference.
+η=0.1
+η=0.2
+0
+100
+200
+300
+300
+300
+107
+190
+118
+77
+(a) SyntheticControl
+η=0.1
+η=0.2
+0
+200
+400
+500
+500
+168
+38
+141
+43
+(b) ECG5000
+η=0.1
+η=0.2
+0
+100
+200
+300
+270
+270
+157
+109
+116
+113
+(c) JapaneseVowels
+η=0.1
+η=0.2
+0
+100
+200
+300
+275
+275
+183
+161
+75
+76
+(d) ArticularyWordRecognition
+The average num. of comparisons
+ for 1-NN per test sample
+DTW
+DTW-GBC-R
+DTW-GBC-L
+Figure 2: The average numbers of 1-NN comparisons per test sample corresponding to the best performances for each
+method reported in Tables 3 and 4, respectively.
+7
+
+
+A PREPRINT - AUGUST 13, 2026
+To further investigate how the granular-ball construction affects both classification performance and inference effi-
+ciency, Figure 3 shows the average weighted G-mean and the average number of generated balls for DTW-GBC-R
+and DTW-GBC-L under different ρ. As ρ increases, both variants generally generate more granular balls because a
+stricter purity requirement causes more parent balls to be recursively split. In contrast, the weighted G-mean typically
+improves rapidly at relatively small values of ρ and then tends to saturate, or even decrease slightly on some datasets.
+This indicates that generating increasingly fine-grained granular balls does not necessarily yield further classification
+improvement, while it directly increases the number of comparisons required during inference.
+Moreover, under the same value of ρ, DTW-GBC-L generally generates fewer granular balls than DTW-GBC-R while
+achieving comparable or higher weighted G-mean. This tendency is especially evident on JapaneseVowels and Ar-
+ticularyWordRecognition, where the label-informed strategy maintains higher classification performance with a more
+compact granular representation over a wide range of ρ. The difference is less consistent on ECG5000 when η = 0.2,
+indicating that the advantage of label-informed splitting can depend on the characteristics and noise level of the dataset.
+These results show that DTW-GBC provides a favorable trade-off between robustness to noisy labels and inference
+efficiency, while the label-informed splitting strategy generally produces a more compact granular representation.
+0
+56
+112
+168
+224
+0
+96
+191
+287
+383
+0
+63
+125
+188
+251
+0
+74
+147
+221
+294
+The average num. of balls
+0
+76
+152
+228
+304
+0
+121
+242
+364
+485
+0
+76
+152
+228
+304
+0
+83
+166
+249
+332
+The average num. of balls
+0.5
+0.6
+0.7
+0.8
+0.9
+1.0
+ρ
+0.77
+0.83
+0.89
+0.94
+1.00
+The average G-mean
+SyntheticControl (η=0.1)
+0.5
+0.6
+0.7
+0.8
+0.9
+1.0
+ρ
+0.43
+0.57
+0.71
+0.85
+0.99
+ECG5000 (η=0.1)
+0.5
+0.6
+0.7
+0.8
+0.9
+1.0
+ρ
+0.80
+0.85
+0.90
+0.95
+1.00
+JapaneseVowels (η=0.1)
+0.5
+0.6
+0.7
+0.8
+0.9
+1.0
+ρ
+0.84
+0.88
+0.92
+0.96
+1.00 ArticularyWordRecognition (η=0.1)
+0.5
+0.6
+0.7
+0.8
+0.9
+1.0
+ρ
+0.83
+0.87
+0.92
+0.96
+1.00
+The average G-mean
+SyntheticControl (η=0.2)
+0.5
+0.6
+0.7
+0.8
+0.9
+1.0
+ρ
+0.74
+0.80
+0.86
+0.91
+0.97
+ECG5000 (η=0.2)
+0.5
+0.6
+0.7
+0.8
+0.9
+1.0
+ρ
+0.82
+0.86
+0.91
+0.95
+0.99
+JapaneseVowels (η=0.2)
+0.5
+0.6
+0.7
+0.8
+0.9
+1.0
+ρ
+0.84
+0.88
+0.92
+0.96
+1.00 ArticularyWordRecognition (η=0.2)
+G-mean (DTW-GBC-L)
+G-mean (DTW-GBC-R)
+#Balls (DTW-GBC-L)
+#Balls (DTW-GBC-R)
+Figure 3: The average weighted G-mean and average number of generated granular balls of DTW-GBC-R and DTW-
+GBC-L under different ρ on four benchmark datasets with η = 0.1 (upper) and η = 0.2 (bottom).
+6
+Conclusion
+This study proposed a DTW-based granular-ball computing framework for robust and efficient time-series classifica-
+tion under noisy labels. By organizing temporally similar training samples into granular balls and performing clas-
+sification at the granule level, DTW-GBC helps reduce the sensitivity of nearest-neighbor classification to individual
+mislabeled samples. Experiments on four benchmark datasets demonstrate that both DTW-GBC variants outperform
+conventional DTW under symmetric label noise in most cases. Among the two variants, DTW-GBC-L generally
+achieves better classification performance and provides a favorable performance–efficiency trade-off through label-
+informed splitting. Moreover, both variants substantially reduce the number of DTW comparisons during inference
+by comparing test samples with granular balls rather than all training instances. Overall, the results demonstrate that
+integrating GBC with DTW can improve robustness to noisy labels while reducing the computational cost of 1-NN
+inference.
+A limitation of this study is that the value of κ for DTW-GBC-R is selected using conventional cross-validation
+on noisy training data. Consequently, the selected value may be sensitive to a particular realization of label noise,
+especially for datasets with limited training samples.
+In future work, in addition to exploring more reliable strategies for hyperparameter selection under noisy labels, we
+plan to evaluate DTW-GBC on a broader range of time-series classification datasets and investigate its robustness
+under other types of label noise. We also intend to extend the proposed framework to other time-series analysis tasks,
+such as clustering and anomaly detection.
+8
+
+
+A PREPRINT - AUGUST 13, 2026
+Acknowledgment
+This work was partly supported by JSPS KAKENHI Grant Number JP25K24744, JST Moonshot R&D Grant Number
+JPMJMS2021, and JST CREST Grant Number JPMJCR24R2.
+References
+[1] J. Faouzi, “Time series classification: A review of algorithms and implementations,” Machine Learning (Emerg-
+ing Trends and Applications), 2022.
+[2] B. Frénay, M. Verleysen et al., “Classification in the presence of label noise: a survey.” IEEE Trans. Neural
+Networks Learn. Syst., vol. 25, no. 5, pp. 845–869, 2014.
+[3] P. Ma, Z. Liu, J. Zheng, L. Wang, and Q. Ma, “CTW: Confident time-warping for time-series label-noise learn-
+ing.” in IJCAI, 2023, pp. 4046–4054.
+[4] Z. Liu, D. Chen, W. Pei, Q. Ma et al., “Scale-teaching: Robust multi-scale training for time series classification
+with noisy labels,” Advances in Neural Information Processing Systems, vol. 36, pp. 33 726–33 757, 2023.
+[5] A. Abanda, U. Mori, and J. A. Lozano, “A review on distance based time series classification,” Data Mining and
+Knowledge Discovery, vol. 33, no. 2, pp. 378–412, 2019.
+[6] H. Sakoe and S. Chiba, “Dynamic programming algorithm optimization for spoken word recognition,” IEEE
+Transactions on Acoustics, Speech, and Signal Processing, vol. 26, no. 1, pp. 43–49, 1978.
+[7] S. Xia, G. Wang, X. Gao, and X. Lian, “Granular-ball computing: An efficient, robust, and interpretable adaptive
+multi-granularity representation and computation method,” arXiv preprint arXiv:2304.11171, 2023.
+[8] S. Xia, Y. Liu, X. Ding, G. Wang, H. Yu, and Y. Luo, “Granular ball computing classifiers for efficient, scalable
+and robust learning,” Information Sciences, vol. 483, pp. 136–152, 2019.
+[9] A. Bagnall, J. Lines, A. Bostrom, J. Large, and E. Keogh, “The great time series classification bake off: a review
+and experimental evaluation of recent algorithmic advances,” Data Mining and Knowledge Discovery, vol. 31,
+no. 3, pp. 606–660, 2017.
+[10] T. Rakthanmanon, B. Campana, A. Mueen, G. Batista, B. Westover, Q. Zhu, J. Zakaria, and E. Keogh, “Searching
+and mining trillions of time series subsequences under dynamic time warping,” in Proceedings of the 18th ACM
+SIGKDD international conference on Knowledge discovery and data mining, 2012, pp. 262–270.
+[11] J. Xie, W. Kong, S. Xia, G. Wang, and X. Gao, “An efficient spectral clustering algorithm based on granular-ball,”
+IEEE Transactions on Knowledge and Data Engineering, 2023.
+[12] R. Rastogi, A. Bisht, S. Kumar, and S. Chandra, “Robust and efficient learning with granular ball support vector
+regression,” Neural Networks, p. 109174, 2026.
+[13] Z. Li and G. Tanaka, “Multi-reservoir echo state networks with sequence resampling for nonlinear time-series
+prediction,” Neurocomputing, vol. 467, pp. 115–129, 2022.
+[14] Y. Wang, L. Shen, S. Xia, and Y. Wang, “Efficient time series clustering from multiscale reservoir dynamics with
+granular-ball anchoring graph optimization,” arXiv preprint arXiv:2606.12077, 2026.
+[15] L. Shen, L. Peng, R. Liu, S. Xia, and Y. Liu, “Finding time series anomalies using granular-ball vector data
+description,” in Proceedings of the AAAI Conference on Artificial Intelligence, vol. 40, no. 30, 2026, pp. 25 295–
+25 303.
+[16] T. Cover and P. Hart, “Nearest neighbor pattern classification,” IEEE transactions on information theory, vol. 13,
+no. 1, pp. 21–27, 1967.
+[17] H. A. Dau, A. Bagnall, K. Kamgar, C.-C. M. Yeh, Y. Zhu, S. Gharghabi, C. A. Ratanamahatana, and E. Keogh,
+“The ucr time series archive,” IEEE/CAA Journal of Automatica Sinica, vol. 6, no. 6, pp. 1293–1305, 2019.
+[18] M. Middlehurst, A. Rushbrooke, A. Ismail-Fawaz, M. Devanne, G. Forestier, A. Dempster, G. I. Webb, C. Holder,
+and A. Bagnall, “The multiverse of time series machine learning: an archive for multivariate time series classifi-
+cation,” arXiv preprint arXiv:2603.20352, 2026.
+[19] C. Northcutt, L. Jiang, and I. Chuang, “Confident learning: Estimating uncertainty in dataset labels,” Journal of
+Artificial Intelligence Research, vol. 70, pp. 1373–1411, 2021.
+9
