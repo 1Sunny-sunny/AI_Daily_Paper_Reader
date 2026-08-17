@@ -1,0 +1,427 @@
+Title: SAGE: Surrogate-gradient Adaptation via Attention-Guided Entropy for Spiking Transformers
+
+URL Source: https://arxiv.org/pdf/2608.13702v1
+
+Published Time: Mon, 17 Aug 2026 00:09:29 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# SAGE: Surrogate-gradient Adaptation via Attention-Guided Entropy for Spiking Transformers 
+
+Kiran Nair ∗
+
+USD Artificial Intelligence Research Lab Department of Computer Science University of South Dakota Vermillion, SD 57069, USA 
+
+Rodrigue Rizk 
+
+USD Artificial Intelligence Research Lab Department of Computer Science University of South Dakota Vermillion, SD 57069, USA 
+
+KC Santosh 
+
+USD Artificial Intelligence Research Lab Department of Computer Science University of South Dakota Vermillion, SD 57069, USA 
+
+## Abstract 
+
+Spiking neural networks (SNNs) offer an energy-efficient alternative to con-ventional deep neural networks by exploiting sparse event-driven computa-tion, but their training remains challenging because the non-differentiable spike function requires surrogate gradients whose fixed shape may be sub-optimal across layers and training stages. In this work, we introduce SAGE, an uncertainty-modulated surrogate-gradient mechanism for Transformer-based SNNs. SAGE estimates block-level uncertainty from normalized self-attention entropy and uses this signal to adapt the surrogate-gradient slope during training while leaving the inference model unchanged. By modu-lating only the training-time surrogate parameter, the proposed method preserves the original architecture and deployment cost while improving optimization flexibility. Experiments on CIFAR-10/100 demonstrate that SAGE achieves improved accuracy over fixed-surrogate baselines, with re-sults up to 1-2% consistent gains across multiple simulation time steps. These results highlight the potential of attention-derived uncertainty as a lightweight training signal for adaptive surrogate-gradient learning in transformer-based SNNs. 
+
+## 1 Introduction 
+
+Spiking Neural Networks (SNNs), recognized as the third generation of neural network models, have emerged as an energy-efficient, event-driven paradigm for deep learning Maass [1997], Roy et al. [2019]. By replacing continuous floating-point activations with discrete binary spikes ( 0 or 1), SNNs running on neuromorphic hardware replace resource-heavy Multiply-Accumulate operations with sparse, addition-only (AC) operations, dramatically reducing computational energy consumption Horowitz [2014], Kundu et al. [2021]. Building upon these biologically plausible properties, recent architectural advances have successfully introduced self-attention mechanisms into SNNs. Most notably, the Spikformer architec-ture Zhou et al. [2022] established Spiking Self-Attention (SSA), which eliminates softmax  
+
+> ∗Corresponding author: kiran.prasannannair@coyotes.usd.edu
+> Preprint. arXiv:2608.13702v1 [cs.LG] 13 Aug 2026
+
+normalizations to compute sparse, AC attention maps across spike-form Query, Key, and Value tensors. This breakthrough demonstrated that Spiking Vision Transformers (ViTs) can achieve competitive accuracy on large-scale visual benchmarks while maintaining ultra-low hardware energy profiles. Despite their efficient forward computation, training deep Spiking ViTs remains a fun-damental challenge. Since the Heaviside spike-generation function is non-differentiable, Backpropagation Through Time (BPTT) cannot be applied directly. Instead, modern SNN training relies on surrogate gradients that approximate the derivative during backward propagation Lee et al. [2016], Neftci et al. [2019], Wu et al. [2018], Zheng et al. [2021]. However, conventional surrogate gradient functions, such as static arctangent, Fast Sigmoid, or piecewise linear derivatives, apply fixed or globally uniform gradient response windows across all spatial sequence dimensions Bellec et al. [2018], Zhou et al. [2026]. While recent works have explored temporal-wise learnable surrogates to track time-step dynamics Zhou et al. [2026], existing paradigms treat all spatial tokens identically during backpropagation, ignoring the complex, token-level feature dynamics inherent to vision transformer layers. This spatially uniform gradient approximation creates a critical failure mode in deep Spiking transformers. Visual tokens exhibit vastly different levels of semantic uncertainty: high-confidence tokens (such as distinct object boundaries) require narrow, precise gradient up-dates, whereas high-uncertainty tokens (such as ambiguous background clutter or complex textures) demand broader, exploratory gradient flow to discover optimal representations. By enforcing a static surrogate window across all tokens, standard backpropagation fails to provide contextual credit assignment. In deep network layers, this token-blind gradient estimation exacerbates severe gradient vanishing and causes attention heads to collapse into “dead heads", where membrane potentials remain subthreshold and weight updates stall completely Zhou et al. [2022, 2026]. Consequently, a major challenge in scaling Spiking ViTs lies in developing an adaptive surrogate mechanism that dynamically tunes gradient flow to local token uncertainty without compromising the deterministic, low-power binary execution of the forward pass. Motivated by this challenge, we propose SAGE (Surrogate-gradient Adaptation via attention-Guided Entropy), an uncertainty-aware surrogate-gradient framework for Spiking ViTs. Instead of using a fixed or globally learnable surrogate throughout training, SAGE estimates the uncertainty of each transformer block from the dispersion of attention entropy across self-attention heads and adaptively modulates the surrogate-gradient slope during back-propagation. The proposed framework operates exclusively during training, requiring no architectural modifications, additional inference-time parameters, or changes to the forward computation. Extensive experiments on CIFAR-10, CIFAR-100, and ImageNet-200 demon-strate that SAGE consistently improves training effectiveness while preserving the efficiency and deployment characteristics of the original Spikformer. Precisely, our contributions are as follows: 1. We introduce the first uncertainty-aware adaptive surrogate-gradient framework for spiking transformers. 2. We demonstrate that entropy dispersion across attention heads provides a reliable online uncertainty signal for surrogate adaptation and is substantially more discrim-inative than alternative metrics for characterizing transformer-block uncertainty. 3. We validate SAGE on competitive datasets, where it consistently outperforms fixed and learnable surrogate baselines by up to 1-2% Top-1 accuracy while adding only 0.03 ms training overhead per mini-batch. The remainder of this paper is organized as follows. Section 2 presents the motivation for the proposed framework, establishing the need for uncertainty-aware surrogate adapta-tion through theoretical insights and supporting literature. Section 3 reviews the existing literature on surrogate-gradient learning and Spiking ViTs. Section 4 introduces the pro-posed SAGE framework, detailing the uncertainty estimation strategy and its integration into Spikformer training. Section 5 describes the experimental setup and presents comprehen-sive evaluations. Section 6 provides a detailed analysis and discussion of the experimental findings, while Section 7 concludes the paper. 22 Motivation 
+
+Deep SNNs are trained using surrogate gradients, which approximate the derivative of the non-differentiable spike function during backpropagation. Over the past decade, numerous surrogate-gradient formulations have been proposed, differing primarily in their functional forms Zenke and Ganguli [2018], smoothness characteristics Shrestha and Orchard [2018], and gradient scaling strategies Wu et al. [2018]. Despite these differences, existing methods employ a fixed surrogate response for every neuron, treating all spike events identically regardless of the confidence of the underlying representation. This assumption contrasts with modern learning paradigms, where intermediate representations contribute unequally to downstream predictions Vaswani et al. [2017], and uncertainty estimation is widely used to identify ambiguous or unreliable features Gawlikowski et al. [2023]. Consequently, applying identical surrogate gradients to neurons encoding both highly certain and highly uncertain information may lead to suboptimal credit assignment during optimization Neftci et al. [2019]. These observations naturally raise the following question: should surrogate gradients remain uniform when the underlying representations exhibit different levels of uncertainty? We hypothesize that surrogate gradient modulation should instead reflect the uncertainty of the encoded representation. Intuitively, confident representations require less surrogate smoothing, whereas uncertain representations may benefit from broader surrogate support to maintain effective gradient propagation. This intuition is consistent with the broader principles of adaptive computation and uncertainty-aware learning in modern deep networks Vaswani et al. [2017], Gawlikowski et al. [2023]. Motivated by this observation, we propose an uncertainty-modulated surrogate gradient that dynamically adapts the backward surrogate response using attention-derived uncertainty while preserving the deterministic forward dynamics of the Spiking ViTs. The proposed formulation is analyzed theoretically in Propo-sition 1, which establishes the monotonic relationship between uncertainty and the surrogate gradient magnitude. 
+
+Proposition 1. Let zc denote the centered normalized entropy-dispersion statistic for a transformer block. The adaptive surrogate-gradient slope is defined as 
+
+α(zc) = 
+
+α0, |zc| < δ, α0 + β tanh( zc), |zc| ≥ δ, (1) 
+
+where α0 > 0, β > 0, and δ > 0. Then, outside the dead-zone region, α(zc) is a monotonically increasing function of zc.Proof. For |zc| ≥ δ,
+
+dα dz c
+
+= β  1 − tanh 2(zc) . (2) Since β > 0 and 1 − tanh 2(zc) > 0 for all finite zc,
+
+dα dz c
+
+> 0. (3) Therefore, α is strictly monotonic with respect to the centered uncertainty statistic outside the dead-zone region. Within the dead zone, α = α0 is constant, intentionally suppressing small uncertainty fluctuations. 
+
+## 3 Related Works 
+
+This section reviews the three research directions most closely related to the proposed SAGE framework. We first summarize advances in direct training of Spiking Neural Net-works, where surrogate gradients have become the standard approach for optimizing deep SNNs. We then discuss the evolution of Spiking ViTs, highlighting recent architectural developments built upon self-attention mechanisms. Finally, we review existing surrogate-gradient optimization strategies and their limitations, thereby motivating the need for an uncertainty-guided adaptive surrogate framework for spiking transformers. 3Spiking Neural Networks & Direct Training SNNs represent a biologically inspired, event-driven paradigm that achieves significant energy efficiency by transmitting discrete binary spikes rather than continuous floating-point activations Ghosh-Dastidar and Adeli [2009], Tavanaei et al. [2019]. Early efforts to scale SNNs relied on Artificial Neural Network (ANN)-to-SNN conversion, which typically incurred excessive latency and high inference time steps Han et al. [2020]. To overcome these latency bottlenecks, direct training via Spatio-Temporal Backpropagation (STBP) and BPTT emerged as the dominant framework for optimizing deep architectures Lee et al. [2016], Wu et al. [2018]. Direct training algo-rithms substitute the non-differentiable Heaviside step function with smooth Surrogate Gradients during backward propagation, enabling competitive low-latency execution Neftci et al. [2019]. Recent advances have expanded direct SNN training across diverse domains, including dynamic spiking graph networks Yin et al. [2024], asynchronous event-based vision processors Zeng et al. [2025], and attention-guided spiking architectures Yao et al. [2023]. Nevertheless, a fundamental limitation persists: direct training algorithms rely heavily on static or globally uniform surrogate derivative functions Neftci et al. [2019], Zhou et al. [2026], which fail to accommodate localized spatial variations in complex feature representations. 
+
+Spiking Vision Transformers To combine the representation capability of self-attention Vaswani et al. [2017] with the low-power characteristics of neuromorphic processing, recent studies have adapted ViTs to spiking domain operations. The seminal Spikformer architec-ture Zhou et al. [2022] introduced SSA, which eliminates softmax normalizations to compute sparse, AC attention maps across spike-form Query, Key, and Value tensors. Building on this foundation, subsequent work introduced multiscale spiking ViTs Yu et al. [2024], hybrid event-based detection models Xu et al. [2025], biological visual mechanisms like saccadic attention Wang et al. [2025], and structural bridges between ResNets and ViTs Shi et al. [2024]. Additionally, gating mechanisms Nair et al. [2026] and dynamic time-step allocation frameworks Datta et al. [2025] have been explored to enhance information flow control and reduce latency. However, while these architectures optimize forward-pass execution and structural feature routing, their backward optimization remains constrained by static surrogate functions Zhou et al. [2022], leaving deep spiking transformer layers susceptible to vanishing gradients and dead attention heads. 
+
+Surrogate Gradient Optimization Overcoming the non-differentiability of spiking activa-tions has motivated extensive research into surrogate gradient formulation. Conventional direct training paradigms employ fixed analytical derivatives, such as Fast Sigmoid, arct-angent, or piecewise linear functions Bellec et al. [2018]. To mitigate gradient vanishing and mismatch, researchers have developed adaptive and learnable surrogate functions Perez-Nieves and Goodman [2021], Che et al. [2022], Guo et al. [2024], including adap-tive smoothing gradient learning Wang et al. [2023], cross-layer threshold adaptations Ai et al. [2025], and dual-stage threshold-gradient optimization Jiang et al. [2026]. Re-cent extensions have further explored lightweight adaptive surrogates Hou et al. [2026], membrane-potential-driven gradient scaling Jiang et al. [2025], Sun et al. [2026], sparse low-activity firing constraints Stanojevic et al. [2024], and adaptive surrogates for sequential reinforcement learning Van den Berghe et al. [2026]. Although these approaches dynami-cally modulate gradient shapes, they primarily adapt across global temporal dimensions or layer-wide statistics Jiang et al. [2025], Zhou et al. [2026]. Inspired by uncertainty-guided learning Qiao and Peng [2021], Lai et al. [2024], confidence-aware optimization Moon et al. [2020], Lv et al. [2026], and causal entropy principles Branchini et al. [2023], Cheng et al. [2026], there remains an unmapped frontier: formulating an uncertainty-modulated, token-level surrogate gradient that dynamically tunes its derivative window based on spatial attention entropy during backpropagation. 
+
+## 4 Method 
+
+4.1 Overview of SAGE 
+
+Figure 1 presents an overview of the proposed SAGE (Surrogate-gradient Adaptation via attention-Guided Entropy) framework for adaptive surrogate-gradient optimization in spik-4Figure 1: Overview of the proposed SAGE (Surrogate-gradient Adaptation via attention-
+
+Guided Entropy) framework. Top: Standard Spikformer architecture consisting of a spiking patch splitting module, SSA, Multilayer Perceptron(MLP) blocks, and a classification head. 
+
+Bottom: Detailed view of the SSA module. Multi-head attention (MHA) maps are generated from the spike-based query ( Q), key ( K), and value ( V ) representations. Per-head attention entropy is computed from each attention map, and the standard deviation across attention heads is used as an uncertainty signal to guide adaptive surrogate-gradient modulation during training. The forward inference path remains unchanged, while the uncertainty-guided controller is active only during backpropagation. ing transformers. Built upon the standard Spikformer architecture Zhou et al. [2022], SAGE preserves the original forward inference pipeline and introduces no modifications to the network architecture or inference procedure. Instead, the proposed framework operates exclusively during training by adaptively modulating the surrogate gradient used for back-propagation. The central idea is that the multi-head SSA module naturally produces attention distributions whose variability reflects the model’s uncertainty during optimization. Rather than applying a fixed surrogate gradient uniformly across all transformer blocks throughout training, SAGE derives an uncertainty signal from the attention maps of each block and uses it to dynamically adjust the surrogate gradient parameter, enabling different blocks to receive optimization behavior that is consistent with their current uncertainty. Importantly, SAGE is a training-time optimization framework and does not alter the inference process. During inference, both the uncertainty estimation module and the adaptive con-troller are removed, leaving the original Spikformer architecture unchanged. Consequently, SAGE preserves the inference graph, computational complexity, and latency of the baseline model while remaining readily applicable to existing spiking transformer architectures without introducing additional inference overhead. 
+
+4.2 Attention Uncertainty Estimation 
+
+To derive a training signal that reflects the confidence of the network, SAGE exploits the attention distributions naturally produced by the SSA module, as illustrated in Figure 1. Given the query and key spike representations, SSA module computes the raw attention scores as 
+
+S = s QK ⊤, (4) where s = 0 .125 is the fixed scaling factor used in the Spikformer Zhou et al. [2022] im-plementation. These raw attention scores are used directly in the standard SSA forward computation and are not normalized by a softmax operation. For uncertainty estimation only, SAGE constructs an auxiliary probability distribution from the detached attention 5Table 1: Comparison of state-of-the-art SNN and Spiking Transformer methods on CIFAR-10 and CIFAR-100.                                              
+
+> Method Architecture Params (M) Timesteps CIFAR-10 (%) CIFAR-100 (%)
+> Hybrid Training Rathi et al. [2020] VGG-11 9.27 125 92.22 67.87 Diet-SNN Rathi and Roy [2020] ResNet-20 0.27 10/5 92.54 64.07 STBP-tdBN Zheng et al. [2021] ResNet-19 12.63 492.92 70.86 TET Deng et al. [2022] ResNet-19 12.63 494.44 74.47 Spikformer Zhou et al. [2022] Spikformer-4-384 9.32 495.51 78.21 RMP-SNN Han et al. [2020] VGG-16 138.4 2048 93.63 70.93 QCFS Bu et al. [2023] ResNet-20 0.27 32 93.25 69.82
+> SAGE (Ours) Spikformer-4-384 9.32 496.32 78.69
+
+scores. Specifically, the scores are temperature-scaled and normalized as 
+
+A = Softmax 
+
+ detach( S)
+
+Tent 
+
+
+
+, (5) where detach( ·) indicates that the attention scores are excluded from gradient computation, ensuring that the uncertainty estimation influences only the surrogate-gradient controller and does not modify the forward attention computation. The entropy temperature is fixed to Tent = 0 .25 , selected based on a one-factor-at-a-time (OFAT) sensitivity analysis over multiple temperature values (see Appendix figure 5). The resulting auxiliary distributions 
+
+A(1) , A(2) , . . . , A(H) correspond to the H attention heads and are used exclusively to compute the uncertainty signal for SAGE. For each attention head, we quantify the uncertainty of its attention distribution using the normalized Shannon entropy Shannon [1948], 
+
+Ei = − 1log N
+
+> N
+
+X
+
+> j=1
+
+A(i) 
+
+> j
+
+log A(i) 
+
+> j
+
+, (6) where N is the number of attention elements within a head and the normalization confines the entropy to the range [0 , 1] . While the mean entropy reflects the overall uncertainty of the attention mechanism, our discussion (Section 6) shows that the variation of entropy across attention heads is considerably more informative during training. Therefore, SAGE estimates the uncertainty of each transformer block using the dispersion of the per-head entropies, 
+
+D = Std ( E1, E 2, . . . , E H ) , (7) where Std( ·) denotes the standard deviation across the H attention heads. A larger value of D indicates greater disagreement among attention heads, suggesting higher uncertainty in the current representation, whereas a smaller value implies more consistent attention patterns. This dispersion statistic serves as the uncertainty signal that drives the adaptive surrogate-gradient controller described in the following subsection. 
+
+4.3 Uncertainty-Guided Surrogate Modulation 
+
+Conventional SNNs employ a fixed surrogate-gradient parameter throughout training, resulting in identical gradient characteristics regardless of the optimization state or the confidence of intermediate representations. In contrast, SAGE adapts the surrogate gradient according to the uncertainty signal extracted from the attention mechanism. Let D(l) 
+
+> t
+
+denote the entropy-dispersion estimate of transformer block l at training step t, obtained from Eq. (7). Rather than using a fixed surrogate parameter (e.g., α = 4 ), it computes a block-specific surrogate parameter that evolves during optimization. To obtain a stable control signal, the instantaneous dispersion is first smoothed using an exponential moving average (EMA), 
+
+¯D(l) 
+
+> t
+
+= β ¯D(l) 
+
+> t−1
+
++ (1 − β)D(l) 
+
+> t
+
+, (8) where β denotes the EMA decay factor. The running mean μ(l) 
+
+> t
+
+and standard deviation σ(l)
+
+> t
+
+of the smoothed dispersion are then maintained throughout training. Using these statistics, 6the current uncertainty is normalized as 
+
+z(l) 
+
+> t
+
+= ¯D(l) 
+
+> t
+
+− μ(l)
+
+> t
+
+σ(l) 
+
+> t
+
++ ε , (9) where ε is a small constant for numerical stability. The normalized uncertainty is further centered across the L transformer blocks to obtain a relative block-wise uncertainty score, 
+
+˜z(l) 
+
+> t
+
+= z(l) 
+
+> t
+
+− 1
+
+L
+
+> L
+
+X
+
+> r=1
+
+z(r) 
+
+> t
+
+, (10) where ˜z(l) 
+
+> t
+
+denotes the centered normalized entropy-dispersion statistic of block l at training step t. To suppress minor fluctuations around the block-wise mean, SAGE applies a dead-zone controller before modulating the surrogate-gradient slope, 
+
+ˆα(l) 
+
+> t
+
+=
+
+
+
+4.0, |˜z(l) 
+
+> t
+
+| < 0.25 ,
+
+4.0 + 0 .5 tanh 
+
+
+
+˜z(l)
+
+> t
+
+
+
+, otherwise , (11) followed by 
+
+α(l) 
+
+> t
+
+= clip 
+
+
+
+ˆα(l) 
+
+> t
+
+, 3, 5
+
+
+
+. (12) The centering operation enables SAGE to adapt the surrogate gradient relative to the uncer-tainty distribution across transformer blocks, while the dead zone prevents small variations from triggering unnecessary updates. The tanh( ·) mapping provides a smooth bounded modulation around the baseline value α = 4 , and the final clipping operation constrains the surrogate slope to the interval [3 , 5] . Consequently, transformer blocks exhibiting higher uncertainty receive a different surrogate gradient than more confident blocks, enabling the optimization process to adapt to the evolving attention dynamics while maintaining stable training. During the initial warm-up stage, the surrogate parameter is fixed at α = 4 while the controller accumulates reliable running statistics before adaptive modulation begins. 
+
+4.4 Integration into Spikformer Training 
+
+SAGE is designed as a lightweight training-time optimization framework that can be inte-grated into existing Spikformer implementations with minimal modification. During the forward pass, the network architecture, feature extraction process, and inference computa-tion remain identical to the original Spikformer. The proposed framework simply accesses the MHA maps generated by each SSA module and computes the uncertainty estimate described in section 4.2. The resulting uncertainty signal is then passed through the adaptive controller in Section 4.3 to obtain a block-specific surrogate parameter α, which is used only during backpropagation. Consequently, SAGE introduces no architectural changes, additional learnable parameters, or inference-time overhead. The additional computation introduced by SAGE is negligible compared with the cost of self-attention. For an input sequence of length N and H attention heads, the dominant complexity of the attention mechanism remains the scaled dot-product computation with complexity O(N 2). In comparison, the proposed uncertainty estimation computes the en-tropy of each attention head in O(HN ), followed by a standard deviation across heads with complexity O(H). The subsequent exponential moving average, running statistics, and adaptive controller involve only constant-time operations per transformer block. Since 
+
+O(HN ) ≪ O (N 2) for practical transformer configurations, the overall computational com-plexity of Spikformer remains unchanged. Experimental profiling further confirms that the adaptive controller incurs only approximately 0.03 ms of additional computation per mini-batch during training, while introducing zero overhead during inference. 
+
+## 5 Experimental Results 
+
+We conduct comprehensive experiments to evaluate the effectiveness of the proposed SAGE framework on image classification benchmarks. SAGE is evaluated using the Spikformer 7(a) T = 1 (b) T = 2 (c) T = 4      
+
+> (d) T= 8 (e) T= 12
+
+Figure 2: Top-1 accuracy of fixed, learnable, and SAGE surrogate gradients across datasets and simulation timesteps. backbone and compared with both the original Spikformer baseline and recent state-of-the-art SNNs. In addition, extensive ablation studies are performed to analyze the contribution of each component of the proposed adaptive surrogate-gradient strategy. 
+
+5.1 Experimental Setup 5.1.1 Datasets 
+
+Experiments are conducted on three widely used image classification benchmarks: CIFAR-10, CIFAR-100 Krizhevsky et al. [2009], and ImageNet-200 Deng et al. [2009]. CIFAR-10 and CIFAR-100 each contain 60,000 RGB images of resolution 32 × 32 , divided into 50,000 training and 10,000 testing samples. CIFAR-10 consists of 10 object categories, whereas CIFAR-100 contains 100 fine-grained classes, providing a more challenging classification benchmark due to increased inter-class similarity. ImageNet-200 is a commonly used subset of the ImageNet benchmark containing 200 object categories with approximately 128k training images and 10k validation images, offering substantially greater visual diversity while maintaining manageable computational cost. 
+
+5.1.2 Implementation Details 
+
+SAGE is implemented on top of the official Spikformer Zhou et al. [2022] framework with-out modifying the network architecture or inference pipeline. Unless otherwise specified, experiments employ the Spikformer-4-384 backbone comprising four transformer blocks, an embedding dimension of 384, 12 attention heads, a patch size of 4, an MLP expansion ratio of 4, and four simulation time steps. Models are trained from scratch following the official Spikformer training protocol, including RandAugment, MixUp, Random Erasing, label smoothing, cosine learning-rate scheduling with warmup, and the AdamW optimizer. All experiments are implemented in PyTorch using the SpikingJelly framework and are conducted on NVIDIA Tesla V100 GPUs. During training, SAGE computes a block-level uncertainty signal from the normalized attention entropy obtained from temperature-scaled attention maps ( Tent = 0 .25 ). The entropy dispersion across attention heads is smoothed using an exponential moving average, normalized using running statistics, and mapped to an adaptive surrogate-gradient slope through the controller described in Section 4.3. The surrogate parameter is initialized with the standard SpikingJelly value ( α = 4 ) during the warmup stage before adaptive modu-lation is activated. Importantly, SAGE modifies only the surrogate-gradient computation 8Figure 3: Per-head attention entropy variability across the four SSA blocks during training. Each heatmap visualizes the standard deviation of the normalized attention entropy for each attention head over training epochs, computed from temperature-scaled attention maps (T = 0 .25 ). Rows correspond to attention heads, columns represent training epochs. Table 2: Comparison on the ImageNet-200 benchmark. 
+
+Method Top-1 (%) 
+
+Hybrid Training Rathi et al. [2020] 61.48 STBP-tdBN Zheng et al. [2021] 63.72 TET Deng et al. [2022] 63.72 QCFS Bu et al. [2023] 53.54 Spikformer Zhou et al. [2022] 70.24 SAGE (Ours) 60.60 during training, while the forward computation graph, network parameters, and inference procedure remain identical to the original Spikformer. 
+
+5.2 Our Results 
+
+Table 1 and Table 2 summarizes the performance of the proposed SAGE framework on CIFAR-10, CIFAR-100, and ImageNet-200, together with representative state-of-the-art SNN and Spiking Transformer methods. Following common practice, the reported results for Hybrid Training Rathi et al. [2020], DIET-SNN Rathi and Roy [2020], STBP-tdBN Zheng et al. [2021], TET Deng et al. [2022], RMP-SNN Han et al. [2020], QCFS Bu et al. [2023], and Spikformer Zhou et al. [2022] are reproduced from the original publications and the recent benchmark study in Zhou et al. [2026]. No re-implementation or retraining of these methods was performed. Our experiments were conducted only on the Spikformer baseline and the proposed SAGE framework using the same training protocol and hyperparameter settings described in Section 5.1.2. To evaluate the effect of adaptive surrogate-gradient modulation, we additionally compare three surrogate-gradient configurations: Fixed, Learnable, and the proposed SAGE. The Fixed configuration employs the conventional sigmoid surrogate with a constant slope α = 4 
+
+9throughout training. The Learnable configuration replaces the fixed slope with a single trainable surrogate-gradient parameter optimized jointly with the network parameters. In contrast, SAGE adaptively modulates the surrogate-gradient slope during training using the proposed uncertainty-driven entropy estimation while leaving the inference model un-changed. To investigate robustness across different temporal resolutions, all three surrogate-gradient configurations were evaluated under simulation time steps T = {1, 2, 4, 8, 12 }.The corresponding classification accuracies are presented in Fig. 2, where each subplot reports the Top-1 accuracy obtained on CIFAR-10, CIFAR-100, and ImageNet-200 for a fixed simulation time step. 
+
+## 6 Discussion 
+
+Performance Analysis Table 1 and Fig. 2 summarize the performance of the proposed SAGE framework under different surrogate-gradient formulations and simulation time steps. Across the evaluated datasets, SAGE consistently achieves competitive or superior classification accuracy compared with both the conventional fixed surrogate ( α = 4 ) and the learnable surrogate formulation. Under the standard Spikformer setting ( T = 4 ), SAGE attains the highest Top-1 accuracy on both CIFAR-10 and CIFAR-100 while maintaining competitive performance on ImageNet-200. Furthermore, the temporal analysis across simulation time steps T = 1 , 2, 4, 8, 12 shows that SAGE consistently achieves competitive or superior performance at lower simulation lengths ( T ≤ 4), with the largest improvement observed under the standard Spikformer setting of T = 4 . As the number of simulation time steps increases beyond T = 4 , the performance gap gradually narrows, and SAGE becomes comparable to the learnable surrogate formulation at T = 8 and T = 12 , indicating that the benefits of uncertainty-guided surrogate adaptation are most pronounced in the low-latency regime. These results suggest that uncertainty-guided surrogate adaptation provides a robust optimization strategy that generalizes across multiple datasets and temporal settings while preserving the original Spikformer architecture. 
+
+Understanding SAGE The design of SAGE was motivated by the observation that different Spikformer blocks exhibit distinct attention dynamics throughout training. To identify a suit-able uncertainty signal, we first analyzed the evolution of per-head attention statistics across training epochs. As illustrated in Fig. 3, the standard deviation of the normalized attention entropy consistently revealed clear block-wise and head-wise variations, indicating that dif-ferent transformer blocks experience varying levels of uncertainty during optimization. We also investigated alternative impurity measures, including Gini impurity Loh [2011], under multiple temperature scaling values ( Tent = {0.25 , 0.5, 1.0, 2.0}), with the corresponding results provided in the Appendix Fig. 4. While Gini impurity produced nearly saturated and highly uniform responses across blocks and temperatures, exhibiting limited temporal variation, the entropy-based formulation provided richer and more discriminative dynamics throughout training. Furthermore, using the standard deviation of per-head entropy, rather than the mean entropy, captures the dispersion among attention heads, directly reflecting the degree of disagreement within each transformer block. Since SAGE aims to adapt the surrogate gradient according to the consistency of attention behavior rather than its average confidence, entropy dispersion offers a more informative block-level uncertainty estimate for guiding surrogate-gradient adaptation. 
+
+Practical Implications Beyond the observed accuracy improvements, SAGE offers several practical advantages for spiking transformer optimization. Since the proposed framework operates exclusively during training, the forward inference graph remains identical to the original Spikformer architecture. Consequently, SAGE introduces no additional learnable parameters, preserves the original model size, and incurs no increase in inference latency or computational cost after training. The adaptive controller consists only of lightweight statistical operations, including entropy computation, exponential moving average updates, and a simple nonlinear mapping, contributing an average overhead of approximately 0.03 ms per iteration during training. As a result, the proposed method can be seamlessly integrated into existing surrogate-gradient training pipelines as a plug-and-play optimization strategy 10 without requiring architectural modifications or changes to deployment, making it readily applicable to a broad range of SNNs and transformer-based SNN models. 
+
+Limitations and Future Work Although SAGE demonstrates consistent improvements on Spikformer across multiple image classification benchmarks, the current study focuses on attention-based spiking transformer architectures where uncertainty can be naturally esti-mated from self-attention distributions. Extending the proposed framework to convolutional SNNs or other non-transformer architectures will require alternative uncertainty measures, such as spike-rate or membrane-potential statistics. Furthermore, the present work adapts only the surrogate-gradient slope while keeping all neuron dynamics unchanged. Future work will investigate jointly adapting additional neuron parameters, including firing thresh-olds and membrane time constants, as well as learning more general uncertainty-aware controllers that can automatically optimize the surrogate-gradient behavior across different datasets, architectures, and simulation time steps. 
+
+## 7 Conclusion 
+
+We have presented SAGE, an uncertainty-aware surrogate-gradient adaptation framework for Spiking ViTs. By leveraging the dispersion of attention entropy across self-attention heads, SAGE dynamically modulates the surrogate-gradient slope during training while preserving the original network architecture, model parameters, and inference pipeline. Our experiments on CIFAR-10, CIFAR-100, and ImageNet-200 demonstrated that the proposed approach consistently improves or maintains competitive classification performance over fixed and learnable surrogate-gradient formulations, particularly in low-latency settings. Furthermore, SAGE introduces only negligible training-time overhead and no additional inference cost, making it a practical plug-and-play optimization strategy for spiking trans-formers. These results highlight the potential of uncertainty-guided surrogate optimization as an effective direction for improving the training of deep SNNs. 
+
+## References 
+
+Qingsong Ai, Yingnan Yang, Mincheng Cai, Kun Chen, Quan Liu, and Li Ma. A cross-layer residual spiking neural network with adaptive threshold leaky integrate-and-fire neuron and learnable surrogate gradient. Knowledge-Based Systems , 319:113575, 2025. Guillaume Bellec, Darjan Salaj, Anand Subramoney, Robert Legenstein, and Wolfgang Maass. Long short-term memory and learning-to-learn in networks of spiking neurons. Advances in neural information processing systems , 31, 2018. Nicola Branchini, Virginia Aglietti, Neil Dhir, and Theodoros Damoulas. Causal entropy optimization. In International Conference on Artificial Intelligence and Statistics , pages 8586– 8605. PMLR, 2023. Tong Bu, Wei Fang, Jianhao Ding, PengLin Dai, Zhaofei Yu, and Tiejun Huang. Optimal ann-snn conversion for high-accuracy and ultra-low-latency spiking neural networks. 
+
+arXiv preprint arXiv:2303.04347 , 2023. Kaiwei Che, Luziwei Leng, Kaixuan Zhang, Jianguo Zhang, Qinghu Meng, Jie Cheng, Qinghai Guo, and Jianxing Liao. Differentiable hierarchical and surrogate gradient search for spiking neural networks. Advances in Neural Information Processing Systems , 35:24975– 24990, 2022. Guangran Cheng, Chengqi Lyu, Songyang Gao, Wenwei Zhang, and Kai Chen. Group entropy-controlled policy optimization. arXiv preprint arXiv:2607.16850 , 2026. Gourav Datta, Zeyu Liu, Anni Li, and Peter A Beerel. Dynamic spikformer: Low-latency & energy-efficient spiking neural networks with dynamic time steps for vision transformers. In ICASSP 2025-2025 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 1–5. IEEE, 2025. 11 Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li Fei-Fei. Imagenet: A large-scale hierarchical image database. In 2009 IEEE conference on computer vision and pattern recognition , pages 248–255. Ieee, 2009. Shikuang Deng, Yuhang Li, Shanghang Zhang, and Shi Gu. Temporal efficient training of spiking neural network via gradient re-weighting. arXiv preprint arXiv:2202.11946 , 2022. Jakob Gawlikowski, Cedrique Rovile Njieutcheu Tassi, Mohsin Ali, Jongseok Lee, Matthias Humt, Jianxiang Feng, Anna Kruspe, Rudolph Triebel, Peter Jung, Ribana Roscher, et al. A survey of uncertainty in deep neural networks: J. gawlikowski et al. Artificial intelligence review , 56(Suppl 1):1513–1589, 2023. Samanwoy Ghosh-Dastidar and Hojjat Adeli. Spiking neural networks. International journal of neural systems , 19(04):295–308, 2009. Yufei Guo, Yuanpei Chen, Zecheng Hao, Weihang Peng, Zhou Jie, Yuhan Zhang, Xiaode Liu, and Zhe Ma. Take a shortcut back: Mitigating the gradient vanishing for training spiking neural networks. Advances in Neural Information Processing Systems , 37:24849–24867, 2024. Bing Han, Gopalakrishnan Srinivasan, and Kaushik Roy. Rmp-snn: Residual membrane po-tential neuron for enabling deeper high-accuracy and low-latency spiking neural network. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 13558–13567, 2020. Mark Horowitz. 1.1 computing’s energy problem (and what we can do about it). In 2014 IEEE international solid-state circuits conference digest of technical papers (ISSCC) , pages 10–14. IEEE, 2014. Kungjui Hou, Kunlun Wu, and Yongcheng Zhou. Adaptive and lightweight surrogate gradi-ents: enhancing training efficiency of spiking neural networks. Frontiers in Neuroscience ,20:1795946, 2026. Jiaqiang Jiang, Lei Wang, Runhao Jiang, Jing Fan, and Rui Yan. Adaptive gradient learning for spiking neural networks by exploiting membrane potential dynamics. arXiv preprint arXiv:2505.11863 , 2025. Jiaqiang Jiang, Wenfeng Xu, Jing Fan, and Rui Yan. Ds-atgo: dual-stage synergistic learning via forward adaptive threshold and backward gradient optimization for spiking neural networks. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 1855–1863, 2026. Alex Krizhevsky, Geoffrey Hinton, et al. Learning multiple layers of features from tiny images. 2009. Souvik Kundu, Massoud Pedram, and Peter A Beerel. Hire-snn: Harnessing the inherent robustness of energy-efficient deep spiking neural networks by training with crafted input noise. In Proceedings of the IEEE/CVF international conference on computer vision , pages 5209–5218, 2021. Lei Lai, Eshed Ohn-Bar, Sanjay Arora, and John Seon Keun Yi. Uncertainty-guided never-ending learning to drive. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 15088–15098, 2024. Jun H Lee, Tobias Delbrück, and Michael Pfeiffer. Training deep spiking neural networks using backpropagation. Frontiers in neuroscience , 10:508, 2016. Wei-Yin Loh. Classification and regression trees. Wiley interdisciplinary reviews: data mining and knowledge discovery , 1(1):14–23, 2011. Weijun Lv, Yu Chen, Xiaozhao Fang, Xuhuan Zhu, Jie Wen, Guoxu Zhou, and Sixian Chan. Confidence-aware with prototype alignment for partial multi-label learning. Advances in Neural Information Processing Systems , 38:170397–170416, 2026. 12 Wolfgang Maass. Networks of spiking neurons: The third generation of neural network models. Neural Networks , 10(9):1659–1671, 1997. ISSN 0893-6080. doi: https://doi. org/10.1016/S0893-6080(97)00011-7. URL https://www.sciencedirect.com/science/ article/pii/S0893608097000117 .Jooyoung Moon, Jihyo Kim, Younghak Shin, and Sangheum Hwang. Confidence-aware learning for deep neural networks. In international conference on machine learning , pages 7034–7044. PMLR, 2020. Kiran Nair, Rodrigue Rizk, and KC Santosh. A spike-gated residual unit for information flow control in transformers. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) Workshops , pages 3469–3478, June 2026. Emre O Neftci, Hesham Mostafa, and Friedemann Zenke. Surrogate gradient learning in spiking neural networks. IEEE Signal Processing Magazine , 36(6):51–63, 2019. Nicolas Perez-Nieves and Dan Goodman. Sparse spiking gradient descent. Advances in Neural Information Processing Systems , 34:11795–11808, 2021. Fengchun Qiao and Xi Peng. Uncertainty-guided model generalization to unseen domains. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 6790–6800, 2021. Nitin Rathi and Kaushik Roy. Diet-snn: Direct input encoding with leakage and threshold optimization in deep spiking neural networks. arXiv preprint arXiv:2008.03658 , 2020. Nitin Rathi, Gopalakrishnan Srinivasan, Priyadarshini Panda, and Kaushik Roy. Enabling deep spiking neural networks with hybrid conversion and spike timing dependent back-propagation. arXiv preprint arXiv:2005.01807 , 2020. Kaushik Roy, Akhilesh Jaiswal, and Priyadarshini Panda. Towards spike-based machine intelligence with neuromorphic computing. Nature , 575(7784):607–617, 2019. Claude Elwood Shannon. A mathematical theory of communication. The Bell system technical journal , 27(3):379–423, 1948. Xinyu Shi, Zecheng Hao, and Zhaofei Yu. Spikingresformer: Bridging resnet and vision transformer in spiking neural networks. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 5610–5619, 2024. Sumit B Shrestha and Garrick Orchard. Slayer: Spike layer error reassignment in time. 
+
+Advances in neural information processing systems , 31, 2018. Ana Stanojevic, Stanisław Woźniak, Guillaume Bellec, Giovanni Cherubini, Angeliki Pantazi, and Wulfram Gerstner. High-performance deep spiking neural networks with 0.3 spikes per neuron. Nature Communications , 15(1):6793, 2024. Qi Sun, Zhen Cao, Kaige Geng, Ziyi Zhang, and Biao Hou. Optimization method for surrogate function in spiking neural networks based on membrane potential distribution. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 25718–25726, 2026. Amirhossein Tavanaei, Masoud Ghodrati, Saeed Reza Kheradpisheh, Timothée Masquelier, and Anthony Maida. Deep learning in spiking neural networks. Neural networks , 111: 47–63, 2019. Korneel Van den Berghe, Stein Stroobants, Vijay Janapa Reddi, and Guido De Croon. Adap-tive surrogate gradients for sequential reinforcement learning in spiking neural networks. 
+
+Advances in Neural Information Processing Systems , 38:147904–147926, 2026. Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. Advances in neural information processing systems , 30, 2017. 13 Shuai Wang, Dehao Zhang, Ammar Belatreche, Yichen Xiao, Yu Liang, Yimeng Shan, Qian Sun, Enqi Zhang, and Malu Zhang. Spiking vision transformer with saccadic atten-tion. In The 13th International Conference on Learning Representations , pages 72872–72893. International Conference on Learning Representations (ICLR), 2025. Ziming Wang, Runhao Jiang, Shuang Lian, Rui Yan, and Huajin Tang. Adaptive smoothing gradient learning for spiking neural networks. In International conference on machine learning ,pages 35798–35816. PMLR, 2023. Yujie Wu, Lei Deng, Guoqi Li, Jun Zhu, and Luping Shi. Spatio-temporal backpropagation for training high-performance spiking neural networks. Frontiers in neuroscience , 12:331, 2018. Qi Xu, Jie Deng, Jiangrong Shen, Biwu Chen, Huajin Tang, and Gang Pan. Hybrid spiking vision transformer for object detection with event cameras. In International Conference on Machine Learning , pages 69147–69159. PMLR, 2025. Man Yao, Guangshe Zhao, Hengyu Zhang, Yifan Hu, Lei Deng, Yonghong Tian, Bo Xu, and Guoqi Li. Attention spiking neural networks. IEEE transactions on pattern analysis and machine intelligence , 45(8):9393–9410, 2023. Nan Yin, Mengzhu Wang, Zhenghan Chen, Giulia De Masi, Huan Xiong, and Bin Gu. Dynamic spiking graph neural networks. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 38, pages 16495–16503, 2024. Lixing Yu, Hanqi Chen, Ziming Wang, Shaojie Zhan, Jiankun Shao, Qingjie Liu, and Shu Xu. Spikingvit: A multiscale spiking vision transformer model for event-based object detection. IEEE Transactions on Cognitive and Developmental Systems , 17(1):130–146, 2024. DingYi Zeng, Yuchen Wang, Honglin Cao, Wanlong Liu, Yichen Xiao, Wenyu Chen, Malu Zhang, Guoqing Wang, Yang Yang, et al. Leveraging asynchronous spiking neural net-works for ultra efficient event-based visual processing. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pages 1620–1628, 2025. Friedemann Zenke and Surya Ganguli. Superspike: Supervised learning in multilayer spiking neural networks. Neural computation , 30(6):1514–1541, 2018. Hanle Zheng, Yujie Wu, Lei Deng, Yifan Hu, and Guoqi Li. Going deeper with directly-trained larger spiking neural networks. In Proceedings of the AAAI conference on artificial intelligence , volume 35, pages 11062–11070, 2021. Feifan Zhou, Xiang Wei, Yang Liu, and Qiang Yu. Advancing direct training for spiking neural networks with circulate-firing neurons and learnable gradients. arXiv preprint arXiv:2605.27412 , 2026. Zhaokun Zhou, Yuesheng Zhu, Chao He, Yaowei Wang, Shuicheng Yan, Yonghong Tian, and Li Yuan. Spikformer: When spiking neural network meets transformer. arXiv preprint arXiv:2209.15425 , 2022. 14 A Additional Analysis of Uncertainty Measures 
+
+To investigate suitable uncertainty measures for surrogate-gradient adaptation, we compared normalized attention entropy with Gini impurity computed from the attention distributions. Figure 4 illustrates the evolution of Gini impurity across the four Spikformer blocks un-der different temperature scaling values ( Tent = {0.25 , 0.5, 1.0, 2.0}). Compared with the entropy-based analysis presented in the main paper, Gini impurity exhibits substantially smaller temporal variation and remains nearly saturated throughout training, providing lim-ited discrimination between transformer blocks. Consequently, SAGE adopts the standard deviation of normalized attention entropy as the uncertainty signal for adaptive surrogate-gradient modulation. 
+
+Figure 4: Evolution of Gini impurity across the four Spikformer transformer blocks during training under different attention-temperature values ( Tent = 0 .25 , 0.5, 1.0, and 2.0). Across all blocks, Gini impurity remains highly saturated with only minor temporal fluctuations, indicating limited sensitivity to changes in attention uncertainty. To determine an appropriate entropy temperature for SAGE, we performed a one-factor-at-a-time (OFAT) sensitivity analysis by evaluating the evolution of the standard deviation of normalized attention entropy under four temperature values ( Tent = {0.25 , 0.5, 1.0, 2.0}). Figure 5 summarizes the results across the four Spikformer transformer blocks. Lower entropy temperatures preserve substantially greater entropy dispersion, providing a richer uncertainty signal for the adaptive controller, whereas larger temperatures progressively smooth the attention distribution and reduce the available variability. Consequently, Tent =0.25 was selected for all experiments. 15 Figure 5: Sensitivity analysis of the entropy temperature. Evolution of the standard deviation of normalized attention entropy across the four Spikformer blocks during training under different entropy temperatures ( Tent = 0 .25 , 0.5, 1.0, and 2.0). Based on this analysis, 
+
+Tent = 0 .25 was adopted throughout all experiments. 16 Algorithm 1 SAGE Training for Spikformer 
+
+Require: Training set D, Spikformer model fθ with B SSA blocks, baseline surrogate slope α0 = 4 .0
+
+Require: Entropy temperature τe = 0 .25 , EMA factor β = 0 .95 , dead-zone threshold δ = 0 .25 
+
+Require: Slope bounds αmin = 3 .0, αmax = 5 .0
+
+1: Initialize one controller per SSA block: C1, . . . , CB
+
+2: Initialize EMA dispersion mb, running mean μb, running variance σ2 
+
+> b
+
+, and slope αb = α0 for each block b
+
+3: for each epoch e = 1 , . . . , E do 
+
+4: for each mini-batch (x, y ) ∈ D do 
+
+5: if e = 1 or training step is in warm-up then 
+
+6: Set αb ← α0 for all blocks 
+
+7: end if 
+
+8: Apply current block-wise surrogate slopes {αb}Bb=1 to all LIF nodes inside each transformer block 
+
+9: Forward pass through Spikformer: 
+
+ˆy = fθ (x)
+
+10: for each SSA block b = 1 , . . . , B do 
+
+11: Extract detached raw attention scores: 
+
+Ab = ( QbK⊤ 
+
+> b
+
+) · s
+
+12: Compute temperature-scaled attention probabilities: 
+
+Pb = softmax 
+
+ Ab
+
+τe
+
+
+
+13: Compute normalized attention entropy: 
+
+Hb = − 1log N
+
+> N
+
+X
+
+> j=1
+
+Pb,j log( Pb,j + ϵ)
+
+14: Average entropy over time, batch, and token dimensions to obtain per-head entropy: 
+
+hb = mean T ,B,N (Hb)
+
+15: Compute raw entropy dispersion across heads: 
+
+db = std( hb)
+
+16: Update EMA dispersion: 
+
+mb ← βm b + (1 − β)db
+
+17: Update running mean and variance of mb
+
+18: Compute temporal normalized uncertainty: 
+
+zb = mb − μb
+
+σb + ϵ
+
+19: end for 
+
+20: Center normalized uncertainty across blocks: 
+
+˜zb = zb − 1
+
+B
+
+> B
+
+X
+
+> k=1
+
+zk
+
+21: for each block b = 1 , . . . , B do 
+
+22: if |˜zb| < δ then 
+
+23: αb ← α0
+
+24: else 
+
+25: αb ← α0 + 0 .5 tanh(˜ zb)
+
+26: end if 
+
+27: Clamp: 
+
+αb ← clip( αb, α min , α max )
+
+28: end for 
+
+29: Compute loss L(ˆ y, y ) using the official training criterion 
+
+30: Backpropagate using surrogate gradients parameterized by the active αb
+
+31: Update model parameters θ with the optimizer 
+
+32: Reset spiking neuron states 
+
+33: end for 
+
+34: end for 
+
+17

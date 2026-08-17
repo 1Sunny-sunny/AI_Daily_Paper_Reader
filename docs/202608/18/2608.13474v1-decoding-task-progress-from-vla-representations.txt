@@ -1,0 +1,619 @@
+Title: Decoding Task Progress from VLA Representations
+
+URL Source: https://arxiv.org/pdf/2608.13474v1
+
+Published Time: Fri, 14 Aug 2026 01:22:21 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# Decoding Task Progress from VLA Representations 
+
+Atiksh Bhardwaj * Edward Weiyi Duan * Pritwish Dan Wei-Chiu Ma Preston Culbertson 
+
+Cornell University 
+
+Abstract: Vision-language-action models (VLAs) are moving rapidly towards deployment as general-purpose manipulation policies, but we currently lack basic tools for understanding what these models represent internally or for monitoring them at runtime. Leveraging ideas from mechanistic interpretability, we probe the residual stream of π0.5 and find that task progress, the normalized time remaining in a trajectory, is linearly readable from the activations. We find that this signal is present in the pretrained PaliGemma backbone prior to training on any robot-specific data. A single linear probe generalizes to unseen tasks and varies under language counterfactuals when trained on multi-prompt data, but does not enable meaningful steering of the policy. These properties make the signal directly useful for instrumenting deployed VLAs. We use the probe as a simple label-free OOD detector, which detects stalled task progress, and find it competitive with state-of-the-art methods. Our results suggest that VLAs have rich, linearly readable internal representations of semantic quantities like task progress, and that learning to read these signals offers a lightweight, interpretable path toward monitoring deployed visuomotor policies. 
+
+Keywords: Vision-Language-Action Models, Interpretability, Task Progress, OOD Detection 
+
+## 1 Introduction 
+
+Vision-Language-Action models (VLAs) promise a path to generalizable robot manipulation. By coupling a pretrained vision-language model (VLM) backbone with an action decoding head, they inherit rich semantic and visual priors which can support open-vocabulary task specification across diverse environments and embodiments. In practice, however, deploying VLAs on new robots or tasks requires task-specific fine-tuning [1, 2], which systematically degrades the strong generalization that motivated the use of a VLM backbone. After fine-tuning, VLAs have been shown to lose language sensitivity [3], to become brittle to perceptual perturbations [4], and can collapse to near-zero success when training-scene assumptions are perturbed [5]. While these failures are common and well-documented, we fail to leverage pre-existing tools to understand when or why a VLA will fail, or to monitor their internal state at runtime. Interpretability tools developed for vision and language models [6, 7, 8, 9, 10] transfer naturally to VLAs, whose pretrained VLM backbones [11] share the same substrate. Taken together, these results establish VLA internals as a tractable target for interpretability. Recent work has begun to confirm this empirically [12, 13, 14, 15, 16]. These efforts establish that VLA representations are readable, but they characterize what the policy knows about the world, not where the policy stands relative to its task. The latter is a distinct class of feature, scalar, task-conditional, and directly tied to behavior, and it remains unprobed. We focus on one such signal: task progress , the normalized fraction of a trajectory remaining until completion. Progress is a foundational quantity in sequential decision-making; it serves as a natural goal-conditioned value signal, monotonically tracking the policy’s distance to task completion [17]. A substantial body of work in robot learning has trained external vision-language models to estimate 
+
+> *
+
+Equal contribution. Correspondence to Atiksh <ab2635@cornell.edu> .arXiv:2608.13474v1 [cs.RO] 13 Aug 2026 Base  FT 1                                             
+
+> T
+> Task Progress
+> "Insert the rose into the vase" "Put the banana into the plate"
+> "Take out the juice from the fridge" "Add ketchup to the dish"
+> 1. Data Collection 2. Activation Extraction
+> &Probe Training 3. Downstream
+> Tasks
+> VLA model( )
+> Transformer Layers
+> Actions
+> image, proprio, prompt
+> one demonstration
+> N expert trajectories
+> progress label — free
+> Probe
+> Steerability
+> inject
+> Injection doesn't propagate
+> Actual
+> Success
+> OOD Detection
+> stalled τ⇒flag OOD
+> Model Lacks Language
+> Sensitivity
+> Prompt: Original Swapped
+
+Figure 1: Task progress is linearly readable from π0.5’s internal activations. A linear probe 
+
+φ(z0) = w⊤z0 +b on residual-stream activations z0 from the VLM backbone recovers task progress, the normalized fraction of the trajectory remaining, and supports three downstream analyses: OOD detection, a language-grounding diagnostic, and a steerability study. progress from observations, deploying these estimators as reward signals, planning heuristics, and success detectors [18, 19]. But VLAs already process the same visual and language inputs these external estimators consume, and produce actions that implicitly depend on progress through the task. We hypothesize that progress is already encoded in the policy’s own internal representations, recoverable without training a separate model at all. In this work, we apply linear probing to π0.5 [2] to study what its representations encode about task progress. We confirm the hypothesis: progress is reliably decodable from intermediate embeddings, and the resulting probe supports several downstream uses. We use it as a runtime out-of-distribution detector competitive with supervised baselines [20], as a diagnostic for language-grounding degra-dation under fine-tuning [3, 4], and as a tool for studying the gap between feature observability and controllability [12], finding that task progress is observable but not linearly controllable. Our contributions are as follows: 1. We present definitions for weak decodability , strong decodability , and steerability for generative models, separating the existence of a linearly correlated signal from its dependence on the correct inputs and its causal effect on outputs. 2. We show that task progress is both weakly and strongly decodable from π0.5’s residual stream but not steerable: a single linear probe recovers progress, varies correctly under language counter-factuals, but fails to enable model steering via injection. 3. We show that the progress probe, when used at runtime as a label-free OOD detector , is competi-tive with supervised baselines, with strong cross-task and cross-perturbation generalization. 
+
+## 2 Related Work 
+
+2.1 Interpretability for Large Models 
+
+A growing body of work in neural network interpretability has built on the linear representation hypothesis , [10, 21], which holds that high-level semantic concepts in large pretrained models tend to be linearly encoded in the activation spaces. Evidence for this hypothesis has accumulated for both vision [8] and language models [9, 10]. Notably, transformers trained to predict Othello moves develop linearly decodable representations of the board state [22, 23], suggesting that models trained purely for imitation can develop structured world models. Beyond analysis, this linear structure supports training-free steering via contrastive concept directions [24] and detection of behaviors not visible in model outputs [25, 26]. Several recent works apply interpretability methods to VLAs directly. H¨ aon et al. [13] use mechanistic techniques to identify semantic directions in VLA activations, and Swann et al. [16] use sparse autoencoders to find “monosemantic” directions correlated with motion primitives with both exploring 2these for steering. Buurmeijer et al. [12] decode and steer actions and physical states with linear probes, finding physical states cleanly decodable from internal activations, and high-level logical states (e.g., one object resting on another) are likewise decodable from OpenVLA [14]. Our work joins this line but differs in focus: rather than cataloguing which signals are present in activations or steering the model directly, we target one specific signal, task progress, for runtime monitoring. 
+
+2.2 Out of Distribution Detection 
+
+A core safety concern for VLAs is that they often fail to generalize to out-of-distribution (OOD) states including visual perturbations, unseen task variants, or novel environments, which can produce silent failures during deployment. Prior work on OOD detection in deep models falls into two broad families. Density and distance-based methods, such as Mahalanobis-distance scoring [27] and its PCA-projected variants, energy-based detection [28], and variational autoencoders, fit a model of the in-distribution feature distribution and flag low-density points. Supervised approaches train detectors directly on labeled in-distribution and out-of-distribution data: SAFE [20] adapts this to VLAs by training MLP/LSTM heads on the model’s internal embeddings. Conformal-prediction methods [29] provide statistical failure guarantees, and language-model runtime monitors [30] flag anomalies by reasoning over the policy’s observations. Both families share limitations for VLAs: density-based detectors memorize the training-task distri-bution, while supervised detectors require OOD labels and transfer poorly across perturbations. We instead use task progress , a feature intrinsic to the policy, as a calibrated OOD signal requiring no OOD supervision and tying failure detection to the model’s own representation of task completion. 
+
+## 3 Methods 
+
+3.1 Vision-Language Action Models and Embedding Extraction 
+
+We define the transformer architecture commonly found in VLAs including our targeted VLA model of π0.5 [2] and its vision-language backbone of PaliGemma [11]. Given an input observation 
+
+x = ( I, q, ℓ ) which consists of an image I, proprioceptive data q, and a language prompt ℓ, the VLA model processes this sequence through multiple layers of transformer blocks, producing a sequence of intermediate embeddings at each layer. As the input x is passed through a sequence of L layers, it turns into an embedding zi ∈ Rd for layer 
+
+i = 0 , . . . , L . Each embedding is computed sequentially via a residual function f i : Rd → Rd,
+
+zi+1 = zi + f i(zi), i = 0 , . . . , L − 1.
+
+We extract the embeddings from the targeted VLA by computing the intermediate embeddings zit
+
+for each observation xt in the post-training dataset D = {(xt, at)}Ni=0 for t = 0 , . . . , T and N
+
+trajectories. For each input xt, we cache the intermediate embeddings (z0 
+
+> t
+
+, z1 
+
+> t
+
+, . . . , zLt ), and the corresponding labels for the target feature ζ for each time step t, creating a dataset for probe training: 
+
+Dprobe = {(z0 
+
+> t
+
+, z1 
+
+> t
+
+, . . . , zLt , ζ t)}Ni=0 . Additionally, each embedding zit will have a shape d × n, where 
+
+d is the size of the embedding and n is the number of tokens, where we mean-pool across the tokens. 
+
+3.2 Linear Probes for Feature Decodability and Steerability 
+
+Claims that a network “represents” a feature vary in strength, from “a correlated signal can be extracted” to “editing the signal steers the model” [31]. We formalize three notions along this spectrum. Consider a layer i and a scalar feature ζ ∈ R of the input. Let φ(zi) = w⊤zi + b be a linear probe which seeks to estimate ζ from zi, fit on Dtrain = {(zik, ζ k)}Kk=1 . As a running example, consider a VLA performing tabletop manipulation, where ζ(x) is the height of the target object referenced in the language prompt ℓ (e.g., “pick up the red mug” ). For any dataset D = {(zik, ζ k)}Kk=1 , we define the probe’s risk as 
+
+R(φ; D) = 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+L φ(zik); ζk
+
+,
+
+3where L is a loss appropriate for the feature type (e.g., squared error for continuous ζ, cross-entropy for discrete ζ). We can use this risk to discuss different notions of “representation.” 
+
+Weak decodability. Evaluating R(φ; Dval ) on Dval drawn from the training distribution tests weak decodability : whether a linear signal correlated with ζ can be extracted from in-distribution activations. However, low risk does not rule out spurious correlations (e.g., the probe always predicting the red mug’s coordinate if the mug was the only target object in Dtrain ).
+
+Strong decodability. To address this, let T : X → X denote a counterfactual transforma-tion that perturbs the input factors on which ζ depends. Evaluating R(φ; DT ), where DT =
+
+{(zi(T (xk)) , ζ (T (xk))) }Kk=1 , tests strong decodability : whether the same probe, without retraining, generalizes to counterfactually transformed inputs. For instance if Tswap replaces the language prompt 
+
+ℓ with a different instance ℓ′ (e.g., “pick up the blue bowl” ), low risk on DT indicates that the probe would respond to this switch, which rules out the “red mug” shortcut. 
+
+Steerability. However, strong decodability still does not establish steerability : whether the model uses this signal for decision-making. To test this, we intervene directly on the activations. Let π(zi)
+
+denote the distribution of actions produced by the model when the activations at layer i are zi. For a counterfactual input T (x), consider the steered activation 
+
+˜zi(x) = zi(x) + ζ(T (x)) − ζ(x)
+
+∥w∥2 w, (1) which shifts the activation along w so that the probe approximately reads out the correct counter-factual value, φ( ˜ zi) ≈ ζ(T (x)) . Let ˜πk = π( ˜ zi(xk)) denote the steered action distribution and 
+
+π⋆k = π(zi(T (xk))) for the true counterfactual. The steerability risk measures how well steering approximates the true counterfactual, and is defined as 
+
+RS (φ; D, T ) = 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+d ˜πk, π ⋆k
+
+, (2) where d is a divergence between action distributions. In our example, low RS under Tlift , which generates images where the red mug is at a higher z-coordinate, means that injecting a higher mug coordinate using φ causes the model to generate action chunks as if the mug were at this location. 
+
+3.3 The Progress Feature 
+
+We define our targeted feature, task progress τ , as the following: given a trajectory ξ =(x0, x1, . . . , xT ) where each observation xt = ( It, qt, ℓ ) contains images, proprioception, and lan-guage prompt. We first define a timestep mapping ϕξ : X → { 0, 1, . . . , T } that returns the index of an observation within ξ such that τ is the normalized time remaining: 
+
+ϕξ (xt) = t, τ (xt) = 1 − ϕξ (xt)
+
+T ∈ [0 , 1] 
+
+Task progress is a useful signal for runtime monitoring because it satisfies several desirable properties: it decreases monotonically along expert trajectories (yielding predictable in-distribution behavior), can be easily labeled from offline data, readily flags out-of-distribution states (when progress stalls), and generalizes across tasks. 
+
+3.4 Out of Distribution (OOD) Detection via the Progress Feature 
+
+We find the progress signal a strong indicator for when the policy goes OOD enabling us to develop a method to flag OOD based on the progress feature decoded via our probes. The detector takes as input a progress probe φ and a threshold δ. The expected task completion time 
+
+E[T | ℓ] is estimated once from in-distribution rollouts. At runtime, for each replan, we decode the predicted progress τpred = φ(zit ) using the probe. We then compute the residual 
+
+Vτ (t) = τpred −
+
+
+
+1 − t
+
+E[T | ℓ]
+
+
+
+, (3) 4Figure 2: Left: Weak decodability of the progress feature across layers of fine-tuned π0.5 (SigLIP, PaliGemma’s Gemma, and the action expert). Right: Probe performance vs. capacity on the first Gemma layer, true labels versus shuffled labels which measures the deviation between the predicted and actual progress. The rollout is flagged as out-of-distribution the first time Vτ (t) > δ .While simple, this procedure is able to detect stalled progress using the probe alone, which is both task-agnostic (assuming E[T | ℓ] is known or easily estimated) and does not require OOD labels. 
+
+## 4 Experiments and Results 
+
+4.1 Experimental Setup 
+
+Our experiments evaluate the progress feature along four axes: weak decodability, strong decodability, steerability, and OOD detection. The target model is π0.5, fine-tuned on VLABench [32], which provides 10 manipulation tasks with semantic variation and 500 trajectories per task. We follow the procedure from Subsection 3.1 to collect the embeddings and labels for τ .
+
+4.2 Where does the progress feature emerge from? 
+
+Q1: Can we weakly decode the progress feature across the layers of the VLA model? We train one linear probe per layer of π0.5 under an L1 loss (Fig. 2, left), with the vision-encoder curve averaged across the front, side, and wrist camera embeddings. We find progress is weakly decodable (i.e., achieves a low in-distribution loss) in the early vision-backbone layers and the first few Gemma layers. Given these results, we probe layer 0 for weak decodability and OOD detection (Sec. 4.5), and layer 10 for strong decodability (Sec. 4.3). Because a sufficiently expressive probe can fit random targets [31], we also train more expressive MLP probes on a control task, where all labels are shuffled. If a probe can memorize these random labels, then any signals would be weakly decodable at this layer, and this test is not selective . In Fig. 2 (right), we plot the gap between the true-label probe and the shuffled-label probe across a sweep of MLP capacities, finding a large gap even for high-capacity probes, indicating that task progress being weakly decodable is a meaningful property of the layer. 
+
+Q2: Is the progress feature weakly decodable prior to fine-tuning and across architectures? We compare probe performance across four models chosen to isolate which stage of training establishes 
+
+Figure 3: Weak decodability of the progress feature across four models, probed at successive stages of training: PaliGemma (vision-language backbone only), base π0.5 (after large-scale robot pre-training, before fine-tuning), and VLABench fine-tuned π0 (a distinct VLA architecture), and VLABench fine-tuned π0.5 (our target model). 50 5 10 15 20 25 30       
+
+> Replan index
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Predicted Task Progress ( τ)Naive Dataset (weak) orig swap
+> 0510 15 20 25 30
+> Replan index With Counterfactuals (strong) orig swap
+
+Figure 4: Counterfactual training yields strong decodability at a cost. Progress traces under the original instruction (blue) and Tlang noun-swap (orange). Left: naive layer-0 probe. Right: contrastive probe at layer 10, trained with Tlang counterfactuals labeled τ = 1 .0. Bands: 95% CI over 75 rollouts. the progress feature: the PaliGemma vision-language backbone, base π0.5 prior to fine-tuning, VLABench fine-tuned π0, and VLABench fine-tuned π0.5 (Fig. 3). Probes are trained on 400 episodes (100 per task) and evaluated on 50 held-out episodes per task. Fig. 3 shows that the feature is observable in all four models, but the three π0.x variants substantially outperform PaliGemma and perform comparably to one another. This indicates that the progress feature is established by large-scale robotic pre-training and not by fine-tuning. 
+
+4.3 How does the progress feature react to language perturbations? 
+
+We test for strong decodability with respect to a language-perturbation counterfactual Tlang , which swaps the target noun in the instruction (e.g., “put the pear onto the plate” → “put the apple onto the plate” ) while leaving the visual observation and proprioception unchanged. For each demonstration from the expert dataset, we run several “shadow” forward passes under unique counterfactuals Tlang 
+
+and cache the Gemma activations for each layer. 
+
+Q1: Does a naively trained probe respond to language perturbations? The layer-0 probe from 4.2 decodes task progress (R2 = 0 .95) , but its output under Tlang is nearly identical to its output under the original instruction (Fig. 4, left). Likely, this means the probe relies solely on vision and ignores the language input ℓ. Task progress is not strongly decodable using this probe. 
+
+Q2: Does counterfactual training yield strong decodability? We augment Dprobe with Tlang activations for counterfactual prompts, labeled with τ = 1 .0, and retrain at layer 10 with the contrastive objective of App. A.4. The label is a proxy: the true progress on a swapped task is hard to define and impossible to collect without separate counterfactual rollouts, so we approximate it by treating shadow passes as making zero progress on the instructed task. ID R2 falls to 0.33 , reflecting both the noisy proxy and the lower progress ceiling at layer 10 (App. A.4). The tradeoff is favorable: the probe now pins near 
+
+τ = 1 .0 under Tlang while tracking progress normally under the original instruction (Fig. 4, right), recovering the language sensitivity that the naive probe lacked. 
+
+Figure 5: Left: Predicted progress across Gemma layers i = 0 , . . . , 17 after injecting τboost = 0 .2
+
+at layer 0 via φ0, read at each subsequent layer by φi. Right: ∥Ainj − AGT ∥2 compared against the non-injected baseline ∥Apolicy − AGT ∥2, with 95% confidence interval (CI) over 5 rollouts run 5 times each. A successful injection would bring the injected curve close to the policy baseline. 64.4 Is the progress feature steerable? 
+
+We aim to steer the policy’s output based on τ . We define Tboost : X → X by Tboost (xt) = xt⋆ ,where t⋆−tT = τboost injecting τboost forward progress; here t is the current timestep, t⋆ the future timestep, and T the total number of timesteps. We train one linear probe per Gemma layer, yielding 18 observers φi for i = 0 , . . . , 17 . We then use φ0 as the injection direction on layer 0 via Eq. 1 with 
+
+τboost = 0 .2, and read the resulting progress at each subsequent layer using φj for j = 1 , . . . , 17 .Fig. 5 (left) shows that the predicted progress is unchanged beyond layer 0, indicating that the layer-0 injection does not boost progress across layers. To test whether the injection steers the policy toward future behavior, we decode an injected action Ainj from each perturbed embedding across five random demonstrations (five injections each) and compare ∥Ainj − AGT ∥2 to the non-injected baseline ∥Apolicy − AGT ∥2, where AGT is the corresponding future action from the demonstration, estimating Eq. 2. A successful injection would draw the two distances together, but Fig. 5 (right) shows the injected actions remain at a large, non-zero distance while the policy baseline lies near zero. We conclude that the progress feature τ is not steerable. 
+
+4.5 Does the progress feature serve as a reliable Out of Distribution detector? 
+
+The progress feature provides a strong signal for identifying states within the policy’s training distribution. When the policy enters OOD states, it can no longer advance the task, so its progress estimate should stagnate, yielding both a qualitative and a quantitative signal for OOD detection. We generate OOD states via four naturally-motivated image augmentations of ID states: (i) gaussian noise (seen in low-light capture); (ii) color shift (caused by changes in lighting); (iii) blur (caused by camera shake during manipulation); and (iv) occlusion (from obstacles in the scene). For each trajectory, we introduce the perturbation starting at one of three points, k ∈ { 0.25 , 0.5, 0.75 }
+
+of the trajectory length, and let the policy act on the perturbed input, collecting the rollout online until the episode ends. We sample 300 ID trajectories across six tasks (50 per task) and, for each noise mode and injection point, generate 50 OOD trajectories per task. We then evaluate robustness to (i) unseen tasks and (ii) unseen OOD conditions. 
+
+Q1: Does the progress feature encode a strong indication of OOD? Probing shows the progress feature loses its forward-progress signal the moment the robot enters an OOD state. Fig. 6 shows the predicted progress qualitatively stagnating at all three injection points under perturbation. This deviation is easy to quantify and motivates a Gemma layer-0 OOD detector via Sec. 3.3. 
+
+Q2: Can the progress feature detect OOD states in new unseen tasks? We define unseen tasks as those outside the policy’s training distribution. From the six tasks, we draw three at random, training all baselines and Vτ on the ID and OOD data from those three, and evaluate on the remaining three across all  63
+
+ = 20 combinations. We compare against Mahalanobis [27], Variational Autoencoders (VAE), and SAFE-MLP/SAFE-LSTM [20]. We evaluate at two granularities: per-replan scores each model replan within a rollout, while per-episode max-aggregates the replan scores to flag the rollout as success or failure, following SAFE [20]. On per-replan AUROC (Table 1), Vτ is the only detector whose per-replan performance does not degrade across the split ( 0.796 → 0.833 ), consistent with its ID-only training; SAFE-MLP attains Table 1: Cross-task generalization: pooled AUROC of OOD detectors with tasks split into supervised-training (S) vs held-out (U). Per-replan and per-episode aggregations with mean ± std.                          
+
+> per-replan per-episode Detector SUSU
+> Vτ0.796 ±0.090 0.833 ±0.058 0.910 ±0.036 0.851 ±0.056
+> Mahalanobis 0.986 ±0.010 0.859 ±0.040 0.775 ±0.013 0.719 ±0.016
+> VAE 0.859 ±0.036 0.796 ±0.056 0.782 ±0.035 0.778 ±0.034
+> SAFE-MLP 0.917 ±0.025 0.935 ±0.013 0.904 ±0.021 0.917 ±0.015
+> SAFE-LSTM 0.827 ±0.041 0.849 ±0.048 0.836 ±0.035 0.838 ±0.030
+
+7Figure 6: Qualitative OOD rollout under the Blur noise mode, with injections at k = 0 .25 , 0.5, 0.75 .the strongest unseen score ( 0.935 ) but requires OOD supervision. Under per-episode aggregation, Vτ
+
+achieves the best seen-task score ( 0.910 ) and is competitive on unseen tasks ( 0.851 ), trailing only SAFE-MLP ( 0.917 ). 
+
+Q3: Is the progress feature robust to new OOD states not seen in training? We test robustness to OOD types unseen during supervised training. Holding out two of the four noise modes at a time, we train the supervised baselines on the full six-task ID data plus the OOD data for the two seen modes and evaluate on the held-out modes, giving 3 splits. Vτ is trained only on the six-task ID data and never sees any noise mode. Table 2 reports AUROC pooled across modes when two are held out from supervised training. Vτ
+
+wins both unseen columns (per-replan 0.871 , per-episode 0.960 ), beating both supervised SAFE detectors despite never observing any OOD examples. Calibrating against expected progress thus yields a perturbation-agnostic failure signal that is both supervision-free and robust across OOD types, with the gap most pronounced at the episode level. 
+
+## 5 Discussion and Limitations 
+
+Task progress is linearly readable from π0.5’s activations, emerges from large-scale robotic pre-training, supports an unsupervised OOD detector, and varies under language counterfactuals. The feature is not steerable, exposing a gap between what the policy represents and what it acts on. Our results are limited in scope. All quantitative experiments use a single model family ( π0.x ) in simulation, leaving open whether the signal transfers across VLA architectures and to real-world deployment. Task progress is defined as normalized time in successful demonstrations, conflating elapsed time with semantic completion. The strong-decodability result under Tlang provides partial evidence against the pure-time interpretation, but a fully semantic definition requires completion labels. Similarly, the counterfactual labels used to train the augmented probe in Section 4.3 are themselves proxies: we treat any swapped instruction as zero progress, since true semantic progress on a counterfactual task is not directly measurable without separate rollouts. The negative steerability result is also narrow, testing a single injection direction at a single layer with a fixed magnitude, and stronger or jointly-edited interventions may provide stronger ways forward for model steering. Our work has several natural extensions, including evaluating progress decodability across VLA backbones, validating the OOD detector on real-robot rollouts, and probing for richer task-conditional signals beyond scalar progress. Our work suggests linearly readable semantic features can be a lightweight handle for monitoring deployed visuomotor policies, complementing the heavier inter-pretability toolkit increasingly applied to VLAs. Table 2: Cross-OOD generalization on the modes experiment: pooled AUROC with mean ± std of Vτ
+
+vs the two supervised SAFE detectors, with perturbation modes split into training (S) and held-out (U). Vτ is mode-agnostic (never sees any OOD examples at training)                  
+
+> per-replan per-episode Detector SUSU
+> Vτ–0.871 ±0.104 –0.960 ±0.013
+> SAFE-MLP 0.839 ±0.039 0.844 ±0.044 0.859 ±0.048 0.894 ±0.063
+> SAFE-LSTM 0.637 ±0.149 0.641 ±0.159 0.835 ±0.061 0.857 ±0.103
+
+8References 
+
+[1] M. J. Kim, K. Pertsch, S. Karamcheti, T. Xiao, A. Balakrishna, S. Nair, R. Rafailov, E. P. Foster, G. Lam, P. Sanketi, Q. Vuong, T. Kollar, B. Burchfiel, R. Tedrake, D. Sadigh, S. Levine, P. Liang, and C. Finn. Openvla: An open-source vision-language-action model. In Conference on Robot Learning (CoRL) , 2024. URL https://arxiv.org/abs/2406.09246 .[2] P. Intelligence, K. Black, N. Brown, J. Darpinian, K. Dhabalia, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, M. Y. Galliker, D. Ghosh, L. Groom, K. Hausman, B. Ichter, S. Jakubczak, T. Jones, L. Ke, D. LeBlanc, S. Levine, A. Li-Bell, M. Mothukuri, S. Nair, K. Pertsch, A. Z. Ren, L. X. Shi, L. Smith, J. T. Springenberg, K. Stachowicz, J. Tanner, Q. Vuong, H. Walke, A. Walling, H. Wang, L. Yu, and U. Zhilinsky. π0.5 : a vision-language-action model with open-world generalization. CoRR , abs/2504.16054, 2025. doi:10.48550/ARXIV.2504.16054. URL https://doi.org/10.48550/arXiv.2504.16054 .[3] D. Driess, J. T. Springenberg, B. Ichter, L. Yu, A. Li-Bell, K. Pertsch, A. Z. Ren, H. Walke, Q. Vuong, L. X. Shi, and S. Levine. Knowledge insulating vision-language-action models: Train fast, run fast, generalize better. arXiv preprint arXiv:2505.23705 , 2025. [4] N. Kachaev, M. Kolosov, D. Zelezetsky, A. K. Kovalev, and A. I. Panov. Don’t blind your VLA: Aligning visual representations for OOD generalization. arXiv preprint arXiv:2510.25616 ,2025. URL https://arxiv.org/abs/2510.25616 .[5] X. Zhou, Y. Xu, G. Tie, Y. Chen, G. Zhang, D. Chu, P. Zhou, and L. Sun. Libero-pro: Towards robust and fair evaluation of vision-language-action models beyond memorization, 2025. URL 
+
+https://arxiv.org/abs/2510.03827 .[6] D. Bau, B. Zhou, A. Khosla, A. Oliva, and A. Torralba. Network dissection: Quantifying interpretability of deep visual representations. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , pages 3319–3327, 2017. doi:10.1109/CVPR. 2017.354. [7] A. Templeton, T. Conerly, J. Marcus, J. Lindsey, T. Bricken, B. Chen, A. Pearce, C. Citro, E. Ameisen, A. Jones, H. Cunningham, N. L. Turner, C. McDougall, M. MacDiarmid, A. Tamkin, E. Durmus, T. Hume, F. Mosconi, C. D. Freeman, T. R. Sumers, E. Rees, J. Bat-son, A. Jermyn, S. Carter, C. Olah, and T. Henighan. Scaling monosemanticity: Extract-ing interpretable features from Claude 3 Sonnet. Transformer Circuits Thread , 2024. URL 
+
+https://transformer-circuits.pub/2024/scaling-monosemanticity/ .[8] A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal, G. Sastry, A. Askell, P. Mishkin, J. Clark, G. Krueger, and I. Sutskever. Learning transferable visual models from natural language supervision. In Proceedings of the 38th International Conference on Machine Learning (ICML) , pages 8748–8763, 2021. [9] S. Marks and M. Tegmark. The geometry of truth: Emergent linear structure in large language model representations of true/false datasets, 2023. URL https://arxiv.org/abs/2310. 06824 .[10] K. Park, Y. J. Choe, and V. Veitch. The linear representation hypothesis and the geometry of large language models. In Proceedings of the 41st International Conference on Machine Learning (ICML) , volume 235 of Proceedings of Machine Learning Research , pages 39643–39666. PMLR, 2024. [11] L. Beyer, A. Steiner, A. S. Pinto, A. Kolesnikov, X. Wang, D. Salz, M. Neumann, I. Alab-dulmohsin, M. Tschannen, E. Bugliarello, T. Unterthiner, D. Keysers, S. Koppula, F. Liu, A. Grycner, A. Gritsenko, N. Houlsby, M. Kumar, K. Rong, J. Eisenschlos, R. Kabra, M. Bauer, M. Boˇ snjak, X. Chen, M. Minderer, P. Voigtlaender, I. Bica, I. Balazevic, J. Puigcerver, P. Pa-palampidi, O. Henaff, X. Xiong, R. Soricut, J. Harmsen, and X. Zhai. PaliGemma: A versatile 3B VLM for transfer. arXiv preprint arXiv:2407.07726 , 2024. 9[12] H. Buurmeijer, C. A. Alonso, A. Swann, and M. Pavone. Observing and controlling features in vision-language-action models. arXiv preprint arXiv:2603.05487 , 2026. URL https: //arxiv.org/abs/2603.05487 .[13] B. H¨ aon, K. Stocking, I. Chuang, and C. Tomlin. Mechanistic interpretability for steering vision-language-action models. arXiv preprint arXiv:2509.00328 , 2025. [14] H. Lu, H. Li, P. S. Shahani, S. Herbers, and M. Scheutz. Probing a vision-language-action model for symbolic states and integration into a cognitive architecture. arXiv preprint arXiv:2502.04558 , 2025. URL https://arxiv.org/abs/2502.04558 .[15] M. Molinari, L. Nevali, S. Navani, and O. G. Younis. Emergent world representations in OpenVLA. arXiv preprint arXiv:2509.24559 , 2025. [16] A. Swann, L. McGranahan, H. Buurmeijer, M. Kennedy, and M. Schwager. Sparse autoencoders reveal interpretable and steerable features in VLA models. arXiv preprint arXiv:2603.19183 ,2026. URL https://arxiv.org/abs/2603.19183 .[17] Y. J. Ma, S. Sodhani, D. Jayaraman, O. Bastani, V. Kumar, and A. Zhang. VIP: Towards universal visual reward and representation via value-implicit pre-training. In International Conference on Learning Representations (ICLR) , 2023. [18] Y. J. Ma, V. Kumar, A. Zhang, O. Bastani, and D. Jayaraman. LIV: Language-image representa-tions and rewards for robotic control. In Proceedings of the 40th International Conference on Machine Learning (ICML) , 2023. [19] Y. J. Ma, J. Hejna, C. Fu, D. Shah, J. Liang, Z. Xu, S. Kirmani, P. Xu, D. Driess, T. Xiao, O. Bastani, D. Jayaraman, W. Yu, T. Zhang, D. Sadigh, and F. Xia. Vision language models are in-context value learners. In International Conference on Learning Representations (ICLR) ,2025. [20] Q. Gu, Y. Ju, S. Sun, I. Gilitschenski, H. Nishimura, M. Itkina, and F. Shkurti. Safe: Multitask failure detection for vision-language-action models, 2025. URL https://arxiv.org/abs/ 2506.09937 .[21] T. Mikolov, W.-t. Yih, and G. Zweig. Linguistic regularities in continuous space word represen-tations. In Proceedings of NAACL-HLT , pages 746–751, 2013. [22] K. Li, A. K. Hopkins, D. Bau, F. B. Vi´ egas, H. Pfister, and M. Wattenberg. Emergent world representations: Exploring a sequence model trained on a synthetic task. In International Conference on Learning Representations (ICLR) , 2023. [23] N. Nanda, A. Lee, and M. Wattenberg. Emergent linear representations in world models of self-supervised sequence models. In Proceedings of the 6th BlackboxNLP Workshop: Analyzing and Interpreting Neural Networks for NLP , 2023. doi:10.18653/v1/2023.blackboxnlp-1.2. [24] A. Zou, L. Phan, S. L. Chen, J. Campbell, P. Guo, R. Ren, A. Pan, X. Yin, M. Mazeika, A.-K. Dombrowski, S. Goel, N. Li, M. J. Byun, Z. Wang, A. Mallen, S. Basart, S. Koyejo, D. Song, M. Fredrikson, J. Z. Kolter, and D. Hendrycks. Representation engineering: A top-down approach to ai transparency. arXiv preprint arXiv:2310.01405 , 2023. [25] E. Hubinger, C. Denison, J. Mu, M. Lambert, M. Tong, M. MacDiarmid, T. Lanham, D. M. Ziegler, T. Maxwell, N. Cheng, A. Jermyn, A. Askell, A. Radhakrishnan, C. Anil, D. Duvenaud, D. Ganguli, F. Barez, J. Clark, K. Ndousse, K. Sachan, M. Sellitto, M. Sharma, N. DasSarma, R. Grosse, S. Kravec, Y. Bai, Z. Witten, M. Favaro, J. Brauner, H. Karnofsky, P. Christiano, S. R. Bowman, L. Graham, J. Kaplan, S. Mindermann, R. Greenblatt, B. Shlegeris, N. Schiefer, and E. Perez. Sleeper agents: Training deceptive llms that persist through safety training, 2024. URL https://arxiv.org/abs/2401.05566 .10 [26] M. MacDiarmid, T. Maxwell, N. Schiefer, J. Mu, J. Kaplan, D. Duvenaud, S. Bow-man, A. Tamkin, E. Perez, M. Sharma, C. Denison, and E. Hubinger. Simple probes can catch sleeper agents, 2024. URL https://www.anthropic.com/news/ probes-catch-sleeper-agents .[27] K. Lee, K. Lee, H. Lee, and J. Shin. A simple unified framework for detecting out-of-distribution samples and adversarial attacks. In Advances in Neural Information Processing Systems (NeurIPS) , 2018. [28] W. Liu, X. Wang, J. D. Owens, and Y. Li. Energy-based out-of-distribution detection. In 
+
+Advances in Neural Information Processing Systems (NeurIPS) , 2020. [29] A. Farid, D. Snyder, A. Z. Ren, and A. Majumdar. Failure prediction with statistical guarantees for vision-based robot control. In Proceedings of Robotics: Science and Systems (RSS) , New York City, NY, USA, 2022. doi:10.15607/RSS.2022.XVIII.042. [30] R. Sinha, A. Elhafsi, C. Agia, M. Foutter, E. Schmerling, and M. Pavone. Real-time anomaly detection and reactive planning with large language models. In Proceedings of Robotics: Science and Systems (RSS) , Delft, Netherlands, 2024. doi:10.15607/RSS.2024.XX.114. [31] J. Hewitt and P. Liang. Designing and interpreting probes with control tasks. In Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP) , 2019. doi:10.18653/v1/D19-1275. URL https://arxiv.org/abs/1909.03368 .[32] S. Zhang, Z. Xu, P. Liu, X. Yu, Y. Li, Q. Gao, Z. Fei, Z. Yin, Z. Wu, Y.-G. Jiang, and X. Qiu. Vlabench: A large-scale benchmark for language-conditioned robotics manipulation with long-horizon reasoning tasks. In IEEE/CVF International Conference on Computer Vision (ICCV) ,2025. doi:10.1109/ICCV51701.2025.01037. URL https://arxiv.org/abs/2412.18194 .11 Appendix 
+
+## A Experimental Design 
+
+A.1 Models and Dataset A.1.1 Dataset 
+
+We run all experiments on VLABench [32]. The simulator provides a primitive dataset of 10 primary tasks: 1. Add Condiment: Pick up the target condiment and pour it over the dish. 2. Select Fruit: Pick up the target fruit and place it on the plate. 3. Select Drink: Pick up the target drink from the fridge. 4. Insert Flower: Pick up the target flower and place it in the vase. 5. Select Poker: Pick up the target playing card from the table. 6. Select Mahjong: Pick up the target mahjong piece from the table. 7. Select Book: Pull the target book from the shelf. 8. Select Chemistry Tube: Touch the target tube in the chemical holder. 9. Select Toy: Pick up the target toy and place it in the box. 10. Select Painting: Press the button for the target painting. The dataset contains 5000 trajectories, 500 per task, with prompts and objects that vary across scenes to keep it diverse. 
+
+A.1.2 Models 
+
+We evaluate all our work on the following three models: 1. PaliGemma: a 400M SigLIP vision encoder followed by a 2B Gemma (18 transformer layers, 
+
+d = 2048 ). It processes three camera images (base, left wrist, right wrist), which we remap to (wrist, front, side) for the agent and robot views. 2. π0 and π0.5: each pairs a PaliGemma VLM backbone with a 300M Gemma for action generation. VLABench provides fine-tuned checkpoints of π0 and π0.5 on its primitive dataset of 5000 episodes, which we adopt directly. These checkpoints follow Physical Intelligence’s training procedure on eight H100 GPUs. For the base π0.5 model, we take Physical Intelligence’s checkpoint and generate embeddings on the primitive dataset. For the PaliGemma checkpoint, we take Google’s 3B model from HuggingFace and generate embeddings on the same dataset. 
+
+A.1.3 Task Memorization 
+
+We test whether the fine-tuned policy conditions its actions on the language instruction through two counterfactual interventions on the Select Fruit task, where the instruction names a target fruit to place on the plate. The task’s grasp progress measures object targeting: it advances only when the policy grasps the named target (grasping any distractor leaves progress at zero), which gives a direct readout of which object the policy reaches for. 
+
+Prompt swap. We leave the scene unchanged and replace the target word in the instruction with a different in-scene object (e.g. “Put the pear. . . ” → “Put the peach. . . ”), then execute the actions the policy produces under the altered prompt. In 10 /10 episodes the policy still reaches for the original target and ignores the swapped word entirely. It stays competent and directed, which isolates a failure to condition on language at the action head rather than an inability to act. 
+
+Position swap. We instead leave the instruction unchanged and swap the physical positions of the target and a random distractor before execution. The policy grasps the correctly relocated target in only 3/18 episodes ( ∼17%) and reaches the original location in the rest. (Because progress conflates “reached the wrong object” with “reached the right object but failed to grasp,” this is a lower bound on language following.) 12 Table 3: Linear probe training hyperparameters. Hyperparameter Default Epochs 300 
+
+Batch size 64 
+
+Learning rate 1e −3 (Adam) Test fraction 0.2 (episode-level split) Seed 42 
+
+Both interventions show that the policy bases its actions on the memorized canonical scene layout rather than on the language instruction. 
+
+A.2 Decodability & Steerability versus Observability & Controllability 
+
+Buurmeijer et al. [12] define feature observability : a feature is observable when some map exists that takes an embedding and outputs the corresponding feature. 
+
+Weak Decodability. In contrast, we measure decodability with linear maps alone, which requires the feature to be linearly recoverable from the representation and gives a more stringent criterion than observability. Because we aim to minimize risk, we also relax the equality in observability: rather than reproduce the feature exactly, the map need only recover it with low error, so we target high correlation instead of equality. Features may not be exactly recoverable from the representation, but as long as they are linearly decodable with low error, they are still useful for interpretation and control. Buurmeijer et al. [12] also define feature controllability : a feature is controllable when a map can propagate it through the activations by injecting a modified activation. We move away from this definition because it only checks whether the feature can propagate; it does not (a) judge the quality of the feature given its inputs, nor (b) require the feature to cause changes in the model’s behavior. 
+
+Strong Decodability. We call a feature strongly decodable if perturbing its inputs drives its output to the ground truth those inputs imply. This is a stronger condition because it lets the interpreter define how the feature should depend on its inputs, for example requiring task progress to track the instruction and the trajectory time, which yields more natural conditions on the feature. 
+
+Steerability. A feature is steerable if perturbing it produces a new feature value that elicits the same response the model would give under the matching ground truth inputs. This establishes a form of causality between the feature and the model’s behavior, since perturbing the feature reproduces the response we would see if that value were the true feature. Together, these variations impose stronger and more varied conditions for controlling a feature by probing both its robustness and its causality, which are crucial for interpretability and control. 
+
+A.3 Probe Setup and Training 
+
+Algorithm 1 gives the procedure for training our linear probes. We define the MLP Sweep experiment in Figure 2 (right) through Algorithm 2. This capacity sweep trains probes of varying hidden widths and compares their performance on the true progress labels against shuffled labels (the control task). We ask whether added capacity improves performance on the true progress task and, if so, whether that improvement is significantly greater than any gain on the control task. A significant gap between the true and control tasks at high capacity would suggest that the representations hold nontrivial progress information that a sufficiently powerful probe can extract. For each probe, we use the hyperparameters in Table 3. The MLP Sweep probes use the same settings, except that we also sweep the hidden widths as Algorithm 2 describes. 13 Algorithm 1 Linear Progress Probe 
+
+Require: Probe dataset Dprobe = {(zit , τ t)} at layer i, from N trajectories ξ with timestep t and horizon T
+
+Require: Epochs E, batch size B, learning rate η, validation fraction ρ
+
+Build progress labels (normalized time remaining, Eq. 3.3)  
+
+> 1:
+
+for each trajectory ξ, each timestep t do  
+
+> 2:
+
+τt ← 1 − t/T ∈ [0 , 1] ▷ 1 at start, 0 near success  
+
+> 3:
+
+end for  
+
+> 4:
+
+Partition trajectories into Dval (⌈ρN ⌉ trajectories) and Dtrain ▷ trajectory-level split, no leakage 
+
+Train probe φ(zi) = w⊤zi + b, parameters θ = {w, b }, w ∈ Rd 
+
+> 5:
+
+Init θ; optimizer ← ADAM (η); best ← ∞  
+
+> 6:
+
+for epoch = 1 . . . E do  
+
+> 7:
+
+for each minibatch (zb, τ b) of size B from a random permutation of Dtrain do  
+
+> 8:
+
+L ← 1
+
+> |zb|
+
+P∥φ(zb) − τb∥1 ▷ L 1 loss  
+
+> 9:
+
+θ ← θ − η ∇θ L 
+
+> 10:
+
+end for  
+
+> 11:
+
+m ← R φ; Dval 
+
+ ▷ validation MAE (risk under L1) 
+
+> 12:
+
+if m < best then  
+
+> 13:
+
+best ← m; θ⋆ ← θ ▷ keep best-on-val-MAE checkpoint  
+
+> 14:
+
+end if  
+
+> 15:
+
+end for  
+
+> 16:
+
+return φ with θ⋆; validation MAE and R2
+
+Algorithm 2 MLP Progress Probe (capacity sweep) 
+
+Require: Embeddings and progress labels (zit , τ t) as in Alg. 1; hidden widths H (e.g. 
+
+{0, 32 , 64 , 128 , 256 , 512 , 1024 })
+
+Require: Epochs E, batch size B, learning rate η, validation fraction ρ
+
+Width-h probe (single hidden layer): φh(zi) = W2 GELU( W1zi + b1) + b2, with W1 ∈
+
+Rh×d, W2 ∈ R1×h; h = 0 drops the hidden layer and recovers the linear probe φ of Alg. 1  
+
+> 1:
+
+for each hidden width h ∈ H do  
+
+> 2:
+
+for label condition c ∈ { true , shuffled } do ▷ shuffled = control task  
+
+> 3:
+
+If c = shuffled: randomly permute labels {τt} across all embeddings  
+
+> 4:
+
+Trajectory-level split into Dtrain , Dval (fraction ρ, fixed seed)  
+
+> 5:
+
+Init φh (parameters θ); optimizer ← ADAM (η); best ← ∞  
+
+> 6:
+
+for epoch = 1 . . . E do  
+
+> 7:
+
+for each minibatch (zb, τ b) of size B do  
+
+> 8:
+
+θ ← θ − η ∇θ R φh; {(zb, τ b)} ▷ L 1 loss  
+
+> 9:
+
+end for  
+
+> 10:
+
+best ← min  best , R (φh; Dval ) ▷ validation MAE  
+
+> 11:
+
+end for  
+
+> 12:
+
+Record best train/val MAE for (h, c ) 
+
+> 13:
+
+end for  
+
+> 14:
+
+end for  
+
+> 15:
+
+return per-width train/val MAE for true and shuffled probes 
+
+A.4 Contrastive Probe Training 
+
+A naive counterfactual-augmented probe does not yield strong decodability: because we assign every swapped activation the same constant target, φ can fit it by shifting its absolute output level rather than learning the direction that distinguishes the two prompts, so its outputs under the original and swapped prompts barely separate. We instead train with a within-pair hinge that pairs each zt with the swapped activation z′ 
+
+> t
+
+at the same step and separates them by a progress-dependent margin, 
+
+ m(t) + φ(zt) − φ(z′
+
+> t
+
+) 2+, where m(t) grows linearly along the trajectory from 0.5 at the start to 
+
+2.5 at completion (the margin stays small early, when the original and swapped tasks look alike, 14 Table 4: Per-mode image-OOD perturbation hyperparameters for dataset collection. σ is the severity passed to inject image ood from demos.py ; we apply the perturbations to each camera view. Parameter Value Units 
+
+Gaussian noise (σ = 0 .1)Noise distribution N (0 , σ ·255) gray levels Noise std 25 .5 gray levels 
+
+Color (HSV shift) (σ = 0 .3)Hue shift ∆h U (−54 , +54) OpenCV ( ±108 ◦)Saturation multiplier U (0 .7, 1.3) —Value multiplier U (0 .7, 1.3) —
+
+Gaussian blur (σ = 0 .3)Kernel size 15 pixels Gaussian σx 6.0 pixels 
+
+Occlusion (σ = 0 .2)Patch size 44 × 44 pixels (at 224 ×224) Number of patches 3 per frame Patch position U (0 , H −ph)×U (0 , W −pw) pixels Fill value 0 (black) uint8 and grows as the instructed task advances). This forces φ onto the relative, instruction-conditioned direction. The hinge constrains only the difference φ(zt) − φ(z′
+
+> t
+
+) and leaves the absolute level free, which saturates under a sigmoid readout and destroys the progress signal. We therefore add a BCE anchor on the absolute labels ( λ ≈ 1.5) so the same probe both separates prompts (large ∆) and stays progress-readable ( R2); the anchor weight trades the two off directly. We also sharpen the original-prompt target, ˜τt = σ(( τt − 0.5) /0.12) , which improves progress calibration and raises the plateau 
+
+R2 from ∼0.24 to ∼0.34 . The probes are linear ( φ, as in Alg. 1); we train them over 5 seeds with activations clipped to [−10 , 10] , and pair construction caches ≥ 5 distinct target-swap shadow passes per timestep. 
+
+A.5 Steerability Equations 
+
+For our steerability experiment in Section 4.4, we define the function Tboost , which advances the input vector to a target progress τboost . Following Eq. 1, we define the steering function as follows: 
+
+˜zi(x) = zi(x) + ζ(Tboost (x)) − ζ(x)
+
+∥w∥2 w,
+
+˜zi(x) = zi(x) + τboost − τ
+
+∥w∥2 w
+
+where τ is the current progress at x, and τboost is the boosted progress produced by Tboost .
+
+A.6 OOD Modes 
+
+Table 4 lists the hyperparameters we use for each OOD mode. 
+
+## B Additional Experiments 
+
+B.1 Generalization to Unseen Tasks 
+
+We measure how well a progress probe trained on k tasks generalizes to the remaining unseen tasks, sweeping k from 1 to 9 and scoring every combination of k training tasks by its out-of-distribution 15 Figure 7: The progress probe’s generalization across tasks improves with the number of training tasks. Out-of-distribution R2 of progress probes evaluated on the unseen tasks as a function of the number of training tasks k. Left: distribution of OOD R2 across all combinations of k tasks (box plots), with the best combination (orange triangle) and the R2 = 0 baseline (red dashed) marked. 
+
+Right: mean across combinations (blue, 95% CI) and the best combination (orange dashed) at each 
+
+k. The best attainable R2 rises from ≈ 0.39 at k = 1 to ≈ 0.85 by k = 8 before saturating, while the mean improves early and then plateaus with growing variance. Table 5: Per-task AUROC of OOD detectors on the 3-seen vs 3-unseen task-split experiment, per-episode aggregation. For each task, columns S/U report AUROC when that task was in the seen / unseen set of the split (mean ± std over the 10 splits assigning that role). The six tasks are split across two row blocks for readability. Detector add cond flower drink S U S U S U                                                                    
+
+> Vτ0.890 ±0.032 0.866 ±0.036 0.923 ±0.039 0.879 ±0.041 0.915 ±0.027 0.871 ±0.058
+> Mahalanobis 0.778 ±0.008 0.718 ±0.013 0.878 ±0.013 0.713 ±0.018 0.785 ±0.011 0.749 ±0.006
+> VAE 0.722 ±0.020 0.753 ±0.023 0.842 ±0.041 0.741 ±0.034 0.816 ±0.014 0.820 ±0.025
+> SAFE-MLP 0.891 ±0.003 0.889 ±0.002 0.951 ±0.006 0.952 ±0.002 0.893 ±0.025 0.922 ±0.002
+> SAFE-LSTM 0.782 ±0.018 0.777 ±0.019 0.854 ±0.047 0.894 ±0.013 0.804 ±0.052 0.870 ±0.006
+> Detector fruit mahjong toy SUSUSU
+> Vτ0.923 ±0.039 0.877 ±0.043 0.922 ±0.039 0.899 ±0.043 0.906 ±0.041 0.817 ±0.059
+> Mahalanobis 0.763 ±0.020 0.745 ±0.007 0.714 ±0.009 0.719 ±0.009 0.778 ±0.004 0.722 ±0.013
+> VAE 0.775 ±0.045 0.729 ±0.033 0.801 ±0.065 0.818 ±0.035 0.743 ±0.044 0.718 ±0.023
+> SAFE-MLP 0.891 ±0.015 0.886 ±0.006 0.818 ±0.012 0.894 ±0.005 0.897 ±0.013 0.905 ±0.004
+> SAFE-LSTM 0.811 ±0.018 0.839 ±0.015 0.800 ±0.037 0.895 ±0.004 0.836 ±0.009 0.828 ±0.015
+
+(OOD) R2 on those unseen tasks. Both training and evaluation use the full dataset of 5000 episodes (500 per task). Figure 7 reports both the full distribution over combinations (left) and the mean and best combination at each k (right). Generalization improves with more training tasks: the best combination climbs from R2 ≈ 0.39 at k = 1 to 0.71 at k = 2 and up to ≈ 0.85 by k = 8 , after which it saturates. The mean across combinations shows the same early gain (from ≈ 0.05 at k = 1 
+
+to ≈ 0.37 at k = 3 ) but then plateaus, and the spread widens at larger k, with a noticeably wider confidence interval at k = 9 . Most combinations sit comfortably above the R2 = 0 baseline, yet the long negative tail at every k shows that some task mixtures still transfer poorly. Adding training tasks therefore raises how well the progress feature generalizes across tasks, while the specific tasks we include remain a strong source of variance. 
+
+B.2 Per-Task and Per-Mode OOD Results Per-task generalization (episode level). Table 5 breaks down the pooled result of Table 1 by task; columns S/U give a task’s AUROC when it was among the three seen vs. three unseen tasks of the 16 Table 6: Per-task AUROC of OOD detectors on the 3-seen vs 3-unseen task-split experiment, per-replan aggregation. For each task, columns S/U report AUROC when that task was in the seen / unseen set of the split (mean ± std over the 10 splits assigning that role). The six tasks are split across two row blocks for readability. Detector add cond flower drink S U S U S U
+
+Vτ 0.849 ±0.081 0.871 ±0.042 0.794 ±0.078 0.833 ±0.085 0.850 ±0.097 0.901 ±0.040 
+
+Mahalanobis 0.976 ±0.003 0.761 ±0.011 0.999 ±0.000 0.910 ±0.039 0.996 ±0.003 0.885 ±0.012 
+
+VAE 0.811 ±0.031 0.754 ±0.032 0.877 ±0.047 0.759 ±0.083 0.910 ±0.035 0.923 ±0.035 
+
+SAFE-MLP 0.953 ±0.007 0.943 ±0.002 0.961 ±0.011 0.955 ±0.012 0.979 ±0.003 0.978 ±0.003 
+
+SAFE-LSTM 0.900 ±0.037 0.884 ±0.054 0.921 ±0.040 0.933 ±0.033 0.933 ±0.038 0.978 ±0.004 
+
+Detector fruit mahjong toy S U S U S U
+
+Vτ 0.788 ±0.098 0.784 ±0.086 0.716 ±0.105 0.773 ±0.076 0.735 ±0.080 0.870 ±0.047 
+
+Mahalanobis 0.998 ±0.000 0.932 ±0.039 0.999 ±0.000 0.885 ±0.021 0.996 ±0.000 0.934 ±0.028 
+
+VAE 0.820 ±0.057 0.729 ±0.044 0.848 ±0.049 0.809 ±0.030 0.902 ±0.040 0.846 ±0.051 
+
+SAFE-MLP 0.956 ±0.010 0.945 ±0.018 0.974 ±0.020 0.948 ±0.008 0.952 ±0.014 0.943 ±0.008 
+
+SAFE-LSTM 0.830 ±0.067 0.842 ±0.056 0.713 ±0.050 0.849 ±0.060 0.793 ±0.027 0.794 ±0.068 
+
+Table 7: Per-OOD-mode AUROC on the cross-OOD generalization experiment (per-episode aggrega-tion). For each perturbation mode, columns S/U report AUROC when that mode was in the supervised training set (seen) vs held out (unseen). Mean ± std over the 3 combos assigning each role. Vτ is ID-only so its S/U columns reflect only unseen rollouts; the SAFE detectors are supervised so the S−U gap measures cross-OOD generalization. Detector gaussian color blur occlusion S U S U S U S U                        
+
+> Vτ–0.963 ±0.008 –0.950 ±0.006 –0.977 ±0.004 –0.948 ±0.007
+> SAFE-MLP 0.847 ±0.054 0.879 ±0.027 0.885 ±0.003 0.854 ±0.095 0.883 ±0.022 0.908 ±0.073 0.823 ±0.072 0.934 ±0.036
+> SAFE-LSTM 0.800 ±0.081 0.867 ±0.037 0.874 ±0.006 0.795 ±0.127 0.848 ±0.065 0.882 ±0.104 0.819 ±0.070 0.883 ±0.148
+
+split. Here Vτ ’s only real competition is the supervised SAFE-MLP, and the two are closely matched: 
+
+Vτ takes the best seen score on four of six tasks (drink, fruit, mahjong, toy), and on unseen tasks it stays within ∼2 points of SAFE-MLP on add cond, fruit, and mahjong (winning mahjong outright, 
+
+0.899 ), while SAFE-MLP leads clearly only on drink, flower, and toy. Vτ achieves this with no OOD supervision, whereas SAFE-MLP trains on the seen tasks’ failures; the remaining baselines trail both across every task. 
+
+Per-task generalization (replan level). At the finer replan granularity (Table 6) the ranking changes and Vτ is no longer at the front. Mahalanobis is nearly perfect on seen tasks ( ≥ 0.976 in every column) but falls off sharply on the unseen tasks (e.g. add cond 0.976 → 0.761 ), a memorization pattern rather than transferable detection; SAFE-MLP is the steadiest detector and best on every unseen task (0.943 –0.978 ). Vτ sits in the middle of the pack here, strongest on drink ( 0.901 unseen) but weaker on the harder tasks, and only becomes competitive with the supervised SOTA once we aggregate replan scores to the episode level, echoing the results by mode below. Table 8: Per-OOD-mode AUROC on the cross-OOD generalization experiment (per-replan aggrega-tion). For each perturbation mode, columns S/U report AUROC when that mode was in the supervised training set (seen) vs held out (unseen). Mean ± std over the 3 combos assigning each role. Vτ is ID-only so its S/U columns reflect only unseen rollouts; the SAFE detectors are supervised so the S−U gap measures cross-OOD generalization. Detector gaussian color blur occlusion S U S U S U S U                        
+
+> Vτ–0.938 ±0.039 –0.750 ±0.028 –0.994 ±0.006 –0.802 ±0.022
+> SAFE-MLP 0.816 ±0.048 0.862 ±0.013 0.861 ±0.008 0.811 ±0.050 0.848 ±0.025 0.846 ±0.065 0.833 ±0.060 0.858 ±0.034
+> SAFE-LSTM 0.536 ±0.173 0.733 ±0.046 0.742 ±0.017 0.519 ±0.158 0.645 ±0.171 0.650 ±0.193 0.624 ±0.174 0.662 ±0.194
+
+17 0 2 4 6 8 10 12 14 16 
+
+> Gemma layer
+> 0.05 0.10 0.15 0.20 0.25 0.30
+> swap − orig gap
+
+Contrastive Δ         
+
+> 0246810 12 14 16
+> Gemma layer
+> −0.4 −0.2 0.0 0.2 0.4
+> progress  R2
+
+Contrastive R2Figure 8: Language sensitivity ∆ (left) and in-distribution progress R2 (right) for the contrastive probe at each layer. Lines are the mean over 5 seeds, bands ±1 SEM. These tables decompose the pooled result of Table 2 by individual perturbation mode, at the episode level (Table 7) and replan level (Table 8). For each mode, column S reports AUROC when that mode was seen during supervised training and column U when it was held out ( unseen ); since Vτ trains on ID data only, its columns report unseen rollouts in every case, whereas the supervised SAFE detectors expose a seen →unseen gap that measures generalization across OOD modes. 
+
+Per-episode. Vτ attains the best unseen AUROC in every mode (gaussian 0.963 , color 0.950 , blur 
+
+0.977 , occlusion 0.948 ), exceeding the unseen score of both supervised SAFE detectors despite never observing a single OOD example. SAFE-MLP is the stronger baseline and transfers cleanly across the seen →unseen split (often matching or exceeding its own seen score on the unseen modes, e.g. occlusion 0.823 → 0.934 ), yet its absolute unseen AUROC still trails Vτ in every mode; SAFE-LSTM is weakest throughout. 
+
+Per-replan and the role of aggregation. At the finer replan granularity the progress signal depends on the mode: Vτ dominates gaussian ( 0.938 ) and blur ( 0.994 ) but trails SAFE-MLP on color ( 0.750 
+
+vs. 0.811 ) and occlusion ( 0.802 vs. 0.858 ). Crucially, aggregating the replan scores to the episode level by their maximum lifts Vτ from the middle of the pack on color/occlusion to the best of the group on all four modes. Although its signal at the replan level is noisier under color shift and partial occlusion (perturbations that leave enough scene structure for the policy to keep emitting plausible actions that advance progress), it stays consistent enough over a trajectory to flag the failure once errors accumulate. This is precisely the regime, at the episode level, in which reliable failure detection matters, and it mirrors the pooled finding that Vτ ’s advantage is largest there. 
+
+B.3 Contrastive probing of the progress feature across layers 
+
+We train the contrastive progress probe independently at every Gemma layer ( 5 seeds each) to choose the probing layer. For each layer we report two quantities (Fig. 8): the language sensitivity ∆, the mean gap over the trajectory between the probe’s output under a prompt with the target swapped (Tlang ) and its output under the original instruction (large ∆ = the probe responds to the instruction); and the in-distribution progress R2 under the original instruction. Both quantities are near zero in the earliest layers ( ∆ ≈ 0, R2 < 0 for L0–L4), turn on together around L5–L6, and plateau across the middle and deep layers ( ∆ ≈ 0.30 , R2 ≈ 0.33 –0.39 ) before declining at the final layer (L17). The signal is therefore broadly available rather than localized to one site. We probe at layer 10 : it sits on the plateau with nearly maximal ∆ and R2, away from the early layers that carry no signal and the final layer where both collapse. 
+
+B.4 Data-Only Results 
+
+To test whether task progress is a property of the VLA’s learned representation rather than a signal already present in its inputs, we compare two probes: a linear probe on π0.5 embeddings and, as a control, a linear probe trained directly on the raw observations. We train both on 50 episodes of 18 Figure 9: Task progress is decodable from VLA embeddings but not from raw observations. 
+
+Predicted vs. ground truth task progress τ over normalized episode time t/T for a probe trained on π0.5 embeddings (left) and a matching probe trained on raw observations (right). Both probes are trained on 50 Add Condiment episodes and evaluated on 100 out-of-distribution Add Condiment 
+
+episodes. The embedding probe tracks ground truth (mean R2 = 0 .807 ), while the probe on raw observations fails to generalize (mean R2 = −2627 .7, MAE = 11 .97 ). 
+
+Add Condiment and evaluate them on 100 Add Condiment episodes drawn from outside the training distribution. Figure 9 shows that the embedding probe recovers progress and tracks the ground truth closely (mean R2 = 0 .807 , MAE = 0 .103 ), whereas the probe on raw observations collapses out of distribution (mean R2 = −2627 .7, MAE = 11 .97 ), its predictions diverging far outside the valid 
+
+[0 , 1] range. Task progress is therefore not linearly recoverable from raw observations; it is the VLA’s representation that makes the feature decodable. 19
