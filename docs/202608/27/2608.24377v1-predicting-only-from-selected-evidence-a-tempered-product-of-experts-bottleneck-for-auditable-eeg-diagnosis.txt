@@ -1,0 +1,1043 @@
+Title: Predicting Only from Selected Evidence: A Tempered Product-of-Experts Bottleneck for Auditable EEG Diagnosis
+
+URL Source: https://arxiv.org/pdf/2608.24377v1
+
+Published Time: Wed, 26 Aug 2026 00:57:23 GMT
+
+Number of Pages: 32
+
+Markdown Content:
+# Predicting Only from Selected Evidence: A Tempered Product-of-Experts Bottleneck for Auditable EEG Diagnosis 
+
+Yinghao WANG 1, Shujian YU 2,* , Duc Han LE 1, Zhikai YU 3, Changming WANG 3,* , Van-Tam NGUYEN 1
+
+> 1LTCI, Télécom Paris, Institut Polytechnique de Paris, Palaiseau, France
+> 2Department of Artificial Intelligence, Vrije Universiteit Amsterdam, Amsterdam, The Netherlands
+> 3Beijing Preclinical Testing Platform for Brain–Computer Interface Products, Zhongguancun Industrial Park, Beijing, China
+> *Co-corresponding authors.
+
+Abstract 
+
+Pretrained EEG backbones improve transfer performance, but downstream diagnosis heads remain hard to audit: predictions are made from unrestricted hidden states, whereas explanations are usually produced only after the decision. We introduce tPoE-EIB, an evidence-information bottleneck head for adapting EEG backbones under an evidence-only prediction constraint. tPoE-EIB selects temporal and channel evidence, maps the selected summaries to Gaussian experts over a shared latent variable, and fuses them with a tempered product-of-experts posterior. The classifier observes only this latent, so the decision path is explicit and rate-limited by the expected posterior KL. This gives a tractable supervised objective with an information-rate penalty, while the closed-form tempered posterior mitigates overconfident fusion from correlated evidence axes. We evaluate tPoE-EIB on pretrained EEG foundation-model backbones across six diagnosis settings: event-type classification, abnormality detection, seizure detection, cognitive-decline staging, depression screening, and cerebrovascular-disease classification. The evaluation spans public benchmarks and in-house clinical cohorts, binary screening and fine-grained staging, and sparse and dense montages. tPoE-EIB preserves competitive balanced accuracy and improves over representative post-hoc explanations on selection-faithfulness audits, including insertion–deletion and gate-causality tests. Its structured posterior further enables integration-faithfulness audits, including expert-drop, posterior-reliance, and expert-disagreement tests. Overall, these results suggest that evidence-only, rate-limited fusion is a practical route to auditable diagnosis on top of frozen EEG foundation backbones. 
+
+# 1 Introduction 
+
+Deep EEG modeling has shifted from compact task-specific networks toward pretrained foundation-style backbones. Architectures such as EEGNet and EEG Conformer introduced EEG-specific convolutional and attention biases [1, 2], while recent models such as LaBraM, CBraMod, and CodeBrain learn reusable EEG representations through large-scale pretraining and structured temporal–channel modeling [3–5]. As representation quality improves, however, the downstream diagnosis head becomes the main bottleneck for auditability. We use auditability in a narrow, operational sense: the evidence path should be explicit enough to intervene on and measure. A frozen backbone followed by pooling and a task head may perform well, but the classifier can still exploit any predictive regularity in the hidden state, including nuisance structure, subject-specific signatures, or artifact-correlated cues. Explanations are then produced only after the prediction has already been fixed. Post-hoc explainers such as Integrated Gradients, Dynamask, and TIMING identify salient inputs after a prediction [6–8], but they do not constrain the information used to make that prediction. This separation between explanation generation and model optimization raises a faithfulness problem: a saliency map need not reflect the computation that actually drove the decision [9]. In high-stakes 1arXiv:2608.24377v1 [eess.SP] 25 Aug 2026 settings, this concern has motivated calls for models whose interpretability is built into the decision path rather than attached afterward [10]. The issue is especially salient in EEG diagnosis, where clinicians inspect evidence along two natural axes: when a relevant event occurs and where on the scalp it appears. A model that spreads support diffusely across time, or concentrates support on anatomically implausible channels, may be accurate but difficult to audit. Selection alone is not enough. A sparse or stable gate is not automatically faithful: a gate that assigns the same low-mass pattern to every input can satisfy sparsity and augmentation consistency while selecting no sample-specific evidence. Thus, in addition to selecting temporal and channel support, a downstream head must restrict what the selected evidence can carry and expose the resulting path to intervention-based audits [11]. We propose tPoE-EIB , a downstream adaptation head that puts evidence on the forward decision path (Fig. 1). Given a frozen backbone representation, tPoE-EIB learns temporal and channel gates, pools the gated support into axis-specific evidence summaries, and maps those summaries to Gaussian experts over a shared latent variable. A tempered product-of-experts posterior integrates the experts, and the classifier receives only a sample from this latent during training and its posterior mean at evaluation. We call this restriction an evidence-only prediction constraint : after the frozen backbone, the classifier cannot access pooled hidden states or concatenated evidence summaries, and any feature that affects the prediction must pass through the gates, the evidence summaries, and the tPoE posterior. The latent is rate-limited because the KL term controls how much selected evidence can reach the classifier. Clinical correctness is not claimed by construction and is evaluated separately through the audits in Sec. 4. We evaluate tPoE-EIB on CodeBrain backbone, with cross-backbone validation on CBraMod, across EEG diagnosis settings that include event-type classification, abnormality detection, seizure detection, cognitive decline staging, depression, and cerebrovascular disease. The tasks span public benchmarks and in-house clinical cohorts, binary screening regimes and a fine-grained staging setting, and both sparse and dense channel montages. Our contributions are as follows: • Evidence-only EEG adaptation. We formulate downstream adaptation of pretrained EEG backbones as an evidence-only prediction constraint : the diagnosis head cannot access unrestricted pooled backbone features and must predict from gated, rate-limited evidence. • Tempered PoE evidence bottleneck. We instantiate this constraint with a tempered product-of-experts bottleneck in which temporal and channel evidence summaries become Gaussian experts over a shared latent variable and are integrated by precision-weighted posterior aggregation rather than feature concatenation. • Theory and audit protocol. We derive the closed-form tPoE posterior, connect the training loss to a variational lower bound on an evidence-IB objective, prove a rate bound on the stochastic decision path, and use a Gaussian calibration model to motivate tempering for correlated evidence axes. We further introduce audits for gate faithfulness, expert necessity, gate causality, posterior reliance, and temporal–channel conflict. • Empirical validation across EEG diagnosis settings. Across public benchmarks and in-house clinical datasets, tPoE-EIB remains competitive with unrestricted heads while exposing decision paths that can be audited at both the selection and posterior-integration stages. 22 Related Work 
+
+Pretrained EEG backbones and adaptation heads. EEG-specific networks such as EEGNet and EEG Conformer introduced compact convolutional and attention biases for multichannel EEG decoding [1, 2]. Recent foundation-style EEG models shift the emphasis to reusable representations: LaBraM learns generic EEG representations through large-scale masked prediction, CBraMod models temporal–channel structure under heterogeneous EEG formats, CodeBrain decouples time– frequency tokenization from multi-scale representation learning, and concurrent variants explore decoder-centric seq2seq pretraining and topology-aware mixture-of-experts designs [3–5, 12, 13]. These backbones improve transfer, but common downstream heads—linear probes, MLP heads, and attention pooling—still expose unrestricted hidden states to the classifier. We focus on this last step: how a frozen EEG representation is allowed to enter the diagnosis head. 
+
+EEG interpretability and intrinsic constraints. EEG interpretability often relies on attention visualization or post-hoc saliency. Integrated Gradients, Dynamask, and TIMING can highlight samples or time regions after prediction, but the classifier may still have used information outside the displayed explanation [6–9]. Intrinsic approaches constrain the prediction path itself: Right for the Right Reasons regularizes explanation gradients, Concept Bottleneck Models route predictions through concepts, and rationale methods train selectors for sufficient input subsets [14–20]. tPoE-EIB is closer to intrinsic bottlenecking than to post-hoc attribution, but its intermediate variables are not human-labeled concepts. They are model-selected temporal and channel evidence summaries, chosen along axes that EEG reviewers already inspect. Because selectors can collapse to task-independent templates [11], we audit both the gates and the posterior that consumes their selected evidence. 
+
+Information bottlenecks and posterior fusion. The information bottleneck principle com-presses representations while preserving label-relevant information, and Deep VIB makes this trade-off tractable with a variational KL rate term [21–23]. Multi-view and multimodal variants study how correlated sources should be retained or fused [24–28]. Simple concatenation does not reveal which source is informative for a given sample. Product-of-experts fusion gives a posterior aggregation view, but standard PoE treats experts as conditionally independent. In our setting, temporal and channel summaries are correlated projections of the same EEG representation, so we temper the PoE to discount duplicated support rather than treating the two axes as independent modalities. 
+
+# 3 tPoE-EIB 
+
+3.1 Problem setup and evidence-only prediction constraint 
+
+Let x ∈ RC×S×P denote an EEG input with C channels, S temporal segments, and P samples per segment. A frozen pretrained backbone Bθ maps x to a patch-grid representation H =
+
+Bθ(x) ∈ RC×S×D. Standard adaptation pools H and trains a classifier on the resulting unrestricted representation. tPoE-EIB instead inserts an evidence interface between backbone and classifier: 
+
+H = Bθ(x), (gt, g c, z ) = Eϕ(H), ˆy = fψ(z), (1) where gt ∈ [0 , 1] S , gc ∈ [0 , 1] C are gates and z ∈ Rdz is a stochastic decision latent. The classifier receives only z: neither the gates nor the evidence summaries et, e c defined below are exposed to 
+
+fψ. We use evidence-only prediction constraint to denote this forward-graph restriction. It gives 3Output     
+
+> forward (inference) training-only classifier prediction
+> Input Backbone Evidence selection Evidence experts
+> select temporal support select channel support EEG input
+> ...
+> ❄
+> Frozen Backbone
+> Temporal gate Channel gate
+> ...
+> ...
+> selected temporal evidence via augmented copy selected channel evidence temporal expert channel expert
+> Bottleneck
+> KL rate term tPoE posterior Shared low-rate latent
+
+Figure 1: Architecture of tPoE-EIB. Solid arrows denote the inference path; orange dashed arrows denote training-only regularization. A frozen EEG backbone produces a patch-grid representation 
+
+H. Temporal and channel gates gt, g c select evidence summaries et and ec, which two Gaussian experts map to beliefs qt(z | et) and qc(z | ec) over the same latent variable. These are integrated by a tempered product-of-experts posterior qα(z | et, e c) ∝ p(z) qαt 
+
+> t
+
+qαc 
+
+> c
+
+with axis-specific temperatures 
+
+αt, α c ∈ [0 , 1], and the classifier fψ observes only the latent z. Two selection-stage regularizers shape the gates: Lsparse penalizes gate mass to prevent trivial all-pass solutions, and Lcons encourages stable gates by comparing gt(x), g c(x) to the gates obtained on a lightly augmented copy x′ (augmented branch omitted from the diagram for clarity). By construction, the classifier never receives the concatenated evidence [ et; ec] or the unrestricted hidden state H; all classification information flows through the rate-limited latent z.forward-path faithfulness to the model-selected evidence: if a feature affects ˆ y, it must pass through the gates, the evidence summaries, and the posterior bottleneck. It does not assert that the selected evidence is clinically correct, so Sec. 4 evaluates the path with intervention-based audits. 
+
+3.2 Evidence-information bottleneck objective and training surrogate 
+
+Let E = ( et, e c) collect the temporal and channel evidence summaries produced from H (Sec. 3.3), and let qα(z | E) be the stochastic encoder that maps this evidence to z (Sec. 3.4). We optimize the 
+
+evidence-information bottleneck objective 
+
+JEIB = I(Y ; Z) − β I (E; Z), (2) which replaces the raw input in the original IB [21, 22] by the selected evidence E.
+
+Why compress E rather than H? The classifier never receives the full hidden state H; it receives Z sampled from qα(z | E(H)). The implemented graph is therefore H → E → Z → ˆY .Under this graph, compressing I(E; Z) controls the information on the only path available to the classifier. A direct penalty on I(H; Z) would be a coarser hidden-state rate term: under the deterministic evidence map it coincides with this path-wise quantity, and more generally it upper-bounds it by data processing, but it would obscure the fact that the head is designed to regulate selected evidence rather than the entire frozen representation. 4Proposition 1 (Variational lower bound on JEIB ). For any decoder rψ(y | z) and prior p(z) = 
+
+N (0 , I ),
+
+JEIB ≥ Ep(x,y )Eqα(z|E)[log rψ(y | z)] − β Ep(x)DKL (qα(z | E)∥p(z)) + H(Y ). (3) The proof is in Appendix C.3. Maximizing the bound is equivalent to minimizing Lcls =
+
+−E[log rψ(y | z)] plus a KL rate term LKL = Ep(x)DKL (qα(z | E)∥p(z)). The full training objective adds two selection-stage regularizers acting on the gates, 
+
+Ltotal = Lcls + βeff LKL + η Lsparse + γ Lcons , (4) with Lsparse , Lcons defined in Eqs. (6)–(7) and βeff linearly warmed up over the first Twarm epochs. The KL term has an operational interpretation: by the data-processing inequality on E → Z → ˆY ,
+
+I( ˆY ; X) ≤ Ep(E)DKL (qα(z | E)∥p(z)), so the trained KL upper-bounds how much input information can affect the prediction along the stochastic training path (Corollary 1 in Appendix B). 
+
+3.3 Dual-axis evidence selection 
+
+From H, tPoE-EIB forms marginal temporal and channel views by averaging over the complementary axis, Ht[s] = 1
+
+> C
+
+∑ 
+
+> c
+
+Hc,s, : and Hc[j] = 1
+
+> S
+
+∑ 
+
+> s
+
+Hj,s, :, so Ht ∈ RS×D and Hc ∈ RC×D. Two small MLPs predict continuous sigmoid gates gt = σ(MLP t(Ht)) and gc = σ(MLP c(Hc)), broadcast over feature dimensions, giving evidence summaries 
+
+et = 1
+
+S
+
+> S
+
+∑
+
+> s=1
+
+gt[s]Ht[s], ec = 1
+
+C
+
+> C
+
+∑
+
+> j=1
+
+gc[j]Hc[j]. (5) The factorization is intentionally transparent: marginal temporal and channel support rather than a full time–channel evidence map. A concatenation head would feed [ et; ec] directly to fψ; tPoE-EIB removes this path. The selection-stage regularizers act on these gates, 
+
+Lsparse = Ep(x)
+
+[ 12
+
+( 1
+
+> S
+
+∑ 
+
+> s
+
+gt(x)[ s] + 1
+
+> C
+
+∑ 
+
+> j
+
+gc(x)[ j]
+
+)] 
+
+, (6) 
+
+Lcons = Ep(x)
+
+[ 12
+
+( 1 
+
+> S
+
+∥gt(x) − gt(x′)∥22 + 1 
+
+> C
+
+∥gc(x) − gc(x′)∥22
+
+)] 
+
+, (7) where x′ = Aug( x) is a light augmentation. Lsparse limits how much support enters the evidence interface; the tPoE KL in Eq. (4) limits how much selected evidence reaches the classifier. Lemma 1 (Appendix B) shows that Lsparse and Lcons alone do not guarantee sample-dependent selection, motivating the rate-limited bottleneck and the audits in Sec. 4. 
+
+3.4 Tempered Product-of-Experts posterior 
+
+Temporal and channel summaries are treated as Gaussian evidence experts over the same latent z:
+
+qt(z | et) = N (μt(et), diag( σ2 
+
+> t
+
+(et))) , qc(z | ec) = N (μc(ec), diag( σ2 
+
+> c
+
+(ec))) . (8) Both experts have dimension dz and share the prior p(z) = N (0 , I ). Because temporal and channel summaries are correlated projections of the same EEG representation, standard PoE can treat duplicated support as independent evidence and become overconfident; Proposition 2 below formalizes this in a Gaussian calibration model. We therefore use a tempered product: 
+
+qα(z | et, e c) ∝ p(z) qt(z | et)αt qc(z | ec)αc , αt, α c ∈ [0 , 1] . (9) Setting αt = αc = 1 recovers standard PoE; we also evaluate a learnable variant constrained to [0 , 1] (Appendix D). 5Proposition 2 (Tempering corrects overconfidence under correlated experts) . Let z ∈ R have prior p(z) = N (0 , 1) , and let two experts observe noisy views yt = z + εt and yc = z + εc, where 
+
+(εt, ε c) are jointly Gaussian with zero mean, marginal variances σ2, and correlation ρ ∈ [0 , 1) .Treating the experts as Gaussian likelihood factors , qt(z; yt) ∝ exp ( − (z − yt)2/(2 σ2)) and qc(z; yc) ∝
+
+exp ( − (z − yc)2/(2 σ2)), the true Bayesian posterior p(z | yt, y c) ∝ p(z) p(yt, y c | z) has precision 
+
+τ ∗ = 1 + 2 /(σ2(1 + ρ)) . The tempered PoE with αt = αc = α has posterior precision τα = 1 + 2 α/σ 2,and the unique α∗ matching the true posterior is 
+
+α∗ = 11 + ρ ∈  
+
+> (12
+
+, 1
+
+> ]
+
+. (10) 
+
+Thus standard PoE ( α = 1 ) is calibrated only when ρ = 0 and is overconfident whenever ρ > 0; for any ρ > 0, a tempered configuration α∗ ∈ (1 /2, 1) matches the true posterior precision. Remark 1. This is a calibration argument for posterior precision, not a claim that the learned neural experts are exact Bayesian likelihoods. The proof is in Appendix C.4. Proposition 2 also explains the conservative fixed choice α = 0 .5: this is the limiting calibrated temperature as ρ → 1, the worst case for duplicated evidence. Since the actual correlation is unknown and sample-dependent, we treat 0 .5 as a lower endpoint rather than a universally optimal temperature. The aggregated posterior is Gaussian in closed form. 
+
+Proposition 3 (Closed-form tempered PoE posterior) . Under the experts in Eq. (8) with diagonal covariance and p(z) = N (0 , I ), qα(z | et, e c) = N (μα, diag( σ2
+
+> α
+
+)) with 
+
+τα,j = 1 + αtσ−2 
+
+> t,j
+
++ αcσ−2 
+
+> c,j
+
+, σ2 
+
+> α,j
+
+= τ −1 
+
+> α,j
+
+, (11) 
+
+μα,j = σ2
+
+> α,j
+> (
+
+αtσ−2 
+
+> t,j
+
+μt,j + αcσ−2 
+
+> c,j
+
+μc,j 
+
+> )
+
+. (12) The proof is in Appendix C.2. The posterior mean is a precision-weighted convex combination of the prior mean 0 and the two expert means with weights 
+
+wt,j = αtσ−2
+
+> t,j
+
+τα,j 
+
+, wc,j = αcσ−2
+
+> c,j
+
+τα,j 
+
+, w0,j = 1
+
+τα,j 
+
+, wt,j + wc,j + w0,j = 1 . (13) An axis contributes strongly only when its expert is confident and its temperature is not suppressed; these weights define the posterior-reliance audit in Sec. 4. During training we sample 
+
+z = μα + σα ⊙ ϵ, ϵ ∼ N (0 , I ), (14) and at evaluation z = μα. The classifier fψ is a small MLP on this latent. 
+
+# 4 Evaluation Protocol 
+
+We use audit in an intervention sense: each metric perturbs one part of the evidence path and measures the effect on the trained model. The five metrics target distinct questions and are not interchangeable. 
+
+(i) Gate faithfulness. For axis a ∈ { t, c }, segments or channels are ranked by descending gate value on the clean input; insertion progressively restores high-ranked units to a fully masked input and deletion progressively zeros them in the original. The faithfulness gap is gap a = AUC (a)ins − AUC (a)del ;a positive gap means the gate ranking is useful under perturbation, not that the selected units are clinically sufficient. 6(ii) Expert necessity. Setting αc = 0 collapses the channel expert into the prior ( qα ∝ p(z) qαt 
+
+> t
+
+); 
+
+αt = 0 is the channel-only analogue. We report ∆ a = Mfull − Mαa=0 for a predictive metric M .
+
+(iii) Gate causality. For each axis and sweep value v ∈ [0 , 1], we replace ga(x) by the constant 
+
+v1 at evaluation time and read off M (v). A flat curve indicates an irrelevant gate value; a cliff indicates a causally necessary one. Unlike expert-drop, gate-causality overrides the gate while keeping the trained expert head in place. 
+
+(iv) Posterior reliance. The precision weights from Eq. (13) give ρa = 1 
+
+> dz
+> ∑
+> j
+
+wa,j , partitioning the posterior into temporal, channel, and prior contributions: gates say where evidence was selected; reliance says how much posterior precision each axis contributes after selection. 
+
+(v) Expert disagreement. DSKL (qt, q c) = 12 [DKL (qt∥qc) + DKL (qc∥qt)] is large when the two axes support different beliefs about z; we treat it as an expert-conflict diagnostic, not an uncertainty score. Detailed protocols (perturbation grid, masking, diagonal-Gaussian form of DSKL ) are in Ap-pendix F. 
+
+# 5 Experiments 
+
+We organize the experiments around four questions. Q1 (Sec. 5.2) asks whether the evidence-only constraint remains predictively feasible across backbones: does denying the head access to pooled hidden states cost accuracy, and does the answer transfer from CodeBrain to CBraMod? Q2 (Sec. 5.3) ablates the choice of head, the temperature, the KL bottleneck, and the gate-shaping regularizers. Q3 (Sec. 5.4) turns to the audits—insertion–deletion, expert-drop, posterior reliance, expert disagreement, and gate-causality sweeps—and asks what the restricted forward graph makes visible. Q4 (Sec. 5.5) tests whether the selected channels recover clinically motivated regional anchors. 
+
+5.1 Experimental setup 
+
+Setup. We evaluate on six EEG diagnosis tasks: event-type classification (TUEV), abnormality detection (TUAB), seizure detection (TUSZ)[29], cognitive decline staging (AD/MCI/SCD/HC), depression, and cerebrovascular disease. The in-house cohorts use 58–129-channel EGI HydroCel and BrainVision grids (Appendix E), denser than the 16–22-channel TUH public benchmarks. All splits are subject-disjoint before windowing. Our primary frozen backbone is CodeBrain [5]; CBraMod [4] is a cross-backbone check on the subset of tasks with matched preprocessing and completed 3-seed runs. We compare four heads that differ only in temporal/channel integration: 
+
+Linear probe , Axis-Concat , PoE-EIB (αt=αc=1, standard PoE bottleneck), and tPoE-EIB (learnable 
+
+αt, α c ∈ [0 , 1]). Unless otherwise stated, dz =64, β=10 −4 with five-epoch warmup, η=10 −3, γ=10 −2,50 epochs of AdamW (lr 10 −3), patience 15, and 3 seeds. Hyperparameter and preprocessing details are in Appendices E–D. 
+
+5.2 Q1: Performance under the evidence-only constraint 
+
+Table 1 reports balanced accuracy and matched temporal/channel faithfulness gaps gap t, gap c for tPoE-EIB and a panel of CNN, self-supervised, and pretrained EEG baselines. The comparison is not a broad leaderboard; it asks two coupled questions: (i) does denying the head access to pooled hidden states cost accuracy, and (ii) does the answer transfer when we swap the frozen backbone? 7Table 1: Cross-model comparison across six EEG diagnosis tasks, split into two row-blocks (public benchmarks above, in-house clinical cohorts below). Each task reports 3-seed balanced accuracy (%) and matched temporal/channel faithfulness gaps gap t, gap c(integrated gradients on the posterior, uniform across methods). Best BAcc per task is in bold .                                                                                                                                                                                        
+
+> TUAB TUEV TUSZ Method BAcc gap tgap cBAcc gap tgap cBAcc gap tgap c
+> EEGNet 79 .4±0.60.129 −0.005 27 .8±2.10.020 −0.012 50 .2±0.00.001 0.001 ContraWR 78 .3±1.50.159 0.140 47 .9±2.70.151 0.066 61 .7±3.80.014 0.068 BENDR 63 .3±1.30.055 0.064 16 .7±0.0−0.026 0.003 50 .0±0.00.000 0.000 BIOT 71 .6±0.10.074 0.003 37 .4±0.10.087 −0.055 60 .9±6.20.015 0.002 LaBraM 73 .2±0.10.176 −0.019 40 .6±0.30.092 −0.028 55 .4±0.60.017 −0.006 CodeBrain-Linear 79 .0±0.30.058 0.085 46 .7±0.60.150 −0.052 74 .2±0.60.127 −0.025 CBraMod-Linear 68 .2±0.60.042 −0.255 30 .4±2.40.093 −0.087 57 .6±1.20.027 −0.008 CodeBrain-tPoE-EIB 80 .7±0.20.169 0.066 48 .8±0.70.152 −0.003 76 .4±0.50.098 −0.010 CBraMod-tPoE-EIB 72 .5±0.20.020 −0.119 33 .1±1.70.118 −0.097 60 .3±1.70.031 −0.006 AD staging Depression Cerebrovascular Method BAcc gap tgap cBAcc gap tgap cBAcc gap tgap c
+> EEGNet 22 .6±6.40.030 0.011 63 .0±4.20.024 0.011 56 .0±0.4−0.004 −0.029 ContraWR 23 .6±3.30.180 −0.058 65 .7±1.70.215 0.046 64 .2±1.2−0.035 −0.049 BENDR 25 .4±0.4−0.002 0.001 56 .3±1.00.110 0.013 50 .1±0.1−0.004 0.001 BIOT 38 .5±2.00.036 0.008 59 .2±0.80.173 0.254 61 .4±0.2−0.034 −0.007 LaBraM 36 .0±1.30.074 −0.018 61 .2±0.10.184 0.042 54 .8±0.40.033 0.027 CodeBrain-Linear 31 .0±1.60.222 −0.078 54 .2±0.90.276 −0.091 56 .8±0.80.184 −0.008 CBraMod-Linear 25 .2±0.20.215 −0.032 50 .5±0.40.085 0.059 54 .8±0.80.294 −0.088 CodeBrain-tPoE-EIB 38 .5±4.10.340 −0.072 58 .8±2.00.221 0.365 58 .0±0.80.290 −0.047 CBraMod-tPoE-EIB 26 .1±5.40.023 0.001 54 .3±0.4−0.033 0.052 57 .1±1.4−0.028 0.014
+
+Linear vs. tPoE-EIB across backbones. Replacing the linear probe with tPoE-EIB improves balanced accuracy on every public-benchmark cell, with gains of +1 .7/+4 .3 pts on TUAB, +2 .1/+2 .7on TUEV, and +2 .2/ + 2 .7 on TUSZ (CodeBrain / CBraMod). The absolute gain is consistently larger on the weaker CBraMod backbone, suggesting the evidence-only interface is most valuable when the underlying representation is weaker. 
+
+Comparison to external methods. CodeBrain-tPoE-EIB attains the best BAcc on the three public benchmarks: TUAB (80 .7%), TUEV (48 .8%), and TUSZ (76 .4%). On the in-house cohorts, pretrained foundation backbones do not dominate: ContraWR leads on Depression (65 .7%) and Cerebrovascular (64 .2%), and BIOT ties with CodeBrain-tPoE-EIB on AD staging (38 .5%). tPoE-EIB on either backbone exceeds the corresponding linear probe on every clinical cohort, so the evidence-only constraint does not sacrifice accuracy even when other architectures lead in absolute terms. 
+
+5.3 Q2: Ablations on heads, tempering, and regularizers 
+
+Head ablation. Table 2 fills in the four-head sweep on a frozen CodeBrain backbone, completing the Linear-vs.-tPoE-EIB picture from Q1 with the two intermediate variants Axis-Concat and PoE-EIB ( α = 1). tPoE-EIB ranks first on five of seven tasks (TUAB, TUEV, TUSZ, AD staging, Cerebrovascular) and second on AD binary and Depression, where standard PoE without tempering is best. Among the three non-Linear heads, the per-task spread is at most 2 .0 pts on the public benchmarks and at most 7 .2 pts on the in-house cohorts; gate selection and rate-limited posterior therefore contribute on the same scale rather than one dominating. Calibration is task-dependent 8Table 2: Head ablation: balanced accuracy (%, mean ± std over 3 seeds) on EEG diagnosis tasks with a frozen CodeBrain backbone. Best per task is in bold ; second best is underlined.                                   
+
+> Dataset Linear probe Axis-Concat PoE-EIB ( α= 1) tPoE-EIB (learnable α)TUAB 79 .0±0.380 .4±0.580 .3±0.480 .7±0.2
+> TUEV 46 .7±0.646 .8±1.447 .1±0.548 .8±0.7
+> TUSZ 74 .2±0.675 .1±0.975 .9±0.676 .4±0.5
+> AD staging 28 .5±4.131 .3±3.134 .0±1.638 .5±4.1
+> AD binary 75 .2±1.675 .6±3.677 .5±2.677 .4±4.8Depression 54 .2±0.958 .2±2.060 .4±1.158 .8±2.0Cerebrovascular 56 .8±0.857 .4±0.857 .6±1.058 .0±0.8
+
+(Appendix H.2): tPoE-EIB attains the lowest NLL on all three public benchmarks (TUAB 0 .427, TUEV 0 .882, TUSZ 0 .227) and the lowest ECE on TUEV (0 .117) and TUSZ (0 .018); only TUAB ECE favors the unrestricted Axis-Concat head (0 .018 vs. 0 .029). The bottleneck therefore does not impose a consistent calibration cost—and on TUEV it cuts NLL by 0 .338 relative to Axis-Concat. 
+
+Temperature ablation. Comparing fixed α ∈ { 0.5, 1.0} to a learnable α ∈ [0 , 1] via sigmoid reparameterization (Appendix H.4), the learnable variant attains the highest balanced accuracy on all three public benchmarks and converges to α ≈ 0.5 on both axes, near the worst-case calibrated temperature α∗ = 1 /(1 + ρ) derived in Proposition 2 for highly correlated experts ( ρ → 1). 
+
+Loss and gate-shaping ablations. The pattern is channel-count-dependent (Appendix H.5): on TUAB, single-regularizer ablations leave gap c ∈ [+0 .051 , +0 .061] and BAcc within 0 .5 pts; on 129-channel Depression, removing any regularizer flips gap c from +0 .104 to between −0.113 and 
+
+−0.190, so channel-axis compression is essential at high channel count. On TUAB, the Axis-Concat control’s temporal gate range is 0 .137 vs. 0 .316 for tPoE-EIB—the gate stays a light pass-through without the posterior bottleneck (Appendix H.6). 
+
+5.4 Q3: Auditing selected evidence and posterior integration 
+
+We test whether the restricted forward graph produces evidence signals that can be audited along five axes: gate faithfulness, expert necessity, posterior reliance, expert disagreement, and gate causality. These audits answer different questions, so we avoid reducing them to a single explanation score. 
+
+Gate faithfulness (insertion–deletion). TUAB shows positive gaps on both axes (temporal 0.169 ±0.023, channel 0 .066 ±0.026). On TUEV, the temporal gap remains positive (0 .150 ±0.051) while the channel gap is near zero ( −0.003 ±0.021), consistent with pathological-event discrimination depending on localized temporal structure rather than a stable per-channel ranking. 
+
+Expert necessity, reliance, disagreement. Table 3 summarizes the audits on three repre-sentative tasks; gaps here are computed from the learned tPoE-EIB gates, while Table 1 uses integrated gradients on the posterior (uniform across all methods). Expert-drop identifies channel as the dominant axis on TUAB (∆ c = 30 .1 vs. ∆ t = 22 .6 pts), and the learnable α uses both experts more evenly than standard PoE. Posterior reliance shows ρ0 ≈ 0.52–0 .62, confirming the bottleneck rate-limits evidence flow; reliance correlates with gap c but not gap t, so we read it as a 90.4 0.5 0.6 0.7 0.8 0.9 
+
+> Temporal
+> Gap = +0.169 +/- 0.023
+
+TUAB 
+
+> 0.6 0.7 0.8 0.9 1.0
+> Gap = +0.150 +/- 0.051
+
+TUEV 
+
+> 0.0 0.2 0.4 0.6 0.8
+> Gap = +0.148 +/- 0.037
+
+Depression       
+
+> 050 100
+> Mask (%)
+> 0.4 0.5 0.6 0.7 0.8 0.9
+> Channel
+> Gap = +0.066 +/- 0.026
+> 050 100
+> Mask (%)
+> 0.6 0.7 0.8 0.9 1.0
+> Gap = -0.003 +/- 0.021
+> 050 100
+> Mask (%)
+> 0.0 0.2 0.4 0.6 0.8
+> Gap = +0.104 +/- 0.092
+> Insertion Deletion
+
+Figure 2: Insertion–deletion curves on TUAB, TUEV, and Depression. The shaded area between insertion (top) and deletion (bottom) curves quantifies gate faithfulness on each axis. Table 3: Audit summary on representative tasks (best-validation checkpoint of tPoE-EIB). 
+
+Dataset gap t gap c ∆t ∆c ρt ρc ρ0 DSKL 
+
+TUAB +0 .161 +0 .061 0.226 0.301 0.14 0.24 0.62 445k TUEV +0 .150 −0.003 0.145 0.224 0.18 0.23 0.59 68 k
+
+TUSZ +0 .098 −0.010 0.130 0.269 0.18 0.30 0.52 42k 
+
+posterior-use diagnostic rather than a substitute for perturbation faithfulness. Expert disagreement 
+
+DSKL runs counter to the usual “high uncertainty → wrong” reading: on TUAB, correctly classified samples carry higher DSKL , so disagreement should be read as temporal–channel conflict rather than confidence (Appendix H.1). A complementary gate-causality sweep that distinguishes axis regimes between CVD and Depression is presented in Appendix H.8. 
+
+5.5 Q4: Clinical alignment of selected evidence 
+
+The Q3 audits test whether the gate is mechanistically faithful, but not whether selected channels recover the task-specific anatomical biomarker established by clinical EEG. For each task we pre-register a regional hypothesis from the textbook EEG signature, average the per-sample channel gate within canonical 10–20 region groups (frontal, central, temporal, parietal, posterior/occipital), and run a one-sided Wilcoxon test of the predicted target–control contrast (or of |LI | = |(L − R)/(L + R)|
+
+for focal-slowing tasks). Tests are repeated over three seeds. Table 4 reports outcomes and Fig. 3 visualizes three representative tasks using the cleaner correct-only, class-conditioned view (samples that the model classified correctly, then split by ground-truth class). The pattern is task-specific and reproducible across seeds. 
+
+Hypothesis recovered (TUAB, Depression, CVD). On TUAB, the selector concentrates on parieto-occipital sites with the abnormal class consistently doubling the normal-class gate magnitude, in line with posterior-dominant-rhythm disruption [30, 31] ( d=1 .75 ±0.37, p< 10 −3). Depression 10 FrontCentTemp Par Occ 0.0 0.1 0.2 0.3             
+
+> Mean gate
+> normal abnormal (a) TUAB: correct ×class FrontCentTemp Par Post 0.0 0.2 0.4 0.6
+> Mean gate
+> normal depression (b) Depression: correct ×class −0.2 0.0 0.2
+> LI = (R-L)/(R+L)
+> 0.0 0.1 0.2 0.3
+> Fraction of class  normal (n=413) CVD (n=1384) (c) Cerebrovascular: LI
+
+Figure 3: Clinical alignment visualizations on three tasks (correctly classified samples only, split by ground-truth class). (a) TUAB: both classes peak at parietal/occipital channels consistent with posterior dominant rhythm, but the abnormal class recruits roughly 2 × the gate magnitude of the normal class at every region, with the largest absolute gap at occipital and parietal sites. (b) Depression: the depressive class shows substantially elevated gate at parietal (0 .62 vs. 0 .34), central, and temporal sites, while frontal weight is similar between classes—the discriminator is parietal/central elevation rather than the classical frontal alpha asymmetry alone. (c) Cerebrovascular disease: CVD samples show a substantially broader lateralization-index distribution than normal controls, consistent with focal lesion-side slowing. Per-task region distributions, the full correct ×
+
+class grid, and per-class profiles are in Appendix H.9. elevates central/parietal/temporal weight in the depressive class with frontal exceeding posterior in the directional Wilcoxon contrast ( d=2 .06 ±1.36); the parietal involvement extends beyond the classical FAA frame [32–34]. CVD shows pronounced lateralization and a posterior shift specific to the disease class, consistent with focal lesion-side slowing [35, 36] ( |LI | effect d=4 .92 ±2.67, p< 10 −3). 
+
+TUEV per-event profile. TUEV does not admit a single directional contrast, so we report the per-class profile. Among correctly predicted events, EYEM peaks at frontal channels (0 .78 vs. 0.46–0 .74 at other regions), consistent with the Fp1/Fp2/F7/F8 origin of ocular activity. Periodic-discharge classes carry the highest gate overall: GPED concentrates at parietal/central sites, while PLED is broad with a frontal peak. ARTF carries the lowest weight at every region, consistent with down-weighting non-physiological windows (Fig. 8f). 
+
+Hypothesis rejected, accuracy preserved (TUSZ, AD). TUSZ reaches 76 .4±0.5% but the focal-onset hypothesis (temporal/frontal > central/parietal) is rejected in every seed ( d=−0.41 ±0.19); the seizure-class profile (Fig. 8d) recruits gate broadly with a central/occipital peak, so the bottleneck found a more general solution than the lesion-localized prior anticipated for the heterogeneous TUSZ event mix. AD attains best-in-class balanced accuracy among heads (38 .5±4.1%, chance 25%; tied with BIOT at 38 .5% in Table 1), yet the posterior–frontal contrast goes the wrong direction in every seed ( d= − 6.54 ±4.46) and the per-region gate saturates near 1 .0 at 4-way granularity (Fig. 7d). A binary AD vs. NC reformulation recovers the gate’s discriminative content—a post-hoc logistic regression on the 58-dim channel gate reaches 88 .8–97 .9% balanced accuracy with a pronounced fronto-parietal gate-correlation reversal (Appendix H.10)—so the 4-way failure reflects task granularity, not absent AD-relevant signal; the recovered pattern is distributed rather than aligned with the pre-registered “posterior > frontal” anchor [37, 38]. 11 Table 4: Clinical alignment of channel selectors against task-specific EEG biomarkers. Cohen’s d is the directional target–control effect size (or the |LI | effect for CVD), reported as 3-seed mean ± std on the held-out test split. Aligned summarizes the one-sided Wilcoxon decision across seeds; TUEV uses a per-event-class analysis instead of a directional contrast. Test-set sample counts in Table 6.                                             
+
+> Task Anchor / predicted gate pattern d(3-seed) Aligned TUAB PDR: par./occ. >front. +1 .75 ±0.37 ✓(3/3) TUSZ Focal onset: temp./front. >cent./par. −0.41 ±0.19 ×(3/3) TUEV Per-event (EYEM →front.; GPED/PLED →cent.) per-class EYEM front. (0 .78) AD staging Post. α↓/θδ ↑: post. >front. −6.54 ±4.46 ×(3/3) Depression FAA: front. >post. +2 .06 ±1.36 ✓(3/3) Cerebrovascular Lesion-side slowing: |LI | ↑ in disease class +4 .92 ±2.67 ✓(3/3)
+
+Alignment outcome and predictive accuracy therefore decouple, and an unrestricted Axis-Concat head cannot draw these distinctions because its classifier never commits to a region. 
+
+# 6 Conclusion 
+
+We introduced tPoE-EIB, an evidence-information bottleneck head that adapts pretrained EEG backbones under an evidence-only prediction constraint, with a variational lower bound on an evidence-IB criterion and a tempered product of Gaussian temporal and channel experts over a shared low-rate latent. The interface is intentionally factorized—marginal temporal and channel support rather than arbitrary joint patterns—so it cannot directly express evidence such as “channel 
+
+j matters only during segment s,” and group-level audits have blind spots when gate values are nearly uniform or highly patient-specific. Three directions preserving the evidence-only restriction extend this framework: rate-adaptive bottlenecks that allocate dz by class or task, hierarchical experts that decompose multi-class decisions into nested judgments, and joint time–channel masks with structured priors that capture patterns marginal gates cannot express. 12 References 
+
+[1] Vernon J. Lawhern, Amelia J. Solon, Nicholas R. Waytowich, Stephen M. Gordon, Chou P. Hung, and Brent J. Lance. EEGNet: A compact convolutional neural network for EEG-based brain–computer interfaces. Journal of Neural Engineering , 15(5):056013, 2018. [2] Yunfa Song, Qian Zheng, Bin Liu, and Xiaorong Gao. EEG conformer: Convolutional transformer for EEG decoding and visualization. IEEE Transactions on Neural Systems and Rehabilitation Engineering , 31:710–719, 2023. [3] Wei-Bang Jiang, Li-Ming Zhao, and Bao-Liang Lu. Large brain model for learning generic representations with tremendous EEG data in BCI. In International Conference on Learning Representations , 2024. [4] Jiquan Wang, Sha Zhao, Zhiling Luo, Yangxuan Zhou, Haiteng Jiang, Shijian Li, Tao Li, and Gang Pan. CBramod: A criss-cross brain foundation model for EEG decoding. In The Thirteenth International Conference on Learning Representations , 2025. [5] Jingying Ma, Feng Wu, Qika Lin, Yucheng Xing, Chenyu Liu, Ziyu Jia, and Mengling Feng. Codebrain: Bridging decoupled tokenizer and multi-scale architecture for eeg foundation model. In The Fourteenth International Conference on Learning Representations , 2025. [6] Mukund Sundararajan, Ankur Taly, and Qiqi Yan. Axiomatic attribution for deep networks. In Proceedings of the 34th International Conference on Machine Learning , 2017. [7] Jonathan Crabbé and Mihaela van der Schaar. Explaining time series predictions with dynamic masks. In Proceedings of the 38th International Conference on Machine Learning , 2021. [8] Hyeongwon Jang, Changhun Kim, and Eunho Yang. TIMING: Temporality-aware integrated gradients for time series explanation. In Proceedings of the 42nd International Conference on Machine Learning , 2025. [9] Alon Jacovi and Yoav Goldberg. Towards faithfully interpretable NLP systems: How should we define and evaluate faithfulness? In Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics (ACL) , pages 4198–4205, 2020. [10] Cynthia Rudin. Stop explaining black box machine learning models for high stakes decisions and use interpretable models instead. Nature Machine Intelligence , 1(5):206–215, 2019. [11] Mo Yu, Shiyu Chang, Yang Zhang, and Tommi Jaakkola. Rethinking cooperative rationalization: Introspective extraction and complement control. In Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing , 2019. [12] Chenyu Liu, Yuqiu Deng, Tianyu Liu, Jinan Zhou, Xinliang Zhou, Ziyu Jia, and Yi Ding. Echo: Toward contextual seq2seq paradigms in large eeg models. arXiv preprint arXiv:2509.22556 ,2025. [13] Zhisheng Chen, Yingwei Zhang, Qizhen Lan, Tianyu Liu, Huacan Wang, Yi Ding, Ziyu Jia, Ronghao Chen, Kun Wang, and Xinliang Zhou. Uni-NTFM: A unified foundation model for EEG signal representation learning. arXiv preprint arXiv:2509.24222 , 2025. 13 [14] Andrew Slavin Ross, Michael C. Hughes, and Finale Doshi-Velez. Right for the right reasons: Training differentiable models by constraining their explanations. In Proceedings of the Twenty-Sixth International Joint Conference on Artificial Intelligence , 2017. [15] Pang Wei Koh, Thao Nguyen, Yew Siang Tang, Stephen Mussmann, Emma Pierson, Been Kim, and Percy Liang. Concept bottleneck models. In Proceedings of the 37th International Conference on Machine Learning , 2020. [16] Mateo Espinosa Zarlenga, Pietro Barbiero, Gabriele Ciravegna, Giuseppe Marra, Francesco Giannini, Michelangelo Diligenti, Zohreh Shams, Frederic Precioso, Stefano Melacci, Adrian Weller, Pietro Lio, and Mateja Jamnik. Concept embedding models: Beyond the accuracy-explainability trade-off. In Advances in Neural Information Processing Systems , 2022. [17] Mert Yuksekgonul, Maggie Wang, and James Zou. Post-hoc concept bottleneck models. In 
+
+International Conference on Learning Representations , 2023. [18] Tuomas Oikarinen, Subhro Das, Lam M. Nguyen, and Tsui-Wei Weng. Label-free concept bottleneck models. In International Conference on Learning Representations , 2023. [19] Tao Lei, Regina Barzilay, and Tommi Jaakkola. Rationalizing neural predictions. In Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing , 2016. [20] Jasmijn Bastings, Wilker Aziz, and Ivan Titov. Interpretable neural predictions with differ-entiable binary variables. In Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics , 2019. [21] Naftali Tishby, Fernando C. Pereira, and William Bialek. The information bottleneck method. In 
+
+Proceedings of the 37th Annual Allerton Conference on Communication, Control and Computing ,pages 368–377, 2000. [22] Alexander A. Alemi, Ian Fischer, Joshua V. Dillon, and Kevin Murphy. Deep variational information bottleneck. In International Conference on Learning Representations , 2017. [23] Ravid Shwartz-Ziv and Naftali Tishby. Opening the black box of deep neural networks via information. arXiv preprint arXiv:1703.00810 , 2017. [24] Marco Federici, Anjan Dutta, Patrick Forré, Nate Kushman, and Zeynep Akata. Learning robust representations via multi-view information bottleneck. In International Conference on Learning Representations , 2020. [25] Yaochen Zhu, Jiayi Xie, and Zhenzhong Chen. Predicting the popularity of micro-videos with multimodal variational encoder-decoder framework. arXiv preprint arXiv:2003.12724 , 2020. [26] Jingqi Song, Yuanjie Zheng, Jing Wang, Muhammad Zakir Ullah, and Wanzhen Jiao. Multicolor image classification using the multimodal information bottleneck network (MMIB-Net) for detecting diabetic retinopathy. Optics Express , 29(14):22732–22748, 2021. [27] Zongbo Han, Fan Yang, Junzhou Huang, Changqing Zhang, and Jianhua Yao. Multimodal dynamics: Dynamical fusion for trustworthy multimodal classification. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2022. [28] Ziyu Jia, Tingyu Du, Zhengyu Tian, Hongkai Li, Yong Zhang, and Chenyu Liu. A multimodal BiMamba network with test-time adaptation for emotion recognition based on physiological signals. In Advances in Neural Information Processing Systems , 2025. 14 [29] Iyad Obeid and Joseph Picone. The temple university hospital eeg data corpus. Frontiers in neuroscience , 10:196, 2016. [30] Shaun S. Lodder and Michel J. A. M. van Putten. Automated EEG analysis: characterizing the posterior dominant rhythm. Journal of Neuroscience Methods , 200(1):86–93, 2011. [31] Lara V. Marcuse, Marc Schneider, Katherine A. Mortati, Karen M. Donnelly, Vanessa Arnedo, and Arthur C. Grant. Quantitative analysis of the EEG posterior-dominant rhythm in healthy adolescents. Clinical Neurophysiology , 119(8):1778–1781, 2008. [32] Jeffrey B. Henriques and Richard J. Davidson. Left frontal hypoactivation in depression. 
+
+Journal of Abnormal Psychology , 100(4):535–545, 1991. [33] John J. B. Allen and Samantha J. Reznik. Frontal EEG asymmetry as a promising marker of depression vulnerability: summary and methodological considerations. Current Opinion in Psychology , 4:93–97, 2015. [34] Nikita van der Vinne, Madelon A. Vollebregt, Michel J. A. M. van Putten, and Martijn Arns. Frontal alpha asymmetry as a diagnostic marker in depression: fact or fiction? A meta-analysis. 
+
+NeuroImage: Clinical , 16:79–87, 2017. [35] Simon Finnigan and Michel J. A. M. van Putten. EEG in ischaemic stroke: quantitative EEG can uniquely inform (sub-)acute prognoses and clinical management. Clinical Neurophysiology ,124(1):10–19, 2013. [36] Simon Finnigan, Andrew Wong, and Stephen Read. Defining abnormal slow EEG activity in acute ischaemic stroke: delta/alpha ratio as an optimal QEEG index. Clinical Neurophysiology ,127(2):1452–1459, 2016. [37] Jaeseung Jeong. EEG dynamics in patients with Alzheimer’s disease. Clinical Neurophysiology ,115(7):1490–1505, 2004. [38] Roberta Lizio, Fabrizio Vecchio, Giovanni B. Frisoni, Raffaele Ferri, Guido Rodriguez, and Claudio Babiloni. Electroencephalographic rhythms in Alzheimer’s disease. International Journal of Alzheimer’s Disease , 2011:927573, 2011. 15 A Conceptual overview 
+
+For reference, Fig. 4 contrasts a standard post-hoc downstream head with the evidence-only forward path used by tPoE-EIB. Standard (post-hoc) 
+
+> EEG input
+> ...  ❄ ⋮
+> Prediction uses unrestricted hidden states.
+
+tPoE-EIB (evidence-only) 
+
+> EEG input
+> ❄
+> …
+> evidence-only path (no feature concatenation)
+
+Interpretability audits: Gate faithfulness Expert-drop necessity Posterior reliance Expert disagreement 
+
+> …Channel gate Temporal gate
+> ...
+> Each audit examines a specific component of the pipeline above:
+
+Figure 4: Conceptual contrast between a standard post-hoc downstream head and tPoE-EIB. A standard head (left) predicts from unrestricted hidden states H and explains the decision afterward. tPoE-EIB (right) routes prediction through temporal and channel gates, evidence summaries et, e c,Gaussian experts qt(z | et) and qc(z | ec), and a tempered product-of-experts posterior qα(z | et, e c). The classifier fψ observes only the latent, so no concatenated evidence or unrestricted hidden state reaches the classifier. 
+
+# B Theoretical properties (extended) 
+
+This appendix expands the theoretical statements referenced in the main text. We record two further properties: a rate-limited path bound that follows from the variational bound in Proposition 1, and a constant-gate failure mode (Lemma 1) that motivates the audits in Sec. 4. We also state a variance-conservatism corollary that complements the calibration argument for tempering given by Proposition 2 in the main text. 
+
+B.1 Rate-limited evidence path 
+
+Corollary 1 (Rate-limited evidence path) . Along the forward graph E → Z → ˆY , the data-processing inequality gives 
+
+I( ˆY ; E) ≤ I(Z; E) ≤ Ep(E)DKL 
+
+(qα(z | E) ∥ p(z)).
+
+Because X → H → E is deterministic under the frozen backbone and deterministic gates, the same stochastic path bounds the dependence of the prediction on the input: I( ˆY ; X) ≤ Ep(E)DKL (qα(z |
+
+E)∥p(z)) .Remark 2. This information-theoretic statement applies to the stochastic training path Z ∼ qα(z | E)in Eq. (14). At evaluation, we use the posterior mean μα as a variance-reduced predictor. This preserves the architectural restriction that the classifier sees only the tPoE latent parameterization, but the mutual-information bound itself is tied to the stochastic training path. 16 B.2 Stability is not selectivity 
+
+Sparsity and consistency penalties on the gates do not by themselves ensure sample-dependent evidence selection: a constant gate can minimize both. 
+
+Lemma 1 (Stability is not selectivity) . Let gt(x) = ¯ gt and gc(x) = ¯ gc be constant for all x. Then the consistency loss in Eq. (7) is zero for any augmentation operator Aug . The sparsity loss in Eq. (6) equals 12
+
+> (
+
+∥¯gt∥1/S + ∥¯gc∥1/C ), which depends only on the chosen constants and is small whenever those constants are sparse. 
+
+The proof is in Appendix C.1. Lemma 1 formalizes the constant-gate failure: such a gate is a degenerate rationale in the sense of Yu et al. [11]. The bottleneck does not make this shortcut impossible, but Corollary 1 ensures that any information passing through a collapsed selector is still rate-limited, and Sec. 4 turns that constraint into measurable evidence-quality tests. 
+
+B.3 Variance conservatism of tempered PoE 
+
+Proposition 2 (in the main text) gives the calibration argument for tempering. A complementary observation is that tempering is also conservative with respect to posterior variance. 
+
+Corollary 2 (Tempering is conservative relative to standard PoE) . If 0 ≤ αt, α c ≤ 1, then the tPoE posterior variance is element-wise no smaller than the standard PoE variance obtained with 
+
+αt = αc = 1 . This follows directly from Eqs. (11) .
+
+# C Additional Proofs 
+
+C.1 Proof of Lemma 1 (stability is not selectivity) 
+
+For every x, gt(Aug( x)) = ¯ gt = gt(x) and similarly for gc, so the squared differences in Eq. (7) vanish. The sparsity claim is immediate from Eq. (6) since both averages equal ∥¯gt∥1/S and ∥¯gc∥1/C .
+
+C.2 Proof of Proposition 3 (closed-form tempered PoE posterior) 
+
+Let Σ t = diag( σ2 
+
+> t
+
+) and Σ c = diag( σ2 
+
+> c
+
+) denote the diagonal covariance matrices of the two experts. Expanding log qα(z) from Eq. (9) gives the sum of three quadratic forms in z: the standard normal prior term − 12 ∥z∥2 and the two tempered expert log-densities − αt 
+
+> 2
+
+(z − μt)⊤Σ−1 
+
+> t
+
+(z − μt)and − αc 
+
+> 2
+
+(z − μc)⊤Σ−1 
+
+> c
+
+(z − μc). Collecting quadratic and linear terms in z yields a Gaussian with precision matrix I + αtΣ−1 
+
+> t
+
++ αcΣ−1 
+
+> c
+
+and natural parameter αtΣ−1 
+
+> t
+
+μt + αcΣ−1 
+
+> c
+
+μc. Diagonal covariance gives Eqs. (11)–(12). 
+
+C.3 Proof of Proposition 1 (variational lower bound) 
+
+We bound the two terms of JEIB = I(Y ; Z) − βI (E; Z) separately. 
+
+Label term (lower bound on I(Y ; Z)). By definition, I(Y ; Z) = H(Y ) − H(Y | Z) = H(Y ) + 
+
+Ep(y,z )[log p(y | z)]. For any decoder rψ, Ep(y,z )[log p(y | z)] = Ep(y,z )[log rψ(y | z)] + Ep(z)DKL (p(y |
+
+z)∥rψ(y | z)), and the KL term is non-negative. Therefore 
+
+I(Y ; Z) ≥ H(Y ) + Ep(x,y )Eqα(z|E)[log rψ(y | z)] . (15) 17 Rate term (upper bound on I(E; Z)). Let ¯ q(z) = Ep(E)[qα(z | E)] be the aggregated posterior. Using the identity Ep(E)DKL (qα(z | E)∥p(z)) = I(E; Z)+ DKL (¯ q(z)∥p(z)) [22] and the non-negativity of DKL (¯ q∥p), 
+
+I(E; Z) ≤ Ep(E)DKL (qα(z | E)∥p(z)) . (16) Substituting the lower bound on I(Y ; Z) from Eq. (15) and the upper bound on I(E; Z) from Eq. (16) into JEIB = I(Y ; Z) − βI (E; Z) yields Eq. (3). 
+
+C.4 Proof of Proposition 2 (tempering corrects overconfidence under correlated experts) 
+
+The joint distribution p(z, ε t, ε c) is Gaussian. Conditioning on ( yt, y c) and completing the square in 
+
+z gives the true posterior precision τ ∗ = 1 + 1⊤Σ−1 
+
+> ε
+
+1, where Σ ε = σ2
+
+> (
+
+1 ρρ 1
+
+> )
+
+and 1 = (1 , 1) ⊤. Direct inversion yields τ ∗ = 1 + 2 /(σ2(1 + ρ)). For tempered PoE, the diagonal formula of Proposition 3, specialized to dz = 1, σ2 
+
+> t
+
+= σ2 
+
+> c
+
+= σ2, and αt = αc = α, gives τα = 1 + 2 α/σ 2. Equating τα = τ ∗
+
+yields α∗ = 1 /(1 + ρ). Monotonicity of τα in α gives the calibration claims. 
+
+C.5 Nuisance leakage consumes bottleneck rate 
+
+Suppose evidence decomposes as E = ( S, N ), where S is label-relevant signal, N is nuisance variation, and Y ⊥ N | S. Then 
+
+I(E; Z) = I(S, N ; Z) = I(S; Z) + I(N ; Z | S). (17) The term I(N ; Z | S) is non-negative and consumes bottleneck rate. Under the evidence-IB objective 
+
+I(Y ; Z) − βI (E; Z), nuisance information that reaches Z is penalized but cannot increase the label information once S is known. This does not prove that optimization will always discard nuisance, but it motivates selecting irrelevant components before compression. 
+
+C.6 Diagonal Gaussian KL used for expert disagreement 
+
+For two diagonal Gaussians qA = N (μA, diag( σ2
+
+> A
+
+)) and qB = N (μB , diag( σ2 
+
+> B
+
+)), 
+
+DKL (qA∥qB ) = 12
+
+> ∑
+> j
+> [
+
+log σ2
+
+> B,j
+
+σ2
+
+> A,j
+
++ σ2 
+
+> A,j
+
++ ( μA,j − μB,j )2
+
+σ2
+
+> B,j
+
+− 1
+
+> ]
+
+. (18) The symmetric expert-conflict diagnostic is 
+
+DSKL (qt, q c) = 12 [DKL (qt∥qc) + DKL (qc∥qt)] . (19) 
+
+# D Implementation Details 
+
+The head exposes a small number of interpretable knobs. The bottleneck coefficient β controls the evidence information budget and is warmed up over Twarm epochs. The sparsity and consistency coefficients η and γ control gate mass and stability. The temperatures αt, α c ∈ [0 , 1] discount correlated evidence axes, and the latent dimension dz sets the rate ceiling of the decision path. Temporal and channel gates are two-layer MLPs with hidden width 64 and GELU activations. Each Gaussian expert uses a linear–GELU–linear projection to produce μ and log σ2, with log-variance clamped to [ −10 , 10] for numerical stability. Unless otherwise stated, dz = 64. 18 We evaluate two tempered configurations: a fixed variant with αt = αc = 0 .5 and a learnable variant in which αt, α c are constrained to [0 , 1] by sigmoid reparameterization initialized at 0.5. Standard non-tempered PoE is recovered by setting αt = αc = 1 .0 and is used as an ablation. At evaluation time, all stochastic bottlenecks are made deterministic by setting z = μα. This makes insertion–deletion curves, posterior reliance, and expert-drop diagnostics reproducible. Expert-drop changes only posterior aggregation weights; it does not mask the EEG input. Table 5: Default head and optimization hyperparameters used unless otherwise stated.                 
+
+> Parameter Value Latent dimension dz64 Bottleneck coefficient β10 −4
+> Warmup Twarm 5 epochs Sparsity coefficient η10 −3
+> Consistency coefficient γ10 −2
+> Optimizer AdamW Learning rate 10 −3
+> Weight decay 10 −3
+> Maximum epochs 50 Early-stopping patience 15 epochs
+
+# E Dataset Details 
+
+Table 6 reports the raw dataset statistics and split conventions used in Sec. 5. In addition to TUH-derived public benchmarks, we use private resting-state clinical EEG cohorts to test disease-oriented diagnosis under the same frozen-backbone adaptation setting. These in-house labels reflect routine clinical assessment informed by EEG review and chart-level context rather than waveform annotation alone. The depression and cerebrovascular cohorts are binary condition-vs-control datasets built from de-identified 5 s windows; AD staging is a four-way AD/MCI/SCD/HC cohort. Together, the in-house cohorts provide a denser channel axis (58–129 EEG channels post-preprocessing) than the public benchmarks (16–22) and therefore a more demanding setting for channel-faithfulness analysis. 
+
+Preprocessing. We follow the CBraMod [4] preprocessing protocol, which is also the convention used by CodeBrain [5]: all recordings are uniformly resampled to 200 Hz before windowing so that the temporal axis is aligned across heterogeneous public and in-house cohorts (the “ fs” column of Table 6 reports the original acquisition rates). Channel selection is dataset-specific. (i) The cerebrovascular cohort is acquired with a 140-channel EGI net; we retain the 129 EEG-bearing electrodes and drop the 11 non-EEG sensors (reference / face / EOG / ground leads) before windowing. (ii) The depression cohort mixes EGI (129-channel HydroCel) and BrainVision (64-channel) acquisitions; we first align the two systems on their common 10–20-positioned electrodes, then retain the 63 EEG channels shared by both montages and exclude the BrainVision ECG lead. (iii) The AD-staging cohort is acquired with EGI on a 58-electrode grid and used as-is. The TUH public benchmarks (TUAB, TUEV, TUSZ) follow the standard CBraMod bipolar montage and label-window construction unchanged. The “Ch.” column in Table 6 therefore lists the maximum acquisition channel count of each cohort; the channel grid actually fed to the model after preprocessing is 129 for cerebrovascular, 63 for depression, and matches the table value for the remaining tasks. 19 All in-house data are private and outside any pretraining corpus. Only de-identified windowed EEG segments and derived record metadata enter the modeling pipeline; institution-identifying ethics and review-board details are not included in this public version. Splits are constructed before windowing so that no subject contributes segments to more than one split. De-identified in-house data may be made available for research use upon reasonable request, subject to approval by the responsible investigators and applicable institutional data-governance constraints. We do not provide formal site or demographic confounding audits for these private cohorts, so in-house results should be read with that caveat. Table 6: Raw dataset statistics. Splits are reported in number of windows; the “Ch.” column gives the maximum acquisition channel count and “ fs” the original sampling rate (Hz). All recordings are uniformly resampled to 200 Hz before windowing; channel selection (cerebrovascular 140 → 129, depression 64 → 63 after EGI/BrainVision alignment) is described above.                                           
+
+> Dataset Task |Y| Subj. Train/Val/Test Ch. fs
+> TUAB Abnormality 22,329 297k/75k/37k 16 250/256 TUEV Event type 6294 176k/—/29k 16 250 TUSZ Seizure 2675 542k/—/92k 22 200 AD staging Cognitive decline 4108 11.7k/2.5k/2.5k 58 250 Depression MDD vs. control 2159 4.6k/1.0k/0.6k 64 500/1000 Cerebrovascular Stroke / lesion 283 7.4k/1.5k/1.8k 140 500/5000
+
+# F Evaluation Protocol Details 
+
+This appendix expands the audit protocols summarized in Section 4. 
+
+Insertion–deletion gap (extended). For each axis a ∈ { t, c }, we rank temporal segments or channels by descending gate value. Insertion starts from a fully zero-masked input and progressively restores high-ranked segments or channels; deletion starts from the original input and progressively replaces the same ranked units with zeros. The full model is re-run after each perturbation, while the ranking is fixed from the clean input. Mask fractions are uniformly spaced on {0, 0.1, . . . , 1.0}.For each fraction, we record the predicted target-class probability, average over evaluation samples, and integrate to obtain AUC (a)ins and AUC (a)del . The gap is gap a = AUC (a)ins − AUC (a)del . To connect selection with posterior integration, we additionally stratify samples by posterior reliance: if high-ρt
+
+samples show larger temporal gaps than low-ρt samples, temporal reliance aligns with temporal gate faithfulness. 
+
+Expert necessity (extended). Setting both temperatures to zero gives the prior-only noise floor 
+
+qα = p(z). We use balanced accuracy as the predictive metric M throughout; ∆ values reported in tables are averaged over three seeds. 
+
+Gate causality (extended). The override sweep is evaluated on the same held-out test set as the predictive metric. We use 8 sweep values v ∈ { 0.0, 0.3, 0.5, 0.6, 0.7, 0.8, 0.9, 0.999 }, with finer resolution near the typical learned-gate regime. The complement of the resulting M (v) curve is reported for CVD and Depression in Fig. 6. 20 Symmetric KL between experts (diagonal-Gaussian form). For two diagonal-covariance Gaussians qt = N (μt, diag( σ2 
+
+> t
+
+)) and qc = N (μc, diag( σ2 
+
+> c
+
+)), 
+
+DKL (qt∥qc) = 12
+
+∑
+
+> j
+
+[
+
+log σ2
+
+> c,j
+
+σ2
+
+> t,j
+
++ σ2 
+
+> t,j
+
++ ( μt,j − μc,j )2
+
+σ2
+
+> c,j
+
+− 1
+
+]
+
+,
+
+and DSKL = 12 [DKL (qt∥qc) + DKL (qc∥qt)]. We report sample-level DSKL and its conditional means under correct/incorrect prediction subsets. 
+
+# G Reporting Details 
+
+The evaluation records both summary and per-sample quantities. Summary reports include predictive metrics, calibration, terminal KL, evidence gaps with reliance stratification, expert-drop deltas, posterior reliance means, and expert disagreement. Per-sample reports include labels, predictions, confidence, gap t, gap c, ρt, ρc, ρ0, DSKL (qt, q c), and posterior variance. These quantities separate accuracy, gate faithfulness, posterior reliance, and temporal–channel conflict, enabling audits of both evidence selection and posterior integration. 
+
+# H Additional Experimental Results 
+
+H.1 Reliance-stratified gap 
+
+Figure 5: Gate-faithfulness gap stratified by posterior-reliance tertile for the learnable-α tPoE-EIB variant on TUAB and TUEV. Each panel reports the mean gap in low/mid/high reliance groups, averaged over three seeds. Higher ρc aligns with larger gap c on both datasets, whereas temporal alignment is task-dependent. 21 The clearest alignment is on the channel axis: in both TUAB and TUEV, higher ρc corresponds to larger gap c, so samples that receive more posterior precision from the channel expert tend to show more faithful channel perturbation rankings. Temporal alignment is task-dependent: TUEV shows an average increase in gap t from low to high ρt, whereas TUAB does not. On TUAB, the temporal-reliance–gap correlation is weakly negative ( r ≈ − 0.19), indicating that on this dataset temporal reliance reflects model confidence rather than perturbation faithfulness. 
+
+H.2 Full calibration table 
+
+Table 7: Full calibration diagnostics across all four heads, public benchmarks. Terminal KL is the final training KL for bottlenecked heads.                                                    
+
+> Dataset Method ECE ↓NLL ↓Terminal KL TUAB Linear probe 0.024 0.449 0.0 Axis-Concat 0.018 0.425 0.0 PoE-EIB ( α= 1) 0.030 0.429 48.1 tPoE-EIB (learnable α)0.029 0.427 43.9 TUEV Linear probe 0.126 0.895 0.0 Axis-Concat 0.139 1.220 0.0 PoE-EIB ( α= 1) 0.138 1.114 30.0 tPoE-EIB (learnable α)0.117 0.882 28.2 TUSZ Linear probe 0.051 0.299 0.0 Axis-Concat 0.026 0.272 0.0 PoE-EIB ( α= 1) 0.021 0.255 39.2 tPoE-EIB (learnable α)0.018 0.227 39.2
+
+H.3 Cross-backbone generalization (full table) 
+
+Table 8: Balanced accuracy (%) on TUAB with a frozen CBraMod backbone (full four-head sweep). Mean ± std over 3 seeds. Companion to Sec. 5.2; CBraMod TUEV results (Linear and tPoE-EIB only, 6-class) are reported in Table 1.           
+
+> Dataset Linear probe Axis-Concat PoE-EIB ( α= 1) tPoE-EIB (learnable α)TUAB 68 .2±0.672 .0±0.271 .8±0.672 .5±0.2
+
+On TUAB, CBraMod’s lower absolute performance compresses the gap among heads, but the relative ordering is preserved: tPoE-EIB (72 .5%) > Axis-Concat (72 .0%) > PoE-EIB (71 .8%) ≫
+
+Linear (68 .2%). On TUEV (6-class), the two completed CBraMod runs in Table 1 show the same Linear → tPoE-EIB direction (30 .4 → 33 .1%, +2 .7) as on CodeBrain (46 .7 → 48 .8%, +2 .1), with the absolute gain larger on the weaker CBraMod backbone—consistent with the main-text observation that the evidence interface is most valuable when the underlying representation is weaker. 
+
+H.4 Temperature ablation 
+
+Table 9 compares fixed α = 0 .5, fixed α = 1 .0, and a learnable α ∈ [0 , 1] via sigmoid reparameteriza-tion. The learnable variant attains the highest balanced accuracy on all three tasks and the lowest 22 ECE on TUSZ and TUEV; standard PoE ( α = 1 .0) gives the lowest ECE on TUAB. Tempering therefore trades calibration for accuracy on event-centric and balanced tasks, and recovers both on the most imbalanced setting (TUSZ and TUEV). Table 9: Temperature ablation. Each cell reports balanced accuracy (%) / ECE. 
+
+Variant TUAB TUEV TUSZ 
+
+α = 0 .5 (fixed) 80.2 / 0.031 46.8 / 0.135 75.7 / 0.021 
+
+α = 1 .0 (standard PoE) 80.3 / 0.028 47.1 / 0.128 75.9 / 0.021 Learnable α 80.7 / 0.031 48.8 / 0.117 76.4 / 0.018 
+
+H.5 Loss ablation 
+
+We remove each regularizer in Ltotal in turn (Table 10). The pattern is channel-count-dependent. On TUAB, single-regularizer ablations change BAcc by at most 0.5 pts and leave gap c positive but small ( +0 .051 to +0 .061 ), so the regularizers reshape the evidence interface only modestly when the channel count is small. On the 129-channel Depression cohort, the regularizers are essential for channel compression: removing any single regularizer flips gap c sharply negative (+0 .104 with the full loss vs. −0.113, −0.158, −0.190 when removing Lsparse , Lcons , LKL respectively), with BAcc largely preserved. On TUEV (6-class), single-regularizer ablations cost 2–3 pts of BAcc, and removing LKL flips gap c from −0.003 to +0 .037. Terminal KL on TUEV is reported on a per-sample basis throughout this ablation, matching the per-example coding-rate interpretation that motivates the bottleneck; since every row of the table uses this same convention, the sign and ranking of within-table differences are invariant to the normalization choice. The contrast between TUAB and Depression suggests channel-axis compression matters more in dense-channel settings, while temporal-axis sparsity/consistency penalties carry more accuracy weight on multi-class event detection. Table 10: Loss ablation on TUAB, TUEV, and Depression. 
+
+Dataset Variant Bal. Acc. ↑ ECE ↓ Terminal KL gap t gap c
+
+TUAB Full 80.7 0.029 43 .9 +0 .161 +0 .061 w/o Lsparse 80.2 0.028 45 .6 +0 .153 +0 .059 w/o Lcons 80.6 0.022 43 .9 +0 .148 +0 .051 w/o LKL (axcat) 80.6 0.030 − +0 .154 +0 .056 TUEV Full 48.8 0.117 106 .2 +0 .150 −0.003 w/o Lsparse 45.4 0.232 109 .8 0.131 −0.012 w/o Lcons 46.5 0.217 105 .8 0.057 −0.114 w/o LKL (axcat) 46.8 0.139 − 0.051 0.037 Depression Full 58.8 0.152 66 .4 0.148 0.104 w/o Lsparse 59.2 0.122 68 .5 0.151 −0.113 w/o Lcons 60.1 0.152 66 .3 0.244 −0.158 w/o LKL (axcat) 59.4 0.182 − 0.240 −0.190 
+
+23 H.6 Gate shaping diagnostics and nuisance probes 
+
+Table 11 summarizes TUAB diagnostics from a matched bottleneck versus no-bottleneck analysis. These are mechanism checks rather than headline benchmarks: they test whether the bottleneck makes gates more selective, less collapsed, and less subject-identifiable. The pattern is axis-dependent, not a universal anti-collapse story. Temporal support becomes less flat, channel support becomes less concentrated, and subject identity is attenuated but not removed from intermediate representations. Table 11: Supporting TUAB gate-shaping and nuisance diagnostics from a matched bottleneck versus no-bottleneck analysis. Chance subject-ID accuracy is 0.4%.                          
+
+> Diagnostic No bottleneck Bottlenecked VIB Interpretation Temporal gate range 0.137 0.316 less flat, more selective temporal support Coverage above 0.5 0.002 0.207 high-confidence temporal support emerges Channel Gini 0.472 0.358 less concentrated channel weighting Effective channels 10.8 12.7 broader channel support, less collapse Subject-ID from channel gate 43.1% 30.9% nuisance attenuated, not removed Subject-ID from latent μ—21.1% residual nuisance survives compression Subject-ID from logits 0.9% 1.1% final decision stays near subject chance
+
+A descriptive region-level analysis on the same TUAB diagnostic run shows that the bottle-neck redistributes channel support away from lateral/fronto-temporal sites and toward centro-parietal/parieto-occipital regions. We do not interpret this as anatomical localization without topographic validation; it is reported only as evidence that the bottleneck changes where channel mass is allocated. 
+
+H.7 Audit summary across all six tasks 
+
+Table 12 extends Table 3 with all audit values. Table 12: Audit summary across six tasks. 
+
+Dataset gap t gap c ∆t ∆c ρt ρc ρ0 DSKL 
+
+TUAB 0.161 0.061 0.226 0.301 0.14 0.24 0.62 445k TUEV 0.150 −0.003 0.145 0.224 0.18 0.23 0.59 68k TUSZ 0.098 −0.010 0.130 0.269 0.18 0.30 0.52 42k AD staging 0.340 −0.172 0.028 0.026 0.43 0.55 0.03 41 k
+
+Depression 0.148 0.104 0.169 0.153 0.37 0.39 0.24 2k
+
+Cerebrovascular 0.196 −0.04 0.037 0.018 0.34 0.38 0.28 2k
+
+H.8 Distinguishing axis regimes via gate-causality 
+
+On the CVD dataset, the temporal gate converges to a near-constant high value (mean 0 .998, std 
+
+∼ 8×10 −5) while the channel gate retains sample-dependent variation; insertion–deletion is hard to interpret because rankings are nearly tied. The gate-causality sweep (Fig. 6) resolves the ambiguity: CVD shows a flat response (reducing v from 0 .999 to 0 costs only 7 .3 pts, no threshold), whereas Depression shows a sharp cliff between v = 0 .5 and v = 0 .6 (44 .1 pts drop). CVD temporal evidence is therefore weakly causal at the gate stage; Depression requires near-open temporal gating. A nearly constant gate can be irrelevant or uniformly necessary; the sweep separates these cases. 24 0.5 0.6 0.7 0.8 0.9 1.0 Balanced accuracy 
+
+> Drop from v=0.999: 7.3 pt
+
+Cerebrovascular 
+
+0.0 0.3 0.5 0.6 0.7 0.8 0.9 1.0 Temporal gate override value v 0.5 0.6 0.7 0.8 0.9 1.0 Balanced accuracy 
+
+> Sharp cliff Drop from v=0.999: 44.1 pt
+
+Depression Figure 6: Gate-causality sweep (CVD vs. Depression). Balanced accuracy under temporal gate override v: CVD has a flat response; Depression shows a sharp cliff between v = 0 .5 and v = 0 .6. 25 H.9 Per-task region-level gate distributions 
+
+This appendix expands Fig. 3 with the full set of region-level visualizations supporting Table 4. Unless stated otherwise, plots are produced from a single seed ( s=42) and the held-out test split. The evaluation pipeline groups channels into canonical 10–20 region sets (frontal: AF/Fp/F; central: FC/C/CP; temporal: T/FT/TP; parietal: P; posterior/occipital: PO/O); for the bipolar TUAB and TUSZ montages the same grouping is applied to derivation pairs by majority vote. 
+
+Per-task region-averaged gate. Fig. 7 shows the mean channel gate aggregated by region for each task. Highlighted bars mark hypothesized target / control regions per Table 4; gray bars are non-hypothesized regions. TUAB shows a clean parietal/occipital peak with the lowest weight on frontal channels; TUSZ shows a central/occipital-dominant profile that contradicts the focal-onset (temporal/frontal) prior, consistent with the rejected hypothesis in Table 4; TUEV shows a flat profile across central/frontal/parietal/occipital with a temporal dip, consistent with mixed-event heterogeneity; CVD and Depression both show a posterior peak in the per-region average; AD shows a saturated profile near 1.0 with no resolvable contrast. FrontCentTemp Par Occ 0.00 0.05 0.10 0.15 0.20 
+
+> Mean gate
+
+(a) TUAB FrontCentTemp Par Post 0.0 0.1 0.2 0.3 0.4 0.5  
+
+> Mean gate
+
+(b) Depression Front Cent Temp Post 0.0 0.2 0.4 0.6 0.8 1.0  
+
+> Mean gate
+
+(c) Cerebrovascular FrontCentTemp Par Post 0.0 0.2 0.4 0.6 0.8 1.0 
+
+> Mean gate
+
+(d) AD staging FrontCentTemp Par Occ 0.000 0.025 0.050 0.075 0.100 0.125  
+
+> Mean gate
+
+(e) TUSZ FrontCentTemp Par Occ 0.0 0.2 0.4 0.6  
+
+> Mean gate
+
+(f) TUEV 
+
+Figure 7: Region-averaged mean channel gate per task (single seed s=42). Highlighted bars (teal / lime-green) mark hypothesized target and control regions per Table 4; gray bars are non-hypothesized regions. TUEV uses a per-event-class hypothesis (no single directional target), so all bars are gray. The CVD panel uses a 4-region grouping without Par/Occ. Note the saturated near-1.0 range on AD, indicating a non-discriminative selector at the 4-way granularity, and the central/occipital pattern on TUSZ that contradicts the focal-onset prior. 
+
+Correct-only, class-conditioned profiles (used in Fig. 3). Fig. 8 restricts the analysis to samples the model classified correctly and then splits by ground-truth class. This view removes 26 both the class-imbalance confound (the dominant class also contributes most correct predictions) and the prediction-error confound (selector behavior on misclassified samples is hard to interpret). The resulting differences are direct evidence that the selector encodes class-specific anatomical information. FrontCentTemp Par Occ 0.0 0.1 0.2 0.3  
+
+> Mean gate
+> normal abnormal
+
+(a) TUAB FrontCentTemp Par Post 0.0 0.2 0.4 0.6   
+
+> Mean gate
+> normal depression
+
+(b) Depression Front Cent Temp Post 0.0 0.2 0.4 0.6 0.8 1.0   
+
+> Mean gate
+> normal CVD
+
+(c) Cerebrovascular FrontCentTemp Par Occ 0.0 0.1 0.2 0.3  
+
+> Mean gate
+> non-seizure seizure
+
+(d) TUSZ FrontCentTemp Par Post 0.0 0.2 0.4 0.6 0.8 1.0     
+
+> Mean gate
+> AD MCI SCD NC
+
+(e) AD staging FrontCentTemp Par Occ 0.0 0.2 0.4 0.6 0.8 1.0  
+
+> Mean gate
+> GPED PLED EYEM ARTF BCKG
+
+(f) TUEV (per event) 
+
+Figure 8: Region-averaged channel gate on correctly classified samples, split by ground-truth class. (a) TUAB: abnormal-class gate ≈ 2× normal-class at every region with the largest absolute gap at occipital/parietal. (b) Depression: parietal carries the largest class separation (0 .62 vs. 0 .34). (c) CVD: disease class shifts mass posteriorly (posterior 0 .96 vs. 0 .91 on normal) and reduces central/temporal recruitment. (d) TUSZ: seizure class recruits gate ≈ 2–3 × broader than non-seizure, with central/occipital dominance rather than the focal temporal/frontal predicted. (e) AD staging: AD/MCI/SCD/NC profiles are near-identical due to gate saturation. (f) TUEV: EYEM peaks at frontal (eye-movement origin); GPED/PLED at central; ARTF lowest overall. 
+
+Per-class regional profiles (all samples). Fig. 9 stratifies the regional profile by ground-truth class on all test samples (i.e., without the correct-only filter used in Fig. 8). TUAB shows the abnormal class consistently above the normal class at every region, with the largest gap at parietal/occipital (0 .24–0 .25 vs. 0 .15–0 .16), mirroring the correct-only view in Fig. 8a; CVD shows a clear posterior shift in the disease class (0 .96) relative to normal controls (0 .86) and a complementary central/temporal reduction; Depression shows broader elevation at central, parietal, and temporal sites for the depressive class, with parietal carrying the largest class separation (0 .58 vs. 0 .43); AD class profiles are visibly compressed (all five regions within ∼ 0.05 of 1 .0 across AD/MCI/SCD/NC); TUSZ separates seizure from non-seizure markedly at every region (seizure ≈ 0.18–0 .28 vs. non-27 seizure ≈ 0.08–0 .11); TUEV separates GPED/PLED (broad, high) from ARTF (broad, low) and EYEM (frontal-peaked). FrontCentTemp Par Occ 0.00 0.05 0.10 0.15 0.20 0.25  
+
+> Mean gate
+> normal abnormal
+
+(a) TUAB Front Cent Temp Post 0.0 0.2 0.4 0.6 0.8 1.0   
+
+> Mean gate
+> normal CVD
+
+(b) Cerebrovascular FrontCentTemp Par Post 0.0 0.2 0.4 0.6   
+
+> Mean gate
+> normal depression
+
+(c) Depression FrontCentTemp Par Post 0.0 0.2 0.4 0.6 0.8 1.0    
+
+> Mean gate
+> AD MCI SCD NC
+
+(d) AD staging (4 classes) FrontCentTemp Par Occ 0.00 0.05 0.10 0.15 0.20 0.25   
+
+> Mean gate
+> non-seizure seizure
+
+(e) TUSZ FrontCentTemp Par Occ 0.0 0.2 0.4 0.6 0.8 1.0  
+
+> Mean gate
+> SPSW GPED PLED EYEM ARTF BCKG
+
+(f) TUEV (6 events) 
+
+Figure 9: Per-class regional gate profiles on all test samples (no correct-only filter). Each bar gives the mean channel gate within the region, conditioned on ground-truth class. 
+
+Correct vs. incorrect breakdown. Fig. 10 compares the regional gate profile of correctly classified samples against incorrectly classified ones, irrespective of class. On TUAB, CVD, and Depression, the correctly predicted subset shows higher gate at the clinically expected target region. On TUSZ the pattern reverses: incorrectly classified samples have markedly higher gate everywhere, suggesting the selector over-recruits when the input is ambiguous. On the imbalanced CVD and Depression splits the contrast partly reflects the fact that the dominant disease class is also the better-classified one, so this view should be read together with Fig. 8. AD shows nearly identical profiles between correct and incorrect, mirroring the saturated 4-way gate even though balanced accuracy is best-in-class. 
+
+Lateralization index. Fig. 11 shows the per-sample lateralization index LI = ( L − R)/(L + R)histogram for tasks with a defined class structure. On TUAB, normal and abnormal class distributions are broad and largely overlapping, with only a small class shift (normal peaks at LI ≈ − 0.05, abnormal at LI ≈ +0 .05), consistent with PDR being a bilateral posterior phenomenon rather than a lateralized one. The CVD class shows a substantially broader distribution than normal controls (Mann–Whitney 
+
+U test on |LI |: p < 0.001, nCVD =1 ,384, nnormal =413), consistent with focal lesion-side slowing 28 FrontCentTemp Par Occ 0.00 0.05 0.10 0.15 0.20  
+
+> Mean gate
+> Correct Incorrect
+
+(a) TUAB Front Cent Temp Post 0.0 0.2 0.4 0.6 0.8 1.0   
+
+> Mean gate
+> Correct Incorrect
+
+(b) Cerebrovascular FrontCentTemp Par Post 0.0 0.2 0.4 0.6   
+
+> Mean gate
+> Correct Incorrect
+
+(c) Depression FrontCentTemp Par Post 0.0 0.2 0.4 0.6 0.8 1.0  
+
+> Mean gate
+> Correct Incorrect
+
+(d) AD staging FrontCentTemp Par Occ 0.00 0.05 0.10 0.15 0.20   
+
+> Mean gate
+> Correct Incorrect
+
+(e) TUSZ FrontCentTemp Par Occ 0.0 0.2 0.4 0.6 0.8   
+
+> Mean gate
+> Correct Incorrect
+
+(f) TUEV 
+
+Figure 10: Region-averaged channel gate, split by prediction outcome. AD shows no separation under the saturated 4-way gate; TUSZ shows the opposite pattern from TUAB/CVD/Depression, with incorrect samples carrying higher gate. 29 rather than a fixed hemispheric bias. Depression shows a modest left-bias relative to normal, weakly consistent with the FAA prediction (more left-frontal alpha → negative LI). On AD the histogram is concentrated near zero on a ±0.015 axis, indicating that the selector does not recover a lateralized pattern even within the AD class. TUSZ and TUEV are included for completeness; for TUSZ the seizure class shows a wider tail than non-seizure but no consistent hemispheric bias. −0.5 0.0 0.5  
+
+> LI = (R-L)/(R+L)
+> 0.00 0.02 0.04 0.06
+> Fraction of class normal (n=19907) abnormal (n=17038)
+
+(a) TUAB −0.2 0.0 0.2   
+
+> LI = (R-L)/(R+L)
+> 0.0 0.1 0.2 0.3
+> Fraction of class  normal (n=413) CVD (n=1384)
+
+(b) Cerebrovascular −0.2 0.0 0.2   
+
+> LI = (R-L)/(R+L)
+> 0.00 0.05 0.10 0.15
+> Fraction of class  normal (n=1297) depression (n=1276)
+
+(c) Depression −0.05 0.00 0.05 
+
+> LI = (R-L)/(R+L)
+> 0.0 0.2 0.4 0.6
+> Fraction of class
+> AD (n=751) MCI (n=775) SCD (n=760) NC (n=784)
+
+(d) AD staging −0.5 0.0 0.5   
+
+> LI = (R-L)/(R+L)
+> 0.00 0.02 0.04 0.06 0.08
+> Fraction of class non-seizure (n=86188) seizure (n=5877)
+
+(e) TUSZ −0.5 0.0 0.5  
+
+> LI = (R-L)/(R+L)
+> 0.0 0.1 0.2 0.3
+> Fraction of class
+> SPSW (n=567) GPED (n=4677) PLED (n=1998) EYEM (n=329) ARTF (n=2204) BCKG (n=19646)
+
+(f) TUEV 
+
+Figure 11: Per-sample lateralization index LI = ( L − R)/(L + R). TUAB: normal and abnormal distributions overlap with a small class-conditional shift, consistent with PDR being bilateral. CVD: clear broadening of the distribution for the disease class. Depression: modest left-bias consistent with weak FAA. AD: concentrated near zero on a narrow ±0.015 axis—no recovered lateralization. TUSZ/TUEV: shown for completeness. 
+
+H.10 AD vs. NC binary reformulation 
+
+The four-way AD/MCI/SCD/NC staging task in Sec. 5.5 is the hardest in-house setting: although tPoE-EIB attains the highest balanced accuracy among heads (38 .5±4.1%, chance 25%), the per-region channel gate is saturated near 1 .0 and the alignment audit is rejected. To test whether this reflects a fundamental inability of the bottleneck to capture AD-relevant evidence in this cohort or simply task granularity, we re-train tPoE-EIB on a binary AD vs. NC reformulation of the same cohort (same 58-channel grid, same frozen CodeBrain backbone, same default hyperparameters; subject-disjoint splits restricted to AD and NC subjects, with nAD =751 and nNC =784 test windows). We then probe the learned channel-gate space with a logistic regression (LR) on the 58-dimensional channel gate gc(x) and characterize differential gate behaviour across three seeds. 
+
+Linear separability of the channel-gate space. Table 13 reports balanced accuracy of a logistic regression trained on gc(x) produced by the tPoE-EIB head, separately for each training seed. The LR reaches 88 .8–97 .9% balanced accuracy, indicating that the channel-gate space is approximately linearly separable for AD vs. NC even though the bottlenecked classifier rate-limits the information that can flow from the gates to the prediction. This complements rather than replaces the four-way staging result: at finer label granularity the bottlenecked classifier loses discriminative resolution; at the binary level the gate space already encodes class-discriminative spatial information. 30 Table 13: Logistic regression on the 58-dimensional channel gate gc(x) produced by tPoE-EIB on the binary AD vs. NC reformulation, evaluated per training seed. Top channels are listed by absolute LR weight; sign in parentheses indicates the direction of the AD vs. NC contrast (negative = NC favoured by larger gate value).         
+
+> Seed LR BAcc Top weighted channels s42 0.948 POz( −), CP2( −), PO4(+), P8(+), TP8( −)s2025 0.979 T8( −), O2( −), TP8( −), AF3( −), F3( −)s3407 0.888 CP2( −), O1(+), TP7(+), AF4( −), F3( −)
+
+Differential channel-gate behaviour. Mann–Whitney U tests per channel identify channels whose mean gate differs between AD and NC. Across seeds, NC consistently shows higher gate activation than AD on most differentially gated channels: 3-seed mean differences are negative for the top 15 differentiated channels, with absolute gaps of 0 .13–0 .23. The differentially gated channels span parietal (P2, P5, P6, P7), occipital (O2), temporal–parietal (TP7, TP8), central (C1, C2, C6), and frontal (F3, AF3, AF4, F8, FC5) sites rather than concentrating at a single locus. The pattern is therefore inconsistent with a clean “posterior > frontal” rule but consistent with AD as a diffuse rather than focal process. 
+
+Fronto-parietal correlation reversal. The most pronounced AD −NC differences in pairwise correlations of channel-gate values occur between frontal and parietal channels. Across seeds, the F3– P3, F8–P3, F4–P3, FC5–P3, F8–P6, Fz–P6, FC5–P6, and F7–P7 pairs all show gate-value correlations that flip sign from positive in NC to negative in AD, with ∆corr = corr AD − corr NC ∈ [−1.13 , −0.84] on average. This fronto-parietal decoupling at the gate level is not built into the architecture; it emerges from the data and is broadly consistent with diffuse fronto-parietal disruption reported in the AD EEG literature [37, 38]. 
+
+Temporal-gate behaviour. Temporal-gate statistics are seed-dependent. In seed s42 the AD class shows a higher temporal-gate mean (0 .877 vs. 0 .826, p < 10 −22 ); in seed s2025 the direction reverses (0 .970 vs. 0 .976, p ≈ 10 −3); in seed s3407 the temporal gate saturates near 1 .0 in both classes with no significant difference. Temporal-gate behaviour therefore does not provide a stable AD vs. NC marker in this cohort, in contrast to the channel-gate pattern. 
+
+Implication. The four-way staging failure should be read as task-granularity-driven rather than as evidence that the bottleneck cannot capture AD-relevant features in this cohort. On the binary reformulation, the gate space encodes AD vs. NC in a distributed fronto-parietal–occipital pattern with measurable correlation reorganization between frontal and parietal sites. The recovered pattern does not align with the pre-registered “posterior > frontal” anchor, so the Q4 alignment verdict for AD remains negative, but the gate is not non-discriminative at the binary level. 
+
+# I Per-sample TUEV gate overlays 
+
+Fig. 12 shows nine correctly-classified TUEV samples with the trained gates overlaid on the raw signal. Each panel plots the four channels with the highest channel-gate value, annotated with their channel-gate weight; gray bars indicate the temporal-gate selection and the orange shaded region marks the ground-truth event window. The panels illustrate how the temporal gate concentrates 31 around the event annotation while the channel gate selects axes that are visually consistent with the event class (e.g., frontal channels for ocular EYEM events, central/parietal sites for periodic-discharge classes). 0.0 0.5 1.0   
+
+> gate
+> 024
+
+time (s)      
+
+> Fp1-F7 0.52 P4-O2 0.13 F3-C3 0.13 F7-T3 0.10 0.0 0.5 1.0
+> gate
+> 012345
+
+time (s)   
+
+> P4-O2 0.57 F8-T4 0.46 T4-T6 0.40 C4-P4 0.36 0.0 0.5 1.0
+> gate
+> 024
+
+time (s)   
+
+> P4-O2 0.75 F3-C3 0.63 Fp1-F7 0.34 F8-T4 0.33 0.0 0.5 1.0
+> gate
+> 024
+
+time (s)   
+
+> F4-C4 0.50 Fp1-F7 0.41 C4-P4 0.37 P4-O2 0.32 0.0 0.5 1.0
+> gate
+> 024
+
+time (s)   
+
+> Fp2-F4 0.21 P3-O1 0.07 C3-P3 0.04 P4-O2 0.03 0.0 0.5 1.0
+> gate
+> 024
+
+time (s)   
+
+> T6-O2 0.63 T4-T6 0.57 T5-O1 0.41 Fp2-F4 0.40 0.0 0.5 1.0
+> gate
+> 024
+
+time (s)      
+
+> P3-O1 0.61 Fp1-F7 0.37 C3-P3 0.36 T3-T5 0.15 0.0 0.5 1.0
+> gate
+> 012345
+
+time (s)      
+
+> T6-O2 0.36 T3-T5 0.35 C4-P4 0.20 F3-C3 0.20 0.0 0.5 1.0
+> gate
+> 012345
+
+time (s) 
+
+> F4-C4 0.48 C4-P4 0.47 P3-O1 0.38 P4-O2 0.34
+
+Figure 12: Per-sample TUEV gate overlays on nine correctly-classified pathological events (seed s42). Each panel shows the four highest channel-gate channels with gate weights in parentheses; gray bars mark the temporal-gate selection and the orange band marks the ground-truth event annotation. The selected support concentrates on the event window across diverse event classes and montages. 32
