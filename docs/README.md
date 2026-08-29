@@ -1,40 +1,34 @@
 ## 最新日报
-- 最新运行日期：2026-08-28
-- 运行时间：2026-08-28 11:58:55 北京时间
+- 最新运行日期：2026-08-29
+- 运行时间：2026-08-29 11:26:57 北京时间
 - 运行状态：成功
-- 本次总论文数：7
-- 精读区：3
+- 本次总论文数：5
+- 精读区：1
 - 速读区：4
 
 ### 今日简报（AI）
-- 今日共生成 7 篇推荐（精读 3 篇，速读 4 篇）
-- 精读：《The Von-Neumann State-Space Transformer for neural decoding》（9.0/10）, 《Virtual iEEG from Scalp EEG: Charting the Landscape of Source Imaging, Intracranial Inference and Reconstruction》（9.0/10）
-- 速读：《Dendritic structure enables powerful plasticity》（7.0/10）, 《Parameter-Efficient Self-Supervised Adaptation for EEG-FM under Fixed Computational Budgets》（7.0/10）, 《Towards A Unified Information Bottleneck Framework for Time Series Explanations》（7.0/10）
+- 今日共生成 5 篇推荐（精读 1 篇，速读 4 篇）
+- 精读：《LibriBrain100: One Hundred Hours of Broad and Deep MEG Data for Neural Speech Decoding at Scale》（9.0/10）
+- 速读：《ICON Decomposition: Multivariate Concept-Level Explanations of Deep Representations for Model Auditing》（7.0/10）, 《Mixed-mode bursting oscillations in a three-timescale biophysical neuronal oscillator model》（7.0/10）, 《Parameter-Level Attribution of Symmetry in Trained Networks Though Parameter-Wise Functional Sensitivity》（6.0/10）
 - 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202608/28/README](/202608/28/README)
+- 详情：[/202608/29/README](/202608/29/README)
 
 ### 精读区论文标签
-1. [The Von-Neumann State-Space Transformer for neural decoding](/202608/28/2608.25088v1-the-von-neumann-state-space-transformer-for-neural-decoding)  
+1. [LibriBrain100: One Hundred Hours of Broad and Deep MEG Data for Neural Speech Decoding at Scale](/202608/29/2608.25204v1-libribrain100-one-hundred-hours-of-broad-and-deep-meg-data-for-neural-speech-decoding-at-scale)  
    标签：评分：9.0/10、query:sr
-   evidence：直接针对神经解码，使用状态空间Transformer从群体活动中提取信息
-2. [Virtual iEEG from Scalp EEG: Charting the Landscape of Source Imaging, Intracranial Inference and Reconstruction](/202608/28/2608.26998v1-virtual-ieeg-from-scalp-eeg-charting-the-landscape-of-source-imaging-intracranial-inference-and-reconstruction)  
-   标签：评分：9.0/10、query:sr
-   evidence：综述虚拟颅内脑电，用于神经解码的头皮到颅内脑电推断和重建
-3. [Robust Neural Stimulation Response Modeling Through Meta-Learning and Pretraining](/202608/28/2608.26649v1-robust-neural-stimulation-response-modeling-through-meta-learning-and-pretraining)  
-   标签：评分：8.0/10、query:sr
-   evidence：用时间基函数模型刻画神经刺激响应，关联刺激与神经活动
+   evidence：大规模脑磁图数据集，用于语音神经解码，作为非侵入式脑机接口基准
 
 ### 速读区论文标签
-1. [Dendritic structure enables powerful plasticity](/202608/28/2608.23251v2-dendritic-structure-enables-powerful-plasticity)  
+1. [ICON Decomposition: Multivariate Concept-Level Explanations of Deep Representations for Model Auditing](/202608/29/2608.26083v1-icon-decomposition-multivariate-concept-level-explanations-of-deep-representations-for-model-auditing)  
    标签：评分：7.0/10、query:sr
-   evidence：树突区室使单个神经元能够同时编码多条信息
-2. [Parameter-Efficient Self-Supervised Adaptation for EEG-FM under Fixed Computational Budgets](/202608/28/2608.24727v1-parameter-efficient-self-supervised-adaptation-for-eeg-fm-under-fixed-computational-budgets)  
+   evidence：多变量概念级分解解释深度表征层编码内容，可用于编码模型可解释性
+2. [Mixed-mode bursting oscillations in a three-timescale biophysical neuronal oscillator model](/202608/29/2608.26323v1-mixed-mode-bursting-oscillations-in-a-three-timescale-biophysical-neuronal-oscillator-model)  
    标签：评分：7.0/10、query:sr
-   evidence：EEG基础模型的参数高效适应用于临床EEG分类，属于解码神经活动模式的一种形式
-3. [Towards A Unified Information Bottleneck Framework for Time Series Explanations](/202608/28/2608.25897v1-towards-a-unified-information-bottleneck-framework-for-time-series-explanations)  
-   标签：评分：7.0/10、query:sr
-   evidence：用于解释时间序列模型预测的统一信息瓶颈框架
-4. [ChorusTIC: Training-Free Multivariate Time Series Classification via Chorus In-Context Learning](/202608/28/2608.24033v1-chorustic-training-free-multivariate-time-series-classification-via-chorus-in-context-learning)  
+   evidence：分析生物物理神经元模型中的混合模式爆发与尖峰模式
+3. [Parameter-Level Attribution of Symmetry in Trained Networks Though Parameter-Wise Functional Sensitivity](/202608/29/2608.24700v1-parameter-level-attribution-of-symmetry-in-trained-networks-though-parameter-wise-functional-sensitivity)  
    标签：评分：6.0/10、query:sr
-   evidence：免训练的多元时间序列分类方法，可应用于神经时间信号
+   evidence：训练网络参数级功能敏感性可解释性分析
+4. [IDSD: Iterative Deep-Learning-Based Signal Decomposition](/202608/29/2608.27332v1-idsd-iterative-deep-learning-based-signal-decomposition)  
+   标签：评分：6.0/10、query:sr
+   evidence：通用的深度学习时间信号分解方法，可应用于神经时间序列
 
