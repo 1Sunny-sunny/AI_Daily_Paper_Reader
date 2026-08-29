@@ -1,34 +1,31 @@
 ## 最新日报
-- 最新运行日期：2026-08-29
-- 运行时间：2026-08-29 11:26:57 北京时间
+- 最新运行日期：2026-08-30
+- 运行时间：2026-08-30 05:19:58 北京时间
 - 运行状态：成功
-- 本次总论文数：5
-- 精读区：1
+- 本次总论文数：4
+- 精读区：0
 - 速读区：4
 
 ### 今日简报（AI）
-- 今日共生成 5 篇推荐（精读 1 篇，速读 4 篇）
-- 精读：《LibriBrain100: One Hundred Hours of Broad and Deep MEG Data for Neural Speech Decoding at Scale》（9.0/10）
-- 速读：《ICON Decomposition: Multivariate Concept-Level Explanations of Deep Representations for Model Auditing》（7.0/10）, 《Mixed-mode bursting oscillations in a three-timescale biophysical neuronal oscillator model》（7.0/10）, 《Parameter-Level Attribution of Symmetry in Trained Networks Though Parameter-Wise Functional Sensitivity》（6.0/10）
+- 今日共生成 4 篇推荐（精读 0 篇，速读 4 篇）
+- 速读：《NVExplain: Explaining Time Series Forecasting with Latent Trajectory Analysis and Structure-Preserving Surrogates》（7.0/10）, 《Syn2Logic: End-to-End Neuromorphic Design Automation》（7.0/10）, 《Time-Varying Spiky Wave-Shape Functions for Non-Stationary Signal Decomposition》（7.0/10）
 - 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202608/29/README](/202608/29/README)
+- 详情：[/202608/30/README](/202608/30/README)
 
 ### 精读区论文标签
-1. [LibriBrain100: One Hundred Hours of Broad and Deep MEG Data for Neural Speech Decoding at Scale](/202608/29/2608.25204v1-libribrain100-one-hundred-hours-of-broad-and-deep-meg-data-for-neural-speech-decoding-at-scale)  
-   标签：评分：9.0/10、query:sr
-   evidence：大规模脑磁图数据集，用于语音神经解码，作为非侵入式脑机接口基准
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [ICON Decomposition: Multivariate Concept-Level Explanations of Deep Representations for Model Auditing](/202608/29/2608.26083v1-icon-decomposition-multivariate-concept-level-explanations-of-deep-representations-for-model-auditing)  
+1. [NVExplain: Explaining Time Series Forecasting with Latent Trajectory Analysis and Structure-Preserving Surrogates](/202608/30/2608.25080v1-nvexplain-explaining-time-series-forecasting-with-latent-trajectory-analysis-and-structure-preserving-surrogates)  
    标签：评分：7.0/10、query:sr
-   evidence：多变量概念级分解解释深度表征层编码内容，可用于编码模型可解释性
-2. [Mixed-mode bursting oscillations in a three-timescale biophysical neuronal oscillator model](/202608/29/2608.26323v1-mixed-mode-bursting-oscillations-in-a-three-timescale-biophysical-neuronal-oscillator-model)  
+   evidence：针对时间序列预测的模型无关可解释性框架，通过潜在轨迹和滞后-地平线归因解释时间依赖
+2. [Syn2Logic: End-to-End Neuromorphic Design Automation](/202608/30/2608.25536v1-syn2logic-end-to-end-neuromorphic-design-automation)  
    标签：评分：7.0/10、query:sr
-   evidence：分析生物物理神经元模型中的混合模式爆发与尖峰模式
-3. [Parameter-Level Attribution of Symmetry in Trained Networks Though Parameter-Wise Functional Sensitivity](/202608/29/2608.24700v1-parameter-level-attribution-of-symmetry-in-trained-networks-though-parameter-wise-functional-sensitivity)  
-   标签：评分：6.0/10、query:sr
-   evidence：训练网络参数级功能敏感性可解释性分析
-4. [IDSD: Iterative Deep-Learning-Based Signal Decomposition](/202608/29/2608.27332v1-idsd-iterative-deep-learning-based-signal-decomposition)  
-   标签：评分：6.0/10、query:sr
-   evidence：通用的深度学习时间信号分解方法，可应用于神经时间序列
+   evidence：用于建模和综合神经行为到硬件的设计自动化框架
+3. [Time-Varying Spiky Wave-Shape Functions for Non-Stationary Signal Decomposition](/202608/30/2608.26285v1-time-varying-spiky-wave-shape-functions-for-non-stationary-signal-decomposition)  
+   标签：评分：7.0/10、query:sr
+   evidence：时变尖峰信号分解，用于包括EEG瞬态在内的非平稳生理信号
+4. [Circuit Condensation: Post-Training that Concentrates a Behavior's Causal Circuit](/202608/30/2608.27254v1-circuit-condensation-post-training-that-concentrates-a-behaviors-causal-circuit)  
+   标签：评分：7.0/10、query:sr
+   evidence：通过因果电路凝缩实现机制可解释性，是一种可解释AI方法
 
