@@ -1,6 +1,13 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-09-01 <!--dpr-date:20260901-->
+    * <a class="dpr-sidebar-brief-link" href="#/202609/01/README">📝 今日简报</a>
+    * 精读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/01/2608.27670v1-a-weighted-model-of-perception-and-decision-making-between-targets-of-finite-size" data-sidebar-item="{&quot;title&quot;: &quot;A weighted model of perception and decision-making between targets of finite size&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2608.27670v1-a-weighted-model-of-perception-and-decision-making-between-targets-of-finite-size&quot;, &quot;score&quot;: &quot;8.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;神经环模型通过能量最小化将视觉目标与神经活动联系起来&quot;}">A weighted model of perception and decision-making between targets of finite size</a>
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/01/2608.28493v1-low-power-end-to-end-cochlear-implant-speech-denoising-with-spiking-neural-networks" data-sidebar-item="{&quot;title&quot;: &quot;Low-Power End-to-End Cochlear Implant Speech Denoising with Spiking Neural Networks&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2608.28493v1-low-power-end-to-end-cochlear-implant-speech-denoising-with-spiking-neural-networks&quot;, &quot;score&quot;: &quot;8.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;人工耳蜗是直接脑机接口设备，论文为其开发了语音增强和编码的脉冲神经网络。&quot;}">Low-Power End-to-End Cochlear Implant Speech Denoising with Spiking Neural Networks</a>
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/01/2608.27719v1-leveraging-a-foundation-model-for-the-eeg-based-diagnosis-of-alzheimers-disease" data-sidebar-item="{&quot;title&quot;: &quot;Leveraging a Foundation Model for the EEG-Based Diagnosis of Alzheimer&#x27;s Disease&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2608.27719v1-leveraging-a-foundation-model-for-the-eeg-based-diagnosis-of-alzheimers-disease&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;使用基础模型进行EEG解码用于阿尔茨海默病诊断&quot;}">Leveraging a Foundation Model for the EEG-Based Diagnosis of Alzheimer&#x27;s Disease</a>
   * 2026-08-30 <!--dpr-date:20260830-->
     * <a class="dpr-sidebar-brief-link" href="#/202608/30/README">📝 今日简报</a>
     * 速读区
