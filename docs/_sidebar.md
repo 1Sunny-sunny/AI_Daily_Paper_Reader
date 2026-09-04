@@ -1,6 +1,12 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-09-05 <!--dpr-date:20260905-->
+    * <a class="dpr-sidebar-brief-link" href="#/202609/05/README">📝 今日简报</a>
+    * 精读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/05/2609.04195v1-axonal-delay-dispersion-decides-whether-a-neuron-detects-an-event-or-a-sequence-and-predicts-cortical-column-diameter" data-sidebar-item="{&quot;title&quot;: &quot;Axonal delay dispersion decides whether a neuron detects an event or a sequence, and predicts cortical column diameter&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.04195v1-axonal-delay-dispersion-decides-whether-a-neuron-detects-an-event-or-a-sequence-and-predicts-cortical-column-diameter&quot;, &quot;score&quot;: &quot;9.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;皮层神经元脉冲时序与时间编码，基于轴突延迟差异解释事件或序列检测机制。&quot;}">Axonal delay dispersion decides whether a neuron detects an event or a sequence, and predicts cortical column diameter</a>
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/05/2609.03404v1-detecting-interbrain-synchronization-in-eeg-hyperscanning-with-muse-s-eeg-headban" data-sidebar-item="{&quot;title&quot;: &quot;Detecting Interbrain Synchronization in EEG Hyperscanning with MUSE-S EEG headban&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.03404v1-detecting-interbrain-synchronization-in-eeg-hyperscanning-with-muse-s-eeg-headban&quot;, &quot;score&quot;: &quot;7.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;用CNN将脑电时序分类为游戏/放松状态，属于时序神经信号解码以提取信息。&quot;}">Detecting Interbrain Synchronization in EEG Hyperscanning with MUSE-S EEG headban</a>
   * 2026-09-04 <!--dpr-date:20260904-->
     * <a class="dpr-sidebar-brief-link" href="#/202609/04/README">📝 今日简报</a>
     * 精读区
