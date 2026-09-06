@@ -1,6 +1,10 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-09-07 <!--dpr-date:20260907-->
+    * <a class="dpr-sidebar-brief-link" href="#/202609/07/README">📝 今日简报</a>
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/07/2609.03358v1-time-without-timesteps-simulating-coupled-dynamical-systems-via-self-consistency" data-sidebar-item="{&quot;title&quot;: &quot;Time Without Timesteps: Simulating Coupled Dynamical Systems via Self-Consistency&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.03358v1-time-without-timesteps-simulating-coupled-dynamical-systems-via-self-consistency&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;通过自洽轨迹迭代模拟Hodgkin-Huxley神经元网络&quot;}">Time Without Timesteps: Simulating Coupled Dynamical Systems via Self-Consistency</a>
   * 2026-09-05 <!--dpr-date:20260905-->
     * <a class="dpr-sidebar-brief-link" href="#/202609/05/README">📝 今日简报</a>
     * 精读区
