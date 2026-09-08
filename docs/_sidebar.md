@@ -1,6 +1,10 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-09-09 <!--dpr-date:20260909-->
+    * <a class="dpr-sidebar-brief-link" href="#/202609/09/README">📝 今日简报</a>
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/09/2609.04639v1-smile-bridging-continuous-optimization-and-discrete-symbolic-recovery" data-sidebar-item="{&quot;title&quot;: &quot;SMILE: Bridging Continuous Optimization and Discrete Symbolic Recovery&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.04639v1-smile-bridging-continuous-optimization-and-discrete-symbolic-recovery&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;符号回归可提取可解释公式，适用于解释神经编码模型&quot;}">SMILE: Bridging Continuous Optimization and Discrete Symbolic Recovery</a>
   * 2026-09-08 <!--dpr-date:20260908-->
     * <a class="dpr-sidebar-brief-link" href="#/202609/08/README">📝 今日简报</a>
     * 精读区
