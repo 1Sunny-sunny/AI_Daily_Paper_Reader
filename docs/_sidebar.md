@@ -1,6 +1,10 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-09-14 <!--dpr-date:20260914-->
+    * <a class="dpr-sidebar-brief-link" href="#/202609/14/README">📝 今日简报</a>
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/14/2609.11278v1-a-unified-framework-for-spatially-resolved-cortical-activation-analysis" data-sidebar-item="{&quot;title&quot;: &quot;A unified framework for spatially resolved cortical activation analysis&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.11278v1-a-unified-framework-for-spatially-resolved-cortical-activation-analysis&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;回归框架对皮层脑活动建模&quot;}">A unified framework for spatially resolved cortical activation analysis</a>
   * 2026-09-12 <!--dpr-date:20260912-->
     * <a class="dpr-sidebar-brief-link" href="#/202609/12/README">📝 今日简报</a>
     * 精读区
