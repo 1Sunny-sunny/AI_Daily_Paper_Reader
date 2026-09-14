@@ -1,6 +1,12 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-09-15 <!--dpr-date:20260915-->
+    * <a class="dpr-sidebar-brief-link" href="#/202609/15/README">📝 今日简报</a>
+    * 精读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/15/2609.12298v1-frist-fmri-representation-informed-shared-space-training-improves-eeg-only-individual-finger-bci-decoding" data-sidebar-item="{&quot;title&quot;: &quot;FRIST: FMRI Representation Informed Shared-space Training Improves EEG-only Individual-Finger BCI Decoding&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.12298v1-frist-fmri-representation-informed-shared-space-training-improves-eeg-only-individual-finger-bci-decoding&quot;, &quot;score&quot;: &quot;9.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;基于fMRI表征的EEG手指BCI解码&quot;}">FRIST: FMRI Representation Informed Shared-space Training Improves EEG-only Individual-Finger BCI Decoding</a>
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/15/2609.12710v1-perturbational-validity-for-foundation-models-of-brain-dynamics-a-controlled-proof-of-principle-simulation" data-sidebar-item="{&quot;title&quot;: &quot;Perturbational Validity for Foundation Models of Brain Dynamics: A Controlled Proof-of-Principle Simulation&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.12710v1-perturbational-validity-for-foundation-models-of-brain-dynamics-a-controlled-proof-of-principle-simulation&quot;, &quot;score&quot;: &quot;7.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;脑动力学基础模型在扰动下的有效性&quot;}">Perturbational Validity for Foundation Models of Brain Dynamics: A Controlled Proof-of-Principle Simulation</a>
   * 2026-09-14 <!--dpr-date:20260914-->
     * <a class="dpr-sidebar-brief-link" href="#/202609/14/README">📝 今日简报</a>
     * 速读区
