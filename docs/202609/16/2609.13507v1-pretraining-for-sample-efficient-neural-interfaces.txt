@@ -1,0 +1,1364 @@
+Pretraining for Sample-Efficient Neural Interfaces
+Ben Tang
+Zachary Spalding
+Gregory B. Cogan∗
+Duke University, Durham, NC
+{ben.tang,zac.spalding,gregory.cogan}@duke.edu
+Abstract
+Brain-computer interfaces (BCIs) decode neural activity to restore lost function.
+Typically, training a high-performance neural decoder requires a large labeled
+dataset to be collected from every new subject. One way to reduce the labeled
+data cost is self-supervised pretraining, which learns general neural representations
+from unlabeled recordings that accumulate across subjects. However, for intracra-
+nial electroencephalography (iEEG) recordings, self-supervised learning has been
+challenging due to differences in contact placement and neuroanatomy between
+subjects. We propose MAPA, an otherwise vanilla masked autoencoder with two
+spatial encodings, an anatomical region embedding and a relative positional en-
+coding, which together enable it to learn neural representations that transfer to
+unseen subjects and across various tasks. MAPA sets a new state of the art across
+all three regimes of the Neuroprobe benchmark without fine-tuning: within-session,
+cross-session, and cross-subject. In the cross-subject regime, a linear probe on
+MAPA’s features needs only ∼164 labeled trials to reach the accuracy that takes
+3,500 without pretraining. Our results show that self-supervised pretraining can
+scale across heterogeneous iEEG recordings and reduce the labeled data needed
+for accurate decoding in new subjects.
+1
+Introduction
+A brain-computer interface (BCI) can decode neural activity into movement, text, or speech, restoring
+function lost to neurological injury or disease [19, 24, 34]. However, current neural decoders require a
+large labeled dataset from every new subject to reach high accuracy on fine-grained tasks. Collecting
+labeled data takes considerable time and effort, which hinders the successful deployment of BCIs,
+especially for people living with stroke or advanced neuromuscular disease [8, 14].
+Recent work has proposed training models on data pooled across subjects to improve accuracy and
+reduce calibration cost. Two separate approaches have emerged in the literature: pooling labeled
+data with supervised learning, and pooling unlabeled data with self-supervised learning. Prior work
+in the supervised lineage [7, 12, 20, 23, 29, 30] has shown improvements in decoding performance;
+however, scaling supervised models is still limited by the amount of labeled data available, which
+grows only with the hours a subject can spend on a task. On the other hand, self-supervised models
+learn directly from raw recordings that accumulate continuously, without needing an experimental
+paradigm or additional subject participation. Despite the advantage in data scale, pretrained models
+have so far shown only marginal gains over task-specific baselines [1, 18].
+Here, we explore self-supervised pretraining for intracranial EEG (iEEG), which records neural
+activity from electrode arrays placed on the brain surface in electrocorticography (ECoG) or inside
+brain tissue in stereo-electroencephalography (sEEG). Intracranial recordings sample field potentials
+at high fidelity and fine spatial resolution [27], and accumulate throughout a clinical monitoring
+stay, producing large volumes of unlabeled data from many subjects [5, 10, 28]. For these reasons,
+∗Corresponding author: gregory.cogan@duke.edu. Code: https://github.com/bentang18/MAPA
+Preprint.
+arXiv:2609.13507v1  [cs.LG]  11 Sep 2026
+
+
+Figure 1: Two spatial properties shared across subjects. (a) Arrays with differing placement across
+subjects sample the same neuroanatomical regions. (b) The same pattern of activity falls at different
+positions along the array in each subject.
+iEEG is a strong candidate for self-supervised pretraining, but differences in contact placement and
+neuroanatomy between subjects have made pooling iEEG recordings difficult.
+Nonetheless, two spatial properties are shared across subjects even when individual sampling differs.
+First, function is largely localized in the brain: neuroanatomical regions that support movement,
+language, and perception are conserved across people [13], so contacts sampling the same region in
+different subjects record similar activity during the same task (Figure 1a). Second, the same pattern
+of activity falls at different absolute positions along an array in each subject, but a pattern is defined
+by its relative position across contacts (Figure 1b). Crucially, the anatomical region of a contact and
+its relative position within an array are known for every subject, wherever the array is placed.
+We design MAPA (Masked Autoencoder with Positional and Anatomical encodings) around these
+two spatial properties by applying an anatomical region embedding to each contact, and a relative
+positional encoding between contacts in an array. Prior work either did not encode spatial position
+[32], or encoded it as a physical coordinate [6], as a learned embedding per channel [22], or as
+a coordinate in a template brain [15]. BaRISTA [26] found that encoding position at the scale of
+regions improves downstream decoding. The relative positional encoding within an array is, to our
+knowledge, novel for iEEG models. The rest of MAPA is a vanilla vision transformer (ViT) [9]
+pretrained by masked autoencoding [16], held at its default configuration to isolate the effects of our
+spatial encodings.
+We evaluate on Neuroprobe [35], a benchmark for iEEG foundation models scored over 15 tasks
+spanning audio, language, and vision decoding during movie-watching. The benchmark defines three
+regimes: within-session, cross-session, and cross-subject. For pretraining we use 27.9 hours of Brain
+Treebank [33] recordings from 13 sessions of 7 subjects, matching the data used by most prior entries.
+To investigate how pretraining transfers to an unseen subject, we hold out two evaluation subjects
+from pretraining entirely.
+Our main contributions are as follows:
+• New state of the art on Neuroprobe. MAPA ranks first in all three regimes, and in cross-
+session and cross-subject it is the only pretrained entry above the task-specific baselines.
+• Pretraining gain from the spatial encodings. With neither spatial encoding, MAPA falls
+below our frontend baseline in all regimes.
+• Cross-subject decoding with 21× fewer labels. A linear probe on MAPA’s frozen features
+reaches the frontend baseline’s full-data accuracy with ∼164 labeled trials rather than 3,500.
+2
+Method
+MAPA is an extension of Masked Autoencoders (MAE) [16], a self-supervised learning method, to
+intracranial neural recordings (Figure 2). The encoder, decoder, and objective follow the standard
+MAE design. We change only the patching and the two spatial encodings to fit iEEG data.
+2
+
+
+slow
+mid
+fast
+time
+contacts
++ band embedding
++ region embedding
+relative positional encoding
+encoder
+decoder
+input
+target
+Figure 2: MAPA architecture. During pretraining, a large random subset of patches over electrode
+contacts, frequency bands, and time is masked out. The encoder operates on the visible patches only,
+and a small decoder then processes the full set of encoded patches and mask tokens to reconstruct the
+frequency bins of the removed patches. Our two spatial encodings enter both the encoder and the
+decoder, and the decoder is discarded after pretraining.
+Table 1: Input representation. Each band contains
+the magnitude of a short-time Fourier transform at the
+listed window length. Long windows resolve low fre-
+quencies, and short windows resolve high frequencies.
+These frequency bins are the input to both the encoder
+and the frontend baseline.
+Band
+Window
+Rate
+Frequencies
+Bins
+Slow
+500 ms
+4 Hz
+2–14 Hz
+7
+Mid
+125 ms
+16 Hz
+16–56 Hz
+6
+Fast
+62.5 ms
+32 Hz
+64–160 Hz
+7
+Frontend.
+Given an array of N contacts
+(an sEEG shaft or an ECoG grid), we ref-
+erence the raw voltage of each contact to
+the mean over the array. We then take the
+magnitude of three short-time Fourier trans-
+forms, each at a different window length (Ta-
+ble 1), to capture neural processes that differ
+in frequency and timescale [4]. Finally, we
+normalize each frequency bin per contact by
+its median value and median absolute devia-
+tion over a session, and clip the normalized
+bins to a fixed range (Appendix H).
+Patching.
+A patch is the frequency bins of one band, at one contact, at one time step of that band’s
+rate. Over T seconds, each contact contributes 4T Slow, 16T Mid, and 32T Fast patches. A per-band
+linear layer projects each patch to a token at the model width. We add a learned band embedding to
+each token.
+Positional encoding.
+We apply two positional encodings. The first is a learned region embedding
+applied to each token, where regions are supplied by a standard brain atlas [17] (Appendix B). The
+second is a rotary position embedding (RoPE) [31], applied to queries and keys on the spatial axis of
+the array and on time. Position along the array is the integer contact number read from the clinical
+label, and RoPE encodes only the difference between two contact numbers.
+Masking.
+We mask patches uniformly at random, with no structure over contacts, bands, or time.
+We remove 75% of all patches, the ratio used in the original MAE paper [16], though the optimal ratio
+depends on the redundancy between patches [11], which is set by contact spacing and the overlap
+between successive windows (Table 1). We hold our masking ratio constant across every run.
+Autoencoding.
+Our encoder is a ViT-Small [9] (21.3M parameters), applied only on the visible
+set of patches. Our decoder is a second ViT at half the depth and width, applied on the union of the
+encoded patch set and a set of mask tokens. We apply the band embedding, region embedding, and
+relative positional encoding in the decoder as in the encoder. The decoder reconstructs the frequency
+bins of each removed patch through a per-band linear layer, and the loss is the mean squared error
+over removed patches. Following V-JEPA 2.1 [25], we supervise the encoder at intermediate layers
+as well as its output (Appendix B). The decoder is discarded after pretraining.
+3
+
+
+3
+Experiments
+3.1
+Setup
+Our core experiment keeps the frontend and the readout fixed, with and without the encoder. The
+frontend baseline is frontend →readout, and MAPA is frontend →encoder →readout. The encoder
+is pretrained and then frozen for all evaluations, and the readout is a linear probe (Appendix C).
+We evaluate both models on Neuroprobe, which scores 15 binary tasks by the area under the receiver
+operating characteristic curve (AUROC). We report macro AUROC, the mean AUROC over the 15
+tasks (Appendix E). Each trial is the window from 0 to 1 s after a word onset. Evaluation covers 12
+sessions from 6 subjects, 2 sessions per subject, with at most 3,500 trials per task (Appendix A).
+Neuroprobe includes three evaluation regimes, and they differ in what the readout is fit on. Within-
+session fits on one contiguous half of a session and tests on the other half. Cross-session fits on one
+session of a subject and tests on the held-out session. Cross-subject fits on one anchor subject and
+tests on each of the remaining subjects.
+3.2
+Results on Neuroprobe
+Table 2: Neuroprobe leaderboard. Macro AU-
+ROC over 15 tasks. Only the best entry of each
+published method family is shown.
+Method
+Within
+session
+Cross
+session
+Cross
+subject
+BrainBERT
+0.626
+0.633
+0.547
+CNN Lap+STFT
+0.669
+0.670
+0.578
+PopT
+0.670
+0.663
+0.575
+DIVER-1 frozen
+0.678
+×
+×
+Frontend baseline
+0.674
+0.666
+0.587
+MAPA
+0.695
+0.691
+0.608
+MAPA ranks first in all three regimes (Table 2).
+Outside the within-session regime, MAPA is
+the only pretrained model above the best task-
+specific baseline (CNN Lap+STFT). MAPA’s
+lead over published entries is largest in the
+cross-subject regime.
+Our frontend baseline is strong on its own, plac-
+ing above 12 of the 13 within-session entries,
+11 of 12 cross-session, and all 10 cross-subject.
+MAPA improves on it in every regime. Our two
+entries share their frontend and readout, so the
+gain comes from the pretrained encoder alone.
+3.3
+Ablation of the two spatial encodings
+To test how the gain depends on the two spatial encodings, we pretrain three more models that remove
+each encoding alone and both together, and read out all four identically (Figure 3). Both encodings
+together improve over the baseline on every subject in all three regimes, and the improvement is
+significant within-session and cross-session (Appendix D). Each encoding alone improves less than
+both encodings together. With neither, the pretrained model falls below the baseline.
+both encodings
+relative position
+region embedding
+neither encoding
+−0.03
+−0.02
+−0.01
+0.00
+0.01
+0.02
+0.03
+0.04
+macro AUROC above baseline
+6/6*
+5/6*
+5/6*
+0/6
+Within-session
+both encodings
+relative position
+region embedding
+neither encoding
+6/6*
+6/6*
+6/6*
+0/6
+Cross-session
+both encodings
+relative position
+region embedding
+neither encoding
+5/5
+3/5
+5/5
+1/5
+Cross-subject
+Figure 3: Gain from spatial encodings. Macro AUROC gain over the frontend baseline, one dot per
+subject, with the number of subjects improved above each bar. ∗marks q < 0.05 against the baseline,
+one-sided paired permutation test over subjects (Appendix D).
+4
+
+
+3.4
+Generalization to held-out subjects
+0
+3
+6
+9
+12
+encoder layers
+−0.010
+−0.005
+0.000
+0.005
+0.010
+macro AUROC above baseline
+both encodings
+relative position
+region embedding
+neither encoding
+Figure 4: Gain in held-out subjects.
+Macro AUROC by encoder depth in the
+cross-subject regime, on the two sub-
+jects excluded from pretraining. Layer
+0 is the frontend baseline.
+The strictest test of cross-subject transfer fits the readout on
+an anchor subject and evaluates on subjects held out from
+pretraining. Since neither the encoder nor the readout is
+fit on the held-out subjects, a gain requires learning neural
+representations that generalize across subjects.
+In the cross-subject regime, MAPA improves macro AU-
+ROC over the frontend baseline on both of our held-out
+subjects (Appendix F). With neither spatial encoding, the
+model falls below the baseline on both subjects (Figure 4).
+The four models stay close through the first half of the
+encoder and separate in the deeper layers, where the gain
+keeps rising only with both encodings.
+3.5
+Sample efficiency
+To test whether pretraining reduces the labels needed to
+reach a given accuracy, we refit the readout on subsampled
+label counts (Appendix G). In the cross-subject regime,
+MAPA reaches the frontend baseline’s full-data accuracy
+with ∼164 labeled trials rather than 3,500, a 21× saving
+(Figure 5).
+16
+128
+1,750
+labeled trials from the same session
+0.500
+0.525
+0.550
+0.575
+0.600
+0.625
+0.650
+0.675
+0.700
+macro AUROC
+635 vs 1,750 trials
+(2.8× fewer)
+Within-session
+MAPA
+Frontend baseline
+16
+128
+1,024
+3,500
+labeled trials from another session
+709 vs 3,500 trials
+(4.9× fewer)
+Cross-session
+16
+128
+1,024
+3,500
+labeled trials from another subject
+164 vs 3,500 trials
+(21.3× fewer)
+Cross-subject
+Figure 5: Pretraining reduces the labels needed for a given accuracy. Macro AUROC against the
+number of labeled trials on a log axis. The arrow marks the label saving against the frontend baseline
+fit on the full training set. MAPA is above the baseline at every label count we test, and the gain does
+not close as labels grow (Appendix G).
+4
+Discussion
+Simple methods that scale are at the core of deep learning. However, two obstacles have prevented
+scaling models on intracranial neural recordings. First, labels are scarce, since every trial demands
+effort from an implanted subject. Second, pooling recordings is difficult, as contact placement
+and neuroanatomy differ between subjects. We address both obstacles by showing that a masked
+autoencoder, given an anatomical region embedding and a relative positional encoding, learns, directly
+from unlabeled recordings, neural representations that transfer across subjects.
+Now is the time to scale. Intracranial recordings are accumulating en masse across institutions and
+experimental paradigms and can be pooled into one corpus through self-supervised learning and our
+two spatial encodings. Simple methods trained on large amounts of data have produced powerful
+general models in language, audio, and vision. We hope the same can be done for neural recordings.
+5
+
+
+Acknowledgments and Disclosure of Funding
+This work used the Delta and DeltaAI systems at the National Center for Supercomputing Applica-
+tions through allocation CIS261108 from the Advanced Cyberinfrastructure Coordination Ecosystem:
+Services & Support (ACCESS) program [3], which is supported by U.S. National Science Foun-
+dation grants #2138259, #2138286, #2138307, #2137603, and #2138296. This research used both
+the DeltaAI advanced computing and data resource, which is supported by the National Science
+Foundation (award OAC 2320345) and the State of Illinois, and the Delta advanced computing and
+data resource, which is supported by the National Science Foundation (award OAC 2005572) and the
+State of Illinois. Delta and DeltaAI are joint efforts of the University of Illinois Urbana-Champaign
+and its National Center for Supercomputing Applications. Z.S. and G.B.C. were supported by NIH
+R01DC019498. G.B.C. was supported by NIH R01NS129703.
+We thank Geeling Chau, Christopher Wang, Shivashriganesh P. Mahato, Saba Hashemi, and Andrii
+Zahorodnii for helpful discussions.
+References
+[1] Hubert Banville, Stéphane d’Ascoli, Simon Dahan, Jérémy Rapin, Marlène Careil, Yohann
+Benchetrit, Jarod Lévy, Saarang Panchavati, Antoine Ratouchniak, Mingfang Zhang, Elisa
+Cascardi, Katelyn Begany, Teon Brooks, and Jean-Rémi King. NeuralBench: A unifying
+framework to benchmark NeuroAI models, 2026. URL https://arxiv.org/abs/2605.
+08495.
+[2] Yoav Benjamini and Yosef Hochberg. Controlling the false discovery rate: A practical and pow-
+erful approach to multiple testing. Journal of the Royal Statistical Society Series B: Statistical
+Methodology, 57(1):289–300, January 1995. ISSN 1467-9868. doi: 10.1111/j.2517-6161.1995.
+tb02031.x. URL http://dx.doi.org/10.1111/j.2517-6161.1995.tb02031.x.
+[3] Timothy J. Boerner, Stephen Deems, Thomas R. Furlani, Shelley L. Knuth, and John Towns.
+ACCESS: advancing innovation: NSF’s advanced cyberinfrastructure coordination ecosystem:
+Services & support. In Practice and Experience in Advanced Research Computing, PEARC
+’23, page 173–176. ACM, July 2023. doi: 10.1145/3569951.3597559. URL http://dx.doi.
+org/10.1145/3569951.3597559.
+[4] György Buzsáki and Andreas Draguhn. Neuronal oscillations in cortical networks. Science,
+304(5679):1926–1929, June 2004. ISSN 1095-9203. doi: 10.1126/science.1099745. URL
+http://dx.doi.org/10.1126/science.1099745.
+[5] Francesco S. Carzaniga, Michael Hersche, Abu Sebastian, Kaspar Schindler, and Abbas Rahimi.
+A foundation model with multi-variate parallel attention to generate neuronal activity. In
+The Fourteenth International Conference on Learning Representations, 2026. URL https:
+//openreview.net/forum?id=5M1YOW3bRq.
+[6] Geeling Chau, Christopher Wang, Sabera J Talukder, Vighnesh Subramaniam, Saraswati Soedar-
+madji, Yisong Yue, Boris Katz, and Andrei Barbu. Population transformer: Learning population-
+level representations of neural activity. In The Thirteenth International Conference on Learning
+Representations, 2025. URL https://openreview.net/forum?id=FVuqJt3c4L.
+[7] Junbo Chen, Xupeng Chen, Ran Wang, Chenqian Le, Amirhossein Khalilian-Gourtani, Erika
+Jensen, Patricia Dugan, Werner Doyle, Orrin Devinsky, Daniel Friedman, Adeen Flinker,
+and Yao Wang. Transformer-based neural speech decoding from surface and depth electrode
+signals. Journal of Neural Engineering, 22(1):016017, January 2025. ISSN 1741-2552. doi:
+10.1088/1741-2552/adab21. URL http://dx.doi.org/10.1088/1741-2552/adab21.
+[8] Toby B Cumming, Marcie Packer, Sharon F Kramer, and Coralie English. The prevalence of
+fatigue after stroke: A systematic review and meta-analysis. International Journal of Stroke,
+11(9):968–977, October 2016. ISSN 1747-4949. doi: 10.1177/1747493016669861. URL
+http://dx.doi.org/10.1177/1747493016669861.
+[9] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai,
+Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly,
+6
+
+
+Jakob Uszkoreit, and Neil Houlsby. An image is worth 16x16 words: Transformers for image
+recognition at scale. In International Conference on Learning Representations, 2021. URL
+https://openreview.net/forum?id=YicbFdNTTy.
+[10] Linnea Evanson, Mingfang Zhang, Hubert Banville, Saarang Panchavati, Pierre Bourdillon, and
+Jean-Rémi King. From minutes to days: Scaling intracranial speech decoding with supervised
+pretraining, 2025. URL https://arxiv.org/abs/2512.15830.
+[11] Christoph Feichtenhofer, Haoqi Fan, Yanghao Li, and Kaiming He. Masked autoencoders as
+spatiotemporal learners. In Alice H. Oh, Alekh Agarwal, Danielle Belgrave, and Kyunghyun
+Cho, editors, Advances in Neural Information Processing Systems, 2022. URL https://
+openreview.net/forum?id=UaXD4Al3mdb.
+[12] Zachery M. Fogg, Nicholas S. Card, Maitreyee Wairagkar, Aparna Srinivasan, Tyler Singer-
+Clark, Xianda Hou, Elizaveta Okorokova, Hamza Peracha, Carrina Iacobacci, Tiffany Brailow,
+Justin Jude, Hadar Levi-Aharoni, Trung Le, Domenick Mifsud, Pranav I. Deevi, Samuel R.
+Nason-Tomaszewski, Anna L. Pritchard, Yunnuo Zhang, Brice Richards, Payton Bechefsky,
+Leigh R. Hochberg, Ziv Williams, Kiarash Shahlaie, Nicholas AuYong, Daniel B. Rubin,
+Chethan Pandarinath, David M. Brandman, and Sergey D. Stavisky. A generalizable speech
+neuroprosthesis. bioRxiv, July 2026. doi: 10.64898/2026.07.23.739430. URL http://dx.
+doi.org/10.64898/2026.07.23.739430.
+[13] Matthew F. Glasser, Timothy S. Coalson, Emma C. Robinson, Carl D. Hacker, John Harwell,
+Essa Yacoub, Kamil Ugurbil, Jesper Andersson, Christian F. Beckmann, Mark Jenkinson,
+Stephen M. Smith, and David C. Van Essen. A multi-modal parcellation of human cerebral
+cortex. Nature, 536(7615):171–178, July 2016. ISSN 1476-4687. doi: 10.1038/nature18933.
+URL http://dx.doi.org/10.1038/nature18933.
+[14] Abdullah Ashraf Hamad, Basma Ehab Amer, Nagham Bushara Abbas, Asmaa Zakria Alnajjar,
+and Mostafa Meshref. Prevalence and correlates of fatigue in amyotrophic lateral sclerosis: A
+systematic review and meta-analysis. Neurological Sciences, 45(2):485–493, October 2023.
+ISSN 1590-3478. doi: 10.1007/s10072-023-07119-7. URL http://dx.doi.org/10.1007/
+s10072-023-07119-7.
+[15] Danny Dongyeop Han, Yonghyeon Gwon, Ahhyun Lucy Lee, Taeyang Lee, Seong Jin Lee,
+Jubin Choi, Sebin Lee, Jihyun Bang, Seungju Lee, David Keetae Park, Shinjae Yoo, Chun Kee
+Chung, and Jiook Cha. DIVER-1: Scaling intracranial EEG foundation models for transferable
+representations, 2026. URL https://arxiv.org/abs/2512.19097.
+[16] Kaiming He, Xinlei Chen, Saining Xie, Yanghao Li, Piotr Dollár, and Ross Girshick. Masked
+autoencoders are scalable vision learners. In 2022 IEEE/CVF Conference on Computer Vision
+and Pattern Recognition (CVPR), page 15979–15988. IEEE, June 2022. doi: 10.1109/cvpr52688.
+2022.01553. URL http://dx.doi.org/10.1109/cvpr52688.2022.01553.
+[17] Arno Klein and Jason Tourville. 101 labeled brain images and a consistent human cortical
+labeling protocol. Frontiers in Neuroscience, 6, 2012. ISSN 1662-4548. doi: 10.3389/fnins.
+2012.00171. URL http://dx.doi.org/10.3389/fnins.2012.00171.
+[18] Konstantinos Kontras, Trui Osselaer, Stylianos G. Mouslech, Angeliki-Ilektra Karaiskou, Guido
+Gagliardi, Thomas Strypsteen, Mohammad Hossein Badiei, Anku Rani, Maarten Vanmarcke,
+Miguel Bhagubai, Chanakya Ekbote, Jaedong Hwang, Christos Chatzichristos, Paul Pu Liang,
+and Maarten De Vos. NeuroAtlas: Benchmarking foundation models for clinical EEG and
+brain-computer interfaces, 2026. URL https://arxiv.org/abs/2605.14698.
+[19] Eric C Leuthardt, Gerwin Schalk, Jonathan R Wolpaw, Jeffrey G Ojemann, and Daniel W
+Moran. A brain–computer interface using electrocorticographic signals in humans. Journal of
+Neural Engineering, 1(2):63–71, June 2004. ISSN 1741-2552. doi: 10.1088/1741-2560/1/2/001.
+URL http://dx.doi.org/10.1088/1741-2560/1/2/001.
+[20] Alisa D. Levin, Donald T. Avansino, Foram B. Kamdar, Nicholas S. Card, Maitreyee Wairagkar,
+Brandon G. Jacques, Justin J. Jude, Carrina Iacobacci, Bayardo E. Lacayo, Payton H. Bechefsky,
+Samuel R. Nason-Tomaszewski, Darrel R. Deo, Leigh R. Hochberg, Daniel B. Rubin, Ziv M.
+7
+
+
+Williams, David M. Brandman, Sergey D. Stavisky, Nicholas AuYong, Chethan Pandarinath,
+Scott W. Linderman, Jaimie M. Henderson, and Francis R. Willett. Cross-brain transfer of
+high-performance intracortical speech and handwriting BCIs. bioRxiv, January 2026. doi:
+10.64898/2026.01.12.699110. URL http://dx.doi.org/10.64898/2026.01.12.699110.
+[21] Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. In International
+Conference on Learning Representations, 2019. URL https://openreview.net/forum?
+id=Bkg6RiCqY7.
+[22] Shivashriganesh P. Mahato, Jingyun Xiao, Alexandre Andre, Geeling Chau, Wenrui Ma, Ian Jar-
+ratt Knight, Duy Nguyen, Lawrence Jianqiao Hu, Bingni W Brunton, Michael S. Beauchamp,
+Bijan Pesaran, Sergey A. Shuvaev, and Eva L Dyer. A scalable self-supervised method for
+modeling human intracranial recordings during natural behavior. In NeurIPS 2025 Workshop on
+Foundation Models for the Brain and Body, 2025. URL https://openreview.net/forum?
+id=CdP8Y4K4fz.
+[23] Georgios Mentzelopoulos, Evangelos Chatzipantazis, Ashwin G Ramayya, Michelle Hed-
+lund, Vivek Buch, Kostas Daniilidis, Konrad Kording, and Flavia Vitale.
+Neural decod-
+ing from stereotactic EEG: accounting for electrode variability across subjects.
+In The
+Thirty-eighth Annual Conference on Neural Information Processing Systems, 2024. URL
+https://openreview.net/forum?id=LR1nnsD7H0.
+[24] Sean L. Metzger, Kaylo T. Littlejohn, Alexander B. Silva, David A. Moses, Margaret P. Seaton,
+Ran Wang, Maximilian E. Dougherty, Jessie R. Liu, Peter Wu, Michael A. Berger, Inga
+Zhuravleva, Adelyn Tu-Chan, Karunesh Ganguly, Gopala K. Anumanchipalli, and Edward F.
+Chang. A high-performance neuroprosthesis for speech decoding and avatar control. Nature,
+620(7976):1037–1046, August 2023. ISSN 1476-4687. doi: 10.1038/s41586-023-06443-4.
+URL http://dx.doi.org/10.1038/s41586-023-06443-4.
+[25] Lorenzo Mur-Labadia, Matthew Muckley, Amir Bar, Mido Assran, Koustuv Sinha, Mike Rabbat,
+Yann LeCun, Nicolas Ballas, and Adrien Bardes. V-JEPA 2.1: Unlocking dense features in
+video self-supervised learning, 2026. URL https://arxiv.org/abs/2603.14482.
+[26] Lucine L Oganesian, Saba Hashemi, and Maryam M. Shanechi. BaRISTA: Brain scale informed
+spatiotemporal representation of human intracranial neural activity. In The Thirty-ninth Annual
+Conference on Neural Information Processing Systems, 2025. URL https://openreview.
+net/forum?id=LDjBDk3Czb.
+[27] Josef Parvizi and Sabine Kastner. Promises and limitations of human intracranial electroen-
+cephalography. Nature Neuroscience, 21(4):474–483, March 2018. ISSN 1546-1726. doi:
+10.1038/s41593-018-0108-2. URL http://dx.doi.org/10.1038/s41593-018-0108-2.
+[28] Steven M. Peterson, Satpreet H. Singh, Benjamin Dichter, Michael Scheid, Rajesh P. N. Rao, and
+Bingni W. Brunton. AJILE12: Long-term naturalistic human intracranial neural recordings and
+pose. Scientific Data, 9(1), April 2022. ISSN 2052-4463. doi: 10.1038/s41597-022-01280-y.
+URL http://dx.doi.org/10.1038/s41597-022-01280-y.
+[29] Aditya Singh, Tessy Thomas, Jinlong Li, Greg Hickok, Xaq Pitkow, and Nitin Tandon. Transfer
+learning via distributed brain recordings enables reliable speech decoding. Nature Commu-
+nications, 16(1), October 2025. ISSN 2041-1723. doi: 10.1038/s41467-025-63825-0. URL
+http://dx.doi.org/10.1038/s41467-025-63825-0.
+[30] Z. Spalding, S. Duraivel, S. Rahimpour, C. Wang, K. Barth, C. Schmitz, S. P. Lad, A. H.
+Friedman, D. G. Southwell, J. Viventi, and G. B. Cogan. Shared latent representations of
+speech production for cross-patient speech decoding. Nature Communications, 17(1), July 2026.
+ISSN 2041-1723. doi: 10.1038/s41467-026-75455-1. URL http://dx.doi.org/10.1038/
+s41467-026-75455-1.
+[31] Jianlin Su, Murtadha Ahmed, Yu Lu, Shengfeng Pan, Wen Bo, and Yunfeng Liu. RoFormer:
+Enhanced transformer with rotary position embedding. Neurocomputing, 568:127063, February
+2024. ISSN 0925-2312. doi: 10.1016/j.neucom.2023.127063. URL http://dx.doi.org/10.
+1016/j.neucom.2023.127063.
+8
+
+
+[32] Christopher Wang, Vighnesh Subramaniam, Adam Uri Yaari, Gabriel Kreiman, Boris Katz,
+Ignacio Cases, and Andrei Barbu. BrainBERT: Self-supervised representation learning for
+intracranial recordings. In The Eleventh International Conference on Learning Representations,
+2023. URL https://openreview.net/forum?id=xmcYx_reUn6.
+[33] Christopher Wang, Adam Uri Yaari, Aaditya K Singh, Vighnesh Subramaniam, Dana Rosenfarb,
+Jan DeWitt, Pranav Misra, Joseph R. Madsen, Scellig Stone, Gabriel Kreiman, Boris Katz,
+Ignacio Cases, and Andrei Barbu. Brain treebank: Large-scale intracranial recordings from
+naturalistic language stimuli. In The Thirty-eight Conference on Neural Information Processing
+Systems Datasets and Benchmarks Track, 2024. URL https://openreview.net/forum?
+id=KZlJF8kguO.
+[34] Francis R. Willett, Donald T. Avansino, Leigh R. Hochberg, Jaimie M. Henderson, and Kr-
+ishna V. Shenoy. High-performance brain-to-text communication via handwriting. Nature,
+593(7858):249–254, May 2021. ISSN 1476-4687. doi: 10.1038/s41586-021-03506-2. URL
+http://dx.doi.org/10.1038/s41586-021-03506-2.
+[35] Andrii Zahorodnii, Christopher Wang, Geeling Chau, Bennett Stankovits, Charikleia Moraitaki,
+Eli Gross, Alexander Brady, Andrei Barbu, Boris Katz, and Ila R Fiete. Neuroprobe: Evaluating
+intracranial brain responses to naturalistic stimuli, 2026. URL https://arxiv.org/abs/
+2509.21671.
+9
+
+
+Appendix
+Brain Treebank [33] is a dataset of sEEG recordings from subjects watching Hollywood movies.
+Neuroprobe [35] defines the tasks, trials, and splits over those recordings. We pretrain on the entire
+recording of each pretraining session. We evaluate on Neuroprobe Lite, the default form of the
+benchmark, which includes 12 sessions, at most 120 contacts per subject, and at most 3,500 trials per
+task. A session is one subject watching one movie. A shaft is one implanted sEEG electrode, the
+array the frontend references over, and a contact is one recording site along it.
+A
+Data and splits
+Table 3: Every Brain Treebank session. Each row is one
+session, written as the subject number and the index of the
+session within that subject. Split marks the session as a
+pretraining session or a test session. Shafts, Contacts, and
+Regions count the shafts, contacts, and anatomical regions
+of the session that enter the model. Hours is the recording
+time of a pretraining session that enters pretraining. A
+subject keeps the same implant across sessions, so the
+same shaft appears in every session of the subject. The
+Total rows do not sum the columns above them: each
+counts every unique shaft, contact, and region once over
+the sessions of the split, and sums the hours.
+Session
+Split
+Shafts
+Contacts
+Regions
+Hours
+1:0
+Pretrain
+13
+128
+16
+1.91
+1:1
+Test
+13
+119
+16
+—
+1:2
+Test
+13
+119
+16
+—
+2:0
+Test
+14
+119
+14
+—
+2:1
+Pretrain
+16
+133
+14
+2.42
+2:2
+Pretrain
+16
+132
+14
+2.66
+2:3
+Pretrain
+16
+135
+14
+3.00
+2:4
+Test
+14
+119
+14
+—
+2:5
+Pretrain
+16
+135
+14
+1.85
+2:6
+Pretrain
+16
+129
+14
+3.52
+3:0
+Test
+12
+100
+14
+—
+3:1
+Test
+12
+102
+14
+—
+3:2
+Pretrain
+12
+103
+14
+4.06
+4:0
+Test
+11
+120
+22
+—
+4:1
+Test
+11
+118
+22
+—
+4:2
+Pretrain
+15
+179
+28
+1.31
+5:0
+Not used
+12
+140
+18
+—
+6:0
+Pretrain
+12
+159
+16
+0.81
+6:1
+Pretrain
+12
+159
+16
+1.32
+6:4
+Pretrain
+12
+160
+16
+1.60
+7:0
+Test
+8
+118
+20
+—
+7:1
+Test
+8
+116
+19
+—
+8:0
+Pretrain
+13
+149
+20
+1.41
+9:0
+Pretrain
+12
+91
+13
+2.00
+10:0
+Test
+12
+119
+19
+—
+10:1
+Test
+12
+120
+19
+—
+Total
+Pretrain
+93
+945
+50
+27.87
+Total
+Test
+70
+698
+49
+—
+Pretraining uses 13 of the 26 sessions,
+27.87 hours of recording on 93 shafts.
+Neuroprobe Lite evaluates 12 sessions.
+Table 3 lists all 26. Not every implanted
+contact is usable.
+By default, Neuro-
+probe excludes the contacts Brain Tree-
+bank marks as corrupted, the trigger chan-
+nels that carry the movie timing signal
+rather than neural activity, and the con-
+tacts missing from the Brain Treebank lo-
+calization table. A contact missing from
+the table has no position and no region la-
+bel. We apply the same exclusions before
+any other step. Guard 1 of Appendix H
+then drops the contacts whose voltage
+fails a quality test, and Table 3 counts
+what remains. Hours are counted before
+Guard 2, which removes 0.30 hours.
+Pretraining uses every remaining contact
+of a session, and evaluation uses a subset:
+Neuroprobe Lite includes at most 120
+contacts of a subject. For evaluation we
+restrict a session to its evaluation contacts
+before the frontend takes the mean over
+the array. No excluded contact enters
+an evaluation, not even through the array
+mean re-reference.
+Corpus sampling.
+We draw a subject
+uniformly, then a shaft uniformly within
+the subject, then a clip uniformly within
+the shaft.
+Pretraining rules.
+Neuroprobe per-
+mits pretraining on 14 full sessions and
+5 partial ones. We use 13 of the 14, omit-
+ting session 5:0, whose subject Neuro-
+probe does not evaluate. The five partial
+sessions are the parts of subjects 7 and 10
+that the evaluation does not cover, about
+20 minutes per subject. We hold subjects
+7 and 10 out of pretraining, so we use
+none of the five partial sessions, though
+competing entries were permitted all of
+them.
+10
+
+
+B
+Pretraining recipe
+Table 4: Pretraining recipe. Hyperparam-
+eters of the reported run.
+Parameter
+Value
+Clip length (s)
+2.0
+Masked fraction
+0.75
+Steps
+55,000
+Warmup steps
+5,000
+Cooldown steps
+5,000
+Learning rate
+6e-3
+β1, β2
+0.9, 0.95
+Weight decay
+0.04
+Gradient clip
+3.0
+Decoder layers
+6
+Decoder embedding size
+192
+Encoder intermediate layers
+3, 6, 9, 12
+Subject sampling
+uniform
+Contacts per step (global)
+66,000
+Seed
+33
+Table 4 gives the hyperparameters. Pretraining runs for
+55,000 steps. We train with AdamW [21]. The learning
+rate warms up linearly over 5,000 steps, holds at 6e-3
+for 45,000, and falls linearly to zero over the final 5,000.
+We chose the number of training steps on pretraining
+sessions, not on test sessions. During the constant phase
+we fit the readout on four tasks in seven pretraining
+sessions, none of which Neuroprobe evaluates, and we
+start the cooldown once the readout stops improving.
+The cooldown step was set on an earlier run and the
+reported run keeps it. We report the checkpoint at the
+end of the run, with no selection by benchmark score.
+A batch holds a fixed number of contacts rather than of
+clips. The global batch is 66,000 contacts per step. A
+contact only attends to other contacts on its shaft in the
+encoder and decoder. Model runs take 32 hours on two
+NVIDIA H100 GPUs.
+Following V-JEPA 2.1 [25], we supervise the encoder
+at layers 3, 6, 9, and 12, concatenate the four outputs to
+4d for d = 384, and project to the decoder width. Deep
+supervision changes the decoder input and not the loss.
+Anatomical region embedding.
+The anatomical region embedding table has 74 labels: the 62
+cortical regions of the Desikan-Killiany-Tourville (DKT) atlas [17] and 12 subcortical structures.
+A contact takes the label of the region it lies in, read from the table Brain Treebank ships for each
+subject. A contact whose label is not one of the 74 takes a reserved 75th row. The embedding is
+indexed by the label alone, never by the subject, session, or contact number, so a new subject reuses
+the rows of the regions its contacts fall in and adds no parameters. The region embedding of a contact
+is added to every token of that contact. The ablation of Figure 3 removes the table. The table is
+initialized near zero, so at the start of pretraining the embedding contributes nothing and every row is
+learned.
+Pretraining covers 50 of the 74 regions and the evaluation contacts fall in 49. Four regions, all in the
+right hemisphere, appear only in evaluation, so their rows are never trained and stay at their near-zero
+initialization.
+C
+Readout protocol
+Trials and tasks.
+A trial is the recording from 0 to 1 s after a word onset. Neuroprobe defines 15
+binary tasks, each a label of the word or of the movie at that onset. A session contributes at most
+3,500 trials per task. A task is scored by AUROC. Trials, labels, splits, and evaluation contacts come
+from Neuroprobe unaltered. The published values in Table 2 are from the Neuroprobe leaderboard,
+and our two entries follow the protocol below.
+Readout input.
+We run the frozen encoder once over the trials of a session and cache the output
+of its last layer. The encoder runs on the shafts of a subject one at a time, and the readout gathers
+the outputs at all shafts. The readout input for one trial is the encoder output flattened over contacts,
+bands, and time. Within-session and cross-session keep the contacts separate. In the cross-subject
+regime no contact is shared between subjects, so we average the features of the contacts within each
+region and fit the readout on the regions shared by the anchor and test subjects, 3 to 7 per pair. The
+frontend baseline reads the encoder input, the bands of Table 1, in place of the encoder output. Every
+step that follows is the same for both.
+11
+
+
+Ridge fit.
+We standardize each input dimension by the mean and standard deviation of the training
+trials. In the cross-subject regime the training trials come from the anchor, so the anchor’s statistics
+are applied to the test subject. We then fit a ridge regression on the binary label in closed form.
+Regularization.
+The regularization strength is the only quantity we select in our readout. We select
+it from a grid of 25 values spaced logarithmically from 10−4 to 104, scaled by the mean squared
+norm of the training features. We use the value with the highest AUROC on the validation trials. A
+tie keeps the smallest value. The frontend baseline is fit by the same procedure over the same grid, so
+neither model is tuned harder than the other.
+Regimes.
+Within-session fits on one contiguous half of a session and tests on the other half, in
+both directions, and the AUROC of a session is the mean of the two folds. Cross-session fits on one
+session of a subject and tests on the held-out session, in both directions. Cross-subject fits on session
+2:4 of the anchor subject and tests on both evaluation sessions of each of the other five subjects, 10
+test sessions in all. In every regime the validation and test trials are the first and second half of the test
+session, as Neuroprobe defines them. For each task we average the AUROC over the test sessions, 12
+within-session and cross-session and 10 cross-subject. We report macro AUROC, the mean over the
+15 tasks.
+D
+Statistical methods
+Subject-level tests.
+The claim is that the gain holds across subjects, so every test is at the subject
+level. The macro AUROC of a subject’s two sessions is averaged into one value, so each subject
+contributes one gain. Within-session and cross-session have 6 subjects and cross-subject has 5, since
+subject 2 is the anchor.
+Permutation test.
+We run an exact paired permutation test on the subject means. The difference
+for a subject is the macro AUROC of a model minus the macro AUROC of the frontend baseline,
+the gain from adding the pretrained encoder. The statistic is the mean difference over subjects. A
+permutation flips the sign of one subject’s difference, and we enumerate all 2n assignments. The test
+is one-sided, in the direction that a model exceeds the frontend baseline. An exact paired test on n
+subjects cannot return a p below 1/2n: 0.0156 at n = 6 and 0.0312 at n = 5.
+Multiple comparisons.
+Within each regime, Figure 3 compares four models against the frontend
+baseline, so we correct over those four with the Benjamini-Hochberg procedure [2]. Table 5 gives
+every model. In the cross-subject regime no model clears q < 0.05, because the smallest p an exact
+test on five subjects can return is 0.0312, and the correction over four models raises it to 0.0625.
+Table 5: Every model against the frontend baseline. Each model is one pretraining run, named for
+the spatial encodings it keeps. Subjects improved is the number of subjects whose macro AUROC
+exceeds the frontend baseline, out of the subjects in the regime. Gain is the mean over subjects of the
+difference in macro AUROC. p is the one-sided exact paired permutation test and q is the same p
+after Benjamini-Hochberg correction within the regime. Bold marks q < 0.05.
+Regime
+Model
+Subjects improved
+Gain
+p
+q
+Within-session
+Both encodings
+6/6
++0.0210
+0.0156
+0.0417
+Within-session
+Relative position
+5/6
++0.0125
+0.0312
+0.0417
+Within-session
+Region embedding
+5/6
++0.0085
+0.0312
+0.0417
+Within-session
+Neither encoding
+0/6
+−0.0130
+1.0000
+1.0000
+Cross-session
+Both encodings
+6/6
++0.0249
+0.0156
+0.0208
+Cross-session
+Relative position
+6/6
++0.0221
+0.0156
+0.0208
+Cross-session
+Region embedding
+6/6
++0.0116
+0.0156
+0.0208
+Cross-session
+Neither encoding
+0/6
+−0.0064
+1.0000
+1.0000
+Cross-subject
+Both encodings
+5/5
++0.0211
+0.0312
+0.0625
+Cross-subject
+Relative position
+3/5
++0.0119
+0.1875
+0.2500
+Cross-subject
+Region embedding
+5/5
++0.0184
+0.0312
+0.0625
+Cross-subject
+Neither encoding
+1/5
+−0.0076
+0.9375
+0.9375
+12
+
+
+E
+Per-task results
+Every macro AUROC in the main text is the mean over the 15 Neuroprobe tasks, and no task is
+dropped. Table 6 gives the breakdown for the frontend baseline and for MAPA in all three regimes.
+MAPA exceeds the baseline on 41 of the 45 pairs of a task and a regime. The four pairs where the
+baseline is higher are frame brightness within-session and cross-subject, where both models are near
+chance, and pitch and global flow cross-subject, where the two models are within 0.004 of each other.
+Table 6: The 15 Neuroprobe tasks. AUROC for the frontend baseline and for MAPA, in each regime.
+Bold is the larger of a pair. Tasks appear in the order the benchmark lists them.
+Within-session
+Cross-session
+Cross-subject
+Task
+Frontend
+MAPA
+Frontend
+MAPA
+Frontend
+MAPA
+onset
+0.911
+0.933
+0.913
+0.941
+0.745
+0.815
+speech
+0.891
+0.917
+0.909
+0.932
+0.719
+0.779
+volume
+0.777
+0.799
+0.748
+0.774
+0.638
+0.645
+delta volume
+0.778
+0.800
+0.768
+0.787
+0.674
+0.705
+pitch
+0.597
+0.628
+0.590
+0.633
+0.540
+0.537
+word index
+0.748
+0.782
+0.707
+0.741
+0.611
+0.661
+word gap
+0.625
+0.640
+0.584
+0.600
+0.532
+0.554
+gpt2 surprisal
+0.615
+0.630
+0.608
+0.626
+0.560
+0.579
+word head pos
+0.610
+0.625
+0.606
+0.628
+0.563
+0.593
+word part of speech
+0.601
+0.628
+0.608
+0.643
+0.537
+0.545
+word length
+0.616
+0.643
+0.609
+0.639
+0.528
+0.562
+global flow
+0.648
+0.674
+0.647
+0.675
+0.571
+0.567
+local flow
+0.643
+0.675
+0.620
+0.648
+0.570
+0.572
+frame brightness
+0.512
+0.505
+0.524
+0.533
+0.517
+0.495
+face num
+0.545
+0.552
+0.550
+0.563
+0.503
+0.515
+Macro over 15 tasks
+0.674
+0.695
+0.666
+0.691
+0.587
+0.608
+F
+Held-out subjects
+Subjects 7 and 10 contribute no pretraining data, and in the cross-subject regime their readout is fit on
+the anchor subject, so their recordings enter neither pretraining nor the fit of the readout. As in every
+regime, the regularization strength is selected on the validation half of the test session (Appendix C).
+Table 7 gives the macro AUROC of the frontend baseline and of MAPA on their four sessions. MAPA
+improves the macro AUROC of every session, and therefore of both subjects. An exact paired test on
+two subjects cannot return a p below 1/22 = 0.25 (Appendix D), so we report no significance test for
+the held-out subjects.
+Table 7: The two subjects held out of pretraining. Macro AUROC over the 15 tasks in the cross-
+subject regime. Sessions are named subject:session, and the last row is the mean over the four.
+Session
+Frontend
+MAPA
+Difference
+7:0
+0.5234
+0.5385
++0.0151
+7:1
+0.5326
+0.5458
++0.0132
+10:0
+0.5754
+0.5825
++0.0071
+10:1
+0.5994
+0.6137
++0.0143
+Mean
+0.5577
+0.5701
++0.0124
+G
+Label saving
+Crossing.
+We ask how many labeled trials MAPA needs to match the frontend baseline fit on every
+labeled trial. We cut the training trials down to m, refit the readout on those m, and score on the
+full test trials, which gives macro AUROC as a function of m. The crossing is the smallest m at
+which MAPA reaches the macro AUROC of the frontend baseline fit on every labeled trial, and the
+13
+
+
+saving is the full count divided by the crossing. The full count is 1,750 trials within-session and 3,500
+cross-session and cross-subject. In the cross-subject regime the crossing is 164 trials, the 21× saving
+the main text reports.
+Subsampling.
+m counts the training trials alone. The test trials are never subsampled, and the
+regularization strength is selected on the full validation trials. m takes the values 16, 32, 64, 128, 256,
+512, and 1,024, one more point at 2,048 cross-session and cross-subject, where the training set is
+large enough, and one point with no subsampling. At each m we draw several random subsets of the
+training trials and average the resulting AUROCs: 5 subsets at the four smallest m, 3 at the larger m,
+and a single fit at the full count, where there is nothing to subsample. A subsample keeps the class
+balance of the training trials and is drawn once for each task, so both models are fit on the same trials.
+The crossing is interpolated in log2 m between the two label counts that bracket it. If MAPA never
+reaches the frontend baseline’s full-data macro AUROC, there is no crossing.
+Confidence interval.
+The interval on the saving is a percentile bootstrap confidence interval with
+the subject as the resampling unit. A saving computed on five or six subjects is uncertain, and
+the bootstrap estimates how far the saving moves when the subjects are redrawn. We draw 20,000
+resamples of the subjects with replacement, and both sessions of a subject enter a resample together.
+On each resample we recompute the macro AUROC at every m, the frontend baseline’s full-data
+macro AUROC, and the saving. In 15 of the 20,000 cross-subject resamples there is no crossing. The
+interval is the 2.5th and 97.5th percentiles of the savings over all 20,000 resamples, with a resample
+that has no crossing ranked below every saving. The main text reports 21× as a point estimate with its
+interval.
+Gain at every label count.
+We test 8 label counts within-session and 9 in cross-session and cross-
+subject. MAPA is above the frontend baseline at all 26 label counts we test across regimes, by 0.0178
+to 0.0312 macro AUROC.
+Per-subject saving.
+Table 8 gives the saving for each subject, computed the same way on the test
+sessions of that subject. The pooled row is computed on all test sessions together and is not the mean
+of the rows above it. In the cross-subject regime the saving ranges from 15.9 to 89.8. Subject 4 never
+reaches the frontend baseline at any label count we test, and it stays in the pooled saving and in the
+bootstrap.
+Table 8: Label saving by subject. The factor by which MAPA cuts the labeled trials needed to
+match the frontend baseline fit on every training trial. The pooled row is computed on all test sessions
+together and is not the mean of the rows above it. Subject 2 supplies the cross-subject training trials
+and is never a cross-subject test subject.
+Subject
+Within-session
+Cross-session
+Cross-subject
+1
+4.9
+12.3
+28.7
+2
+3.1
+7.3
+×
+3
+2.5
+4.1
+89.8
+4
+2.0
+4.1
+never reaches
+7
+2.9
+3.8
+20.7
+10
+2.3
+3.1
+15.9
+Pooled
+2.8
+4.9
+21.3
+95% interval
+2.3 to 3.5
+3.7 to 7.3
+8.4 to 64.0
+H
+Data cleaning
+We clean the data in three steps before any of it enters pretraining, and call each step a guard. Guard
+1 removes contacts, Guard 2 removes time windows from pretraining, and Guard 3 bounds every
+value that enters the encoder. Guards 1 and 3 also apply to the evaluation sessions. Guard 2 applies
+to pretraining alone. No guard uses any task label, so the same rules apply to any recording. Every
+model trains on the same cleaned data. Table 9 lists every rule and the share of pretraining data it
+removes.
+14
+
+
+Preprocessing.
+Every recording is resampled to 2048 Hz. Each contact is notch filtered at 60 Hz
+and its harmonics and high-pass filtered at 0.5 Hz. Guard 1 runs on this voltage. A removed contact
+never enters the array mean.
+Guard 1.
+Guard 1 runs before the frontend, on the voltage of every contact. Guard 1 has three rules.
+Spike removes a contact with sharp transients. Noisy removes a contact whose spread is far above
+the other contacts of the session. Dead removes a contact whose spread is far below them. Table 9
+gives the thresholds. In the Noisy rule the denominator of z is floored at 0.15 of the session median
+spread, so small differences within a uniform session do not fire the rule. A contact that fails any
+rule is removed for the whole session. Guard 1 removes 37 of the 1,829 pretraining contacts and 25
+of the 1,414 evaluation contacts, counting a contact once per session. Guard 1 runs on each session
+separately, so a contact can fail in one session of a subject and pass in another.
+Guard 2.
+Guard 2 runs on pretraining data only, after Guard 1 and the frontend and before Guard 3,
+on the three normalized bands (Table 1). It cuts each session into 1-second windows and removes
+a window in which many contacts show an artifact at once, or one contact shows an extreme value.
+Thresholds are set per session and per band. In band b, we take the largest |z| of each contact in each
+window, and qb is the 99th percentile of these values over all contacts and windows of the session. A
+rule that counts contacts fires when at least n = max(3, ⌈0.05C⌉) of the C contacts of the session
+meet its condition in the same window. Guard 2 removes 1.08% of 100,334 windows, which is 0.30
+hours of the 27.87. It never touches an evaluation trial.
+Guard 3.
+Guard 3 clips each normalized value as it enters the model, at |z| = 15 in the Slow and
+Mid bands and |z| = 20 in the Fast band, in pretraining and evaluation alike. It touches fewer than
+0.03% of the values in any band.
+Table 9: The three guards. A guard acts when any one of its rules fires. Rate is the share of
+pretraining data affected: of contacts for Guard 1, of windows for Guard 2, and of single values for
+Guard 3. The row of each guard gives the total share it removes. Spread is 1.4826 times the median
+absolute deviation, and z is the distance from the median divided by the spread. Guard 1 runs on
+voltage, and z is taken within a contact over time, except where a rule says over the contacts of the
+session. Guards 2 and 3 run on the normalized bands, where every value is already a z. The three
+rules of Guard 1 never fire on the same contact, so their rates sum to the share Guard 1 removes. A
+window can fail several rules of Guard 2, so those rates sum to more than the share Guard 2 removes.
+Each rule of Guard 3 acts on the values of one band, so the share Guard 3 removes is the mean of the
+three rates weighted by the number of values in each band.
+Rule
+Fires when
+Rate (%)
+Guard 1
+2.02
+Spike
+|z| of the voltage slope exceeds 100 in over 1% of the contact’s
+5-second clips
+1.37
+Noisy
+Spread, as a z over the contacts of the session, exceeds 8
+0.05
+Dead
+Spread is below 0.35 of the median spread of the session
+0.60
+Guard 2
+1.08
+Common mode
+|z| exceeds 4qb in n contacts at once
+0.30
+Catastrophic
+One contact exceeds 8qb in Slow or Mid, or 6qb in Fast
+0.99
+Absolute
+One contact exceeds |z| = 200
+0.21
+Dropout
+Slow band standard deviation is below 0.05 in n contacts at
+once
+0.05
+Guard 3
+0.0152
+Slow
+|z| exceeds 15
+0.0103
+Mid
+|z| exceeds 15
+0.0085
+Fast
+|z| exceeds 20
+0.0258
+15
