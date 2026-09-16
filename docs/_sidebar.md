@@ -1,6 +1,11 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-09-17 <!--dpr-date:20260917-->
+    * <a class="dpr-sidebar-brief-link" href="#/202609/17/README">📝 今日简报</a>
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/17/2609.14015v1-schizophrenia-detection-from-eeg-signals-a-transformer-framework-with-spectrogram-representation" data-sidebar-item="{&quot;title&quot;: &quot;Schizophrenia Detection from EEG Signals: A Transformer Framework with Spectrogram Representation&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.14015v1-schizophrenia-detection-from-eeg-signals-a-transformer-framework-with-spectrogram-representation&quot;, &quot;score&quot;: &quot;7.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;基于EEG时频表征的非侵入式脑信号解码&quot;}">Schizophrenia Detection from EEG Signals: A Transformer Framework with Spectrogram Representation</a>
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/17/2609.13717v1-manas-2-constrained-reconstruction-for-eeg-foundation-models" data-sidebar-item="{&quot;title&quot;: &quot;MANAS-2: Constrained Reconstruction for EEG Foundation Models&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.13717v1-manas-2-constrained-reconstruction-for-eeg-foundation-models&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;脑电基础模型与波形掩码重建&quot;}">MANAS-2: Constrained Reconstruction for EEG Foundation Models</a>
   * 2026-09-16 <!--dpr-date:20260916-->
     * <a class="dpr-sidebar-brief-link" href="#/202609/16/README">📝 今日简报</a>
     * 精读区

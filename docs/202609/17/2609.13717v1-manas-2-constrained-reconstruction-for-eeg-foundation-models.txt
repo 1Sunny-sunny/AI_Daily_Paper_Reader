@@ -1,0 +1,723 @@
+Title: MANAS-2: Constrained Reconstruction for EEG Foundation Models
+
+URL Source: https://arxiv.org/pdf/2609.13717v1
+
+Published Time: Tue, 15 Sep 2026 00:36:41 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# MANAS-2: Constrained Reconstruction for EEG Foundation Models 
+
+Arvasu Kulkarni ∗
+
+Mannas AI 
+
+arvasu@mannas.ai 
+
+Aditya Ray Mishra ∗
+
+Mannas AI 
+
+aditya@mannas.ai 
+
+Mahir Jain 
+
+Mannas AI 
+
+mahir@mannas.ai 
+
+Parshva Runwal 
+
+Mannas AI 
+
+parshva@mannas.ai 
+
+Lakshya Saini 
+
+Mannas AI 
+
+lakshya@mannas.ai 
+
+Siddharth Panwar 
+
+Mannas AI 
+
+siddharth@mannas.ai 
+
+Sandeep Singh 
+
+Mannas AI 
+
+sandeep@mannas.ai 
+
+## Abstract 
+
+Masked reconstruction is widely used for EEG foundation models, but optimizing reconstruction on low-SNR waveforms does not necessarily produce the most useful latent representation. We introduce MANAS-2, a new EEG foundation model that combines a Raw-Band Hybrid (RBH) masked autoencoder with Con-strained Reconstruction (ConRec), a physics–motivated regularizer. RBH jointly reconstructs temporal waveform patches and compact spectral-band targets, while ConRec acts only on the temporal decoder output, penalizing differences in RMS energy between adjacent short windows of the reconstructed waveform. ConRec is intended to shape the encoder by biasing it toward the organization of oscillatory-envelope information. Across seven held-out EEG datasets, adding ConRec to an otherwise identical RBH model increases frozen ridge recovery of six-band spectral power from mean R2 = 0 .860 to 0.906 and recovery of inter-patch band-energy dy-namics from R2 = 0 .283 to 0.354 , while temporal waveform information remains highly recoverable from the frozen latents. Applied to a temporal-only masked autoencoder, ConRec also improves frozen downstream transfer and frequency-dependent latent geometry despite receiving no spectral targets: i.e., the effects of ConRec are architecture-independent. MANAS-2 also outperforms leading EEG Foundation Models on most downstream knowledge-transfer tasks. From the effects of ConRec, we see that a physically motivated constraint imposed through the decoder can make for a more spectrally organized and transferable latent space. MANAS-2 therefore provides a new EEG foundation model built around con-strained reconstruction as a mechanism for shaping representation – rather than reconstruction – quality. 
+
+## 1 Introduction 
+
+Self-supervised pretraining has become a standard route to general-purpose EEG encoders. Con-trastive methods, neural tokenizers, and masked autoencoders have shown that pretrained EEG representations can transfer across subjects, tasks, and recording conditions (Kostas et al., 2021; Yang et al., 2023; Jiang et al., 2024; Wang et al., 2024; Jiang et al., 2025; Yuan et al., 2024; Kuruppu et al., 2026). Yet the objective used by many EEG foundation models remains close to the default objective used for generic sequences: mask patches and reconstruct their raw values. This design is simple, but it treats the signal as a bag of local fragments rather than as a continuous physical measurement. EEG differs from generic time series in three ways that matter for pretraining. First, it is low-SNR: optimizing only pointwise waveform error can reward reconstruction of nuisance variation. 
+
+> ∗These authors contributed equally. Preprint. arXiv:2609.13717v1 [cs.AI] 12 Sep 2026
+
+Second, EEG is oscillatory: clinically and cognitively meaningful structure is often expressed through canonical frequency bands and their evolving energy envelopes (Newson and Thiagarajan, 2019; Cao et al., 2022). Third, EEG is continuous: adjacent patches are not independent samples but neighboring segments of an electrical potential. A masked reconstruction objective that treats these patches independently does not impose any prior on how local signal statistics should evolve across the reconstructed waveform. This paper studies whether such a prior can be used to shape the learned representation rather than simply improve waveform reconstruction. We introduce Constrained Reconstruction (ConRec), a temporal regularizer for masked EEG pretraining. ConRec penalizes short-window RMS-energy jumps along regular temporal boundaries in the reconstructed waveform. Importantly, the ConRec regularizer itself has no spectral target. It acts only on the reconstructed time-domain waveform, using a physically motivated local energy constraint to bias what the encoder learns .Our proposed foundation model, MANAS-2, uses a novel Raw-Band Hybrid (RBH) masked au-toencoder architecture together with ConRec. The encoder receives temporal waveform patches; the primary decoder reconstructs temporal patches; and a dedicated band decoder predicts compact spectral-band targets aligned to the same patch grid. The necessity for this specific architecture—with comparisons against a temporal MAE, naive spectral loss, pure spectral tokenization, hybrid variants, and vanilla RBH—is reported in Appendix D. Our central result is that this reconstruction-space regularization reshapes spectral representations even though it does not explicitly impact - or even require - spectral decoding. Across seven held-out EEG datasets, MANAS-2 improves frozen ridge recovery of six-band spectral power from mean 
+
+R2 = 0 .860 for RBH to 0.906 and improves recovery of adjacent-patch band-energy dynamics from 
+
+R2 = 0 .283 to 0.354 , while preserving high temporal waveform recoverability from the latent space. Applying ConRec to a temporal-only masked autoencoder also improves downstream transfer and spectral latent geometry; these recoverability gains are strongest when ConRec is paired with the RBH architecture. These findings support a constraints-vs-targets principle for EEG pretraining: the target specifies what the decoder is asked to reconstruct, while auxiliary constraints on that reconstruction can bias how that information is organized in the encoder. 
+
+Contributions. We make three contributions. First, we define ConRec, a temporal constrained-reconstruction regularizer for EEG masked modeling. Second, we show that ConRec improves recoverability of spectral power and band-energy dynamics in hybrid architectures, and alters spectral latent geometry across architectures despite acting only on reconstructed temporal waveforms. Third, we propose MANAS-2, an EEG foundation model built on a novel spectral-temporal Raw-band Hybrid (RBH) architecture together with ConRec. MANAS-2 produces better downstream performance across seven held-out datasets than most leading EEG foundation models in the literature. 
+
+## 2 Related work 
+
+This section summarises recent work related to our explorations. 
+
+EEG foundation models. Self-supervised EEG pretraining has evolved from contrastive learn-ing (Kostas et al., 2021) to masked autoencoding and tokenization-based approaches (Yang et al., 2023; Jiang et al., 2024; Wang et al., 2024; Jiang et al., 2025; Yuan et al., 2024). Recent surveys emphasize both the promise of cross-dataset transfer and the instability of evaluation protocols for EEG foundation models (Kuruppu et al., 2026). Our work is complementary: rather than proposing a larger encoder, we study how reconstruction constraints shape the information stored in frozen latents. 
+
+Spectral and modality-aware objectives. EEG contains strong spectral semantics, motivating objectives that reconstruct or otherwise model time–frequency structure (Jiang et al., 2024; Shi et al., 2026; Guo et al., 2026; Darankoum et al., 2026). Our results show that explicit spectral targets are not the only factor shaping spectral representations. Temporal energy-plausibility constraints can encourage preservation of spectral-envelope information because local energy imposes broad spectral pressure. 2Representation probing and constrained learning. Frozen probes are commonly used to diagnose what is linearly available in intermediate representations (Alain and Bengio, 2017). Our probes extend this idea to EEG-specific targets: six-band power, temporal waveform recovery, and bandflow. Conceptually, ConRec is related to constrained and physics-informed learning (Raissi et al., 2019): instead of only matching targets, the model must satisfy structural conditions that valid signals obey. 
+
+## 3 Method 
+
+MANAS-2 uses a masked-autoencoding scaffold (He et al., 2022), adapted to EEG through REVE-style temporal-patch tokenization, spatiotemporal positional encoding, block masking, and a global auxiliary reconstruction head (El Ouahidi et al., 2025). EEG is resampled to 200 Hz and represented as overlapping temporal patch tokens over the channel–time grid. On top of this, MANAS-2 introduces two components: a novel Raw-Band Hybrid (RBH) architecture and Constrained Reconstruction (ConRec). RBH introduces explicit spectral supervision through a dedicated decoder while retaining temporal waveform tokens, whereas ConRec applies a physically motivated local energy prior through the temporal reconstruction pathway to shape the shared encoder representation. The complete pretraining objective is 
+
+L = Lpri + λsec Lsec + λband Lband + λr Lrms , (1) where the first two terms reconstruct temporal waveform targets, Lband is the RBH spectral objective, and Lrms is the ConRec regularizer. 
+
+Figure 1: MANAS-2 architecture. An EEG signal is represented as overlapping temporal patch tokens with spatiotemporal positional encodings. The tokens are processed by a transformer encoder, followed by temporal and spectral decoding. The ConRec regularizer is applied to the temporal decoder output. 
+
+Raw-Band Hybrid. RBH retains temporal waveform patches as the encoder input and primary reconstruction target, but adds a dedicated spectral decoder operating on the same visible encoder tokens. For each temporal patch, a frozen STFT frontend constructs normalized log-power targets over six canonical EEG bands: δ (0.5–4 Hz), θ (4–8 Hz), α (8–13 Hz), low-β (13–20 Hz), high-β
+
+(20–30 Hz), and γ (30–40 Hz). The spectral decoder is trained with an L1 loss on masked tokens. Comparisons against temporal-only reconstruction, direct STFT supervision, and spectral-token alternatives are given in Appendix D. 
+
+Constrained Reconstruction. ConRec acts on the reconstructed time-domain waveform ˆx pro-duced by the temporal decoder. Regularization boundaries are placed every ℓ = 200 samples (1 s). At 3each valid boundary τ , ConRec compares RMS energy in windows of length q immediately before and after the boundary: 
+
+rrms  
+
+> b,c,τ
+
+= 1
+
+q 
+
+> τ−1
+
+X 
+
+> u=τ−q
+
+ˆx2 
+
+> b,c,u
+
++ ε
+
+!1/2
+
+− 1
+
+q 
+
+> τ+q−1
+
+X
+
+> u=τ
+
+ˆx2 
+
+> b,c,u
+
++ ε
+
+!1/2
+
+. (2) 
+
+Lrms applies a Smooth-L1 penalty to these residuals and averages over batches, channels, and valid boundaries. In MANAS-2, q = 32 , ε = 10 −6, and λr = 3 .0. Unlike the spectral branch, ConRec introduces no additional prediction target; it uses a local energy prior through the decoder pathway to reshape the shared encoder representation. 
+
+## 4 Experiments 
+
+4.1 Setup and probes 
+
+We evaluate frozen representations on seven held-out EEG datasets through (i) latent-space probes and (ii) frozen downstream transfer; no encoder parameters are updated. The latent probes measure six-band power, adjacent-patch changes in band power ( bandflow ), Peak-Alpha Frequency (PAF), the periodic component and aperiodic exponent obtained using FOOOF (Donoghue et al., 2020), and time-domain waveform recoverability. Because both six-band power and bandflow are closely related to the RBH spectral target, PAF, periodic structure, and aperiodic exponent provide complementary spectral properties not directly supervised during pretraining. Waveform recoverability serves as a control for whether spectral gains are accompanied by loss of accessible time-domain information. 
+
+4.2 Spectral information recoverability 
+
+Table 1: Frozen ridge-probe recovery across seven held-out EEG datasets. Values are mean test R2
+
+across datasets. Full dataset-wise results are reported in Appendix E.                         
+
+> Model Six-band Bandflow PAF Periodic Aperiodic Waveform Temporal MAE .747 .165 .015 .067 .678 .927
+> RBH .860 .283 .135 .203 .788 .920 MANAS-2 .906 .354 .208 .254 .792 .917
+
+Table 1 contains the central empirical result. Relative to RBH, MANAS-2 substantially improves the spectral information recoverable from frozen latents even though the only additional objective is ConRec, which acts on the reconstructed temporal waveform and introduces no new spectral target. Mean six-band recovery increases from R2 = 0 .860 to 0.906 , while bandflow increases from 0.283 
+
+to 0.354 , showing a particularly strong gain in the representation of spectral-energy dynamics. The effect extends beyond the spectral quantities directly supervised by the RBH decoder. PAF recovery increases from R2 = 0 .135 to 0.208 , and recovery of the periodic PSD component from 
+
+0.203 to 0.254 . In contrast, the aperiodic exponent changes little ( 0.788 to 0.792 ), consistent with ConRec acting primarily on local energy and oscillatory-envelope organization rather than broadband spectral slope. Waveform recoverability remains high ( 0.920 to 0.917 ), indicating that these spectral gains do not arise from substantially discarding accessible time-domain information. 
+
+4.3 Latent geometry 
+
+We next test whether ConRec changes the organization of spectral information in the latent space, rather than only its recoverability. We generate artificial signals: fixed-frequency sinusoids spanning 0.5–40 Hz in 0.5 Hz increments, with five repetitions per frequency, each with a different sample of low-amplitude noise added. We evaluate both single-channel (Cz) inputs and 18-channel inputs with independently randomized phase across channels. Because frequency is constant within each signal, this diagnostic isolates frequency representation from evolving spectral dynamics. For each artificial sinusoid, we average the encoder’s output vectors over time and channels to obtain a single representation. We then average these representations across the five repetitions at each frequency, yielding one representative vector per frequency, which we call its latent centroid . We 4then measure whether physical frequency separation is reflected in latent distance by computing the Spearman correlation between |fi − fj | and the Euclidean distance between the corresponding frequency centroids. Higher ρf indicates stronger ordering of the latent space by physical frequency. Table 2: Frequency-distance ordering in the latent space, measured by Spearman ρf (higher is better). 
+
+Condition Temporal MAE ConRec-Temporal MAE RBH MANAS-2 Single Cz 0.816 0.857 0.792 0.822 
+
+18-channel random phase 0.765 0.820 0.767 0.860 
+
+Table 2 shows that ConRec improves frequency-distance ordering in both architectural families and under both input conditions. Within the RBH family, MANAS-2 increases ρf from 0.792 to 0.822 
+
+for single-channel inputs and from 0.767 to 0.860 for the 18-channel condition. The same effect in the temporal-only ablation shows that ConRec changes spectral latent organization even without an explicit spectral decoder, while the strongest ordering is observed in MANAS-2. 
+
+4.4 Frozen downstream transfer 
+
+We evaluate frozen transfer using average pooling over encoder tokens and a lightweight classifier head (LP-A VG ), with no encoder updates. Table 3 compares MANAS-2 against six leading EEG foundation models under the same protocol. Table 3: Primary frozen downstream transfer: LP-A VG probe with average pooling and a lightweight classifier head. Each model has subrows for balanced accuracy, F1/AUROC, and κ/AUC-PR. Values are mean test score (%) at the best validation epoch, ± reported variation across seeds. 
+
+Model Metric ADFTD BCIC-2a HMC Motor ∗ Siena Workload MIMUL-11 EEGPT Bal. Acc. 39.1 ±1.5 26.6 ±1.3 65.5 ±0.9 38.7 ±1.5 81.0 ±3.5 68.4 ±2.0 38.8 ±1.1 
+
+F1/AUROC 39.9 ±2.5 16.7 ±1.6 70.2 ±0.9 38.2 ±1.8 96.0 ±0.5 74.6 ±0.4 43.6 ±3.9 
+
+κ/AUC-PR 12.2 ±2.9 2.1 ±1.8 61.9 ±1.1 18.2 ±2.0 76.6 ±4.5 45.5 ±1.2 9.6 ±2.1 
+
+CSBrain Bal. Acc. 40.8 ±1.2 27.1 ±1.1 56.6 ±1.1 25.3 ±1.0 50.0 ±0.0 50.4 ±0.0 37.4 ±0.1 
+
+F1/AUROC 42.8 ±1.0 15.5 ±2.3 59.9 ±1.0 24.4 ±1.3 19.6 ±6.7 54.1 ±0.8 44.3 ±0.5 
+
+κ/AUC-PR 11.4 ±2.2 2.7 ±1.5 49.6 ±1.3 0.4 ±1.4 0.8 ±0.1 32.0 ±1.1 8.2 ±0.1 
+
+CBraMod Bal. Acc. 33.4 ±0.0 26.8 ±0.8 42.1 ±0.2 25.6 ±0.5 50.0 ±0.0 50.2 ±1.1 33.5 ±0.0 
+
+F1/AUROC 22.9 ±0.0 20.0 ±2.4 45.9 ±0.3 19.6 ±1.4 9.4 ±0.1 51.5 ±4.5 40.2 ±0.2 
+
+κ/AUC-PR 0.2 ±0.0 2.4 ±1.0 32.9 ±0.3 0.8 ±0.7 3.1 ±0.0 30.6 ±3.8 0.8 ±0.2 
+
+BIOT Bal. Acc. 45.1 ±3.3 26.6 ±2.7 64.0 ±0.6 26.8 ±1.0 67.4 ±1.2 55.5 ±5.6 38.1 ±2.4 
+
+F1/AUROC 48.2 ±3.2 17.3 ±2.2 68.7 ±0.6 25.2 ±2.2 78.2 ±4.5 56.3 ±4.0 42.5 ±2.3 
+
+κ/AUC-PR 20.1 ±5.3 2.2 ±3.6 59.3 ±0.8 2.4 ±1.3 38.7 ±4.7 37.3 ±6.9 7.4 ±3.5 
+
+REVE Bal. Acc. 43.2 ±2.9 27.1 ±0.4 61.8 ±0.5 27.4 ±0.9 67.4 ±2.7 69.7 ±2.2 36.5 ±0.9 
+
+F1/AUROC 46.0 ±3.4 15.3 ±0.4 64.4 ±1.4 26.5 ±1.0 76.7 ±5.0 71.3 ±1.6 43.8 ±2.3 
+
+κ/AUC-PR 18.3 ±5.5 2.8 ±0.5 55.3 ±1.5 3.2 ±1.2 31.6 ±6.5 51.3 ±2.7 5.3 ±2.2 
+
+LaBraM Bal. Acc. 30.9 ±2.1 24.9 ±1.3 34.9 ±0.4 25.6 ±0.5 50.0 ±0.0 49.9 ±0.3 33.7 ±0.2 
+
+F1/AUROC 33.0 ±1.8 19.3 ±4.1 39.7 ±0.7 20.5 ±2.9 46.4 ±4.1 49.1 ±0.2 40.2 ±0.6 
+
+κ/AUC-PR -3.0 ±3.6 -0.1 ±1.7 23.6 ±0.5 0.8 ±0.7 1.1 ±0.1 27.5 ±0.2 0.8 ±0.4 
+
+Ours: MANAS-2 Bal. Acc. 47.7 ±2.6 29.2 ±0.5 70.3 ±0.3 37.7 ±0.7 80.0 ±1.2 77.8 ±0.8 39.1 ±0.4 
+
+F1/AUROC 49.3 ±3.9 20.5 ±0.9 74.5 ±0.4 37.2 ±0.8 92.9 ±0.1 85.0 ±0.7 46.1 ±0.4 
+
+κ/AUC-PR 27.3 ±4.8 5.6 ±0.7 66.9 ±0.2 17.0 ±0.9 73.4 ±0.5 58.8 ±2.0 9.9 ±0.5 
+
+> ∗Motor-MV was part of EEGPT’s pretraining corpus; EEGPT’s Motor results should therefore be interpreted with this overlap.
+
+Overall, MANAS-2 gives the best balanced accuracy on most downstream datasets. 1 Together with the latent spectral and bandflow probes, these downstream results support the claim that temporal 
+
+> 1The only exception is Motor-MV, where EEGPT is slightly higher and also has pretraining-corpus overlap, so that comparison should be interpreted cautiously.
+
+5reconstruction constraints produce representations that are both more frequency-aware and more transferable. 
+
+## 5 Conclusion 
+
+We introduced MANAS-2, an EEG foundation model that combines the Raw-Band Hybrid (RBH) architecture with Constrained Reconstruction (ConRec), a physically motivated reconstruction-space regularizer for masked EEG pretraining. Using RBH to jointly learn temporal waveform and compact spectral targets, we showed that ConRec improves knowledge transfer, spectral-power recovery, band-energy dynamics, and synthetic spectral latent geometry while preserving high waveform recoverability from the latent space. The key finding is that spectral organization can be strengthened by a local energy constraint applied through the temporal reconstruction pathway, not only by explicit spectral reconstruction targets. More broadly, these results suggest that EEG pretraining can be shaped jointly through reconstruction targets, architectural pathways, and reconstruction-space constraints, with ConRec biasing the encoder toward stronger organization of oscillatory-envelope information useful for downstream representation learning. 
+
+## References 
+
+Alain, G. and Bengio, Y. Understanding intermediate layers using linear classifier probes. In International Conference on Learning Representations (ICLR) Workshop Track , 2017. Alvarez-Estevez, D. and Rijsman, R. M. Inter-database validation of a deep learning approach for automatic sleep scoring. PLOS ONE , 16(8):e0256111, 2021. Alvarez-Estevez, D. and Rijsman, R. Haaglanden Medisch Centrum sleep staging database. PhysioNet , version 1.1, 2022. Amorim, E., Zheng, W.-L., Ghassemi, M. M., Aghaeeaval, M., Kandhare, P., Karukonda, V., Lee, J. W., Herman, S. T., Sivaraju, A., Gaspard, N., Hofmeijer, J., van Putten, M. J. A. M., Sameni, R., Reyna, M. A., Clifford, G. D., and Westover, M. B. The International Cardiac Arrest Research Consortium Electroencephalography Database. Critical Care Medicine , 51(12):1802–1811, 2023. Cao, J., Zhao, Y., Shan, X., Wei, H.-L., Guo, Y., Chen, L., Erkoyuncu, J. A., and Sarrigiannis, P. G. Brain functional and effective connectivity based on electroencephalography recordings: A review. Human Brain Mapping , 43(2):860–879, 2022. Darankoum, D., Habermacher, C., Volle, J., and Grudinin, S. SpecMoE: Spectral mixture-of-experts foundation model for cross-species EEG decoding. arXiv preprint arXiv:2603.16739 , 2026. Detti, P., Vatti, G., and Zabalo Manrique de Lara, G. EEG synchronization analysis for seizure prediction: A study on data of noninvasive recordings. Processes , 8(7):846, 2020. Donoghue, T., Haller, M., Peterson, E. J., Varma, P., Sebastian, P., Gao, R., Noto, T., Lara, A. H., Wallis, J. D., Knight, R. T., Shestyuk, A., and Voytek, B. Parameterizing neural power spectra into periodic and aperiodic components. Nature Neuroscience , 23:1655-1665, 2020. El Ouahidi, Y., Lys, J., Thölke, P., Farrugia, N., Pasdeloup, B., Gripon, V., Jerbi, K., and Lioi, G. REVE: A foundation model for EEG – adapting to any setup with large-scale pretraining on 25,000 subjects. In 
+
+Advances in Neural Information Processing Systems , volume 38, pages 22541–22577, 2025. Guo, H., Bi, H., Abdellatif, F., Galbenus, A., Shah, J. N., Morrison, A., and Dammers, J. Brain-OF: An omnifunctional foundation model for fMRI, EEG and MEG. arXiv preprint arXiv:2602.23410 , 2026. He, K., Chen, X., Xie, S., Li, Y., Dollár, P., and Girshick, R. Masked autoencoders are scalable vision learners. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 16000–16009, 2022. Jeong, J.-H., Cho, J.-H., Shim, K.-H., Kwon, B.-H., Lee, B.-H., Lee, D.-Y., Lee, D.-H., and Lee, S.-W. Multimodal signal dataset for 11 intuitive movement tasks from single upper extremity during multiple recording sessions. GigaScience , 9(10):giaa098, 2020. Jiang, W.-B., Zhao, L.-M., and Lu, B.-L. Large brain model for learning generic representations with tremendous EEG data in BCI. In International Conference on Learning Representations , 2024. 
+
+6Jiang, W.-B., Wang, Y., Lu, B.-L., and Li, D. NeuroLM: A universal multi-task foundation model for bridging the gap between language and EEG signals. In International Conference on Learning Representations , 2025. Kostas, D., Aroca-Ouellette, S., and Rudzicz, F. BENDR: Using transformers and a contrastive self-supervised learning task to learn from massive amounts of EEG data. Frontiers in Human Neuroscience , 15:653659, 2021. Kuruppu, G., Wagh, N., Kremen, V., and Varatharajah, Y. EEG foundation models: A critical review of current progress and future directions. Journal of Neural Engineering , 23(2):021001, 2026. Miltiadous, A., Tzimourta, K. D., Afrantou, T., Ioannidis, P., Grigoriadis, N., Tsalikakis, D. G., Angelidis, P., Tsipouras, M. G., Glavas, E., Giannakeas, N., et al. A dataset of scalp EEG recordings of Alzheimer’s disease, frontotemporal dementia and healthy subjects from routine EEG. Data , 8(6):95, 2023. Newson, J. J. and Thiagarajan, T. C. EEG frequency bands in psychiatric disorders: A review of resting state studies. Frontiers in Human Neuroscience , 12:521, 2019. Obeid, I. and Picone, J. The Temple University Hospital EEG Data Corpus. Frontiers in Neuroscience , 10:196, 2016. Pfurtscheller, G. and Lopes da Silva, F. H. Event-related EEG/MEG synchronization and desynchronization: basic principles. Clinical Neurophysiology , 110(11):1842–1857, 1999. Raissi, M., Perdikaris, P., and Karniadakis, G. E. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378:686–707, 2019. Schalk, G., McFarland, D. J., Hinterberger, T., Birbaumer, N., and Wolpaw, J. R. BCI2000: A general-purpose brain-computer interface system. IEEE Transactions on Biomedical Engineering , 51(6):1034–1043, 2004. Schalk, G., McFarland, D. J., Hinterberger, T., Birbaumer, N., and Wolpaw, J. R. EEG Motor Movement/Imagery Dataset. PhysioNet , 2009. Shi, E., Zhao, K., Yuan, Q., Hu, H., Wang, J., Yu, S., Chen, G., Zhang, D., Yuan, Y., Zhang, Y., and Zhang, S. FoME: A foundation model for EEG using adaptive temporal-lateral attention scaling. Computerized Medical Imaging and Graphics , 102817, 2026. Tangermann, M., Müller, K.-R., Aertsen, A., Birbaumer, N., Braun, C., Brunner, C., Leeb, R., Mehring, C., Miller, K. J., Müller-Putz, G. R., Nolte, G., Pfurtscheller, G., Preissl, H., Schalk, G., Schlögl, A., Vidaurre, C., Waldert, S., and Blankertz, B. Review of the BCI Competition IV. Frontiers in Neuroscience , 6:55, 2012. Wang, G., Liu, W., He, Y., Xu, C., Ma, L., and Li, H. EEGPT: Pretrained transformer for universal and reliable representation of EEG signals. In Advances in Neural Information Processing Systems , volume 37, pages 39249–39280, 2024. Wang, J., Zhao, S., Luo, Z., Zhou, Y., Jiang, H., Li, S., Li, T., and Pan, G. CBraMod: A criss-cross brain foundation model for EEG decoding. In The Thirteenth International Conference on Learning Representations ,2025. Xiong, W., Li, J., Li, J., Zhu, K., and Jiang, C. EEG-FM-Bench: A comprehensive benchmark for the systematic evaluation and diagnostic analyses of EEG foundation models. In Forty-third International Conference on Machine Learning , 2026. Yang, C., Westover, M. B., and Sun, J. BIOT: Biosignal transformer for cross-data learning in the wild. In 
+
+Advances in Neural Information Processing Systems , volume 36, pages 78240–78260, 2023. Yuan, Z., Shen, F., Li, M., Yu, Y., Tan, C., and Yang, Y. BrainWave: A brain signal foundation model for clinical applications. arXiv preprint arXiv:2402.10251 , 2024. Zhou, Y., Wu, J., Ren, Z., Yao, Z., Lu, W., Peng, K., Zheng, Q., Song, C., Ouyang, W., and Gou, C. CSBrain: A cross-scale spatiotemporal brain foundation model for EEG decoding. In Advances in Neural Information Processing Systems , volume 38, pages 87150–87195, 2025. Zyma, I., Tukaev, S., Seleznov, I., Kiyono, K., Popov, A., Chernykh, M., and Shpenkov, O. Electroencephalo-grams during mental arithmetic task performance. Data , 4(1):14, 2019. 
+
+7A Dataset description 
+
+This section summarizes the EEG data used for self-supervised pretraining and downstream evaluation. Pretraining uses unlabeled EEG only. Downstream evaluation follows the EEG-FM-Bench task definitions and splits (Xiong et al., 2026); the pretrained encoder is frozen and only lightweight probe or classifier heads are trained. 
+
+A.1 Pretraining datasets 
+
+We pretrain on large-scale unlabeled EEG recordings aggregated from multiple sources to capture diverse clinical and physiological variability. The pretraining corpus includes two internal clinical EEG sources, denoted Internal-A and Internal-B , together with public clinical EEG corpora. No diagnosis labels, event labels, sleep-stage labels, seizure labels, or downstream task labels are used in the self-supervised pretraining objective. 
+
+Internal clinical EEG corpus. Our internal clinical EEG corpus combines Internal-A and Internal-B. Internal-A contains 4,539 subjects and 2,546.19 hours of EEG, while Internal-B contains 1,050 subjects and 435.43 hours. Together, these internal sources contain 5,589 subjects and 2,981.62 hours of EEG. Both internal sources are processed with the same resampling, filtering, coordinate mapping, windowing, and sharding pipeline before being mixed with the public pretraining corpora. 
+
+TUH EEG. The Temple University Hospital EEG Corpus contains more than 15000 subjects with approximately 25,000 hours of multichannel EEG recordings collected in clinical settings (Obeid and Picone, 2016). We use TUH EEG as a large, clinically diverse source of unlabeled EEG for masked reconstruction pretraining. 
+
+I-CARE. The International Cardiac Arrest REsearch consortium database contains EEG recordings from 600 patients after cardiac arrest, with continuous monitoring over 33,000 hours across intensive-care settings (Amorim et al., 2023). We include I-CARE to expose the model to long-duration critical-care EEG and clinically relevant changes in background rhythm and temporal dynamics. Table 4: Self-supervised pretraining sources. Internal-A and Internal-B are combined as our internal clinical EEG corpus. The internal corpus counts reflect the data included in our pretraining pool. TUH EEG and I-CARE values are corpus-level reference descriptions from the cited sources; effective training hours may differ after preprocessing, channel filtering, and quality-control exclusions.                    
+
+> Source Subjects / patients EEG duration Role in pretraining Internal-A 4,539 2,546 hours Internal clinical EEG Internal-B 1,050 435 hours Internal clinical EEG Internal total 5,589 2,981 hours Internal clinical variability TUH EEG (Obeid and Picone, 2016) >15 ,000 ∼25,000 hours Public clinical EEG I-CARE (Amorim et al., 2023) 600 ∼33,000 hours Critical-care EEG
+
+A.2 Downstream datasets 
+
+We evaluate pretrained representations on seven datasets from EEG-FM-Bench (Xiong et al., 2026), spanning clinical, motor, sleep, seizure, cognitive, and upper-extremity movement tasks. The suite is heterogeneous in subject count, recording duration, montage size, window length, and class imbalance, which makes it useful for testing whether learned representations transfer beyond the pretraining objective. 
+
+ADFTD. ADFTD is a resting-state clinical EEG dataset for distinguishing Alzheimer’s disease, frontotemporal dementia, and cognitively normal controls. The dataset contains 88 subjects recorded with a 19-channel clinical EEG montage (Miltiadous et al., 2023). We use it as a three-class clinical classification task. 8BCIC-IV 2A. BCI Competition IV dataset 2a is a cue-based motor-imagery benchmark with 9 subjects, 22 EEG channels, and four imagined movement classes: left hand, right hand, feet, and tongue (Tangermann et al., 2012). We use it as a four-class motor imagery task. 
+
+HMC. The Haaglanden Medisch Centrum sleep staging database is a whole-night polysomnography corpus with EEG and other physiological channels, scored in 30 s epochs into wake, N1, N2, N3, and REM sleep stages (Alvarez-Estevez and Rijsman, 2022, 2021). We use the EEG channels provided by the benchmark as a five-class sleep staging task. 
+
+PhysioNet MI. PhysioNet MI uses the EEG Motor Movement/Imagery dataset, which contains motor execution and motor imagery recordings from 109 volunteers with 64-channel EEG acquired using BCI2000 (Schalk et al., 2009, 2004). We use the EEG-FM-Bench four-class motor imagery formulation. 
+
+Siena. The Siena scalp EEG dataset contains long-term scalp EEG recordings from 14 epilepsy patients, with expert-annotated seizure events (Detti et al., 2020). We use it as a binary seizure detection task. 
+
+EEGMAT. EEGMAT is derived from the EEG During Mental Arithmetic Tasks dataset, which records EEG before and during serial-subtraction mental arithmetic (Zyma et al., 2019). We use it as a binary workload classification task. 
+
+MIMUL-11. MIMUL-11 is based on a multimodal upper-extremity movement dataset containing EEG, EMG, and EOG from 25 healthy participants performing intuitive arm and hand movement tasks across multiple recording sessions (Jeong et al., 2020). Table 5: Downstream dataset statistics. All datasets are used through the EEG-FM-Bench downstream protocol (Xiong et al., 2026).                                         
+
+> Dataset Subjects Duration (hrs) EEG channels Classes Task ADFTD 88 ∼19.4 19 3Clinical classification BCIC-IV 2A 9∼622 4Motor imagery HMC 151 ∼1200 45Sleep staging PhysioNet MI 109 ∼50 64 4Motor imagery Siena 14 ∼128 29 2Seizure detection EEGMAT 36 ∼2.4 21 2Workload classification MIMUL-11 25 ∼54.2 60 3Upper-extremity movement classification
+
+A.3 Preprocessing 
+
+Raw EEG files are converted into a common pretraining and evaluation format. Signals are resampled, filtered, windowed into fixed-length segments, mapped to electrode-coordinate metadata when channel labels are available, and stored as training samples. All downstream evaluations use the EEG-FM-Bench splits and label definitions (Xiong et al., 2026); any dataset-specific channel mapping follows the benchmark protocol. 
+
+## B Additional Experimental Details 
+
+Unless otherwise stated, all models and objective ablations use the same self-supervised pretraining setup. The EEG signals are resampled to 200 Hz and segmented into 10 s windows. Key architectural and optimization settings are summarized below. 
+
+## C Additional Downstream Transfer Protocols 
+
+Downstream evaluation follows the EEG-FM-Bench task definitions, subject splits, label mappings, and training pipeline (Xiong et al., 2026). The main paper reports LP-A VG ; here we additionally evaluate (i) LP-F LAT , where the frozen token grid is passed to a flatten-MLP head, (ii) FT-A VG ,9Table 6: Key pretraining configuration for MANAS-2 and its ablations. 
+
+Setting Value 
+
+Architecture and training 
+
+Encoder 22 Transformer layers, d = 512 , 8 heads Decoder 4 Transformer layers, 8 heads Input window 10 s at 200 Hz Temporal patches 1.0 s, 0.1 s overlap Masking ratio 0.55 Optimizer AdamW, lr 2.4 × 10 −4, weight decay 0.05 Effective batch size 2048 Precision bfloat16 mixed precision 
+
+RBH spectral targets 
+
+Bands δ 0.5–4, θ 4–8, α 8–13, low-β 13–20, high-β 20–30, γ 30–40 Hz Spectral frontend Hann STFT, nperseg = nfft = 200 , hop = 20 , frequencies ≤ 40 Hz Target transform log(1 + x), normalized per channel Band-loss weight λband = 0 .5
+
+ConRec regularization 
+
+Boundary interval 1.0 s / 200 samples RMS window q = 32 samples Penalty Smooth-L1, β = 1 
+
+Regularization weight λr = 3 .0
+
+Numerical constant ϵ = 10 −6
+
+where the encoder is fine-tuned with average pooling, and (iii) FT-F LAT , where the encoder is fine-tuned with the flatten-MLP head. All models use the same downstream settings within each protocol. Models are trained for 30 epochs with AdamW (batch size 32, learning rate 2 × 10 −4, weight decay 0.01) and validation balanced accuracy is used for checkpoint selection. We compare MANAS-2 with EEGPT (Wang et al., 2024), CSBrain (Zhou et al., 2025), CBraMod (Wang et al., 2025), BIOT (Yang et al., 2023), REVE (El Ouahidi et al., 2025), and LaBraM (Jiang et al., 2024). Table 7: Frozen downstream transfer under LP-F LAT . Values are mean test score (%) at the best validation epoch, with variation across seeds. 
+
+Model Metric ADFTD BCIC-2a HMC Motor ∗ Siena Workload MIMUL-11 EEGPT Bal. Acc. 40.1 ±2.0 38.1 ±1.7 60.5 ±1.6 56.9 ±0.9 81.0 ±4.9 63.3 ±1.1 45.2 ±0.7 
+
+F1/AUROC 40.9 ±3.3 33.0 ±2.2 65.0 ±2.2 56.8 ±0.9 93.7 ±1.7 68.8 ±1.2 54.4 ±0.6 
+
+κ/AUC-PR 14.0 ±3.7 17.4 ±2.2 55.4 ±3.0 42.5 ±1.1 69.7 ±5.0 46.9 ±1.9 22.3 ±0.6 
+
+CSBrain Bal. Acc. 51.0 ±0.8 28.2 ±3.3 64.8 ±1.0 26.7 ±0.8 50.0 ±0.0 52.1 ±0.8 34.9 ±1.0 
+
+F1/AUROC 53.5 ±0.7 15.6 ±4.9 67.0 ±1.7 19.0 ±2.8 48.1 ±18.3 54.2 ±1.4 39.8 ±1.8 
+
+κ/AUC-PR 28.5 ±1.4 4.3 ±4.4 58.2 ±1.5 2.2 ±1.0 2.6 ±1.8 32.7 ±1.0 2.8 ±1.6 
+
+CBraMod Bal. Acc. 37.2 ±1.7 36.5 ±0.3 56.8 ±0.1 53.1 ±0.4 67.4 ±1.7 48.1 ±0.6 44.8 ±0.6 
+
+F1/AUROC 40.6 ±2.1 34.5 ±0.8 61.4 ±0.2 52.7 ±0.5 89.3 ±1.9 49.1 ±0.2 51.1 ±0.7 
+
+κ/AUC-PR 9.2 ±2.8 15.4 ±0.4 50.5 ±0.2 37.5 ±0.5 40.8 ±6.3 27.0 ±0.2 18.7 ±1.0 
+
+BIOT Bal. Acc. 43.7 ±2.5 26.3 ±1.4 64.7 ±0.4 27.6 ±1.2 65.6 ±3.5 51.4 ±2.8 37.5 ±1.9 
+
+F1/AUROC 46.8 ±2.1 16.0 ±1.8 68.7 ±0.4 26.4 ±0.9 82.1 ±2.9 53.7 ±3.3 43.1 ±1.4 
+
+κ/AUC-PR 18.1 ±3.5 1.7 ±1.9 59.7 ±0.4 3.4 ±1.6 39.2 ±5.7 34.1 ±4.8 6.2 ±3.2 
+
+REVE Bal. Acc. 37.9 ±7.8 33.9 ±1.1 60.2 ±1.1 47.6 ±1.6 63.4 ±3.1 64.4 ±2.7 43.4 ±2.6 
+
+F1/AUROC 37.9 ±9.8 25.8 ±1.8 65.8 ±0.5 46.9 ±2.4 67.0 ±3.9 66.2 ±0.8 47.1 ±3.7 
+
+κ/AUC-PR 9.6 ±14.7 11.8 ±1.4 55.5 ±0.7 30.1 ±2.1 19.8 ±6.8 49.1 ±3.4 16.0 ±3.3 
+
+LaBraM Bal. Acc. 35.3 ±1.1 25.4 ±0.6 37.9 ±1.1 25.0 ±0.4 50.0 ±0.0 48.9 ±1.7 37.6 ±0.4 
+
+F1/AUROC 36.1 ±0.5 18.7 ±2.8 43.5 ±1.2 14.1 ±2.4 53.2 ±3.4 49.6 ±0.5 44.2 ±1.4 
+
+κ/AUC-PR 4.8 ±1.4 0.5 ±0.8 28.1 ±1.4 0.0 ±0.5 1.4 ±0.3 27.8 ±0.8 8.4 ±0.7 
+
+Ours: MANAS-2 Bal. Acc. 51.9 ±2.3 49.0 ±2.0 72.3 ±0.7 60.2 ±1.3 86.5 ±2.8 63.0 ±4.6 48.0 ±0.5 
+
+F1/AUROC 51.7 ±5.4 46.9 ±2.8 74.8 ±0.3 59.9 ±1.4 92.8 ±2.1 70.3 ±4.9 52.4 ±0.9 
+
+κ/AUC-PR 31.5 ±5.9 32.0 ±2.6 66.9 ±0.6 46.9 ±1.8 74.6 ±2.7 48.2 ±8.4 22.4 ±0.9 
+
+> ∗Motor-MV was part of EEGPT’s pretraining corpus; EEGPT’s Motor results should therefore be interpreted with this overlap.
+
+10 Table 8: Full fine-tuning under FT-A VG . Values are mean test score (%) at the best validation epoch, with variation across seeds. 
+
+Model Metric ADFTD BCIC-2a HMC Motor ∗ Siena Workload MIMUL-11 EEGPT Bal. Acc. 48.4 ±3.6 34.7 ±1.2 71.5 ±0.5 52.5 ±1.2 79.4 ±4.0 61.0 ±1.4 42.6 ±1.1 
+
+F1/AUROC 51.0 ±2.6 27.5 ±1.9 73.0 ±0.5 51.9 ±1.3 91.6 ±3.3 69.8 ±2.5 52.1 ±0.8 
+
+κ/AUC-PR 26.7 ±3.9 13.0 ±1.7 65.6 ±0.5 36.6 ±1.6 68.7 ±8.3 62.4 ±1.8 18.3 ±0.8 
+
+CSBrain Bal. Acc. 40.6 ±6.2 35.1 ±1.4 70.9 ±0.5 42.5 ±4.8 70.2 ±4.1 65.5 ±3.8 39.0 ±1.6 
+
+F1/AUROC 43.4 ±5.7 24.9 ±1.5 73.2 ±0.8 42.2 ±5.1 88.7 ±1.5 69.4 ±2.9 40.6 ±4.0 
+
+κ/AUC-PR 12.8 ±10.0 13.5 ±1.8 65.3 ±0.8 23.4 ±6.4 56.6 ±6.8 59.3 ±5.9 7.9 ±2.7 
+
+CBraMod Bal. Acc. 30.3 ±3.0 25.3 ±0.3 53.0 ±1.0 31.4 ±1.6 84.9 ±0.9 56.3 ±4.5 42.6 ±0.4 
+
+F1/AUROC 26.0 ±4.2 10.9 ±0.6 52.2 ±2.0 28.5 ±1.9 93.5 ±0.6 58.5 ±2.2 48.2 ±2.5 
+
+κ/AUC-PR -5.7 ±5.6 0.4 ±0.4 42.5 ±2.0 8.5 ±2.1 42.7 ±8.3 36.8 ±1.1 14.8 ±1.4 
+
+BIOT Bal. Acc. 45.6 ±2.3 27.1 ±2.6 68.9 ±1.3 26.6 ±1.1 64.9 ±5.8 60.8 ±7.7 37.5 ±1.4 
+
+F1/AUROC 48.2 ±2.3 18.2 ±1.8 72.5 ±1.2 24.9 ±1.8 83.6 ±5.9 65.4 ±10.2 41.6 ±1.2 
+
+κ/AUC-PR 21.0 ±3.8 2.7 ±3.4 64.4 ±1.6 2.2 ±1.4 36.0 ±11.0 41.9 ±10.8 6.3 ±2.0 
+
+REVE Bal. Acc. 40.5 ±1.5 28.4 ±1.7 69.4 ±0.5 28.5 ±0.8 70.3 ±4.2 67.7 ±4.4 42.4 ±1.0 
+
+F1/AUROC 43.8 ±1.2 17.5 ±2.8 71.8 ±1.0 28.0 ±0.7 84.0 ±6.2 73.8 ±3.8 45.8 ±4.2 
+
+κ/AUC-PR 13.6 ±2.1 4.5 ±2.2 63.4 ±1.2 4.7 ±1.0 44.6 ±10.7 53.8 ±7.8 13.6 ±2.2 
+
+LaBraM Bal. Acc. 28.0 ±3.7 28.3 ±1.0 64.0 ±1.1 27.7 ±0.8 63.7 ±3.6 52.2 ±3.3 37.3 ±0.7 
+
+F1/AUROC 28.6 ±4.2 26.3 ±1.6 66.0 ±2.0 23.1 ±3.2 88.5 ±2.5 54.7 ±3.1 43.4 ±1.1 
+
+κ/AUC-PR -6.2 ±4.4 4.3 ±1.4 57.4 ±1.5 3.5 ±1.1 24.1 ±7.3 32.2 ±1.7 6.9 ±1.3 
+
+Ours: MANAS-2 Bal. Acc. 50.8 ±5.5 41.5 ±2.6 73.5 ±1.0 62.0 ±0.5 81.9 ±4.1 70.3 ±4.0 48.1 ±0.5 
+
+F1/AUROC 53.1 ±5.2 35.3 ±3.6 76.5 ±0.5 61.9 ±0.6 91.4 ±1.3 79.6 ±2.2 49.7 ±2.9 
+
+κ/AUC-PR 30.1 ±8.3 22.0 ±3.5 69.0 ±0.6 49.3 ±0.7 65.1 ±7.6 61.2 ±3.1 20.9 ±1.5 
+
+> ∗Motor-MV was part of EEGPT’s pretraining corpus; EEGPT’s Motor results should therefore be interpreted with this overlap.
+
+Table 9: Full fine-tuning under FT-F LAT . Values are mean test score (%) at the best validation epoch, with variation across seeds. 
+
+Model Metric ADFTD BCIC-2a HMC Motor ∗ Siena Workload MIMUL-11 EEGPT Bal. Acc. 48.6 ±2.1 48.3 ±2.3 67.3 ±0.9 62.7 ±1.5 82.5 ±7.3 61.7 ±1.9 48.1 ±1.0 
+
+F1/AUROC 52.1 ±2.3 45.5 ±2.7 70.3 ±0.6 62.4 ±1.6 89.9 ±5.7 66.2 ±1.0 57.8 ±0.9 
+
+κ/AUC-PR 26.4 ±4.0 31.0 ±3.0 61.6 ±1.0 50.3 ±2.0 69.6 ±10.0 53.3 ±2.1 28.8 ±1.2 
+
+CSBrain Bal. Acc. 45.3 ±2.2 47.0 ±1.2 70.0 ±0.7 61.4 ±0.6 63.0 ±2.9 56.8 ±4.9 39.0 ±1.2 
+
+F1/AUROC 48.2 ±2.4 43.6 ±1.2 72.1 ±1.0 61.3 ±0.7 87.6 ±1.7 59.1 ±4.0 43.9 ±1.6 
+
+κ/AUC-PR 19.8 ±3.6 29.4 ±1.6 64.2 ±0.8 48.5 ±0.8 40.9 ±6.7 40.3 ±3.9 9.3 ±1.7 
+
+CBraMod Bal. Acc. 41.1 ±3.7 43.5 ±0.7 68.1 ±0.9 58.8 ±0.4 82.2 ±2.6 55.4 ±2.1 44.7 ±0.4 
+
+F1/AUROC 35.6 ±5.3 40.8 ±0.7 70.4 ±1.5 58.6 ±0.4 93.6 ±4.4 62.6 ±1.3 49.4 ±0.9 
+
+κ/AUC-PR 10.6 ±5.0 24.6 ±0.9 62.5 ±2.1 45.0 ±0.5 75.5 ±2.3 45.9 ±2.4 18.2 ±0.4 
+
+BIOT Bal. Acc. 46.6 ±3.1 26.2 ±2.1 68.8 ±0.4 28.0 ±0.8 61.1 ±1.8 57.4 ±6.9 37.7 ±0.7 
+
+F1/AUROC 49.5 ±2.4 16.1 ±1.8 72.4 ±0.6 25.8 ±0.7 83.7 ±1.6 62.0 ±8.7 41.9 ±2.1 
+
+κ/AUC-PR 22.8 ±3.7 1.6 ±2.8 64.2 ±1.0 4.0 ±1.1 33.8 ±2.7 39.3 ±10.1 6.4 ±1.1 
+
+REVE Bal. Acc. 39.4 ±7.7 33.0 ±2.7 68.7 ±0.8 55.3 ±0.8 61.1 ±2.0 61.0 ±3.3 43.8 ±2.5 
+
+F1/AUROC 37.4 ±10.8 24.1 ±3.9 72.1 ±0.8 55.5 ±0.7 64.7 ±1.5 65.0 ±3.6 45.3 ±3.9 
+
+κ/AUC-PR 12.6 ±14.6 10.7 ±3.6 63.3 ±0.7 40.4 ±1.1 22.1 ±2.4 44.5 ±8.2 15.5 ±2.9 
+
+LaBraM Bal. Acc. 37.4 ±3.0 33.4 ±1.3 63.4 ±0.6 55.2 ±0.5 51.3 ±3.1 52.9 ±2.9 40.9 ±0.9 
+
+F1/AUROC 41.1 ±2.9 33.1 ±1.4 66.0 ±1.3 55.1 ±0.5 60.3 ±12.9 54.0 ±3.8 50.0 ±0.8 
+
+κ/AUC-PR 10.5 ±5.0 11.2 ±1.8 57.0 ±1.0 40.3 ±0.7 5.1 ±3.5 32.9 ±3.0 14.9 ±1.1 
+
+Ours: MANAS-2 Bal. Acc. 52.1 ±3.4 58.3 ±3.3 73.8 ±0.7 66.3 ±0.7 83.4 ±4.3 65.4 ±3.6 50.3 ±1.6 
+
+F1/AUROC 54.3 ±3.4 57.4 ±3.9 76.4 ±0.3 66.4 ±0.6 91.1 ±2.5 72.1 ±4.7 53.1 ±2.3 
+
+κ/AUC-PR 35.8 ±6.1 44.4 ±4.4 68.9 ±0.5 55.1 ±0.9 72.6 ±3.7 48.9 ±9.9 25.1 ±2.7 
+
+> ∗Motor-MV was part of EEGPT’s pretraining corpus; EEGPT’s Motor results should therefore be interpreted with this overlap.
+
+11 Across these alternative probing and fine-tuning settings, MANAS-2 remains competitive or strongest across most datasets, indicating that its downstream performance is not specific to the primary average-pooling protocol. 
+
+## D Objective-family and architecture ablations 
+
+We evaluate alternative ways of introducing spectral structure into masked EEG pretraining to isolate the contributions of the RBH architecture and ConRec. Table 10 summarizes the objective families considered. Table 10: Objective-family and architecture ablations.                         
+
+> Model Token space Primary + secondary Extra objective TEMPORAL Temporal patches Temporal recon + global —TEMPORAL +STFT Temporal patches Temporal recon + global Multi-resolution STFT magnitude+phase loss BAND CUBE BandCube Spectral recon + global —BAND CUBE -T BandCube Spectral recon + global Temporal chunks RBH Temporal patches Temporal recon + global Band targets, dedicated decoder CON REC -T EMPORAL Temporal patches Temporal recon + global Local RMS-energy regularizer MANAS-2 Temporal patches Temporal recon + global Band targets + RMS-energy regularizer
+
+D.1 Naive Temporal+STFT supervision 
+
+TEMPORAL +STFT tests whether spectral supervision can be added directly to a temporal MAE without introducing a dedicated spectral decoder. Masked temporal predictions receive an additional multi-resolution STFT magnitude-and-phase loss at resolutions {32 , 64 , 128 }, with equal weighting of magnitude and phase terms; all other training settings follow the temporal baseline. Table 11: Naive spectral-loss ablation. T EMPORAL +STFT adds a multi-resolution STFT magnitude-and-phase loss to masked temporal predictions without introducing a dedicated spectral decoder. Mean test balanced accuracy (%) is reported.                      
+
+> Model ADFTD BCIC-2a HMC Motor-MV Siena Workload MIMUL-11 TEMPORAL -MAE 49.2 ±3.0 28.5 ±1.0 65.3 ±0.2 36.3 ±0.2 76.1 ±2.0 65.6 ±0.5 37.5 ±0.9
+> TEMPORAL +STFT 41.5 ±2.0 29.3 ±0.4 59.7 ±0.3 33.0 ±0.6 51.0 ±1.1 51.4 ±0.4 35.6 ±1.0
+
+Table 11 shows that direct STFT supervision underperforms the temporal MAE on six of seven datasets. This motivates the RBH design: spectral supervision is more effective when provided through a dedicated spectral decoding pathway rather than added directly to temporal waveform reconstruction. 
+
+D.2 BandCube spectral tokenization 
+
+BAND CUBE tests a fully spectral alternative to temporal-patch tokenization. Its name reflects its central construction: each EEG window is represented as a three-dimensional channel × time ×
+
+frequency-band cube, and tokenization, masking, and reconstruction are defined over this joint 3D structure rather than over temporal waveform patches. A frozen Hann-window STFT ( nfft = nperseg = 200 , hop = 20 ) is applied independently to each channel, restricted to frequencies ≤ 40 Hz, log-transformed, normalized, and pooled into the six canonical EEG bands. For each sample this produces a spectral cube 
+
+G ∈ RC×M ×K , M = 91 , K = 6 , (3) where the three axes correspond to channel, spectral time, and frequency band. The cube is partitioned into spectral macro-tokens spanning 12 STFT frames and one frequency band, with non-overlapping stride 12. After padding the temporal axis to 96 frames, this gives eight temporal groups, so each token is indexed by a location (c, g, k ) in the channel–time–band cube. Value embeddings are combined with channel–time and band positional encodings before being passed to the Transformer. 12 Importantly, the cube structure also defines the pretraining task: masking is sampled jointly over channel, time, and band locations, and the decoder reconstructs the masked spectral macro-tokens at their corresponding 3D positions using an L1 objective. The token grid is flattened only for Transformer processing; its channel–time–band organization is retained for masking, positional encoding, and reconstruction. As in the temporal MAE, a global auxiliary decoder additionally predicts masked targets. Thus, B AND CUBE represents the opposite architectural choice to RBH: spectral structure is built directly into the encoder token space and reconstruction objective, rather than retaining temporal waveform tokens and supplying spectral information through a dedicated auxiliary pathway. 
+
+D.3 BandCube temporal hybrid 
+
+BAND CUBE -T retains the complete BandCube formulation: encoder tokens, masking, and primary reconstruction remain defined over the three-dimensional channel × time × frequency-band cube. It adds only an auxiliary temporal decoder to test whether an explicit waveform target can compensate for information lost by spectral tokenization. For each channel–time group, the encoded cube is pooled across the six band positions to obtain one temporal representation. A separate decoder uses this representation to reconstruct the corresponding 2.1 s raw-waveform segment. Temporal reconstruction is applied to groups with at least four masked band tokens; all other BandCube objectives remain unchanged. Table 12: Spectral-tokenization ablation under full fine-tuning with average pooling. B AND CUBE uses channel × time × band tokens, while B AND CUBE -T additionally reconstructs temporal waveform segments. Mean test balanced accuracy (%) is reported.                             
+
+> Model ADFTD BCIC-2a Motor-MV Siena Workload MIMUL-11 Avg. TEMPORAL -MAE 57.4 ±3.5 47.8 ±2.9 62.7 ±1.3 82.5 ±5.1 66.4 ±2.4 48.1 ±2.1 60.8 ±2.9
+> BAND CUBE 62.9 ±4.0 37.9 ±4.5 49.4 ±0.7 84.0 ±3.1 65.5 ±5.7 41.4 ±1.6 56.9 ±3.3
+> BAND CUBE -T 56.7 ±3.1 34.8 ±3.6 47.8 ±1.1 82.7 ±4.6 63.4 ±2.6 38.9 ±2.5 54.1 ±2.9
+
+Spectral tokenization is competitive on some datasets, but reduces mean balanced accuracy from 60.8% for T EMPORAL -MAE to 56.9% for B AND CUBE , with particularly large losses on BCIC-2a and Motor-MV. Adding temporal reconstruction does not recover this loss: B AND CUBE -T reaches 54.1% average balanced accuracy. This is consistent with motor-imagery EEG being expressed through time-varying event-related desynchronization/synchronization (ERD/ERS) of sensorimotor rhythms (Pfurtscheller and Lopes da Silva, 1999), which may be less faithfully preserved when the encoder operates on pooled spectral macro-tokens. These results motivate RBH to retain temporal waveform tokens in the encoder while introducing spectral supervision through a dedicated decoder. 
+
+D.4 From temporal reconstruction to RBH to MANAS-2 
+
+This ablation isolates the two components of MANAS-2. T EMPORAL -MAE provides the temporal reconstruction baseline, ConRec-Temporal adds the local RMS-energy regularizer without spectral supervision, RBH adds a dedicated spectral decoder without ConRec, and MANAS-2 combines both. Both components improve the temporal baseline on average. ConRec-Temporal raises mean balanced accuracy from 51.2% to 53.2%, while RBH reaches 53.7%. Combining the RBH architecture with ConRec in MANAS-2 gives the strongest average performance: 54.5% balanced accuracy, 57.9% F1/AUROC, and 37.0% κ/AUC-PR. This supports complementary contributions from explicit spectral supervision and the reconstruction-space RMS-energy regularizer. 13 Table 13: Frozen LP-A VG ablation from temporal reconstruction to RBH and MANAS-2. Values are mean test score (%) at the best validation epoch, with variation across seeds. Bold marks the best mean within this four-model comparison. 
+
+Model Metric ADFTD BCIC-2a HMC Motor-MV Siena Workload MIMUL-11 Avg. TEMPORAL -MAE Bal. Acc. 49.2 ±3.0 28.5 ±1.0 65.3 ±0.2 36.3 ±0.2 76.1 ±2.0 65.6 ±0.5 37.5 ±0.9 51.2 ±0.6 
+
+F1/AUROC 51.1 ±4.1 19.6 ±1.9 69.6 ±0.5 36.2 ±0.2 93.5 ±0.5 73.8 ±0.4 44.5 ±1.6 55.5 ±0.7 
+
+κ/AUC-PR 29.3 ±4.8 4.6 ±1.3 61.2 ±0.4 15.0 ±0.3 62.7 ±3.3 41.5 ±0.5 7.1 ±1.8 31.6 ±0.9 
+
+CON REC -T EMPORAL Bal. Acc. 48.0 ±2.1 31.1 ±0.5 67.9 ±0.6 38.7 ±0.3 79.2 ±4.3 70.0 ±1.3 37.3 ±0.8 53.2 ±0.7 
+
+F1/AUROC 49.3 ±2.0 23.7 ±0.9 72.0 ±0.8 38.5 ±0.4 94.4 ±0.2 75.8 ±0.2 45.0 ±1.5 57.0 ±0.4 
+
+κ/AUC-PR 28.1 ±3.9 8.1 ±0.7 64.1 ±1.0 18.3 ±0.3 75.1 ±0.6 43.0 ±0.4 7.9 ±1.8 34.9 ±0.6 
+
+RBH Bal. Acc. 49.0 ±1.3 28.1 ±0.9 69.1 ±0.1 37.1 ±0.8 82.7 ±1.6 69.9 ±2.8 39.8 ±0.7 53.7 ±0.5 
+
+F1/AUROC 50.4 ±1.6 17.4 ±1.8 73.2 ±0.2 36.8 ±0.9 91.3 ±0.2 79.0 ±1.5 45.9 ±0.3 56.3 ±0.4 
+
+κ/AUC-PR 30.0 ±2.4 4.1 ±1.2 65.5 ±0.4 16.1 ±1.1 75.9 ±0.4 48.1 ±2.9 10.7 ±0.6 35.8 ±0.6 
+
+Ours: MANAS-2 Bal. Acc. 47.7 ±2.6 29.2 ±0.5 70.3 ±0.3 37.7 ±0.7 80.0 ±1.2 77.8 ±0.8 39.1 ±0.4 54.5 ±0.4 
+
+F1/AUROC 49.3 ±3.9 20.5 ±0.9 74.5 ±0.4 37.2 ±0.8 92.9 ±0.1 85.0 ±0.7 46.1 ±0.4 57.9 ±0.6 
+
+κ/AUC-PR 27.3 ±4.8 5.6 ±0.7 66.9 ±0.2 17.0 ±0.9 73.4 ±0.5 58.8 ±2.0 9.9 ±0.5 37.0 ±0.8 
+
+## E Spectral Recoverability - Additional Details 
+
+E.1 Probe Methodology and Dataset Details Probe methodology For each frozen model, we extracted local latent tokens zbpc ∈ RD on the model’s native patch-channel grid, with feature tensor Z ∈ RB×P ×C×D. Each (b, p, c ) token was treated as one probe example. For the STFT 6-band target, temporal EEG was converted to log-magnitude STFT frames using a 200-sample Hann window, hop 20, nfft = 200 , one-sided spectrum, fs = 200 Hz, and frequencies ≤ 40 Hz. STFT frames were aligned to each model’s latent patch grid by overlap-weighted temporal averaging: each latent patch received a weighted average of STFT frames, with weights proportional to the temporal overlap between the STFT frame and the latent patch interval. The aligned STFT representation was then averaged within six frequency bands: δ = [0 .5, 4) , θ = [4 , 8) , α = [8 , 13) , low-β = [13 , 20) , high-β = [20 , 30) , and 
+
+γ = [30 , 40) Hz, giving yband  
+
+> bpc
+
+∈ R6. For bandflow, the target was the adjacent patch difference 
+
+yflow  
+
+> bpc
+
+= yband  
+
+> b,p +1 ,c
+
+− yband  
+
+> bpc
+
+∈ R6; the corresponding input was the current local token zbpc , with the feature tensor truncated to the first P − 1 patch positions. For the PAF, periodic component, and aperiodic exponent probes, we used 4-patch windows on the same patch grid. For a window beginning at patch p, the probe input was the mean-pooled latent 
+
+¯zbpc = K−1 PK−1 
+
+> j=0
+
+zb,p +j,c with K = 4 , and the target was computed from the corresponding raw EEG span. 2 Let Sbpc (f ) denote the Welch power spectral density estimated on that span. The peak-alpha-frequency target was the location of the maximum PSD value in the alpha band, 
+
+yPAF  
+
+> bpc
+
+= arg max   
+
+> f∈[8 ,13] Hz
+
+Sbpc (f ) ∈ R.
+
+For the aperiodic and periodic targets, we used the fixed-aperiodic FOOOF decomposition of the PSD (Donoghue et al., 2020). In this parameterization, the log spectrum is approximated as 
+
+log 10 Sbpc (f ) ≈ abpc − χbpc log 10 f
+
+| {z } 
+
+> Abpc (f)
+
++ X
+
+> m
+
+hbpcm exp 
+
+"
+
+− (f − μbpcm )2
+
+2σ2
+
+> bpcm
+
+#| {z } 
+
+> Gbpc (f)
+
+,
+
+where Abpc (f ) is the aperiodic background and Gbpc (f ) is the periodic component. The aperiodic-exponent target was the scalar yaper  
+
+> bpc
+
+= χbpc , while the periodic-component target was the Gaussian component evaluated on a fixed frequency grid gq ∈ { 1.0, 1.5, . . . , 45 .0} Hz, 
+
+yper  
+
+> bpc
+
+=  Gbpc (g1), . . . , G bpc (g89 ) ∈ R89 .
+
+> 2
+
+Using these 4 second windows is why recovery for BCI-IV-2a is low in absolute terms (Table 1). Since the BCI-IV-2a data is segmented in 4s windows, each example provides only a single short motor-imagery interval rather than multiple independent temporal windows over which spectral estimates can be averaged. Consequently, targets such as PAF and periodic spectral components are estimated from fewer samples and are intrinsically noisier, making them harder to recover from frozen latents even when relative differences between models remain consistent. 
+
+14 For linear probes, we flattened valid examples as X ∈ RN ×D and Y ∈ RN ×dy , standardized both X
+
+and Y using training-set mean and standard deviation, and fit a multi-output ridge map Wλ by 
+
+Wλ = ( ˜X⊤ 
+
+> train
+
+˜Xtrain + λI )−1 ˜X⊤ 
+
+> train
+
+˜Ytrain .
+
+We selected λ ∈ { 0.1, 1, 10 , 100 } by validation mean R2, inverse-transformed predictions to the original target scale, and reported test R2 averaged over target dimensions. 
+
+Datasets All latent-space analyses are reported by averaging over all 7 downstream datasets used in the paper (Appendix A.2), to ensure evaluation over a broad spectrum of unseen data. To give roughly equal weightage to all datasets, we take a subset of subjects and samples from each. For each dataset and seed, we sample up to 480 training windows, 192 validation windows, and 192 test windows, with subject-balanced sampling within each split. The same sampled split is used for every model and every probe target, so model comparisons are paired on identical data. We repeat this process over five data seeds, s ∈ { 42 , 43 , 44 , 45 , 46 }; each data seed corresponds to a different subject/sample subset drawn under the same caps. For MLP probes, we pair each data seed with a corresponding optimization seed, sMLP ∈ { 1042 , 1043 , 1044 , 1045 , 1046 }, which controls the MLP initialization and minibatch order. An expanded version of Table 1 with per-dataset results is shown in Table 14. Table 14: Ridge probe R2 for temporal MAE, RBH, and MANAS-2 across spectral and temporal targets. Cells report mean R2± 95% confidence intervals. Dataset aliases: BC: BCI-IV-2a, MV: Motor-MV, WL: Workload, SI: Siena Scalp, HM: HMC, AD: ADFTD, MI: MIMUL11. 
+
+Metric Model BC MV WL SI HM AD MI Avg. 6-band STFT Temporal MAE .659 ±.02 .773 ±.03 .648 ±.01 .818 ±.01 .881 ±.03 .660 ±.17 .785 ±.01 .747 ±.03 
+
+RBH .795 ±.01 .871 ±.01 .815 ±.00 .900 ±.00 .930 ±.02 .829 ±.07 .880 ±.00 .860 ±.01 
+
+MANAS-2 .883 ±.00 .916 ±.01 .892 ±.00 .931 ±.00 .953 ±.01 .843 ±.09 .927 ±.00 .906 ±.01 
+
+Bandflow STFT Temporal MAE .146 ±.01 .188 ±.03 .164 ±.01 .177 ±.02 .180 ±.03 .118 ±.02 .179 ±.01 .165 ±.01 
+
+RBH .256 ±.02 .309 ±.03 .305 ±.01 .269 ±.01 .261 ±.03 .264 ±.03 .314 ±.00 .283 ±.01 
+
+MANAS-2 .334 ±.02 .362 ±.03 .369 ±.01 .344 ±.02 .363 ±.03 .321 ±.04 .382 ±.00 .354 ±.01 
+
+PAF Temporal MAE -.244 ±.11 .009 ±.10 .112 ±.07 .038 ±.02 .001 ±.15 .103 ±.08 .085 ±.03 .015 ±.03 
+
+RBH -.204 ±.16 .224 ±.05 .280 ±.03 .147 ±.02 .120 ±.13 .172 ±.05 .206 ±.01 .135 ±.03 
+
+MANAS-2 -.088 ±.08 .286 ±.03 .358 ±.02 .224 ±.02 .210 ±.11 .211 ±.08 .257 ±.02 .208 ±.02 
+
+Periodic component Temporal MAE -.248 ±.11 .162 ±.05 .151 ±.02 .062 ±.02 .166 ±.06 .011 ±.15 .164 ±.03 .067 ±.04 
+
+RBH -.160 ±.10 .315 ±.05 .287 ±.01 .239 ±.01 .278 ±.07 .169 ±.09 .295 ±.01 .203 ±.03 
+
+MANAS-2 -.092 ±.09 .358 ±.04 .333 ±.01 .297 ±.02 .335 ±.07 .208 ±.06 .337 ±.01 .254 ±.02 
+
+Aperiodic exponent Temporal MAE .881 ±.01 .744 ±.05 .598 ±.03 .710 ±.02 .831 ±.05 .261 ±.81 .720 ±.02 .678 ±.11 
+
+RBH .902 ±.02 .805 ±.04 .718 ±.01 .780 ±.02 .879 ±.03 .665 ±.36 .769 ±.01 .788 ±.05 
+
+MANAS-2 .907 ±.03 .818 ±.04 .725 ±.02 .790 ±.01 .880 ±.04 .655 ±.35 .766 ±.01 .792 ±.05 
+
+Temporal waveform Temporal MAE .964 ±.00 .908 ±.02 .971 ±.00 .881 ±.00 .929 ±.01 .941 ±.02 .896 ±.00 .927 ±.00 
+
+RBH .959 ±.00 .903 ±.02 .970 ±.00 .874 ±.00 .917 ±.01 .928 ±.02 .892 ±.00 .920 ±.00 
+
+MANAS-2 .958 ±.00 .900 ±.02 .968 ±.00 .871 ±.00 .910 ±.01 .925 ±.02 .890 ±.00 .917 ±.00 
+
+E.2 Additional methods 
+
+We show the spectral recoverability effect induced by ConRec holds on multiple objectives and probes. 
+
+MLP probe Here we show that the spectral features can be better recovered non-linearly (as op-posed to linearly through the ridge regression probes) as well when using ConRec. With standardized frozen latents as the input, we train a fixed two-layer MLP probe with one 256-unit GELU hidden layer (no dropout), trained with AdamW using learning rate 10 −3 and weight decay 10 −4. The probe was selected by validation MSE with patience 3 over at most 20 epochs; no probe hyperparameters were tuned per model or dataset. 15 Table 15: MLP probe R2 for RBH and MANAS-2 on the same spectral targets. Cells report mean 
+
+R2 across paired splits with variation shown next to each mean. 
+
+Metric Model BC MV WL SI HM AD MI Avg. 6-band STFT RBH .766 ±.006 .890 ±.011 .803 ±.003 .918 ±.003 .910 ±.014 .849 ±.045 .894 ±.003 .862 ±.009 
+
+MANAS-2 .860 ±.007 .941 ±.006 .891 ±.002 .953 ±.001 .933 ±.006 .892 ±.048 .945 ±.002 .916 ±.008 
+
+Bandflow STFT RBH .226 ±.007 .326 ±.026 .293 ±.013 .301 ±.018 .261 ±.028 .272 ±.030 .315 ±.004 .285 ±.006 
+
+MANAS-2 .307 ±.015 .406 ±.025 .378 ±.012 .395 ±.022 .369 ±.028 .344 ±.031 .402 ±.004 .372 ±.005 
+
+PAF RBH .045 ±.049 .246 ±.021 .262 ±.065 .140 ±.015 .089 ±.112 .181 ±.064 .206 ±.013 .167 ±.049 
+
+MANAS-2 .135 ±.057 .309 ±.029 .393 ±.021 .227 ±.014 .210 ±.058 .224 ±.076 .263 ±.016 .252 ±.039 
+
+Periodic component RBH .012 ±.050 .333 ±.037 .283 ±.009 .270 ±.010 .215 ±.052 .181 ±.077 .310 ±.011 .229 ±.035 
+
+MANAS-2 .063 ±.033 .371 ±.030 .323 ±.012 .325 ±.014 .242 ±.046 .215 ±.065 .352 ±.008 .270 ±.030 
+
+Aperiodic exponent RBH .837 ±.010 .815 ±.027 .680 ±.022 .800 ±.011 .776 ±.024 .655 ±.191 .789 ±.014 .765 ±.043 
+
+MANAS-2 .810 ±.053 .824 ±.019 .675 ±.035 .802 ±.007 .795 ±.051 .690 ±.131 .798 ±.012 .771 ±.044 
+
+As shown in Table 15, we see the ConRec effect holds even when allowing for non-linear recovery. Additionally, to assess statistical significance of the results for both the ridge and MLP probes, we computed paired dataset-level differences in R2 between MANAS-2 and RBH and tested whether the mean difference across datasets was nonzero using a two-sided one-sample t test; all resulting row-level p values were below 0.05 except for the aperiodic exponent target. 
+
+## F Additional Latent Geometry Details 
+
+This appendix provides additional details and visualizations for the synthetic latent-geometry analysis in Section 4.3. 
+
+Synthetic inputs and latent pooling. We generate sinusoids spanning 0.5–40 Hz in 0.5 Hz incre-ments, with K = 5 repetitions per frequency. For the 18-channel condition, channel amplitudes are sampled with small Gaussian variation and phase is independently randomized across channels. We additionally evaluate a single-channel Cz condition to remove spatial effects. Because frequency remains constant within each input, this diagnostic isolates frequency-dependent latent organization from evolving spectral dynamics. For model m, frequency f , and repetition k, the frozen encoder returns token latents Em(˜ xf,k , p ) ∈
+
+RTm×C×d. We average over latent time and channels to obtain one pooled representation per repetition, and then average across repetitions to obtain a centroid for each frequency: 
+
+z(m) 
+
+> f,k
+
+= 1
+
+TmC
+
+> Tm
+
+X
+
+> t=1
+> C
+
+X
+
+> c=1
+
+Em(˜ xf,k , p )t,c, :, ¯z(m) 
+
+> f
+
+= 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+z(m) 
+
+> f,k
+
+. (4) The single-channel condition has lower spatial resolution than the data observed during pretraining and is therefore treated as a complementary diagnostic rather than an in-distribution input condition. 
+
+Figure 2: Shared-basis PCA of pooled latent representations for single-channel Cz and 18-channel random-phase synthetic sinusoids. Applying ConRec produces more extended and more clearly frequency-dependent latent trajectories in both the temporal-only and RBH model families. 16 Figure 2 provides a qualitative view of the latent trajectories induced by changing sinusoid frequency. In both architectural families, the ConRec variants occupy a larger and more visibly ordered trajectory, consistent with the stronger frequency-distance ordering reported in the main paper. 
+
+Figure 3: Pairwise Euclidean distances between frequency centroids in the latent space. More regular structure away from the diagonal indicates that latent distance tracks physical frequency separation more consistently. Figure 3 visualizes the same frequency-distance structure from a complementary perspective. The ConRec variants show a more regular progression of pairwise distances across frequencies, matching the improved Spearman ρf values reported in Section 4.3. Together, the PCA and heatmap views support the conclusion that ConRec reshapes latent spectral organization rather than merely changing overall spread. 17
