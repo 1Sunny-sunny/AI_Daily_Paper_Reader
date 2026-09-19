@@ -1,6 +1,10 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-09-20 <!--dpr-date:20260920-->
+    * <a class="dpr-sidebar-brief-link" href="#/202609/20/README">📝 今日简报</a>
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/20/2609.18190v1-transformation-laws-in-neural-representations-structure-realisability-and-construction" data-sidebar-item="{&quot;title&quot;: &quot;Transformation Laws in Neural Representations: Structure, Realisability, and Construction&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.18190v1-transformation-laws-in-neural-representations-structure-realisability-and-construction&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;神经表征分析与内部干预可解释性&quot;}">Transformation Laws in Neural Representations: Structure, Realisability, and Construction</a>
   * 2026-09-19 <!--dpr-date:20260919-->
     * <a class="dpr-sidebar-brief-link" href="#/202609/19/README">📝 今日简报</a>
     * 精读区
