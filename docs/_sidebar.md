@@ -1,6 +1,10 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-09-27 <!--dpr-date:20260927-->
+    * <a class="dpr-sidebar-brief-link" href="#/202609/27/README">📝 今日简报</a>
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/27/2609.25518v1-matryoshka-attribution-learning-to-attribute-language-model-outputs-to-representations-and-weights" data-sidebar-item="{&quot;title&quot;: &quot;Matryoshka attribution: Learning to attribute language model outputs to representations and weights&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.25518v1-matryoshka-attribution-learning-to-attribute-language-model-outputs-to-representations-and-weights&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;将模型输出归因于内部计算的可解释性方法&quot;}">Matryoshka attribution: Learning to attribute language model outputs to representations and weights</a>
   * 2026-09-26 <!--dpr-date:20260926-->
     * <a class="dpr-sidebar-brief-link" href="#/202609/26/README">📝 今日简报</a>
     * 精读区
