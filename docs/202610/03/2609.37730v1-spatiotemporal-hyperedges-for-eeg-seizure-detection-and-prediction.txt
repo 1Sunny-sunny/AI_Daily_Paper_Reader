@@ -1,0 +1,703 @@
+Title: Spatiotemporal Hyperedges for EEG Seizure Detection and Prediction
+
+URL Source: https://arxiv.org/pdf/2609.37730v1
+
+Published Time: Wed, 30 Sep 2026 02:04:07 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# Spatiotemporal Hyperedges for EEG Seizure Detection and Prediction 
+
+# Hyunju Kim ∗
+
+hyunju@gatech.edu School of Computational Science and Engineering Georgia Institute of Technology Atlanta, GA, USA 
+
+# Sheo Yon Jhin ∗
+
+sheoyon.jhin@kaist.ac.kr School of Computing Korea Advanced Institute of Science and Technology Daejeon, Republic of Korea 
+
+# Noseong Park 
+
+noseong@kaist.ac.kr School of Computing Korea Advanced Institute of Science and Technology Daejeon, Republic of Korea 
+
+# Nabil Imam 
+
+nimam6@gatech.edu School of Computational Science and Engineering Georgia Institute of Technology Atlanta, GA, USA 
+
+## Abstract 
+
+Seizure detection and prediction from EEG are clinically im-portant but challenging because seizures are rare, temporally localized, and propagate as coordinated events across multiple channels. Recent dynamic graph neural networks model this by running a temporal model over a sequence of per-time-step pairwise channel edges. However, this pairwise construction misses the spatiotemporal coupling that constitutes a seizure, at substantial training cost. We propose HyBrain, which summa-rizes spatiotemporal EEG evidence through a small set of soft hyperedges rather than pairwise edges. A per-channel Mamba backbone produces one token per (channel, second), and a spa-tiotemporal hyperedge block pools these tokens into 𝐸 ℎ shared group embeddings through soft memberships and broadcasts them back. The same encoder serves three downstream tasks: window-based detection, one-second point-wise detection, and preictal seizure prediction. On TUSZ and CHB-MIT, HyBrain achieves the best AUROC on every reported setting against ten baselines, with the largest gap on long-clip preictal prediction. It also matches the most efficient baselines in training time and peak GPU memory. A qualitative analysis shows that even a single learned hyperedge cleanly captures the preictal → ictal 
+
+→ postictal trajectory on a real seizure clip. 
+
+## 1 Introduction 
+
+Epilepsy affects approximately 50 million people worldwide, and timely recognition of seizure activity is critical for preventing injuries and life-threatening complications [9, 10, 19, 24]. In clin-ical practice, seizure monitoring is performed on continuous multi-channel electroencephalography (EEG), a long and high-dimensional time series in which seizures occupy only brief in-tervals scattered across hours to days of recording [3]. Reliably surfacing these rare events from large-scale streaming biosignal data is impractical for manual review, making automated EEG seizure detection a long-standing problem at the intersection of biomedical informatics and time-series data mining [27, 28]. Three families of methods have shaped EEG seizure model-ing. Early models treat EEG as a multi-channel time series and          
+
+> ∗Both authors contributed equally to this research. 010 20 30 40 50
+> Time (s)
+> FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ
+> Channel
+> preictal ictal postictal
+> 0.46 0.50 0.55
+> Hyperedge membership
+
+Figure 1: Membership of one spatiotemporal hyperedge over the channel-time tokens of a 60s TUSZ clip. The mem-bership regime shifts across phases (dashed lines), coupling the tokens of each phase into a distinguishable group-level embedding. This emerges because our model learns hyper-edges well-suited for seizure detection. 
+
+apply CNNs or RNNs along the time axis only, leaving the rela-tions among electrodes implicit [2, 20]. A second line constructs a static pairwise graph over channels and runs a GNN on top, capturing electrode relations but not how they change during a seizure [6, 30]. To capture time-varying connectivity, recent methods introduce dynamic graph neural networks (GNNs) that replace the static adjacency with a pairwise channel graph at each time step [23, 25, 29]. These models see both spatial and temporal variation, but each relation is still defined between two channels within the same time step. A heavier subfamily further applies a temporal model to the per-time-step edge sequence [13, 18], ex-plicitly tracking how each pairwise edge evolves over time. How-ever, this still does not directly model cross-time, cross-channel coupling, such as one channel at one time influencing another channel at a later time. It also decomposes a multi-channel seizure event into many bilateral edge trajectories and requires retaining edge-level activations over time, which increases the computa-tional and memory cost of the graph pipeline. 
+
+> 1arXiv:2609.37730v1 [cs.AI] 29 Sep 2026
+
+We address these limitations with HyBrain, which learns a small set of spatiotemporal hyperedges over channel-time tokens. This formulation models channel-time coupling and group-level interaction directly, and does not require dense per-time-step pairwise graphs. The encoder follows a node → hyperedge →
+
+node flow. A per-channel Mamba backbone [14] first produces one token per (channel, second) pair. A spatiotemporal hyperedge block then pools all 𝑁𝑇 tokens into 𝐸 ℎ shared group embeddings through soft memberships, and broadcasts the same 𝐸 ℎ group embeddings back to every token weighted by its own member-ships, so each token absorbs the group-level context relevant to it (cf. Figure 1). A Set-Transformer–style Pooling by Multi-head Attention (PMA) readout [21] finally aggregates the updated tokens for each task head. This design summarizes the entire channel-time field through 𝐸 ℎ ≪ 𝑁𝑇 group embeddings rather than reconstructing it from per-time-step pairwise edges. We evaluate HyBrain on TUSZ [27] and CHB-MIT [28] across three tasks: window-based detection, one-second point-wise de-tection, and preictal seizure prediction. The same encoder sup-ports all three tasks because HyBrain learns task-relevant hy-peredge memberships over channel-time tokens, while only the lightweight readout head is changed for each task (cf. Figure 1). Our contributions are: (1) We introduce learnable hyperedges over channel-time tokens that model cross-time and cross-channel coupling without pairwise decomposition. (2) We use the same encoder for window-based detection, point-wise detection, and preictal prediction by learn-ing task-relevant hyperedge memberships, with only the readout head changed per objective. (3) Against ten baselines, HyBrain achieves the best AUROC across all reported detection and prediction settings on TUSZ and CHB-MIT, with the largest gain on long-clip preictal prediction, while matching the most efficient baselines in time and memory. Code is available at https://github.com/hhyy0401/seizure. 
+
+## 2 Related Work 2.1 EEG Deep Learning Models 
+
+Sequential and static-graph models. Sequential models treat EEG as a multi-channel time series and apply CNNs or RNNs mainly along the temporal axis, with EEGNet [20] as a general-purpose backbone and CNN–LSTM [2] as an early seizure-focused variant. Static-graph approaches for EEG seizure detection make electrode topology explicit through a fixed adjacency: TGCN [6] introduced this idea with a hand-designed spatial graph, while self-supervised graph neural networks [30] added contrastive pre-training to alleviate label scarcity. A recent line instead pretrains large EEG foundation models on broad corpora and finetunes them on downstream clinical EEG tasks, including BIOT [36], LaBraM [17], and EEGPT [32]. 
+
+Dynamic GNNs. Because a seizure unfolds as a time-varying pattern of inter-channel coordination, a dedicated line of EEG seizure detection dynamically updates the channel graph within each EEG clip. DCRNN [23] pairs a diffusion-convolutional RNN with a per-clip 𝑘 -NN correlation graph, EvolveGCN [25] evolves GCN parameters across time steps with a recurrent network, and GraphS4mer [29] relearns the graph at each within-clip segment and combines it with a structured state-space backbone [14, 15]. Recent state-of-the-art models further track temporal dynam-ics over edge sequences, for example with a per-edge GRU in GRU-GCN [13] or a per-edge Mamba in EvoBrain [18]. However, these methods still use pairwise edges as the basic relational unit, so higher-order coordination among multiple channels and its temporal consistency are only modeled indirectly through sequential updates or stacked layers. 
+
+Hypergraph learning. Hypergraphs extend ordinary graphs by connecting multiple nodes with one hyperedge, making them suitable for high-order group interactions. Prior hypergraph neural networks, including HGNN [11], HyperGCN [35], and AllSet [5], usually use fixed incidences from predefined groups or 𝑘 -NN features. In EEG, STHGCN [22] applies this idea to emo-tion recognition by constructing separate spatial and temporal hypergraphs over EEG features. HyBrain instead learns input-conditioned hyperedges jointly over the channel-time grid, using a small fixed hyperedge budget for each clip. 
+
+## 2.2 EEG Seizure Tasks 
+
+Point-wise seizure detection. Clinical EEG datasets such as TUSZ [27] annotate seizure onset and offset at one-second resolu-tion, and detectors are expected to localize these transitions, not just classify entire clips. Classical seizure-detection systems re-flected this directly, combining point-wise scoring at one-second resolution with event-level scoring based on onset latency and false-alarm rate per hour [1, 28, 33], and early deep-learning de-tectors preserved this resolution through CNN–RNN or temporal GCN backbones with per-second outputs [7, 26]. The recently proposed SzCORE benchmark [8] likewise lists both point-wise and event-level scoring among its recommended evaluation met-rics. Many recent dynamic-GNN detectors [18, 29], by contrast, adopt coarser supervision and assign a single binary label per 12 s or 60 s window, leaving the available second-level annotations un-used at training time. We complement this line by re-introducing point-wise detection as a first-class training objective, and report per-second results alongside the window-level ones. 
+
+Seizure prediction. Seizure prediction differs from detection in that the discriminative evidence is diffuse and distributed across channels, evolving slowly over the preictal window rather than concentrated in a clearly ictal interval. Unlike point-wise detec-tion, prediction is usually formulated as distinguishing preictal from interictal EEG under a specified seizure prediction horizon and seizure occurrence period [4, 34]. Early prediction studies and clinical reviews emphasized patient-specific preictal dynamics, early-warning time, and false-alarm burden as central challenges for deployable systems [12, 19, 24]. Recent deep-learning work has further revisited this setting as an early-warning task rather than only a detection problem [18, 31]. Prediction therefore pro-vides a complementary evaluation setting to detection. Rather than recognizing ictal patterns that are already expressed, the model must infer a latent preictal state from subtle changes in 
+
+> 2
+
+Figure 2: Overview of HyBrain. A multi-channel EEG clip is first converted into one-second channel-time spectral tokens using a per-channel short-time Fourier transform (STFT). The channel-time token encoder then processes each channel independently with a Mamba backbone and adds a learnable channel embedding to preserve channel identity. The spatiotemporal hyperedge aggregation block pools all channel-time tokens into 𝐸 ℎ learnable hyperedge embeddings through soft memberships and broadcasts the resulting group-level context back to the tokens, capturing high-order cross-channel and cross-time interactions. A temporal attention layer further refines intra-channel temporal dependencies, producing the shared representation 𝐺 . Finally, task-specific heads adapt this shared representation to window-based seizure detection, point-wise seizure detection, and preictal seizure prediction. 
+
+ongoing background activity. This setting tests whether HyBrain can aggregate weak evidence over long clips through learned channel–time hyperedges. 
+
+## 3 Proposed Methods 3.1 Problem Formulation 
+
+We represent each EEG clip as a tensor 𝑋 ∈ R𝑁 ×𝑇 ×𝐹 , where 𝑁 
+
+is the number of EEG channels, 𝑇 is the number of one-second time steps, and 𝐹 is the dimension of the per-second short-time Fourier transform (STFT) feature. A clip of length 𝐿 seconds has 
+
+𝑇 = 𝐿 time steps, and 𝑥 𝑛,𝑡 ∈ R𝐹 denotes the spectral feature of channel 𝑛 at second 𝑡 .Following standard epileptological convention, we refer to time intervals as ictal during an annotated seizure, preictal imme-diately preceding seizure onset, postictal immediately following seizure offset, and interictal otherwise. On this shared input, we study three binary tasks. (1) Window-based detection predicts 𝑦 win ∈ { 0, 1}, indi-cating whether the clip overlaps with seizure interval. (2) Point-wise detection predicts ypt ∈ {0, 1}𝑇 , where 
+
+𝑦 pt  
+
+> 𝑡
+
+= 1 if the 𝑡 -th second overlaps with a seizure. (3) Seizure prediction predicts 𝑦 pre ∈ { 0, 1}, the binary classification between interictal (normal) and preictal states, where the preictal state is defined as the Δ𝑝 =60 s window immediately before each seizure onset [18]. All tasks use the same encoder to map 𝑋 into a channel-time representation 𝐺 ∈ R𝑁 ×𝑇 ×𝑑 , and task-specific heads produce either a clip-level logit or per-second logits. 
+
+## 3.2 Overall Workflow 
+
+Figure 2 shows the detailed design of our method, HyBrain. The overall workflow is as follows: (1) A per-channel STFT converts each channel into a se-quence of one-second spectral features. (2) In the Channel-time Token Encoder , a per-channel Mamba backbone [14] encodes these features into one token per (channel, second) pair, augmented with a learn-able channel embedding. (3) In the Spatiotemporal Hyperedge Aggregation block, a small set of 𝐸 ℎ learnable hyperedges pools the channel-time tokens into group embeddings through soft member-ships and broadcasts them back to every token, capturing high-order interactions across channels and time without explicit dynamic graph construction. (4) A Temporal Attention layer then refines long-range temporal dependencies, producing the shared represen-tation 𝐺 ∈ R𝑁 ×𝑇 ×𝑑 .(5) Task-Specific Heads based on PMA-style channel read-outs [21] adapt 𝐺 to window-based detection, point-wise detection, and seizure prediction. 
+
+## 3.3 Channel-Time Token Encoding 
+
+Each EEG channel is first converted into a one-second spec-tral sequence by a per-channel STFT, yielding 𝑥 𝑛,𝑡 ∈ R𝐹 per (channel, second) pair (preprocessing details in Section 4.1). We then encode temporal dynamics within each EEG channel. For each channel 𝑛 , the spectral sequence 𝑥 𝑛, 1: 𝑇 is processed by a stack of 𝐿 𝑀 Mamba layers [14], each a selective state-space mod-ule that mixes information along the temporal axis only. Let 
+
+𝑢 (0) 
+
+> 𝑛,𝑡
+
+= 𝑊 in 𝑥 𝑛,𝑡 ∈ R𝑑 , where 𝑊 in ∈ R𝑑 ×𝐹 is a learnable linear map that lifts the spectral features to the hidden dimension 𝑑 , and LN (·) denotes layer normalization. At layer 𝑙 , a latent state 𝑠 (𝑙 )
+
+> 𝑛,𝑡
+
+evolves under a selective recurrence and the token is updated by 
+
+> 3
+
+a residual layer-norm: 
+
+𝑠 (𝑙 ) 
+
+> 𝑛,𝑡
+
+= 𝐴 𝑛,𝑡 𝑠 (𝑙 )  
+
+> 𝑛,𝑡 −1
+
++ 𝐵 𝑛,𝑡 𝑢 (𝑙 −1) 
+
+> 𝑛,𝑡
+
+, (1) 
+
+𝑢 (𝑙 ) 
+
+> 𝑛,𝑡
+
+= LN 
+
+
+
+𝑢 (𝑙 −1) 
+
+> 𝑛,𝑡
+
++ 𝐶 𝑛,𝑡 𝑠 (𝑙 )
+
+> 𝑛,𝑡
+
+
+
+, (2) where the coefficients (𝐴 𝑛,𝑡 , 𝐵 𝑛,𝑡 , 𝐶 𝑛,𝑡 ) depend on 𝑢 (𝑙 −1) 
+
+> 𝑛,𝑡
+
+and fol-low Mamba’s HiPPO-initialized form [14]. Setting 𝐻 𝑛,𝑡 = 𝑢 (𝐿 𝑀 )
+
+> 𝑛,𝑡
+
+yields the backbone output 𝐻 ∈ R𝑁 ×𝑇 ×𝑑 . Because the recurrence is per-channel, the 𝑁 channels are processed independently and no cross-channel mixing happens at this stage. To preserve chan-nel identity before hyperedge aggregation, we add a learnable channel embedding 𝑒 𝑛 ∈ R𝑑 as a channel positional embedding: ˜𝐻 𝑛,𝑡 = 𝐻 𝑛,𝑡 + 𝑒 𝑛 . (3) 
+
+## 3.4 Spatiotemporal Hyperedge Aggregation 
+
+Seizure events often appear as channel-to-channel coupling that may carry a temporal lag. We therefore introduce a spatiotempo-ral hyperedge block that proceeds in three steps: it first learns soft token-to-hyperedge memberships, then aggregates the to-kens into hyperedge embeddings, and finally updates each token by broadcasting the incident hyperedges back. We flatten ˜ 𝐻 ∈ R𝑁 ×𝑇 ×𝑑 into 𝑁𝑇 channel-time tokens { ˜ℎ𝑖 }𝑁𝑇 𝑖 =1 ,where each ˜ℎ𝑖 ∈ R𝑑 corresponds to one channel at one time step, and introduce 𝐸 ℎ learnable hyperedge queries {𝑞 𝑘 }𝐸 ℎ 
+
+> 𝑘 =1
+
+⊂
+
+R𝑑 , where 𝐸 ℎ is the number of latent hyperedges and each 𝑞 𝑘 
+
+represents one latent spatiotemporal hyperedge. For token 𝑖 and hyperedge 𝑘 , the soft membership is 
+
+𝛼 𝑖,𝑘 = 𝜎 𝑞 ⊤ 
+
+> 𝑘
+
+˜ℎ𝑖 
+
+√𝑑 
+
+!
+
+, (4) where 𝜎 (·) is the sigmoid activation. We use sigmoid rather than softmax across hyperedges so that a token can belong to multiple hyperedges, supporting overlapping spatiotemporal patterns. Given the memberships, each hyperedge embedding 𝑧 𝑘 is the membership-weighted average of its assigned tokens, and each token is updated by broadcasting the incident hyperedge embed-dings back with the same weights: 
+
+𝑧 𝑘 =
+
+Í𝑁𝑇 𝑖 =1 𝛼 𝑖,𝑘 ˜ℎ𝑖 
+
+Í𝑁𝑇 𝑖 =1 𝛼 𝑖,𝑘 
+
+, ˜ℎ′ 
+
+> 𝑖
+
+=
+
+> 𝐸 ℎ
+
+∑︁ 
+
+> 𝑘 =1
+
+𝛼 𝑖,𝑘 𝑧 𝑘 . (5) Here 𝑧 𝑘 forms a group-level representation of one coordinated spatiotemporal pattern, and ˜ℎ′ 
+
+> 𝑖
+
+encodes the group-level spatiotem-poral context associated with token 𝑖 .We then fuse the original and updated tokens through a post-norm residual block: ˆℎ𝑖 = LN 
+
+ ˜ℎ𝑖 + GELU 
+
+
+
+𝑊 out ˜ℎ′
+
+> 𝑖
+
+ 
+
+, (6) where 𝑊 out ∈ R𝑑 ×𝑑 is a learnable linear map and GELU (·) is the activation. Intuitively, ˜ℎ𝑖 provides the local channel-time evidence at position 𝑖 , while GELU (𝑊 out ˜ℎ′ 
+
+> 𝑖
+
+) injects the global ,hyperedge-aggregated spatiotemporal context, so that the post-norm residual incorporates the two views. We stack 𝐿 ℎ such blocks and denote the resulting tensor by ˆ𝐻 (𝐿 ℎ ) ∈ R𝑁 ×𝑇 ×𝑑 . We then add a temporal attention layer to capture residual long-range dependencies within each channel. 
+
+𝐺 𝑛, : = LN 
+
+ ˆ𝐻 (𝐿 ℎ ) 
+
+> 𝑛, :
+
++ 𝛽 Att 𝑡 
+
+ ˆ𝐻 (𝐿 ℎ )
+
+> 𝑛, :
+
+ 
+
+, (7) Here, Att 𝑡 (·) denotes multi-head self-attention along the time axis with weights shared across channels, and 𝛽 is a gate coeffi-cient. The output 𝐺 ∈ R𝑁 ×𝑇 ×𝑑 is used as the shared representa-tion for downstream readout modules. 
+
+## 3.5 Task-Specific Heads and Training Objective 
+
+The shared representation 𝐺 is passed to task-specific heads. All heads use a PMA-style channel readout [21] followed by a linear classifier, where the difference is whether the temporal axis is pooled before the readout or preserved for per-second prediction. For window-based detection and seizure prediction , we use the same clip-level readout: 
+
+𝑟 = PMA (Pool 𝑡 (𝐺 )) , ˆ𝑦 = 𝑓 (𝑟 ). (8) Here, Pool 𝑡 (·) denotes average pooling over time, 𝑓 (·) is the task-specific linear classifier, and ˆ 𝑦 is a raw logit. The two tasks use different labels, 𝑦 win and 𝑦 pre , and are trained separately with binary cross-entropy on the sigmoid of the logit. For point-wise detection , we keep the temporal axis and apply the PMA channel readout independently at each time step: 
+
+𝑟 𝑡 = PMA  𝐺 :,𝑡 
+
+ , ˆ𝑦 𝑡 = 𝑓 pt (𝑟 𝑡 ), 𝑡 = 1, . . . ,𝑇 , (9) with PMA parameters shared across all time steps. To encode the temporal contiguity of seizure labels directly into the objective, we add a small adjacent-frame logit-smoothness regularizer: 
+
+Lpt = 1
+
+𝑇 
+
+> 𝑇
+
+∑︁ 
+
+> 𝑡 =1
+
+BCE ( ˆ𝑦 𝑡 , 𝑦 pt  
+
+> 𝑡
+
+) + 𝜆 · 1
+
+𝑇 − 1 
+
+> 𝑇 −1
+
+∑︁  
+
+> 𝑡 =1
+
+( ˆ𝑦 𝑡 +1 − ˆ𝑦 𝑡 )2 . (10) Using logit-space differences preserves informative gradients under confident predictions, while penalizing only consecutive differences allows sharp label transitions at seizure onset and offset. 
+
+## 3.6 Theoretical Analysis 
+
+We show that HyBrain’s hyperedge block induces an input-adaptive global mixing operator of rank at most 𝐸 ℎ over all channel-time tokens, and compare its compute and activation-memory cost against representative edge-stream dynamic-GNN baselines. 
+
+Setup. A dynamic pairwise GNN over 𝑁 EEG channels and 
+
+𝑇 time steps maintains an adjacency 𝐴 𝑡 ∈ R𝑁 ×𝑁 at every time step, with up to 𝐸 ≤ 𝑁 2 pairwise edges per time step. Recent edge-stream variants further apply a temporal model along the edge sequence: GRU-GCN [13] uses a per-edge GRU, and Evo-Brain [18] uses a per-edge Mamba. HyBrain instead applies a single hyperedge block with 𝐸 ℎ shared hyperedges to the flat-tened 𝑁𝑇 channel-time tokens. Proposition 3.1 (Rank-𝐸 ℎ global mixing of channel-time tokens). Fix the soft memberships 𝛼 ∈ R𝑁𝑇 ×𝐸 ℎ from Eq. (4), and 
+
+> 4
+
+Table 1: Per-sample asymptotic cost of representative spa-tiotemporal interaction blocks.                 
+
+> Method Compute Activation memory GRU-style edge stream [13] O ( 𝑇 𝐸𝑑 2)O ( 𝑇 𝐸𝑑 )
+> Mamba-style edge stream [18] O ( 𝑇 𝐸𝑑 )O ( 𝑇 𝐸𝑑 )
+> HyBrain hyperedge block O ( 𝑇 𝑁 𝐸 ℎ𝑑 )O ( 𝑇 𝑁 𝐸 ℎ+𝐸 ℎ𝑑 )
+
+let 𝑠 𝑘 = Í𝑁𝑇 𝑖 =1 𝛼 𝑖,𝑘 . The aggregate-and-broadcast step in Eq. (5) acts on the channel-time tokens as 
+
+˜ℎ′ 
+
+> 𝑖
+
+=
+
+> 𝑁𝑇
+
+∑︁ 
+
+> 𝑗 =1
+
+𝑀 𝑖 𝑗 ˜ℎ𝑗 , 𝑀 𝑖 𝑗 =
+
+> 𝐸 ℎ
+
+∑︁ 
+
+> 𝑘 =1
+
+𝛼 𝑖,𝑘 𝛼 𝑗,𝑘 
+
+𝑠 𝑘 
+
+.
+
+The induced operator 𝑀 = 𝐴𝐷 −1𝐴 ⊤, with 𝐴 = [𝛼 𝑖,𝑘 ] ∈ R𝑁𝑇 ×𝐸 ℎ
+
+and 𝐷 = diag (𝑠 1, . . . , 𝑠 𝐸 ℎ ), satisfies two properties: (1) Global support. Under sigmoid memberships, 𝛼 𝑖,𝑘 > 0 for all 𝑖, 𝑘 , so 𝑀 𝑖 𝑗 > 0 for every pair of channel-time tokens. (2) Low-rank global interaction. 𝑀 factors through the 𝐸 ℎ
+
+hyperedges via 𝐴 , so rank (𝑀 ) ≤ 𝐸 ℎ .
+
+Proof. Substituting the hyperedge embedding into the broad-cast update gives ˜ℎ′ 
+
+> 𝑖
+
+=
+
+> 𝐸 ℎ
+
+∑︁ 
+
+> 𝑘 =1
+
+𝛼 𝑖,𝑘 𝑁𝑇 ∑︁ 
+
+> 𝑗 =1
+
+𝛼 𝑗,𝑘 
+
+𝑠 𝑘 
+
+˜ℎ𝑗 =
+
+> 𝑁𝑇
+
+∑︁ 
+
+> 𝑗 =1
+> 𝐸 ℎ
+
+∑︁ 
+
+> 𝑘 =1
+
+𝛼 𝑖,𝑘 𝛼 𝑗,𝑘 
+
+𝑠 𝑘 
+
+!
+
+˜ℎ𝑗 .
+
+Thus 𝑀 = 𝐴𝐷 −1𝐴 ⊤, where 𝐴 = [𝛼 𝑖,𝑘 ] ∈ R𝑁𝑇 ×𝐸 ℎ and 𝐷 =
+
+diag (𝑠 1, . . . , 𝑠 𝐸 ℎ ). Therefore rank (𝑀 ) ≤ 𝐸 ℎ . Since sigmoid mem-berships are strictly positive for finite inputs, 𝑀 𝑖 𝑗 > 0 for all 
+
+𝑖, 𝑗 . □
+
+Proposition 3.1 shows that the hyperedge block couples ev-ery pair of channel-time tokens in one step, while routing the interaction through only 𝐸 ℎ shared hyperedges. Table 1 com-pares the resulting per-sample asymptotic cost against the two edge-stream variants used by the strongest baselines. Compared with a Mamba-style edge stream, the edge-stream-to-hyperedge compute ratio scales as O( 𝐸 /( 𝑁 𝐸 ℎ )) , so the hyperedge block is cheaper whenever the number of pairwise edges per time step exceeds the effective hyperedge budget 𝑁 𝐸 ℎ . For dense pair-wise graphs with 𝐸 = O( 𝑁 2), this yields a compute improve-ment of O( 𝑁 /𝐸 ℎ ) and an edge-related activation-memory reduc-tion of approximately O( 𝑁𝑑 /𝐸 ℎ ) when the membership tensor 
+
+𝑇 𝑁 𝐸 ℎ dominates the 𝐸 ℎ𝑑 hyperedge state. For sparse graphs with 
+
+𝐸 = 𝑐𝑁 , where 𝑐 is the average number of pairwise edges per node, the edge-stream-to-hyperedge compute ratio becomes 𝑐 /𝐸 ℎ ,and the corresponding relation-related activation-memory ratio is approximately 𝑐𝑑 /𝐸 ℎ under the same dominance assumption. Empirically, these claims are checked in three places. The effec-tiveness of the hyperedge coupling itself is tested in Section 5.1. The memory and runtime advantage is evaluated in Section 5.2. The sufficiency of a small 𝐸 ℎ is verified by the hyperedge sensi-tivity study in Section 5.4. 
+
+## 4 Experiments 4.1 Experimental Settings 
+
+Datasets and preprocessing. We evaluate on TUSZ [27] and CHB-MIT [28], using 12 s and 60 s clip settings for window-based experiments and following the data splits and evaluation protocol of EvoBrain [18]. For the input feature, raw EEG is resampled to 200 Hz, segmented into non-overlapping 1-second windows per channel, and each window is mapped to its log-magnitude STFT over the 𝐹 =100 positive frequency bins. An 𝐿 -second clip therefore yields 𝑋 ∈ R𝑁 ×𝐿 ×100 . For each subject, per-channel STFT mean and standard deviation are computed on the training split and used to normalize all splits. For point-wise detection, we derive a per-second label 𝑦 pt ∈{0, 1}𝐿 for each clip, where 𝑦 pt  
+
+> 𝑡
+
+=1 iff the 𝑡 -th 1-second window overlaps any annotated seizure interval. The window-level label is recovered as 𝑦 win = max 𝑡 𝑦 pt  
+
+> 𝑡
+
+.
+
+Tasks. We evaluate three EEG seizure-analysis tasks: window-based seizure detection, point-wise seizure detection, and preictal seizure prediction. In window-based detection, each 𝑊 -second clip ( 𝑊 ∈ { 12 , 60 }) is labeled positive if it overlaps with any annotated seizure interval. In point-wise detection, each one-second frame is labeled using seizure onset and offset annota-tions, so models are evaluated at one-second temporal resolution. In seizure prediction, clips are classified as preictal or interictal. Preictal clips are drawn from the Δ𝑝 =60 s window before seizure onset, and the interictal pool is constructed by discarding all seizure-labeled segments and excluding a Δ𝑏 =300 s buffer around every seizure boundary so that preictal evidence does not con-taminate the negative class. Following EvoBrain [18], we report prediction on TUSZ only, since CHB-MIT’s smaller scale and highly patient-specific pediatric preictal signal are insufficient for cross-patient prediction. 
+
+Prediction sampling. To match the fixed clip grid used by all models, we accept a clip as preictal iff its full span lies within the strict Δ𝑝 =60 s preictal window for 12 s clips, and within a 4 ×
+
+clip-length search window before the buffer for 60 s clips. For tractability and to keep F1 meaningful, we subsample interictal clips per patient to at most 5 × that patient’s number of preictal clips, using a fixed seed and applying the same procedure to train, dev, and test splits. 
+
+Metrics. We use AUROC and F1 score as primary metrics, following EvoBrain [18]. Quantitative results are averaged over three random seeds. We report test AUROC at the checkpoint with the highest dev AUROC, and test F1 at the threshold 𝜏 ∗ that maximizes dev F1. 
+
+Hyperparameters. We select hyperparameters by dev AUROC. For HyBrain, we grid search the learning rate, weight decay, dropout, hidden dimension 𝑑 , and the temporal-attention gate 
+
+𝛽 ∈ { 0, 1}. The search space, the selected per-task values, and the shared optimization settings are listed in Appendix B. Un-less otherwise specified, baseline hyperparameters follow their original implementations or the EvoBrain protocol. 
+
+> 5
+
+Table 2: Window-based seizure detection performance on TUSZ and CHB-MIT. Mean ± std across three seeds. The best result is highlighted in bold, and the second-best is underlined. Time denotes wall-clock seconds per training epoch on a single A6000, and Memory denotes peak GPU memory during training, reported in MB.                                                                                                                                                                                                                                                                                  
+
+> Method Time (s/ep.) Memory (MB) TUSZ (12 s) TUSZ (60 s) CHB-MIT (12 s) AUROC F1 AUROC F1 AUROC F1 LSTM 31.30 88.0 0.839 ±0.016 0.403 ±0.065 0.826 ±0.050 0.427 ±0.067 0.823 ±0.075 0.064 ±0.007 CNN-LSTM 29.90 1208.1 0.824 ±0.014 0.365 ±0.053 0.690 ±0.026 0.242 ±0.020 0.798 ±0.110 0.049 ±0.032 BIOT 86.07 1850.7 0.811 ±0.006 0.301 ±0.013 0.717 ±0.060 0.292 ±0.036 0.903 ±0.018 0.054 ±0.090 LaBraM 212.9 3576.7 0.863 ±0.010 0.398 ±0.034 0.865 ±0.007 0.466 ±0.016 0.787 ±0.010 0.054 ±0.022 EEGPT 151.2 1022.1 0.884 ±0.004 0.438 ±0.010 0.784 ±0.009 0.343 ±0.007 0.911 ±0.016 0.266 ±0.025
+> EvolveGCN 72.89 62.3 0.812 ±0.006 0.356 ±0.018 0.752 ±0.010 0.333 ±0.025 0.810 ±0.015 0.062 ±0.013 DCRNN 240.2 71.2 0.896 ±0.003 0.513 ±0.006 0.895 ±0.011 0.574 ±0.019 0.877 ±0.006 0.125 ±0.018 GraphS4mer 30.29 340.4 0.884 ±0.002 0.461 ±0.001 0.856 ±0.017 0.474 ±0.046 0.899 ±0.015 0.185 ±0.046 GRU-GCN 31.13 4605.5 0.894 ±0.005 0.527 ±0.059 0.907 ±0.001 0.640 ±0.012 0.907 ±0.005 0.171 ±0.025 EvoBrain 57.99 3981.7 0.897 ±0.005 0.558 ±0.020 0.888 ±0.018 0.583 ±0.038 0.917 ±0.005 0.232 ±0.041 Ours ( 𝐸 ℎ=1) 29.10 332.2 0.899 ±0.006 0.551 ±0.008 0.885 ±0.010 0.564 ±0.041 0.917 ±0.005 0.182 ±0.033 Ours ( 𝐸 ℎ=2) 29.70 332.5 0.894 ±0.005 0.541 ±0.025 0.892 ±0.002 0.537 ±0.041 0.907 ±0.009 0.164 ±0.026 Ours ( 𝐸 ℎ=3) 30.32 332.8 0.880 ±0.006 0.540 ±0.002 0.908 ±0.006 0.636 ±0.023 0.924 ±0.003 0.191 ±0.009
+
+Training. All models follow the EvoBrain [18] training set-ting, STFT preprocessing, 1:1-balanced training sampler, and the window-based runs. For point-wise detection, all baselines are adapted with a shared per-timestep readout head so that they emit one logit per second. 
+
+Baselines. We compare against ten baselines covering the three families reviewed in Section 2.2. (1) Sequential models. LSTM [16] (2 layers, hidden 64) and CNN–LSTM [2] (2D conv-pool over channel ×frequency, 2-layer LSTM). (2) EEG foundation models. BIOT [36], LaBraM [17], and EEGPT [32], each finetuned from the released checkpoint with a linear classification head. LaBraM and EEGPT take raw EEG, BIOT uses its native spectrogram patches. (3) Dynamic GNNs. EvolveGCN [25], DCRNN [23] ( 𝑘 =3 𝑘 -NN correlation graph), GraphS4mer [29], GRU-GCN [13], and EvoBrain [18]. 
+
+Point-wise baselines. Existing seizure detection baselines (Evo-Brain, DCRNN, GRU-GCN, LSTM, CNN-LSTM, BIOT) are orig-inally designed for window-level classification, i.e., they emit a single binary prediction per 𝑇 -second clip. To enable a fair comparison on the point-wise detection task, we adapt each base-line by replacing its terminal readout, typically a last-timestep aggregation followed by a fully connected classifier, with a time-shared per-timestep prediction head. Concretely, the backbone is kept intact and produces a hidden tensor of shape (𝐵,𝑇 , 𝑁 , 𝑑 ),after which the same linear projection and node aggregation are applied independently at every timestep, yielding (𝐵,𝑇 , 1)
+
+logits. We denote these point-wise variants as Dense-EvoBrain, Dense-DCRNN, etc. This minimal modification preserves every learnable component of the original architecture and isolates the contribution of the dense temporal supervision from broader architectural changes. 
+
+Environments. All experiments are conducted on a worksta-tion equipped with NVIDIA RTX A6000 GPUs (48GB VRAM); every reported timing is measured on a single A6000. Our imple-mentation is in PyTorch 2.5.1 with CUDA 12.1, Python 3.10, on Ubuntu 20.04 LTS. 
+
+## 4.2 Seizure Detection and Prediction 
+
+Window-based Detection. Window-based seizure detection is the standard benchmark setting for recent EEG seizure models, where each fixed-length EEG clip is assigned a single seizure/non-seizure label. As shown in Table 2, HyBrain attains the highest AUROC on all three benchmarks (TUSZ 12 s, TUSZ 60 s, and CHB-MIT 12 s), and its F1 is comparable to the top method across set-tings (e.g., within 0.01 of EvoBrain at TUSZ 12 s and GRU-GCN at TUSZ 60 s). Against these strongest dynamic-GNN baselines, Hy-Brain matches GRU-GCN’s training time (29.1 vs. 31.1 s/epoch), runs about 2 × faster than EvoBrain (29.1 vs. 58.0 s/epoch), and uses roughly an order of magnitude less peak GPU memory than either baseline. Detailed runtime and memory measurements are reported in Table 6, and the accuracy–efficiency trade-off is visualized in Figure 3. 
+
+Point-wise Detection. The point-wise (per-second) setting is the stricter benchmark, since the model must localize seizure ac-tivity within a clip rather than emit a single clip-level label. With-out smoothness regularization, HyBrain is already the strongest or second-strongest on AUROC across all three benchmarks (Ta-ble 3). Adding the temporal smoothness penalty further improves performance. Specifically, HyBrain achieves the highest AUROC on every benchmark and the highest F1 on CHB-MIT. Dense-EvoBrain remains marginally ahead only on TUSZ 12 s F1. Three architectural choices explain HyBrain’s effectiveness on per-second prediction. First, the per-channel Mamba backbone preserves the time axis end-to-end, so per-second logits are read off a per-time-step representation rather than reconstructed from a clip-level summary at the readout. Second, the spatiotemporal hyperedge block concentrates cross-channel seizure evidence into a small set of group embeddings, so each per-second decision draws on a focused, coordinated context instead of averaging 
+
+> 6
+
+Table 3: Point-wise (per-second) seizure detection on TUSZ (12 s, 60 s) and CHB-MIT (12 s). All baselines are paper architec-tures adapted with a per-timestep readout head, trained with dense BCE on per-second labels. 
+
+Method Time (s/ep.) Memory (MB) TUSZ (12 s) TUSZ (60 s) CHB-MIT (12 s) AUROC F1 AUROC F1 AUROC F1 Dense-LSTM 28.5 415 0.869 ± 0.007 0.369 ± 0.031 0.863 ± 0.012 0.388 ± 0.028 0.857 ± 0.010 0.069 ± 0.016 Dense-CNN-LSTM 29.5 1804 0.873 ± 0.013 0.378 ± 0.044 0.887 ± 0.005 0.410 ± 0.002 0.914 ± 0.010 0.213 ± 0.026 Dense-BIOT 111.5 3889 0.858 ± 0.013 0.348 ± 0.027 0.834 ± 0.036 0.315 ± 0.041 0.841 ± 0.007 0.108 ± 0.016 Dense-GRU-GCN 30.0 5419 0.910 ± 0.003 0.517 ± 0.016 0.918 ± 0.007 0.554 ± 0.046 0.859 ± 0.003 0.086 ± 0.014 Dense-DCRNN 937.0 886 0.910 ± 0.004 0.499 ± 0.017 0.922 ± 0.004 0.486 ± 0.030 0.886 ± 0.020 0.148 ± 0.047 Dense-EvoBrain 69.0 3515 0.918 ± 0.001 0.575 ± 0.011 0.916 ± 0.002 0.558 ± 0.003 0.887 ± 0.004 0.141 ± 0.025 
+
+Ours 33.0 521 0.913 ± 0.005 0.491 ± 0.029 0.918 ± 0.007 0.512 ± 0.020 0.910 ± 0.003 0.228 ± 0.017 + ( 𝜆 =0.1) 33.5 521 0.920 ± 0.006 0.488 ± 0.040 0.923 ± 0.009 0.504 ± 0.048 0.914 ± 0.006 0.245 ± 0.007 + ( 𝜆 =0.3) 33.0 521 0.926 ± 0.004 0.548 ± 0.042 0.938 ± 0.004 0.575 ± 0.049 0.929 ± 0.006 0.232 ± 0.015 + ( 𝜆 =1.0) 32.0 521 0.924 ± 0.006 0.499 ± 0.055 0.933 ± 0.004 0.555 ± 0.029 0.909 ± 0.008 0.247 ± 0.009 
+
+Table 4: Seizure prediction (preictal vs. interictal binary classification) on TUSZ.                                                                                                                                                                        
+
+> Method 12 s 60 s AUROC F1 AUROC F1 LSTM 0.488 ±0.003 0.250 ±0.019 0.659 ±0.082 0.295 ±0.019 CNN-LSTM 0.418 ±0.009 0.244 ±0.003 0.641 ±0.019 0.357 ±0.013 BIOT 0.497 ±0.010 0.260 ±0.027 0.613 ±0.066 0.343 ±0.057 LaBraM 0.464 ±0.008 0.272 ±0.010 0.509 ±0.050 0.255 ±0.045 EEGPT 0.457 ±0.038 0.250 ±0.062 0.640 ±0.063 0.315 ±0.056 EvolveGCN 0.450 ±0.012 0.224 ±0.021 0.697 ±0.013 0.304 ±0.035 DCRNN 0.491 ±0.039 0.260 ±0.015 0.606 ±0.021 0.270 ±0.028 GraphS4mer 0.543 ±0.019 0.283 ±0.026 0.641 ±0.147 0.336 ±0.108 GRU-GCN 0.457 ±0.012 0.243 ±0.013 0.621 ±0.019 0.308 ±0.028 EvoBrain 0.476 ±0.000 0.233 ±0.009 0.623 ±0.039 0.325 ±0.044
+> Ours (𝐸 ℎ=1) 0.519 ±0.006 0.251 ±0.012 0.758 ±0.028 0.434 ±0.037 Ours (𝐸 ℎ=2) 0.560 ±0.031 0.278 ±0.011 0.751 ±0.054 0.359 ±0.057
+> Ours (𝐸 ℎ=3) 0.521 ±0.065 0.272 ±0.034 0.642 ±0.094 0.321 ±0.063
+
+over every channel.Third, temporal attention further refines the per-second logits by enforcing consistency along the time axis. 
+
+Seizure Prediction. Seizure prediction, which aims to forewarn an oncoming seizure from the preictal EEG window for abortive medication or closed-loop stimulation [19, 24], is the hardest of the three tasks. As shown in Table 4, most baselines remain near chance on TUSZ 12 s and reach only the low-to-mid AUROC range on TUSZ 60 s. On TUSZ 60 s, HyBrain ( 𝐸 ℎ =1) extends substantial leads on both AUROC and F1 over every baseline, including dynamic-GNN methods that match it on detection. On TUSZ 12 s, it still attains the highest AUROC, with F1 comparable to the best baseline. The preictal signal is weak, distributed across channels, and changes gradually over the 60 s interval before onset. In pairwise dynamic graphs, this pattern is represented through many edge-level trajectories, which can make the relevant preictal structure difficult to distinguish from interictal variability. A spatiotem-poral hyperedge instead pools the full 60 s window across both channel and time into a single group embedding, so the discrimi-native signal is collected in one place rather than reassembled from pieces. The 12 s setting captures only a fraction of this win-dow and serves as a short-context stress test rather than the 
+
+Table 5: Hyperedge block ablation on TUSZ window-based detection. Δ rows are changes versus the best HyBrain configuration per column.                                                                               
+
+> Method TUSZ 12 s TUSZ 60 s AUROC F1 AUROC F1 HyBrain ( 𝐸 ℎ=1) 0.899 ±0.006 0.551 ±0.008 0.885 ±0.010 0.564 ±0.041 HyBrain ( 𝐸 ℎ=2) 0.894 ±0.005 0.541 ±0.025 0.892 ±0.002 0.537 ±0.041 HyBrain ( 𝐸 ℎ=3) 0.880 ±0.006 0.540 ±0.002 0.908 ±0.006 0.636 ±0.023
+> w/o hyperblock 0.888 ±0.005 0.500 ±0.028 0.866 ±0.016 0.544 ±0.038
+> Δ(vs. best) −1.1 pt −5.1 pt −4.2 pt −9.2 pt w/o Mamba 0.900 ±0.003 0.540 ±0.020 0.888 ±0.021 0.609 ±0.054
+> Δ(vs. best) +0.1 pt −1.1 pt −2.0 pt −2.7 pt
+
+primary clinical operating window, which is why absolute num-bers stay low across all methods even though HyBrain still leads. 
+
+## 5 Additional Analyses 
+
+We analyze HyBrain along four axes. We first isolate the con-tribution of the spatiotemporal hyperedge block (Section 5.1) and quantify its accuracy–efficiency trade-off against baselines (Section 5.2). We then visualize what the hyperedges learn on a representative seizure clip (Section 5.3) and study its sensitivity to the number of hyperedges 𝐸 ℎ (Section 5.4). 
+
+## 5.1 Ablation Study 
+
+To isolate the contribution of the spatiotemporal hyperedge ag-gregation block, we remove Eqs. (4)–(6) of Section 3.4 (soft mem-bership 𝛼 𝑖,𝑘 , hyperedge aggregation 𝑧 𝑘 and broadcast ˜ℎ′ 
+
+> 𝑖
+
+, and the post-residual mixing), keeping the rest of the encoder intact. “w/o Mamba” replaces the per-channel Mamba encoder with a GRU in the per-task best configuration ( 𝐸 ℎ = 1 for 12 s, 𝐸 ℎ = 3 for 60 s), keeping all else unchanged. Table 5 reports the effect on TUSZ window-based detection. Removing the block drops 1 .1 pt AUROC and 5 .1 pt F1 on TUSZ 12 s, and 4 .2 pt AUROC and 9 .2 pt F1 on TUSZ 60 s, against the best HyBrain configuration on each task. The cost is larger on the 60 s setting, where the longer clip exposes more cross-channel and cross-time structure for the block to model. Swapping the backbone costs less than removing the hyperedge block (Table 5): 
+
+> 7
+
+Table 6: Computational efficiency of seizure detection on TUSZ 60 s. Inference denotes average milliseconds per EEG segment. Memory-cost values above 1 indicate higher cost than ours, whereas values below 1 indicate lower cost.                                                            
+
+> Method Time (s/ep.) Infer. (ms/seg.) Memory (MB) Memory cost LSTM 31.30 0.013 88.0 0.26 ×
+> CNN-LSTM 29.90 0.264 1208.1 3.63 ×
+> BIOT 86.07 3.264 1850.7 5.56 ×
+> LaBraM 212.9 9.429 3576.7 10 .75 ×
+> EEGPT 151.2 4.425 1022.1 3.07 ×
+> EvolveGCN 72.89 0.691 62.3 0.19 ×
+> DCRNN 240.2 3.869 71.2 0.21 ×
+> GraphS4mer 30.29 0.181 340.4 1.02 ×
+> GRU-GCN 31.13 2.340 4605.5 13 .84 ×
+> EvoBrain 57.99 4.781 3981.7 11 .96 ×
+> HyBrain ( 𝐸 ℎ=1) 29.10 0.216 332.2 1.00 ×
+> HyBrain ( 𝐸 ℎ=2) 29.70 0.219 332.5 1.00 ×
+> HyBrain ( 𝐸 ℎ=3) 30.32 0.218 332.8 1.00 ×
+
+the hyperedge aggregation, not the backbone, is the critical com-ponent. This supports the efficiency-effectiveness argument in Section 3.6: its value scales with the channel-time grid, and the PMA readout alone cannot replace it. 
+
+## 5.2 Effectiveness of HyBrain 
+
+Table 6 and Figure 3 examine the accuracy-efficiency trade-off on TUSZ 60 s detection, where HyBrain achieves state-of-the-art performance. Excluding LSTM as a basic recurrent baseline, only GraphS4mer matches HyBrain’s efficiency on both axes (1 .00 × time, 1 .02 × memory, relative to HyBrain ( 𝐸 ℎ =3)). Every other baseline is substantially worse than HyBrain on at least one of the two axes. The largest gaps appear in the edge-stream dynamic-GNN baselines, where the edge-level temporal model is the dominant memory bottleneck. As Section 3.6 explains, GRU-GCN and EvoBrain must retain one edge activation per pairwise edge at every time step, whereas HyBrain bypasses dy-namic graph construction entirely and stores only one member-ship weight per token-hyperedge pair. Empirically, the measured total GPU memory ratios are 13 .84 × (GRU-GCN) and 11 .96 ×
+
+(EvoBrain). The same bottleneck appears at inference time: Hy-Brain reduces per-segment latency by up to 95.5% relative to these edge-stream baselines. Large pretrained encoders (BIOT, LaBraM, EEGPT) are both memory-intensive (3 .07–10 .75 ×) and slow to train (2 .84–7 .02 ×). The lighter dynamic-GNN baselines, EvolveGCN and DCRNN, use less memory than HyBrain (0 .19 ×,0.21 ×), but pay for it with 2 .40 × and 7 .92 × longer training time. Together, these choices yield state-of-the-art AUROC on TUSZ 60 s at substantially lower compute and memory cost than the competitive baselines. 
+
+## 5.3 Visualization: From Pairwise Relations to Spatiotemporal Hyperedges 
+
+Figure 4 visualizes the membership of one learned hyperedge on a TUSZ 60 s clip spanning the preictal → ictal → postictal trajectory. The membership exhibits fluctuating preictal bursts 10 2
+
+Time (s/epoch)   
+
+> 0.70 0.75 0.80 0.85 0.90
+> AUROC
+> 10 210 310 4
+
+Memory (MB) 
+
+> 0.70 0.75 0.80 0.85 0.90
+> AUROC
+> LSTM CNN-LSTM BIOT LaBraM EEGPT EvolveGCN DCRNN GraphS4mer GRU-GCN EvoBrain Ours
+
+Figure 3: Accuracy-efficiency plots on TUSZ 60 s detection, showing AUROC versus training time per epoch (left) and peak GPU memory (right). 
+
+before the annotated onset, transitions to a sustained and spa-tially broad pattern during the ictal interval, and is suppressed after the annotated offset. This three-phase membership pattern constitutes a compact, phase-discriminative signature from a single hyperedge. Figure 5 provides a pairwise EvoBrain visualization for com-parison. EvoBrain represents EEG connectivity through pairwise channel graphs at selected time points, so each visualization shows relations only within a fixed temporal slice. In contrast, HyBrain learns memberships over channel-time tokens, so a sin-gle hyperedge can trace a coordinated spatiotemporal pattern across the preictal, ictal, and postictal trajectory. This represen-tation is more compact than a per-time-step pairwise graph and preserves cross-time structure that pairwise visualizations de-compose. 
+
+## 5.4 Hyperedge Sensitivity 
+
+Figure 6 examines how performance varies with the number of hyperedges 𝐸 ℎ on the TUSZ 60 s detection task. Across 𝐸 ℎ ∈{1, 3, 5, 7, 9}, AUROC remains within [0.868 , 0.908 ] and F1 within 
+
+[0.537 , 0.636 ], with maximum spreads of 0.040 and 0.099. This stability indicates that the seizure-relevant structure on TUSZ is captured by a few coordinated channel-time groups. A single learnable hyperedge ( 𝐸 ℎ = 1) already captures the phase-discriminative behavior shown in Figure 4, and 𝐸 ℎ = 3 gives the best 60 s result within a narrow, stable performance range. This robustness across 𝐸 ℎ supports the efficiency argument in Section 3.6: HyBrain retains global channel-time reach through a low-rank hyperedge representation, so it can model seizure-related coordination without scaling up to many pairwise edges or many latent groups. 
+
+## 6 Conclusion 
+
+We proposed HyBrain, a lightweight encoder that replaces per-time-step pairwise graph construction with a small set of learn-able spatiotemporal hyperedges over channel-time tokens. On TUSZ and CHB-MIT, the same encoder reaches state-of-the-art 
+
+> 8
+
+Preictal         
+
+> FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ
+
+Ictal         
+
+> FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ
+
+Postictal         
+
+> FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ
+
+0.48 0.50 0.52 Hyperedge membership (a) Preictal → ictal → postictal topomap 0 10 20 30 40 50    
+
+> Time (s)
+> FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ
+> Channel
+> preictal ictal postictal
+> 0.46 0.50 0.55
+> Hyperedge membership
+
+(b) Preictal → ictal → postictal heatmap 
+
+Figure 4: Membership of one learned hyperedge on a TUSZ 60 s clip that traverses the full preictal → ictal → postictal trajectory. (a) Per-channel topomaps for each phase. (b) Membership over time. Dashed lines mark the labeled ictal interval. Interictal                         
+
+> FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ
+> Preictal
+> FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ
+> Ictal
+> FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ
+
+Figure 5: EvoBrain’s pairwise EEG connectivity visualiza-tion across interictal, preictal, and ictal states, shown along-side Figure 4 for comparison. 1 3 5 7 9
+
+Eh
+
+0.84 0.86 0.88 0.90 0.92 
+
+> AUROC
+
+1 3 5 7 9
+
+Eh
+
+0.40 0.50 0.60 0.70   
+
+> F1
+> Ours GRU-GCN DCRNN
+
+Figure 6: Sensitivity of HyBrain to the number of hyper-edges 𝐸 ℎ on TUSZ 60 s detection. Left: AUROC. Right: F1. 
+
+AUROC on window-based detection, one-second point-wise de-tection, and preictal seizure prediction. The largest margin ap-pears on long-clip prediction, and HyBrain uses up to an or-der of magnitude less peak GPU memory than the edge-stream dynamic-GNN baselines. A single learned hyperedge remains active across the entire preictal → ictal → postictal trajectory, which indicates that one group embedding suffices to support both detection and prediction. These results indicate that a com-pact spatiotemporal hyperedge formulation can match or exceed edge-stream dynamic GNNs on EEG seizure tasks at substantially lower computational cost, particularly when the seizure-relevant signal is distributed across channels rather than concentrated in clearly separable pairwise relations. 
+
+## A Additional Hyperedge Visualizations 
+
+Across clips and seizure subtypes, we observe the same qualita-tive pattern as in Figure 4. Preictal segments show a mild, laterally focused rise in membership, ictal segments become broadly ac-tive across channels, and postictal segments retain a decaying residual structure that remains distinguishable from the interictal baseline. 
+
+## B Hyperparameters 
+
+For HyBrain, we grid search learning rate {3×10 −4, 5×10 −4, 10 −3, 2×
+
+10 −3 }, weight decay {5×10 −4, 10 −3, 2×10 −3 }, dropout {0.0, 0.1, 0.2},hidden dimension 𝑑 ∈ { 128 , 192 } (the feature width of the Mamba backbone and hyperedge layers), and the temporal-attention gate 
+
+𝛽 ∈ { 0, 1}, selecting by dev AUROC. The selected hidden dimen-sion is 𝑑 = 128 ( 𝑑 = 192 for 12 s window detection on both datasets), with 𝛽 = 1 for detection and 𝛽 = 0 for prediction. The learning rate is 10 −3 (5 ×10 −4 for CHB-MIT 12 s window detec-tion and 3 ×10 −4 for 12 s point-wise detection), and the weight decay is 5 ×10 −4. Dropout is 0 .2 on TUSZ and 0 .1 on CHB-MIT for window-based detection, and 0 .0 otherwise. All models are trained with Adam and gradient clipping 5 for up to 40 epochs, with early stopping on dev AUROC using patience 5. Training batch sizes are 128 for TUSZ 12 s window detection, 64 for pre-diction, and 32 otherwise, and the test batch size is 64. 
+
+## References 
+
+[1] Nabeel Ahammad, Thasneem Fathima, and Paul Joseph. 2014. Detection of epileptic seizure event and onset using EEG. BioMed research international 
+
+2014, 1 (2014), 450573. [2] David Ahmedt-Aristizabal, Tharindu Fernando, Simon Denman, Lars Peters-son, Matthew J Aburn, and Clinton Fookes. 2020. Neural memory networks for seizure type classification. In 2020 42nd Annual International Conference of the IEEE Engineering in Medicine & Biology Society (EMBC) . IEEE, 569–575. [3] Gregory K Bergey, Martha J Morrell, Eli M Mizrahi, Alica Goldman, David King-Stephens, Dileep Nair, Shraddha Srinivasan, Barbara Jobst, Robert E Gross, Donald C Shields, et al. 2015. Long-term treatment with responsive brain stimulation in adults with refractory partial seizures. Neurology 84, 8 (2015), 810–817. [4] Hsiang-Han Chen and Vladimir Cherkassky. 2020. Performance metrics for online seizure prediction. Neural Networks 128 (2020), 22–32. [5] Eli Chien, Chao Pan, Jianhao Peng, and Olgica Milenkovic. 2022. You are allset: A multiset function framework for hypergraph neural networks. In 
+
+ICLR .[6] Ian C Covert, Balu Krishnan, Imad Najm, Jiening Zhan, Matthew Shore, John Hixson, and Ming Jack Po. 2019. Temporal graph convolutional networks for automatic seizure detection. In Machine learning for healthcare conference .PMLR, 160–180. [7] Jeff Craley, Christophe Jouny, Emily Johnson, David Hsu, Raheel Ahmed, and Archana Venkataraman. 2022. Automated seizure activity tracking and onset zone localization from scalp EEG using deep neural networks. PloS one 17, 2 (2022), e0264537. 
+
+> 9
+
+Preictal 
+
+FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ 
+
+Ictal 
+
+FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ 
+
+0.48 0.50 0.52 Hyperedge membership (a) Preictal → ictal topomap (clip 359) 0 10 20 30 40 50 
+
+Time (s)   
+
+> FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ
+> Channel
+> preictal ictal
+> 0.47 0.51 0.55
+> Hyperedge membership
+
+(b) Preictal → ictal heatmap (clip 359) Preictal 
+
+FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ 
+
+Ictal 
+
+FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ 
+
+0.48 0.50 0.52 Hyperedge membership 
+
+(c) Preictal → ictal topomap (clip 3907) 0 10 20 30 40 50 
+
+Time (s)   
+
+> FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ
+> Channel
+> preictal ictal
+> 0.46 0.51 0.55
+> Hyperedge membership
+
+(d) Preictal → ictal heatmap (clip 3907) Ictal 
+
+FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ 
+
+Postictal 
+
+FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ 
+
+0.48 0.50 0.52 Hyperedge membership 
+
+(e) Ictal → postictal topomap (clip 547) 0 10 20 30 40 50 
+
+Time (s)  
+
+> FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ
+> Channel
+> ictal postictal
+
+0.46 0.50 0.54  
+
+> Hyperedge membership
+
+(f) Ictal → postictal heatmap (clip 547) Ictal 
+
+FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ 
+
+Postictal 
+
+FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ 
+
+0.48 0.50 0.52 Hyperedge membership 
+
+(g) Ictal → postictal topomap (clip 3937) 0 10 20 30 40 50 
+
+Time (s)   
+
+> FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ
+> Channel
+> ictal postictal
+> 0.46 0.51 0.55
+> Hyperedge membership
+
+(h) Ictal → postictal heatmap (clip 3937) Ictal 
+
+FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ 
+
+Postictal 
+
+FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ 
+
+0.48 0.50 0.52 Hyperedge membership 
+
+(i) Ictal → postictal topomap (clip 4303) 0 10 20 30 40 50 
+
+Time (s)   
+
+> FP1 FP2 F3 F4 C3 C4 P3 P4 O1 O2 F7 F8 T3 T4 T5 T6 FZ CZ PZ
+> Channel
+> ictal postictal
+> 0.46 0.50 0.55
+> Hyperedge membership
+
+(j) Ictal → postictal heatmap (clip 4303) 
+
+Figure 7: Additional learned-hyperedge visualizations on TUSZ 60 s test clips. Rows (a)-(b) and (c)-(d) show preictal →
+
+ictal transitions; rows (e)-(f), (g)-(h), and (i)-(j) show ictal → postictal transitions. In every preictal → ictal example, the membership rises sharply across channels before or at the annotated onset; in every ictal → postictal example, the membership decays through the annotated offset. 10 [8] Jonathan Dan, Una Pale, Alireza Amirshahi, William Cappelletti, Thorir Mar Ingolfsson, Xiaying Wang, Andrea Cossettini, Adriano Bernini, Luca Benini, Sándor Beniczky, et al. 2025. SzCORE: A seizure community open-source research evaluation framework for the validation of EEG-based automated seizure detection algorithms. Epilepsia 66, S3 (2025), 14–24. [9] Orrin Devinsky, Dale C Hesdorffer, David J Thurman, Samden Lhatoo, and George Richerson. 2016. Sudden unexpected death in epilepsy: epidemiology, mechanisms, and prevention. The Lancet Neurology 15, 10 (2016), 1075–1088. [10] Jerome Engel. 2013. Seizures and epilepsy . Vol. 83. Oxford University Press. [11] Yifan Feng, Haoxuan You, Zizhao Zhang, Rongrong Ji, and Yue Gao. 2019. Hypergraph neural networks. In AAAI .[12] Kais Gadhoumi, Jean-Marc Lina, Florian Mormann, and Jean Gotman. 2016. Seizure prediction for therapeutic devices: A review. Journal of neuroscience methods 260 (2016), 270–282. [13] Jianfei Gao and Bruno Ribeiro. 2022. On the equivalence between temporal and static equivariant graph representations. In ICML .[14] Albert Gu and Tri Dao. 2023. Mamba: Linear-time sequence modeling with selective state spaces. arXiv preprint arXiv:2312.00752 (2023). [15] Albert Gu, Karan Goel, and Christopher Ré. 2022. Efficiently modeling long sequences with structured state spaces. In ICLR .[16] Sepp Hochreiter and Jürgen Schmidhuber. 1997. Long short-term memory. 
+
+Neural computation 9, 8 (1997), 1735–1780. [17] Wei-Bang Jiang, Liming Zhao, and Bao-Liang Lu. 2024. Large brain model for learning generic representations with tremendous EEG data in BCI. In ICLR .[18] Rikuto Kotoge, Zheng Chen, Tasuku Kimura, Yasuko Matsubara, Takufumi Yanagisawa, Haruhiko Kishima, and Yasushi Sakurai. 2025. Evobrain: Dy-namic multi-channel eeg graph modeling for time-evolving brain networks. 
+
+Advances in Neural Information Processing Systems 38 (2025), 144514–144543. [19] Levin Kuhlmann, Klaus Lehnertz, Mark P Richardson, Björn Schelter, and Hitten P Zaveri. 2018. Seizure prediction—ready for a new era. Nature Reviews Neurology 14, 10 (2018), 618–630. [20] Vernon J Lawhern, Amelia J Solon, Nicholas R Waytowich, Stephen M Gordon, Chou P Hung, and Brent J Lance. 2018. EEGNet: a compact convolutional neural network for EEG-based brain–computer interfaces. Journal of neural engineering 15, 5 (2018), 056013. [21] Juho Lee, Yoonho Lee, Jungtaek Kim, Adam Kosiorek, Seungjin Choi, and Yee Whye Teh. 2019. Set transformer: A framework for attention-based permutation-invariant neural networks. In International conference on machine learning . PMLR, 3744–3753. [22] Menghang Li, Min Qiu, Li Zhu, and Wanzeng Kong. 2023. Feature hypergraph representation learning on spatial-temporal correlations for EEG emotion recognition. Cognitive Neurodynamics 17, 5 (2023), 1271–1281. [23] Yaguang Li, Rose Yu, Cyrus Shahabi, and Yan Liu. 2018. Diffusion Convolu-tional Recurrent Neural Network: Data-Driven Traffic Forecasting. In ICLR .[24] Florian Mormann, Ralph G Andrzejak, Christian E Elger, and Klaus Lehnertz. 2007. Seizure prediction: the long and winding road. Brain 130, 2 (2007), 314–333. [25] Aldo Pareja, Giacomo Domeniconi, Jie Chen, Tengfei Ma, Toyotaro Suzu-mura, Hiroki Kanezashi, Tim Kaler, Tao Schardl, and Charles Leiserson. 2020. Evolvegcn: Evolving graph convolutional networks for dynamic graphs. In 
+
+AAAI .[26] Khaled Saab, Jared Dunnmon, Christopher Ré, Daniel Rubin, and Christopher Lee-Messer. 2020. Weak supervision as an efficient approach for automated seizure detection in electroencephalography. NPJ digital medicine 3, 1 (2020), 59. [27] Vinit Shah, Eva Von Weltin, Silvia Lopez, James Riley McHugh, Lillian Veloso, Meysam Golmohammadi, Iyad Obeid, and Joseph Picone. 2018. The temple university hospital seizure detection corpus. Frontiers in neuroinformatics 12 (2018), 83. [28] Ali Hossam Shoeb. 2009. Application of machine learning to epileptic seizure onset detection and treatment . Ph. D. Dissertation. Massachusetts Institute of Technology. [29] Siyi Tang, Jared A Dunnmon, Qu Liangqiong, Khaled K Saab, Tina Baykaner, Christopher Lee-Messer, and Daniel L Rubin. 2023. Modeling multivariate biosignals with graph neural networks and structured state space models. In 
+
+Conference on health, inference, and learning . PMLR, 50–71. [30] Siyi Tang, Jared A Dunnmon, Khaled Saab, Xuan Zhang, Qianying Huang, Florian Dubost, Daniel L Rubin, and Christopher Lee-Messer. 2021. Self-supervised graph neural networks for improved electroencephalographic seizure analysis. arXiv preprint arXiv:2104.08336 (2021). [31] Nhan Duy Truong, Anh Duy Nguyen, Levin Kuhlmann, Mohammad Reza Bonyadi, Jiawei Yang, Samuel Ippolito, and Omid Kavehei. 2018. Convolu-tional neural networks for seizure prediction using intracranial and scalp electroencephalogram. Neural networks 105 (2018), 104–111. [32] Guagnyu Wang, Wenchao Liu, Yuhong He, Cong Xu, Lin Ma, and Haifeng Li. 2024. Eegpt: Pretrained transformer for universal and reliable representation of eeg signals. NeurIPS (2024). [33] Scott B Wilson, Mark L Scheuer, Cheryl Plummer, Bryan Young, and Steve Pacia. 2003. Seizure detection: correlation of human experts. Clinical Neuro-physiology 114, 11 (2003), 2156–2164. [34] M Winterhalder, T Maiwald, HU Voss, R Aschenbrenner-Scheibe, J Timmer, and A Schulze-Bonhage. 2003. The seizure prediction characteristic: a general framework to assess and compare seizure prediction methods. Epilepsy & Behavior 4, 3 (2003), 318–325. [35] Naganand Yadati, Madhav Nimishakavi, Prateek Yadav, Vikram Nitin, Anand Louis, and Partha Talukdar. 2019. Hypergcn: A new method for training graph convolutional networks on hypergraphs. Advances in neural information processing systems 32 (2019). [36] Chaoqi Yang, M Westover, and Jimeng Sun. 2023. Biot: Biosignal transformer for cross-data learning in the wild. NeurIPS (2023).
