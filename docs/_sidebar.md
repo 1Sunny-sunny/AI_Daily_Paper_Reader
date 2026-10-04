@@ -1,6 +1,10 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-10-05 <!--dpr-date:20261005-->
+    * <a class="dpr-sidebar-brief-link" href="#/202610/05/README">📝 今日简报</a>
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202610/05/2610.00746v1-meg-mamba-a-scalable-state-space-foundation-model-for-magnetoencephalography" data-sidebar-item="{&quot;title&quot;: &quot;MEG-Mamba: A Scalable State-Space Foundation Model for Magnetoencephalography&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2610.00746v1-meg-mamba-a-scalable-state-space-foundation-model-for-magnetoencephalography&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;非侵入式MEG脑活动的生成式基础模型&quot;}">MEG-Mamba: A Scalable State-Space Foundation Model for Magnetoencephalography</a>
   * 2026-10-04 <!--dpr-date:20261004-->
     * <a class="dpr-sidebar-brief-link" href="#/202610/04/README">📝 今日简报</a>
     * 精读区
