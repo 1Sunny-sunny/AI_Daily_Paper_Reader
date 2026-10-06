@@ -1,0 +1,3444 @@
+Preprint
+ZEROMAG:
+ZERO-SHOT
+MULTIMODAL
+ADAPTER
+GENERATION FOR PLUG-AND-PLAY EEG FOUNDA-
+TION MODELS
+Yubo Wang1,2, Jingying Ma3, Xinliang Zhou2,
+Yangxuan Zhou4, Jiquan Wang4, Sha Zhao4, Yiyuan Yang5,
+Yi Ding6, Ziyu Jia7, Chenyu Liu6, Cuntai Guan6
+1Brown University
+2Stanford University
+3National University of Singapore
+4Zhejiang University
+5Department of Computer Science, University of Oxford
+6Nanyang Technological University
+7Institute of Automation, Chinese Academy of Sciences
+ABSTRACT
+EEG foundation models (EFMs) capture reusable knowledge from large-scale
+EEG data, while many EEG recordings also include companion physiological
+signals that provide complementary information beyond the EEG-only interface.
+The challenge is to preserve this pretrained knowledge while extending the EFM
+to heterogeneous multimodal recordings through an adaptation inferred from un-
+labeled target data.
+We introduce ZeroMAG, a zero-shot multimodal adapter
+generation framework that extends a frozen EEG encoder and prediction head
+using unlabeled target recordings, without target labels or target-side optimiza-
+tion.
+The target datasets are held out from all model training and selection
+in the ZeroMAG pipeline. ZeroMAG organizes companion modalities around
+a configuration-invariant adapter, constructs a modality–subject–task condition
+from unlabeled recordings and task context, and generates adapter weights in a
+function-constrained latent space learned from source adapters. Across six held-
+out target datasets and three EFM backbones, ZeroMAG improves balanced ac-
+curacy by 7.22 percentage points over EEG-only inference and 4.89 points over
+direct weight regression, while coming within 0.50 points of supervised multi-
+modal adaptation on average. Ablations further show that removing functional
+supervision from either representation learning or conditional generation degrades
+generated-adapter performance, confirming the contribution of both components.
+1
+INTRODUCTION
+Electroencephalography (EEG) is a non-invasive and widely used modality across clinical, cogni-
+tive, and brain–computer interface applications (Craik et al., 2019; Wolpaw et al., 2002; Lee et al.,
+2025). Its large and growing body of mostly unlabeled recordings has enabled EEG foundation
+models (EFMs) that learn reusable representations across downstream tasks (Kuruppu et al., 2025;
+Jiang et al., 2024; Wang et al., 2025; 2024a; Ma et al., 2026; Zhou et al., 2025).
+EEG is increasingly recorded alongside companion signals that capture complementary physiolog-
+ical information, such as eye movements, muscle activity, and cardiac dynamics (Fig. 1(a)). Be-
+tween 2016 and 2024, at least 124 deep learning studies combined EEG with EOG, EMG, ECG, or
+GSR (Lee et al., 2025), and concurrent EEG–fNIRS studies increased markedly after 2016 (Yeung
+& Chu, 2022); yet the number and type of available signals vary widely across datasets (Fig. 1(b)).
+A common approach to exploiting these signals is multimodal physiological or general time-series
+foundation models (Thapa et al., 2024; Zhang et al., 2024; Fu et al., 2025). However, this often
+means training a new multimodal backbone instead of reusing the strong EEG representations al-
+ready learned by existing EFMs, while also fixing the supported modality set in advance. Adapting
+an existing EFM is cheaper, but new recordings often arrive unlabeled because annotation requires
+expert review, making supervised adaptation for each target dataset impractical. Label-free adapta-
+1
+arXiv:2610.03546v1  [cs.LG]  2 Oct 2026
+
+
+Preprint
+Sleep
+Staging
+95.8%
+4.2%
+Emotion
+Recognition
+94.1%
+5.9%
+Cognitive
+Load
+88.9%
+11.1%
+Clinical
+Diagnosis
+71.4%
+28.6%
+Motor
+Imagery
+66.7%
+33.3%
+0%
+25%
+50%
+75%
+100%
+Modalities in Dataset
+1
+2
+3
+4
+≥5
+BCI
+Control
+61.8%
+38.2%
+0%
+100%
+18
+Respiration
+12
+EOG
+10
+EMG
+8
+ECG
+7
+ACC
+6
+GSR
+ocular activity
+muscle tone
+sympathetic
+arousal
+EEG
+brain activity
+movement
+context
+breathing
+dynamics
+cardiac-
+autonomic
+state
++
++ +
++
++
++
+EEG-only
+Multimodal
+75.83
+83.59
+75.94
+83.67
+76.57
+84.44
+84.62
+83.27
+72.78
+80.29
+73.31
+80.83
+72.95
+80.43
+81.05
+80.01
+74.29
+82.03
+75.89
+83.74
+77.24
+85.25
+85.50
+81.61
+40.62
+44.83
+41.38
+45.74
+41.52
+45.84
+46.04
+44.48
+73.38
+80.99
+75.38
+83.08
+76.62
+84.51
+84.81
+80.54
+76.61
+84.47
+75.96
+84.60
+76.77
+84.65
+84.93
+84.09
+ZEROMAG + REFERENCE MODELS
+ZeroMAG
+ISRUC-S3
+HMC
+MASS
+SEED-V
+EEGMAT
+FoG
+Balanced accuracy (%) on six
+held-out target datasets
+Growth Over Time
+Number of multimodal EEG
+studies (per year)
+43%
+22%
+10%
+5%
+20%
+EEG-only
+0
+10
+20
+30
+40
+50
+60
+4
+2014
+6
+2016
+8
+2018
+19
+2020
+33
+2022
+58
+2024
+(c)
+CBraMod(+ZeroMAG)
+CSBrain(+ZeroMAG)
+CodeBrain(+ZeroMAG)
+SleepFM
+PhysioOmni
+Cross-Dataset Performance
+(a) Physiological Complementarity
+(b) Multimodal EEG Landscape
+Multimodal Prevalence by Task
+Number of datasets containing each modality
+EOG
+EMG
+ECG
+ACC
+GSR/EDA
+Respiration
+84.62
+84.44
+Why not leverage such powerful 
+auxiliary modal information?
+Multimodal is a current trend 
+ within EEG research community.
+Figure 1:
+Multimodal EEG landscape and representative results. (a) Physiological information
+captured by common companion signals. (b) Publication trends, task-wise multimodal prevalence,
+and companion modality availability, based on prior surveys (Lee et al., 2025; Yeung & Chu, 2022).
+(c) Balanced accuracy on six held-out target datasets, comparing three EFM backbones with and
+without ZeroMAG against SleepFM and PhysioOmni.
+tion can avoid target labels, but typically still requires target-side optimization (Liang et al., 2020;
+Wang et al., 2021). This raises the central question of this work:
+Can multimodal capabilities be added to an existing EFM without target-side training?
+Answering this question requires addressing three challenges.
+C1: Heterogeneous modality configurations. EEG datasets differ in their companion signals:
+sleep recordings often include EOG and EMG, whereas emotion-recognition datasets may include
+eye movement. An adapter must accommodate these differences while allowing the available signals
+to contribute complementary information. The challenge is to accommodate arbitrary configurations
+across datasets within a single unified framework, without per-dataset redesign.
+C2: Adaptation needs are target-dependent but labels are often unavailable. Even with the
+same companion signals, the appropriate adaptation differs across datasets and prediction tasks,
+so it must be determined for each target. However, target labels are usually unavailable because
+annotation is costly and requires expert review. The challenge is therefore to infer the target-specific
+adaptation from unlabeled recordings together with the task context.
+C3: Parameter reconstruction does not ensure functional consistency. The generator is trained
+to reproduce adapters fitted on the source datasets. Two adapters with similar weights can still make
+different predictions, because the output is much more sensitive to some parameters than to others.
+A generator trained only to minimize parameter error may therefore produce adapters that are close
+to the targets in weight space but behave differently. The challenge is to make the generated adapters
+agree with the source adapters in their predictions.
+To address these challenges, we propose ZeroMAG, which treats multimodal extension as personal-
+ized parameter generation: given unlabeled target recordings and task context, it directly generates a
+target-specific adapter while keeping the EFM fixed. A configuration-invariant adapter organizes
+reusable modality-specific blocks around a fixed EEG anchor (C1); a modality–subject–task condi-
+tion captures target-specific information without dataset identifiers (C2); and function-constrained
+generation maps this condition to adapter parameters through a block-aligned latent space learned
+from fitted source adapters (C3).
+2
+
+
+Preprint
+Across six held-out target datasets and three EFM backbones, ZeroMAG improves balanced accu-
+racy by 7.22 and 4.89 percentage points over EEG-only inference and direct weight regression,
+respectively, while coming within 0.50 points of supervised multimodal adaptation on average,
+and remains competitive with multimodal foundation models that require multimodal pretraining
+(Fig. 1(c)).
+2
+PRELIMINARIES
+2.1
+EEG FOUNDATION MODEL
+Let XEEG denote an EEG sample. An EEG foundation model consists of an encoder f(·) and a
+prediction head h(·), so that
+Z = f(XEEG),
+L = h(Z) ∈RK,
+(1)
+where Z is the EEG representation, L the corresponding prediction logits, and K the number of
+classes. We directly load the EFM encoder checkpoint and pair it with the compatible prediction
+head trained on source data for the supported task. Both f and h remain frozen during source adapter
+fitting, both generator-training stages, and target inference.
+2.2
+ADAPTER-BASED MULTIMODAL INTEGRATION
+Let A denote the available companion physiological modalities, with corresponding signals XA =
+{Xm}m∈A. To incorporate these signals without modifying the EFM, an adapter a(·; ω) is inserted
+between f(·) and h(·):
+ZA = a
+ Z, XA; ω
+
+,
+LA = h
+ ZA
+,
+(2)
+where ω ∈RP (A) denotes the adapter parameters, ZA the multimodal representation, and LA the
+prediction logits returned by the frozen head h(·).
+2.3
+PROBLEM FORMULATION
+Given a frozen EFM, we aim to adapt it to downstream datasets with a single framework. These
+datasets differ in which modalities they record and in the tasks they target, so each one requires a
+different adaptation. We formulate this problem through three objectives.
+C1: Define a unified adapter architecture. Let M denote the set of companion physiological
+modalities. The adapter should maintain a shared internal organization consisting of modality-
+specific parameters and shared parameters:
+ω =
+ {ωm}m∈A, ωsh
+,
+a
+ Z, XA; {ωm}m∈A, ωsh
+,
+∀A ⊆M.
+(3)
+Only the modality-specific components associated with m ∈A participate for a given configuration,
+while the overall adapter organization remains unchanged.
+C2:
+Define a label-free mapping from target data to adapter parameters.
+Let R
+=
+{(XEEG
+i
+, XA
+i )}i denote the unlabeled target samples, and let τ denote the prediction task associated
+with the frozen EFM. We seek a generator
+g : (R, τ) 7→bω ∈RP (A),
+(4)
+where bω denotes the generated adapter parameters. The generator does not use target labels or
+dataset identifiers.
+C3: Learn the generator from source reference adapters.
+Let S be a set of source triples
+(R, τ, ω∗), where ω∗is a reference adapter fitted on labeled source data. The generator is trained so
+that its outputs match these references in both parameters and predictions through the frozen EFM:
+min
+g
+E(R,τ,ω∗)∼S
+h
+∥g(R, τ) −ω∗∥2 + λ δfun(ω∗, g(R, τ))
+i
+,
+(5)
+where δfun measures the discrepancy between the predictions induced by two adapters through the
+same frozen EFM. At deployment, g produces the target adapter in a single forward pass, without
+any target-side optimization.
+3
+
+
+Preprint
+EFM
+DiT
+MoE
+Decoder
+Condition
+Extractor
+Prediction Head
+  Diffusion 
+ Generator
+Noise
+VAE
+Encoder
+   Router  
+MoE
+Decoder
+…
+Unified Condition
+Subject
+Extractor
+ 
+Modality 
+Extractor
+ Task 
+Extractor
+Coordinator
+Temporal
+Spectral
+Projection
+Adapter
+Adapter Latent
+Noised
+Latent
+…
+DiT
+ 
+Coord. 
+Expert Space
+Decoder
+Subject
+Modality
+Task
+Timestep
+Temp. Spec. 
+Temp. Spec. 
+Proj. 
+Proj. 
+Coord.
+Temp. 
+Spec. 
+ 
+Adapter
+Framework Overview
+Companion signals
+Concat
+Projection
+ Dataset (EEG+N) 
+Zero-Shot Multimodal 
+  Adapter Generation 
+Coordinator
+SMT
+SMT
+Adapter
+Block-wise Adapter View
+Data Input
+Unseen Data 
+ 
+Spectral
+Temporal
+Plug
+SMT
+Data Pair
+Condition
+ 
+Parameter space
+Latent space
+VAE
+Encoder
+Proj.
+Coord.
+Temp. Spec.
+ProjectionCoordinator
+Temporal
++
+Spectral
+Legend
+Data flow
+Parameter flow
+Condition modules
+Adapter / latents
+DiT / MoE modules
+Foundation model (EFM)
+Frozen
+Trainable
+Patchify
+(block-wise)
+Tokenization
+  Condition Fusion
+Unified Condition Construction
+2
+ 
+  Multimodal Adapter Architecture
+1
+Latent VAE Encoder
+…
+…
+Latent MoE Decoder
+Adapter Generator Training
+3
+Figure 2: Overview of ZeroMAG. The framework combines a configuration-invariant multimodal
+adapter, target-derived condition construction, and function-constrained conditional generation for
+zero-shot adapter synthesis.
+3
+METHODOLOGY
+3.1
+FRAMEWORK OVERVIEW
+Given an unseen multimodal recording and a supported prediction task, ZeroMAG generates a plug-
+in adapter that adds multimodal capability to a frozen EFM without target labels or target-side opti-
+mization. As illustrated in the upper part of Fig. 2, unlabeled target samples are first encoded into a
+recording-specific condition. This condition guides adapter generation in a learned latent space, and
+a frozen decoder maps the generated latent representation to adapter parameters:
+bω = d
+ sθ
+ ϵ, Econd
+ Rcond, τ; ξ
+
+; ψ
+
+,
+ϵ ∼N(0, I).
+(6)
+Here, Rcond is the unlabeled conditioning subset, τ specifies the task. The condition extractor Econd,
+conditional diffusion sampler sθ, and decoder d are parameterized by ξ, θ, and ψ, respectively; ϵ
+is the initial Gaussian noise. The sampler sθ runs 50 deterministic DDIM steps (Song et al., 2020)
+with the conditional denoiser ϵθ of Sec. 3.4.
+The adapter architecture (Sec. 3.2) defines what is generated, the target condition (Sec. 3.3) speci-
+fies what to adapt to, and the two-stage procedure (Sec. 3.4) learns a structured adapter space and
+conditionally generates within it.
+3.2
+MULTIMODAL ADAPTER ARCHITECTURE
+Intuition. To generate adapters for heterogeneous modality configurations with a single generator,
+the adapters must share a common parameter structure. Without it, each configuration would require
+its own output space. This suggests a 1+N organization, where the frozen EEG representation serves
+as the invariant anchor and modality-specific companion branches provide configuration-dependent
+extensions.
+4
+
+
+Preprint
+Operationalization. Following the 1+N intuition, we treat the frozen EEG representation as the
+fixed anchor (1) and attach one modality-specific branch for each available companion modality
+(N). Regardless of modality type, each companion branch follows the same integration pathway:
+Temporal–Spectral Encoding, Feature Projection, and Shared Coordination. The first two com-
+ponents extract and align modality-specific features, while the shared coordinator integrates them
+with the EEG representation.
+Temporal–Spectral Encoding. For each available companion modality, a temporal encoder ex-
+tracts patterns from the signal over time, while a spectral encoder processes its frequency-domain
+representation:
+Hm
+temp = T m  Xm; ωm
+temp
+
+,
+Hm
+spec = Sm  FFT(Xm); ωm
+spec
+
+,
+m ∈A.
+(7)
+Here, Hm
+temp and Hm
+spec are temporal and spectral features. The encoders T m and Sm have param-
+eters ωm
+temp and ωm
+spec, respectively, and FFT denotes the fast Fourier transform.
+Feature Projection. The temporal and spectral features are concatenated and mapped into the EFM
+representation space, providing a common interface for heterogeneous companion signals:
+Fm = Pm  Concat
+ Hm
+temp, Hm
+spec
+
+; ωm
+proj
+
+,
+m ∈A.
+(8)
+Here, Pm is the projection block with parameters ωm
+proj, and Concat denotes feature concatenation.
+Its output Fm is the projected feature of modality m.
+Shared Coordination. A shared coordinator K jointly processes the frozen EEG representation and
+available companion features to produce the adapted representation:
+ZA = K
+ Z, {Fm}m∈A ; ωsh
+.
+(9)
+Here, ωsh denotes the shared coordinator parameters. Together, these components define the adapter
+mapping a(Z, XA; ω). Only available companion branches are evaluated, while the block schema
+and functional block identities remain fixed, satisfying C1.
+3.3
+UNIFIED CONDITION CONSTRUCTION
+Intuition. At deployment, the source-trained generator infers the adapter from unlabeled target
+recordings and the supported task.
+Modality information alone cannot distinguish these cases:
+recordings with the same modalities may exhibit different subject-specific physiology, while the
+same physiological information may serve different prediction tasks. This suggests conditioning
+adapter generation on modality, subject, and task information.
+Operationalization. Following this intuition, the condition encoder Econd builds one factor for each
+source of variation (modality, subject, and task) and combines them through a fusion module Fcond:
+C = Econd
+ Rcond, τ; ξ
+
+= Fcond ([Cmod; Csub; Cτ]) .
+(10)
+Here, Rcond denotes the unlabeled target subset used for condition construction, τ specifies the
+prediction task, and C is the resulting target condition. Cmod, Csub, and Cτ denote the modality,
+subject, and task factors, respectively, while ξ contains all trainable parameters of Econd.
+Factor Construction. Let i index samples in Rcond. For each modality m ∈{EEG} ∪A, Vm
+i
+denotes its sample-level feature and Vm the corresponding recording-level feature. The three factors
+are constructed as
+Cmod = Fmod
+
+{Vm + em
+mod}m∈{EEG}∪A
+
+,
+Csub = Fsub
+
+qsub, {Vm
+i }m∈{EEG}∪A, i
+
+,
+Cτ = Etask(τ).
+(11)
+Here, Fmod is permutation-invariant set pooling (Zaheer et al., 2017) over recording-level features
+tagged with learned modality embeddings em
+mod; Fsub is attention pooling (Vaswani et al., 2017)
+of all sample-level features with a learned, task-independent query qsub; and Etask is a learned
+embedding of the supported task. All are part of ξ; details and invariance properties are given in
+Appendix B.
+5
+
+
+Preprint
+3.4
+ADAPTER GENERATOR TRAINING
+Intuition. Fitted reference adapters reveal how heterogeneous blocks can be jointly configured to
+work with the frozen EFM. Their shared architecture and fitting objective suggest that these con-
+figurations contain recurring structure, making it unnecessary to model every degree of freedom in
+the raw weight space. Learning a compact, block-aligned representation can capture this structure
+while retaining the distinct roles and dependencies of adapter components. Conditional generation
+can then focus on variations within this learned representation, while functional supervision keeps
+both the decoded and the generated adapters in predictive agreement with their references.
+Operationalization. We implement this design in two stages: function-preserving representation
+learning followed by function-constrained conditional generation. Both use the functional discrep-
+ancy δfun introduced in C3, which we evaluate on a source subset Rfun held out from reference-
+adapter fitting:
+δfun(ω, ω′) =
+1
+|Rfun|
+X
+ri∈Rfun
+DKL
+ σ(LA
+i (ω))
+ σ(LA
+i (ω′))
+
+,
+(12)
+where LA
+i (ω) denotes the logits of sample ri produced with adapter parameters ω, and σ denotes
+softmax. This label-free measure compares two adapters solely through the predictions they induce
+in the same frozen EFM.
+3.4.1
+STAGE 1: FUNCTION-PRESERVING REPRESENTATION LEARNING
+Block-Wise Latent Encoding. Let ω∗= [ω∗
+b]B
+b=1 denote a fitted reference adapter partitioned into
+the functional blocks of Sec. 3.2. A VAE encoder maps each block to a latent token Ub,pre, which
+is combined with a learned block embedding Eb and contextualized by a cross-block transformer
+(CBT):
+U = CBT
+ [Ub,pre + Eb]B
+b=1
+
+,
+(13)
+whose b-th token is denoted Ub. We denote the resulting stochastic encoder by e(·; η).
+MoE Decoding. To share capacity across heterogeneous block types while respecting their distinct
+output forms, each token is routed to shared experts {rj} according to its content and block identity,
+followed by a block-type-specific output head:
+πb = softmax(route([Ub; Eb]; ψr)) ,
+eωb = headtype(b)
+
+
+X
+j∈TopK(πb)
+πb,jrj(Ub)
+
+,
+(14)
+where type(b) ∈{temp, spec, proj, shared}. Collectively, the decoder gives eω = d(U; ψ).
+Function-Preserving Reconstruction. Since parameter reconstruction alone does not guarantee
+that adapter behavior is preserved, Stage 1 combines parameter-level and function-level objectives:
+LAE = Lblk + λcosLcos + λfunδfun(ω∗, eω) + βLKL + λbalLbal,
+(15)
+where Lblk and Lcos reconstruct adapter parameters, δfun preserves predictive behavior, LKL reg-
+ularizes the latent posterior, and Lbal balances expert utilization. After training, the encoder and
+decoder are frozen, and U0 = e(ω∗; η), obtained by contextualizing posterior means, serves as the
+deterministic target latent for Stage 2.
+3.4.2
+STAGE 2: FUNCTION-CONSTRAINED CONDITIONAL GENERATION
+Conditional Latent Diffusion.
+For each source triple (R, τ, ω∗),
+a condition C
+=
+Econd(Rcond, τ; ξ) is constructed from an unlabeled subset Rcond ⊆Rfit, where Rfit is the
+subset used to fit ω∗.
+In the frozen Stage 1 latent space, a DiT denoiser (Peebles & Xie,
+2023) ϵθ(Ut, t, C) predicts the noise added to U0. Its prediction yields the clean-latent estimate
+bU0 = (Ut −√1 −¯αt ϵθ)/√¯αt, which the frozen decoder maps to bω = d( bU0; ψ).
+Function-Constrained Generation. The condition encoder and denoiser are jointly optimized by
+Lgen = Ldiff + λlatLlat + λwLw + λgfδfun(ω∗, bω),
+(16)
+6
+
+
+Preprint
+where Ldiff supervises denoising, Llat and Lw align bU0 and bω with their references, and δfun aligns
+predictive behavior, with gradients passing through the frozen decoder. Because the division by
+√¯αt amplifies noise-prediction errors at high noise levels, the latent, weight, and functional terms
+are applied only at low-noise timesteps (Appendix H.1), whereas Ldiff is applied at all timesteps.
+After training, Econd, ϵθ, and d are fixed and realize the label-free mapping of C2 (Eq. (6)).
+4
+EXPERIMENTS
+4.1
+EXPERIMENTAL SETUP
+Datasets and Tasks.
+We evaluate ZeroMAG on a multi-dataset benchmark spanning sleep staging,
+emotion recognition, cognitive load, motor imagery, and freezing-of-gait detection. The recordings
+cover EOG, EMG, ECG, eye movement, acceleration, and skin conductance, including settings
+in which modality combinations or modality types are excluded from generator training. Table 1
+reports results on six target datasets that are disjoint from the source training datasets; FoG is also
+a task-holdout target with no source adapter for its task. Task coverage, the remaining targets, and
+further analyses are in Appendix C.
+Backbones and Baselines.
+We use three frozen EEG foundation models: CBraMod (Wang et al.,
+2025), CSBrain (Zhou et al., 2025), and CodeBrain (Ma et al., 2026). Each backbone has a sep-
+arately trained generator. ZeroMAG and the target-label-free baselines use the same frozen EEG
+encoder and prediction head. These baselines include EEG-only inference, mean and nearest source
+weights, and Direct MLP. A separate supervised multimodal fine-tuning experiment uses target train-
+ing labels to measure the gap to supervised adaptation on the same query split; it is not part of the Ze-
+roMAG pipeline. PhysioOmni (Fu et al., 2025), SleepFM (Thapa et al., 2024), and Brant-X (Zhang
+et al., 2024) serve as cross-paradigm references.
+Protocol.
+Evaluation uses a dataset-disjoint source–target split: all target datasets are excluded
+from EEG encoder/head training, source adapter fitting, both generator-training stages, and model
+selection. For each target subject, calibration and query subsets are disjoint. ZeroMAG uses only
+unlabeled calibration signals and the supported task to generate an adapter, then predicts on query
+inputs with all model parameters fixed. Query labels are used only to compute evaluation metrics.
+Dataset lists and split details are given in Appendix H.3.
+Metrics and Implementation.
+We report balanced accuracy (B-ACC) averaged over five matched
+seeds. Both stages use AdamW (learning rate 10−4, batch size 64); the CBT and DiT have 2 and 4
+layers of width 256, the decoder uses 4 experts with top-2 routing, and latent tokens have width 128.
+Loss weights are λcos=λlat=λw=0.1, λfun=λgf=1, β=10−4, and λbal=0.01, with the low-noise
+gate ¯αt>0.5. The source bank holds 311 adapters per backbone, and each target subject provides 64
+unlabeled calibration windows. Full settings are in Appendix H (Table H.1).
+4.2
+PERFORMANCE COMPARISON WITH BASELINES
+Comparison with label-free and supervised adaptation.
+ZeroMAG ranks first among target-
+label-free methods in all 18 backbone–dataset evaluations, improving B-ACC on average by 7.22
+points over EEG-only inference, 6.78 over mean source weights, 6.00 over nearest source weights,
+and 4.89 over Direct MLP, the strongest competing generator. Despite using neither target labels nor
+target-side optimization, it remains only 0.38–0.61 points below full-modality supervised tuning in
+every setting (0.50 on average), recovering 93.50% of the supervised gain over EEG-only inference.
+Backbone and cross-paradigm generalization.
+The gain over EEG-only inference is stable
+across CBraMod, CSBrain, and CodeBrain at 7.12, 7.30, and 7.24 points; the range is approxi-
+mately 0.19 points. With CodeBrain, ZeroMAG exceeds SleepFM on all six displayed targets by
+1.85 points on average, trails PhysioOmni by only 0.31 points, and trails Brant-X by 0.80 points on
+average.
+7
+
+
+Preprint
+Table 1: Balanced accuracy (%, mean±std over five seeds) on six held-out target datasets. Within
+each EEG-backbone group, ZeroMAG and the label-free baselines use the same frozen encoder and
+prediction head, without target labels or target-side optimization. Supervised multimodal fine-tuning
+is a separate reference using target training labels and all available modalities. Bold entries indicate
+the best target-label-free result in each group.
+Method
+ISRUC-S3
+HMC
+MASS
+SEED-V
+EEGMAT
+FoG
+CBraMod
+EEG-only
+75.83±0.76
+72.78±0.50
+74.29±0.58
+40.62±1.24
+73.38±2.48
+76.61±1.35
+Supervised tuning
+84.04±0.88
+80.81±0.41
+82.41±0.68
+45.44±1.58
+81.46±1.93
+85.02±1.21
+Mean source weights
+74.31±0.82
+72.93±0.49
+75.91±0.63
+39.83±1.13
+73.52±0.92
+76.73±0.78
+Nearest source weights
+76.63±0.61
+73.18±0.52
+76.35±0.51
+40.68±1.37
+74.63±0.81
+77.52±0.73
+Direct MLP
+76.89±0.73
+73.43±0.55
+77.48±0.65
+40.99±1.05
+75.21±1.02
+78.03±0.62
+ZeroMAG
+83.59±0.59
+80.29±0.42
+82.03±0.52
+44.83±1.22
+80.99±0.81
+84.47±0.72
+CSBrain
+EEG-only
+75.94±0.93
+73.31±0.48
+75.89±0.54
+41.38±1.32
+75.38±2.67
+75.96±1.52
+Supervised tuning
+84.10±1.43
+81.39±0.39
+84.15±0.62
+46.32±1.17
+83.57±1.43
+85.13±1.31
+Mean source weights
+75.42±0.62
+73.51±0.45
+77.72±0.58
+41.75±0.62
+75.91±0.71
+77.08±0.65
+Nearest source weights
+76.74±0.55
+73.82±0.52
+77.98±0.63
+42.28±0.55
+75.83±0.66
+78.73±0.59
+Direct MLP
+79.18±0.71
+74.21±0.48
+80.45±0.72
+42.69±0.48
+78.12±0.58
+80.02±0.52
+ZeroMAG
+83.67±0.61
+80.83±0.52
+83.74±0.83
+45.74±0.44
+83.08±0.71
+84.60±0.65
+CodeBrain
+EEG-only
+76.57±0.73
+72.95±0.49
+77.24±0.51
+41.52±1.46
+76.62±2.83
+76.77±1.26
+Supervised tuning
+84.92±1.61
+80.93±0.38
+85.67±0.58
+46.39±1.34
+85.02±1.63
+85.25±1.33
+Mean source weights
+77.02±0.68
+73.28±0.42
+79.12±0.72
+41.88±0.58
+77.22±0.66
+77.85±0.71
+Nearest source weights
+77.22±0.62
+73.65±0.48
+80.21±0.68
+42.35±0.52
+77.98±0.59
+79.22±0.65
+Direct MLP
+79.92±0.55
+73.92±0.51
+81.65±0.61
+42.87±0.45
+79.28±0.52
+80.55±0.58
+ZeroMAG
+84.44±0.77
+80.43±0.48
+85.25±0.72
+45.84±0.55
+84.51±0.63
+84.65±0.58
+Multimodal physiological models
+PhysioOmni
+84.62±0.63
+81.05±0.42
+85.50±0.65
+46.04±1.32
+84.81±2.13
+84.93±0.53
+SleepFM
+83.27±0.61
+80.01±0.47
+81.61±0.52
+44.48±0.58
+80.54±0.72
+84.09±0.68
+Brant-X
+85.19±0.54
+81.51±0.46
+86.07±0.59
+46.49±0.63
+85.31±0.61
+85.37±0.72
+4.3
+ABLATION STUDY
+We ablate the condition, generator, adapter, and functional supervision while keeping the source
+adapter bank, source training splits, frozen backbone, prediction heads, and evaluation protocol
+fixed. Table 2 reports CBraMod results averaged across all held-out evaluation settings.
+Condition.
+Removing the subject factor and retaining only task and modality information lowers
+B-ACC by 11.09 points. Shuffling subject conditions produces a similarly large 9.24-point drop,
+although the representations retain the same marginal distribution and dimensionality. The condition
+must therefore encode subject-specific information aligned with the target recording.
+Generator.
+Direct weight regression decreases B-ACC by 11.07 points. The modular latent space
+raises B-ACC from 62.34 to 65.23, DiT to 68.34, and the MoE decoder to 73.41.
+Adapter.
+Sharing the modality encoder reduces B-ACC by 4.16 points, removing the spectral
+branch by 8.12 points, and replacing learned coordination with mean fusion by 6.58 points, support-
+ing modality-specific encoding, temporal–spectral processing, and learned fusion.
+Functional supervision.
+Removing functional supervision from Stage 1, Stage 2, or both lowers
+B-ACC by 1.15, 1.58, and 2.87 points. Without the Stage 1 term, reconstruction error falls by 6%
+8
+
+
+Preprint
+Table 2:
+Ablation results with CBraMod, averaged over all nine held-out datasets (% B-ACC,
+mean±std over five seeds). Ablated results are shaded blue, and ∆denotes the decrease from Full
+ZeroMAG in the same run. Ablations use a separate run under the same protocol, so Full differs
+from the Table 1 average.
+Component
+Variant
+B-ACC ↑
+∆↓
+Condition
+Task + modality only
+62.32±0.41
+11.09±0.72
+Shuffled subject condition
+64.17±0.53
+9.24±0.98
+Generator
+Direct weight MLP
+62.34±0.67
+11.07±0.88
+Modular latent MLP
+65.23±0.62
+8.18±0.83
+Modular latent DiT (w/o MoE)
+68.34±0.21
+5.07±0.71
+Adapter
+Shared modality encoder
+69.25±0.33
+4.16±0.81
+Temporal branch only
+65.29±0.72
+8.12±1.03
+Mean fusion
+66.83±0.32
+6.58±0.71
+Functional
+w/o Stage 1 functional
+72.26±0.76
+1.15
+w/o Stage 2 functional
+71.83±0.79
+1.58
+w/o both
+70.54±0.86
+2.87
+Full ZeroMAG
+73.41±0.71
+—
+while prediction KL to the reference adapter rises by 31%: closer parameter reconstruction need not
+yield closer predictions (Appendix G.3).
+4.4
+GENERALIZATION AND EFFICIENCY
+Unseen modalities.
+On unseen combinations of known modalities and modality types in M ex-
+cluded from generator training, ZeroMAG recovers 89.7% and 82.6% of the gain achieved by su-
+pervised multimodal adaptation, respectively. It outperforms mean source transfer, nearest-source
+retrieval, and direct weight regression in both settings.
+Data and target-side efficiency.
+Performance saturates at approximately 64 unlabeled calibration
+windows. Moreover, using only 50% of the source adapter bank retains 97.2% of the full multimodal
+gain. ZeroMAG constructs the condition and generates an adapter in 2 minutes, compared with 15
+minutes for supervised target adaptation under the same hardware and protocol (7.5× faster); offline
+training cost is amortized across targets (Appendix F).
+5
+RELATED WORK
+EEG foundation and multimodal physiological models.
+EEG foundation models provide trans-
+ferable backbones across downstream tasks (Kuruppu et al., 2025; Jiang et al., 2024; Wang et al.,
+2025; 2024a; Yang et al., 2023; Zhang et al., 2023), but largely retain EEG-centered interfaces.
+Prior multimodal physiological work integrates signals through multimodal foundation-model pre-
+training or EEG-to-physiology alignment (Fu et al., 2025; Thapa et al., 2024; Zhang et al., 2024).
+ZeroMAG generates a plug-in adapter for an existing EFM while keeping its encoder and prediction
+head frozen.
+Adaptation and weight generation.
+Parameter-efficient adaptation methods (Houlsby et al.,
+2019; Hu et al., 2022; Lester et al., 2021; Han et al., 2024; Suzumura et al., 2024) still require
+target-side optimization, whereas hypernetworks generate parameters from task descriptors or unla-
+beled prompts (Ha et al., 2017; Karimi Mahabadi et al., 2021; Charakorn et al., 2025; Liang et al.,
+2025). ZeroMAG instead generates a modular physiological adapter from unlabeled target infor-
+mation in a structured latent space. Unlike test-time adaptation (Liang et al., 2023; Wang et al.,
+2021; Liang et al., 2020), deployment requires no pseudo-labels, gradients, or iterative optimization
+(Appendix J.1).
+9
+
+
+Preprint
+6
+CONCLUSION
+We introduced ZeroMAG, a zero-shot framework that extends frozen EFMs to heterogeneous mul-
+timodal recordings through generated plug-in adapters. Combining configuration-invariant adap-
+tation, target-derived conditioning, and function-constrained latent generation, it consistently im-
+proves over target-label-free baselines and approaches supervised multimodal adaptation, requiring
+no target labels or target-side optimization for the added adapter and no repeated multimodal pre-
+training. ZeroMAG relies on a supplied fine-tuned EFM and adequate source-bank coverage, and
+cannot incorporate modality types outside M without retraining.
+10
+
+
+Preprint
+AI USE STATEMENT
+We used ChatGPT, Codex, and Claude to draft, edit, and polish manuscript text; retrieve and ver-
+ify references; prepare and refine figures; organize existing experimental outputs into tables and
+summaries; discuss research framing and related-work positioning; review and optimize auxiliary
+code to reduce repetitive workflow tasks; and check the manuscript for internal consistency. The
+authors made the final research and methodological decisions. AI assistance with code was limited
+to auxiliary workflow tasks; AI tools were not used to design or implement the ZeroMAG method
+or baselines, design the experimental protocol, run experiments, generate or alter experimental mea-
+surements, or interpret the findings. The authors checked AI-assisted text, figures, code-related
+changes, and output summaries against the manuscript and original experiment files, and are re-
+sponsible for the accuracy of all claims, citations, figures, code, and results.
+REPRODUCIBILITY STATEMENT
+Implementation details and hyperparameters are listed in Table H.1; datasets are listed in
+Appendix C, and split details are given in Appendix H.3. An initial implementation snapshot is
+available at https://anonymous.4open.science/r/ZeroMAG-795E/.
+11
+
+
+Preprint
+REFERENCES
+Isabela Albuquerque, Abhishek Tiwari, Mark Parent, Raymundo Cassani, Jean-François Gagnon,
+Daniel Lafond, Sébastien Tremblay, and Tiago H. Falk. WAUC: A multi-modal database for
+mental workload assessment under physical activity. Frontiers in Neuroscience, 14:549524, 2020.
+doi: 10.3389/fnins.2020.549524.
+Diego Alvarez-Estevez and Roselyne M. Rijsman.
+Inter-database validation of a deep learning
+approach for automatic sleep scoring. PLOS ONE, 16(8):e0256111, 2021. doi: 10.1371/journal.
+pone.0256111.
+Marc Bächlin, Meir Plotnik, Daniel Roggen, Inbal Maidan, Jeffrey M. Hausdorff, Nir Giladi, and
+Gerhard Tröster. Wearable assistant for parkinson’s disease patients with the freezing of gait
+symptom. IEEE Transactions on Information Technology in Biomedicine, 14(2):436–446, 2010.
+doi: 10.1109/TITB.2009.2036165.
+Kay H. Brodersen, Cheng Soon Ong, Klaas E. Stephan, and Joachim M. Buhmann. The Balanced
+Accuracy and Its Posterior Distribution. In 2010 20th International Conference on Pattern Recog-
+nition, 2010. doi: 10.1109/ICPR.2010.764.
+Clemens Brunner, Robert Leeb, Gernot R. Müller-Putz, Alois Schlögl, and Gert Pfurtscheller. BCI
+Competition 2008: Graz data set A (data set 2a). BCI Competition IV dataset description, 2008.
+URL https://www.bbci.de/competition/iv/desc_2a.pdf.
+Rujikorn Charakorn, Edoardo Cetin, Yujin Tang, and Robert Tjarko Lange.
+Text-to-LoRA: In-
+stant Transformer Adaption. In Proceedings of the 42nd International Conference on Machine
+Learning, volume 267, pp. 7485–7514. PMLR, 2025. URL https://proceedings.mlr.press/v267/
+charakorn25a.html.
+Jacob Cohen. A Coefficient of Agreement for Nominal Scales. Educational and Psychological
+Measurement, 20(1):37–46, 1960. doi: 10.1177/001316446002000104.
+Alexander Craik, Yongtian He, and Jose L Contreras-Vidal. Deep learning for electroencephalogram
+(EEG) classification tasks: a review. Journal of Neural Engineering, 16(3):031001, 2019. doi:
+10.1088/1741-2552/ab0ab5.
+William Fedus, Barret Zoph, and Noam Shazeer. Switch transformers: Scaling to trillion parameter
+models with simple and efficient sparsity. Journal of Machine Learning Research, 23(120):1–39,
+2022. URL https://www.jmlr.org/papers/v23/21-0998.html.
+Xi Fu, Wei-Bang Jiang, Yi Ding, and Cuntai Guan. Towards Robust Multimodal Physiological
+Foundation Models: Handling Arbitrary Missing Modalities. arXiv preprint arXiv:2504.19596,
+2025. URL https://arxiv.org/abs/2504.19596.
+David Ha, Andrew Dai, and Quoc V. Le. HyperNetworks. In International Conference on Learning
+Representations, 2017. URL https://openreview.net/forum?id=rkpACe1lx.
+Zeyu Han, Chao Gao, Jinyang Liu, Jeff Zhang, and Sai Qian Zhang. Parameter-Efficient Fine-
+Tuning for Large Models: A Comprehensive Survey. arXiv preprint arXiv:2403.14608, 2024.
+URL https://arxiv.org/abs/2403.14608.
+Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising Diffusion Probabilistic Models. In Advances
+in Neural Information Processing Systems, volume 33, 2020. URL https://proceedings.neurips.
+cc/paper/2020/hash/4c5bcfec8584af0d967f1ab10179ca4b-Abstract.html.
+Neil Houlsby, Andrei Giurgiu, Stanislaw Jastrzebski, Bruna Morrone, Quentin de Laroussilhe, An-
+drea Gesmundo, Mona Attariyan, and Sylvain Gelly. Parameter-Efficient Transfer Learning for
+NLP. In Proceedings of the 36th International Conference on Machine Learning, volume 97, pp.
+2790–2799. PMLR, 2019. URL https://proceedings.mlr.press/v97/houlsby19a.html.
+Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang,
+and Weizhu Chen.
+LoRA: Low-Rank Adaptation of Large Language Models.
+In Interna-
+tional Conference on Learning Representations, 2022. URL https://openreview.net/forum?id=
+nZeVKeeFYf9.
+12
+
+
+Preprint
+Wei-Bang Jiang, Li-Ming Zhao, and Bao-Liang Lu.
+Large Brain Model for Learning Generic
+Representations with Tremendous EEG Data in BCI.
+In International Conference on
+Learning Representations, 2024.
+URL https://proceedings.iclr.cc/paper_files/paper/2024/file/
+47393e8594c82ce8fd83adc672cf9872-Paper-Conference.pdf.
+Rabeeh Karimi Mahabadi, Sebastian Ruder, Mostafa Dehghani, and James Henderson. Parameter-
+efficient Multi-task Fine-tuning for Transformers via Shared Hypernetworks. In Proceedings of
+the 59th Annual Meeting of the Association for Computational Linguistics and the 11th Interna-
+tional Joint Conference on Natural Language Processing (Volume 1: Long Papers), pp. 565–576,
+2021. doi: 10.18653/v1/2021.acl-long.47. URL https://aclanthology.org/2021.acl-long.47/.
+Stamos Katsigiannis and Naeem Ramzan. DREAMER: A database for emotion recognition through
+EEG and ECG signals from wireless low-cost off-the-shelf devices. IEEE Journal of Biomedical
+and Health Informatics, 22(1):98–107, 2018. doi: 10.1109/JBHI.2017.2688239.
+Bob Kemp, Aeilko H. Zwinderman, Bert Tuk, Hilbert A. C. Kamphuisen, and Josefien J. L. Oberyé.
+Analysis of a sleep-dependent neuronal feedback loop: the slow-wave microcontinuity of the
+EEG. IEEE Transactions on Biomedical Engineering, 47(9):1185–1194, 2000. doi: 10.1109/10.
+867928.
+Sirvan Khalighi, Teresa Sousa, José Moutinho Santos, and Urbano Nunes. ISRUC-Sleep: A com-
+prehensive public dataset for sleep researchers. Computer Methods and Programs in Biomedicine,
+124:180–192, 2016. doi: 10.1016/j.cmpb.2015.10.013.
+Diederik P. Kingma and Max Welling. Auto-Encoding Variational Bayes. In International Confer-
+ence on Learning Representations, 2014. URL https://arxiv.org/abs/1312.6114.
+Sander Koelstra, Christian Mühl, Mohammad Soleymani, Jong-Seok Lee, Ashkan Yazdani, Touradj
+Ebrahimi, Thierry Pun, Anton Nijholt, and Ioannis Patras. DEAP: A database for emotion analysis
+using physiological signals. IEEE Transactions on Affective Computing, 3(1):18–31, 2012. doi:
+10.1109/T-AFFC.2011.15.
+Gayal Kuruppu, Neeraj Wagh, Vaclav Kremen, Sandipan Pati, Gregory Worrell, and Yogatheesan
+Varatharajah. EEG Foundation Models: A Critical Review of Current Progress and Future Direc-
+tions. arXiv preprint arXiv:2507.11783, 2025. URL https://arxiv.org/abs/2507.11783.
+Hyung-Tak Lee, Miseon Shim, Xianghong Liu, Hye-Ran Cheon, Sang-Gyu Kim, Chang-Hee Han,
+and Han-Jeong Hwang. A review of hybrid EEG-based multimodal human–computer interfaces
+using deep learning: applications, advances, and challenges. Biomedical Engineering Letters, 15
+(4):587–618, 2025. doi: 10.1007/s13534-025-00469-5.
+Min-Ho Lee, O-Yeon Kwon, Yong-Jeong Kim, Hong-Kyung Kim, Young-Eun Lee, John
+Williamson, Siamac Fazli, and Seong-Whan Lee. Eeg dataset and openbmi toolbox for three
+bci paradigms: An investigation into bci illiteracy.
+GigaScience, 8(5):giz002, 2019.
+doi:
+10.1093/gigascience/giz002.
+Brian Lester, Rami Al-Rfou, and Noah Constant. The Power of Scale for Parameter-Efficient Prompt
+Tuning. In Proceedings of the 2021 Conference on Empirical Methods in Natural Language
+Processing, pp. 3045–3059, 2021. URL https://aclanthology.org/2021.emnlp-main.243/.
+Jian Liang, Dapeng Hu, and Jiashi Feng.
+Do We Really Need to Access the Source Data?
+Source Hypothesis Transfer for Unsupervised Domain Adaptation. In Proceedings of the 37th
+International Conference on Machine Learning, volume 119, pp. 6028–6039, 2020.
+URL
+https://proceedings.mlr.press/v119/liang20a.html.
+Jian Liang, Ran He, and Tieniu Tan. A Comprehensive Survey on Test-Time Adaptation under
+Distribution Shifts.
+arXiv preprint arXiv:2303.15361, 2023.
+URL https://arxiv.org/abs/2303.
+15361.
+Zhiyuan Liang, Dongwen Tang, Yuhao Zhou, Xuanlei Zhao, Mingjia Shi, Wangbo Zhao, Zekai Li,
+Peihao Wang, Konstantin Schürholt, Damian Borth, Michael M. Bronstein, Yang You, Zhangyang
+Wang, and Kai Wang. Drag-and-Drop LLMs: Zero-Shot Prompt-to-Weights. In Advances in
+Neural Information Processing Systems, volume 38, 2025. URL https://arxiv.org/abs/2506.16406.
+13
+
+
+Preprint
+Wei Liu, Jie-Lin Qiu, Wei-Long Zheng, and Bao-Liang Lu.
+Comparing Recognition Perfor-
+mance and Robustness of Multimodal Deep Learning Models for Multimodal Emotion Recog-
+nition. IEEE Transactions on Cognitive and Developmental Systems, 14(2):715–729, 2022. doi:
+10.1109/tcds.2021.3071170.
+Jingying Ma, Feng Wu, Qika Lin, Yucheng Xing, Chenyu Liu, Ziyu Jia, and Mengling Feng. Code-
+Brain: Bridging Decoupled Tokenizer and Multi-Scale Architecture for EEG Foundation Model.
+In International Conference on Learning Representations, 2026. URL https://arxiv.org/abs/2506.
+09110.
+Tsendsuren Munkhdalai and Hong Yu. Meta Networks. In Proceedings of the 34th International
+Conference on Machine Learning, volume 70, pp. 2554–2563, 2017. URL https://proceedings.
+mlr.press/v70/munkhdalai17a.html.
+Christian O’Reilly, Nadia Gosselin, Julie Carrier, and Tore Nielsen. Montreal Archive of Sleep
+Studies: an open-access resource for instrument benchmarking and exploratory research. Journal
+of Sleep Research, 23(6):628–635, 2014. doi: 10.1111/jsr.12169.
+William Peebles and Saining Xie.
+Scalable diffusion models with transformers.
+In Pro-
+ceedings of the IEEE/CVF International Conference on Computer Vision, pp. 4195–4205,
+2023. URL https://openaccess.thecvf.com/content/ICCV2023/html/Peebles_Scalable_Diffusion_
+Models_with_Transformers_ICCV_2023_paper.html.
+Stuart F. Quan, Barbara V. Howard, Conrad Iber, James P. Kiley, F. Javier Nieto, Gregory T.
+O’Connor, David M. Rapoport, Susan Redline, John Robbins, Jonathan M. Samet, and Patri-
+cia W. Wahl. The Sleep Heart Health Study: design, rationale, and methods. Sleep, 20(12):
+1077–1085, 1997. doi: 10.1093/sleep/20.12.1077.
+Daniel Roggen, Meir Plotnik, and Jeff Hausdorff. Daphnet Freezing of Gait. UCI Machine Learning
+Repository, 2010. URL https://doi.org/10.24432/C56K78.
+Takaya Saito and Marc Rehmsmeier. The Precision-Recall Plot Is More Informative than the ROC
+Plot When Evaluating Binary Classifiers on Imbalanced Datasets. PLOS ONE, 10(3):e0118432,
+2015. doi: 10.1371/journal.pone.0118432.
+Noam Shazeer, Azalia Mirhoseini, Krzysztof Maziarz, Andy Davis, Quoc Le, Geoffrey Hinton, and
+Jeff Dean. Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts Layer.
+In International Conference on Learning Representations, 2017. URL https://arxiv.org/abs/1701.
+06538.
+Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. arXiv
+preprint arXiv:2010.02502, 2020. URL https://arxiv.org/abs/2010.02502.
+Ramanathan Subramanian, Julia Wache, Mojtaba Khomami Abadi, Radu L. Vieriu, Stefan Winkler,
+and Nicu Sebe. ASCERTAIN: Emotion and personality recognition using commercial sensors.
+IEEE Transactions on Affective Computing, 9(2):147–160, 2016. doi: 10.1109/TAFFC.2016.
+2625250.
+Toyotaro Suzumura, Hiroki Kanezashi, and Shotaro Akahori. Graph Adapter of EEG Foundation
+Models for Parameter Efficient Fine Tuning. arXiv preprint arXiv:2411.16155, 2024. URL https:
+//arxiv.org/abs/2411.16155.
+Mario Giovanni Terzano, Liborio Parrino, A. Sherieri, Robert Chervin, Sudhansu Chokroverty,
+Christian Guilleminault, Max Hirshkowitz, Mark Mahowald, Harvey Moldofsky, Agostinho
+Rosa, Robert Thomas, and Arthur Walters. Atlas, rules, and recording techniques for the scoring
+of cyclic alternating pattern (CAP) in human sleep. Sleep Medicine, 2(6):537–553, 2001. doi:
+10.1016/S1389-9457(01)00149-6.
+Rahul Thapa, Bryan He, Magnus Ruud Kjær, Hyatt Moore, IV, Gauri Ganjoo, Emmanuel Mignot,
+and James Zou. SleepFM: Multi-modal Representation Learning for Sleep Across Brain Activity,
+ECG and Respiratory Signals. In Proceedings of the 41st International Conference on Machine
+Learning, volume 235, pp. 48019–48037. PMLR, 2024. URL https://proceedings.mlr.press/v235/
+thapa24a.html.
+14
+
+
+Preprint
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez,
+Łukasz Kaiser, and Illia Polosukhin. Attention Is All You Need. In Advances in Neural Informa-
+tion Processing Systems, volume 30, 2017. URL https://proceedings.neurips.cc/paper/2017/hash/
+3f5ee243547dee91fbd053c1c4a845aa-Abstract.html.
+Dequan Wang, Evan Shelhamer, Shaoteng Liu, Bruno Olshausen, and Trevor Darrell. Tent: Fully
+Test-time Adaptation by Entropy Minimization. In International Conference on Learning Repre-
+sentations, 2021. URL https://openreview.net/forum?id=uXl3bZLkr3c.
+Guangyu
+Wang,
+Wenchao
+Liu,
+Yuhong
+He,
+Cong
+Xu,
+Lin
+Ma,
+and
+Haifeng
+Li.
+EEGPT:
+Pretrained
+Transformer
+for
+Universal
+and
+Reliable
+Representation
+of
+EEG
+Signals.
+In Advances in Neural Information Processing Systems,
+volume 37,
+pp.
+39249–39280,
+2024a.
+URL
+https://proceedings.neurips.cc/paper_files/paper/2024/file/
+4540d267eeec4e5dbd9dae9448f0b739-Paper-Conference.pdf.
+Jiquan Wang, Sha Zhao, Zhiling Luo, Yangxuan Zhou, Haiteng Jiang, Shijian Li, Tao Li, and Gang
+Pan. CBraMod: A Criss-Cross Brain Foundation Model for EEG Decoding. In International
+Conference on Learning Representations, 2025. URL https://arxiv.org/abs/2412.07236.
+Kai Wang, Dongwen Tang, Boya Zeng, Yida Yin, Zhaopan Xu, Yukun Zhou, Zelin Zang, Trevor
+Darrell, Zhuang Liu, and Yang You. Neural Network Diffusion. arXiv preprint arXiv:2402.13144,
+2024b. URL https://arxiv.org/abs/2402.13144.
+Jonathan R Wolpaw, Niels Birbaumer, Dennis J McFarland, Gert Pfurtscheller, and Theresa M
+Vaughan. Brain–computer interfaces for communication and control. Clinical Neurophysiology,
+113(6):767–791, 2002. doi: 10.1016/s1388-2457(02)00057-3.
+Chaoqi Yang,
+M. Brandon Westover,
+and Jimeng Sun.
+BIOT: Biosignal Transformer
+for
+Cross-data
+Learning
+in
+the
+Wild.
+In
+Advances
+in
+Neural
+Information
+Pro-
+cessing
+Systems,
+2023.
+URL
+https://proceedings.neurips.cc/paper_files/paper/2023/file/
+f6b30f3e2dd9cb53bbf2024402d02295-Paper-Conference.pdf.
+Michael K. Yeung and Vivian W. Chu. Viewing neurovascular coupling through the lens of com-
+bined EEG–fNIRS: A systematic review of current methods. Psychophysiology, 59(6):e14054,
+2022. doi: 10.1111/psyp.14054.
+Manzil Zaheer, Satwik Kottur, Siamak Ravanbakhsh, Barnabás Póczos, Ruslan Salakhutdi-
+nov, and Alexander J. Smola.
+Deep Sets.
+In Advances in Neural Information Processing
+Systems, volume 30, 2017.
+URL https://proceedings.neurips.cc/paper_files/paper/2017/hash/
+f22e4747da1aa27e363d86d40ff442fe-Abstract.html.
+Daoze Zhang, Zhizhang Yuan, Yang Yang, Junru Chen, Jingjing Wang, and Yafeng Li.
+Brant:
+Foundation Model for Intracranial Neural Signal. In Advances in Neural Information Processing
+Systems, volume 36, pp. 26304–26321, 2023. URL https://proceedings.neurips.cc/paper_files/
+paper/2023/file/535915d26859036410b0533804cee788-Paper-Conference.pdf.
+Daoze Zhang, Zhizhang Yuan, Junru Chen, Kerui Chen, and Yang Yang. Brant-X: A Unified Physi-
+ological Signal Alignment Framework. In Proceedings of the 30th ACM SIGKDD Conference on
+Knowledge Discovery and Data Mining, pp. 4155–4166, 2024. doi: 10.1145/3637528.3671953.
+Wei Zhang, Zhuokun Yang, Hantao Li, Debin Huang, Lipeng Wang, Yanzhao Wei, Lei Zhang,
+Lin Ma, Huanhuan Feng, Jing Pan, Yuzhu Guo, and Piu Chan. Multimodal Data for the De-
+tection of Freezing of Gait in Parkinson’s Disease.
+Scientific Data, 9(1):606, 2022.
+doi:
+10.1038/s41597-022-01713-8.
+Wei-Long Zheng and Bao-Liang Lu. A multimodal approach to estimating vigilance using EEG and
+forehead EOG. Journal of Neural Engineering, 14(2):026017, 2017. doi: 10.1088/1741-2552/
+aa5a98.
+Yuchen Zhou, Jiamin Wu, Zichen Ren, Zhouheng Yao, Weiheng Lu, Kunyu Peng, Qihao Zheng,
+Chunfeng Song, Wanli Ouyang, and Chao Gou.
+CSBrain:
+A Cross-scale Spatiotemporal
+Brain Foundation Model for EEG Decoding.
+In Advances in Neural Information Process-
+ing Systems, volume 38, 2025. URL https://proceedings.neurips.cc/paper_files/paper/2025/hash/
+7e199ad8ae40eb19b2980f61f659cb07-Abstract-Conference.html.
+15
+
+
+Preprint
+Igor Zyma, Sergii Tukaev, Ivan Seleznov, Ken Kiyono, Anton Popov, Mariia Chernykh, and Oleksii
+Shpenkov. Electroencephalograms during Mental Arithmetic Task Performance. Data, 4(1):14,
+2019. doi: 10.3390/data4010014.
+16
+
+
+Preprint
+APPENDIX CONTENTS
+A. Notation and Model Scope . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18
+B. Adapter and Condition . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20
+C. Datasets and Additional Results . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22
+D. Training and Deployment . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 26
+E. Objective Analysis . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 29
+F. Efficiency . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 32
+G. Component Ablations . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 33
+H. Implementation and Evaluation Protocol . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 35
+I. Generalization and Data Efficiency . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 38
+J. Comparison with Related Methods . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 40
+17
+
+
+Preprint
+A
+NOTATION AND MODEL SCOPE
+A.1
+EEG REPRESENTATIONS
+EEG representation learning has progressed from task-specific supervised networks (Craik et al.,
+2019) to foundation models trained across recordings (Kuruppu et al., 2025). These models differ in
+tokenization, objectives, and recording domains. LaBraM uses neural signal tokenization (Jiang
+et al., 2024); EEGPT learns EEG representations through self-supervised transformer pretrain-
+ing (Wang et al., 2024a).
+BIOT addresses heterogeneous biosignal inputs (Yang et al., 2023),
+whereas Brant focuses on intracranial neural recordings (Zhang et al., 2023). These differences
+matter when defining the adapter’s input and output interface. Our experiments use the three back-
+bone instantiations described below.
+A.2
+FROZEN MODELS AND SEPARATE GENERATORS
+For each backbone, we directly load the EFM encoder checkpoint and pair it with a compatible
+prediction head trained on source data for the supported task. The head has a shared feature layer
+and task-specific linear output layers, and it is kept frozen throughout; no target labels are used. The
+Daphnet Freezing of Gait dataset (Roggen et al., 2010), introduced in the associated study (Bächlin
+et al., 2010), provides source supervision for the freezing-of-gait output; it is used to train the com-
+patible head, not to fit reference adapters or train the adapter generator. EEG-only inference sets
+the auxiliary residual to zero; multimodal inference adds the adapter-generated residual before the
+shared head layer. Other source labels are used offline to fit reference adapters.
+For a fused representation zfused = zEEG + ∆zaux, the head is
+u = GELU
+ Ws LN(zfused) + bs
+
+,
+u ∈R128,
+(A.1)
+ℓt = Wtu + bt ∈RKt,
+pt = softmax(ℓt).
+(A.2)
+The shared projection (Ws, bs) is specific to a backbone, as are the task output layers (Wt, bt). For
+a given task t, the same output layer is used across its datasets. The adapter and the frozen head
+therefore share the same prediction path in EEG-only and multimodal evaluation.
+We train the generators for CBraMod (Wang et al., 2025), CSBrain (Zhou et al., 2025), and Code-
+Brain (Ma et al., 2026) separately. The results across these backbones evaluate separate instantia-
+tions of the same framework. They do not represent the transfer of one shared generator checkpoint
+from one backbone architecture to another. Within each instantiation, the adapter layout, decoder
+output, frozen EEG representation, and prediction head form the applicable model interface. The
+block schema is shared within an interface, but the number of blocks and total parameter count
+depend on the active modalities.
+Throughout the appendix, f, h, e, d, Econd, and sθ refer to the selected backbone instantiation. The
+conditioning input remains the recording and task; the selected generator determines the backbone
+interface.
+A.3
+SIGNALS AND ADAPTER PARAMETERS
+Tables A.1 and A.2 collect the notation used below. As in the main text, K denotes the number of
+classes and C the fused condition.
+Table A.1: Signal and adapter notation. Dimensions are symbolic here;
+numerical settings are listed in Table H.1.
+Symbol
+Meaning
+XEEG
+EEG input to the frozen encoder.
+M
+Complete set of supported companion modalities.
+A ⊆M
+Companion modalities available in a particular recording.
+XA
+Collection {Xm : m ∈A} of available companion inputs.
+R = {ri}
+Recording samples, with ri = (XEEG
+i
+, XA
+i ).
+18
+
+
+Preprint
+Symbol
+Meaning
+Rfit
+Source samples whose labels are used to fit a reference adapter.
+Rcond
+Unlabeled samples used to construct the condition.
+Rfun
+Source samples used for functional supervision, disjoint from fitting
+and conditioning.
+Rqry
+Target query samples, disjoint from target conditioning.
+τ
+Supported prediction task associated with the frozen head.
+f, h
+Frozen EEG encoder and prediction head.
+Z = f(XEEG)
+EEG representation before the adapter.
+a(Z, XA; ω)
+Multimodal adapter, with parameter vector ω ∈RP (A).
+ZA, LA(ω)
+Adapted representation and logits h(ZA).
+ω∗, eω, bω
+Fitted reference, reconstructed reference, and generated adapter.
+ωsh
+Parameters of the shared coordinator.
+ωm
+temp, ωm
+spec, ωm
+proj
+Temporal, spectral, and projection parameters for modality m.
+B, pb, P(A)
+Active block count B = 3|A| + 1, block size, and configuration-
+specific parameter count.
+A.4
+LATENTS AND CONDITIONING
+The pre-contextual adapter token is denoted Ub,pre, following the main text. It is distinct from
+the signal features V m
+i
+and V m used for conditioning. The deterministic latent U0 is obtained by
+substituting posterior means before the cross-block transformer; it is not a new encoder architecture.
+Table A.2: Latent, condition, and optimization notation.
+Symbol
+Meaning
+e(·; η)
+Stochastic block encoder, including the cross-block transformer.
+¯e(·; η)
+Deterministic encoder path using posterior means.
+µb, ℓb
+Mean and log variance of the Gaussian for block b; ℓb is introduced
+here for the posterior expansion.
+Ub,pre
+Sampled block token before contextualization.
+Eb, CBT
+Block identity embedding and cross-block transformer.
+U, U0, Ut
+Contextualized sample, canonical latent, and noise-corrupted canoni-
+cal latent.
+bU0
+Clean-latent estimate computed from a noisy latent and predicted
+noise.
+d(·; ψ)
+MoE decoder mapping latent tokens to adapter weights.
+πb,j, rj
+Routing weight and reconstruction expert for expert j.
+V m
+i , V m
+Sample-level and recording-level condition features for modality m.
+em
+mod, qsub
+Modality embedding and task-independent attention query.
+Fmod, Fsub, Etask
+Set pooling, attention pooling, and task embedding.
+Cmod, Csub, Cτ
+Modality, subject, and task factors.
+C, Econd(·; ξ), Fcond
+Fused condition, complete condition encoder, and factor-fusion func-
+tion.
+ϵ, ϵθ, sθ
+Gaussian noise, conditional noise predictor, and 50-step deterministic
+DDIM sampler using ϵθ.
+t, ¯αt
+Diffusion timestep and cumulative signal coefficient.
+δfun
+Reference-to-student predictive KL averaged on Rfun.
+LAE, Lgen
+Stage 1 and Stage 2 objectives.
+A.5
+PARAMETER OWNERSHIP
+The learning stages update different parameter sets. Table A.3 separates parameter updates from
+differentiable use. A frozen decoder remains part of the computational graph for a loss on its output,
+even though the optimizer does not change its parameters.
+19
+
+
+Preprint
+Table A.3: Parameter updates in the ZeroMAG pipeline. “Fixed” describes parameter values, not a
+zero input Jacobian.
+Component
+Reference fitting
+Stage 1
+Stage 2
+Deployment
+EEG encoder and head
+Fixed
+Fixed
+Fixed
+Fixed
+Reference adapter ω∗
+Updated
+Fixed
+Fixed
+Not required
+Encoder η
+Not used
+Updated
+Fixed
+Not required
+Decoder ψ
+Not used
+Updated
+Fixed
+Fixed
+Condition encoder ξ
+Not used
+Not used
+Updated
+Fixed
+Denoiser θ
+Not used
+Not used
+Updated
+Fixed
+Each generated bω is an output of the trained system, rather than an optimizer state fitted to the target.
+Generation can involve repeated denoiser evaluations without any target-side gradient update. This
+distinction separates iterative sampling from iterative supervised adaptation.
+B
+ADAPTER AND CONDITION
+B.1
+VARIABLE-LENGTH BLOCK LAYOUT
+Within a backbone instantiation, only the active companion set A ⊆M contributes modality-
+specific parameters:
+ω =
+
+ωsh; {ωm
+temp, ωm
+spec, ωm
+proj}m∈A
+
+∈RP (A).
+(B.1)
+Each active modality contributes three blocks, with one additional shared block:
+M = |A|,
+B = 3M + 1,
+U ∈RB×128.
+(B.2)
+Thus M = 1, 2, 3 gives B = 4, 7, 10, respectively; ten is not a universal block count. Missing
+modalities create neither parameter blocks nor placeholder latent tokens. Block-type and modality
+conditioning, together with attention masks, support variable-length sequences while preserving the
+same functional block schema.
+With block size pb, the parameter count is
+P(A) = psh +
+X
+m∈A
+(pm
+temp + pm
+spec + pm
+proj) =
+B
+X
+b=1
+pb.
+(B.3)
+For the active sequence, let ob = P
+r<b pr and ωb = ω[ob : ob + pb]. Offsets are defined within that
+configuration; semantic block identity is determined by type and modality, not by a universal vector
+position.
+B.2
+TEMPORAL AND SPECTRAL BRANCHES
+An active companion modality m ∈A contributes two feature streams:
+Hm
+temp = T m(Xm; ωm
+temp),
+(B.4)
+Hm
+spec = Sm(FFT(Xm); ωm
+spec),
+(B.5)
+F m = P m([Hm
+temp; Hm
+spec]; ωm
+proj).
+(B.6)
+The temporal stream represents variation in the input sequence, while the spectral stream provides
+frequency-domain information. Projection combines the two streams into the interface consumed
+by the shared coordinator. The distinct parameter groups allow weight generation to preserve the
+functional role of each block instead of treating the entire adapter as an unstructured vector.
+The companion projection is distinct from the EFM encoder. It changes how additional signals
+enter the frozen representation, while the original EEG mapping f remains unchanged. The gen-
+erated weights therefore specify a multimodal extension of an existing representation rather than a
+replacement EEG backbone.
+20
+
+
+Preprint
+B.3
+SHARED COORDINATION AND MASKING
+The coordinator processes the EEG representation and available companion features to produce an
+auxiliary residual:
+∆Zaux = K(Z, {F m : m ∈A}; ωsh),
+ZA = Z + ∆Zaux.
+(B.7)
+Only available branches contribute. For an empty companion set, the adapter returns the EEG rep-
+resentation directly:
+a(Z, ∅; ω) = Z,
+L∅
+t (ω) = ht(f(XEEG)).
+(B.8)
+For EEG-only inference, the auxiliary residual is zero and the frozen EEG path is unchanged. Un-
+available modalities have no parameter blocks or latent tokens, and therefore make no contribution
+to the prediction path.
+B.4
+THREE CONDITION FACTORS
+The condition encoder uses unlabeled calibration signals and the supported task:
+Cmod = Fmod({V m + em
+mod}m∈{EEG}∪A),
+(B.9)
+Csub = Fsub(qsub, {V m
+i }m∈{EEG}∪A,i),
+(B.10)
+Cτ = Etask(τ; ξτ),
+(B.11)
+C = Econd(Rcond, τ; ξ) = Fcond([Cmod; Csub; Cτ]).
+(B.12)
+Here V m
+i
+is a sample-level feature and V m aggregates a recording’s features for modality m. The
+embeddings em
+mod identify signal types. The subject query qsub is task-independent; the task enters
+separately through Cτ and the fusion function Fcond.
+The subject factor is inferred from the observed recording, not retrieved from a target-subject iden-
+tifier. Its role is to represent recording-specific physiology that is absent from modality availability
+alone. Shuffling this factor across recordings preserves a collection of feature vectors but breaks their
+correspondence to the recording for which an adapter is generated, as examined in Appendix G.
+B.5
+ORDER AND IDENTITY
+Set pooling follows the permutation-invariant viewpoint of Deep Sets (Zaheer et al., 2017). Re-
+ordering signal-feature/identity pairs leaves the modality factor unchanged. This invariance does
+not apply to exchanging signal identities while holding the feature values fixed: assigning an ECG
+identity to an eye-movement feature changes the meaning of the condition.
+For attention pooling (Vaswani et al., 2017) with a fixed query and consistently permuted key/value
+pairs, a permutation only reorders the terms in the weighted sum. To see this, write c = P
+i aivi,
+where ai = exp(si)/ P
+j exp(sj). A permutation ρ gives
+X
+i
+exp(sρ(i))
+P
+j exp(sρ(j))vρ(i) =
+X
+i
+aivi.
+(B.13)
+This identity explains the distinction between order invariance and semantic identity. It assumes that
+scores and values are permuted together, as required for pooling a set of features.
+B.6
+SUPPORT OF THE CONDITION
+The task factor identifies a supported prediction task rather than a dataset identifier. Dataset holdout
+and task holdout are distinct: a new dataset can share a task with source data, whereas a task-
+holdout target has no source adapter for its task. FoG is the task-holdout target in our benchmark; its
+task factor Cτ is a learned unspecified-task embedding. Similarly, a new combination of supported
+signals differs from a signal type outside M. The supported block schema defines the modality
+interface; it does not by itself create a new encoder for an arbitrary signal type.
+21
+
+
+Preprint
+C
+DATASETS AND ADDITIONAL RESULTS
+C.1
+EVALUATION TARGETS
+The displayed benchmark covers six targets and four task families: ISRUC-S3 (Khalighi et al.,
+2016), HMC (Alvarez-Estevez & Rijsman, 2021), and MASS (O’Reilly et al., 2014) for sleep stag-
+ing; SEED-V (Liu et al., 2022) for emotion recognition; EEGMAT (Zyma et al., 2019) for cognitive-
+load estimation; and FoG (Zhang et al., 2022) for freezing-of-gait detection. This section analyzes
+the six held-out target datasets in main Table 1. The full evaluation additionally includes CAP,
+DREAMER, and BCI-IV. The CBraMod ablation average in main Table 2 and Appendix G covers
+all nine target datasets; results on CAP, DREAMER, and BCI-IV are reported in Table C.1.
+Table C.1: B-ACC (%, mean±std over five seeds) on CAP, DREAMER, and BCI-IV. Protocol and
+layout as in main Table 1.
+Method
+CAP
+DREAMER
+BCI-IV
+CBraMod
+EEG-only
+53.86±0.83
+43.91±1.04
+37.82±1.31
+Supervised tuning
+68.16±0.64
+60.20±0.98
+51.11±0.89
+Mean source weights
+53.68±0.97
+43.45±1.35
+37.54±1.70
+Nearest source weights
+54.78±0.55
+45.08±1.23
+39.26±0.91
+Direct MLP
+55.93±0.65
+46.05±0.74
+41.00±1.61
+ZeroMAG
+66.11±0.69
+58.07±0.98
+49.69±1.72
+CSBrain
+EEG-only
+54.23±0.79
+44.38±0.98
+38.57±1.26
+Supervised tuning
+66.30±0.97
+59.77±1.05
+52.62±1.06
+Mean source weights
+54.67±1.02
+43.71±1.07
+38.41±1.21
+Nearest source weights
+55.59±1.06
+45.92±0.94
+39.54±1.50
+Direct MLP
+56.91±1.07
+46.85±1.34
+40.29±1.77
+ZeroMAG
+64.49±0.56
+58.10±1.05
+51.24±1.11
+CodeBrain
+EEG-only
+53.12±0.91
+43.46±1.11
+37.24±1.38
+Supervised tuning
+67.50±0.59
+55.46±0.96
+50.23±1.27
+Mean source weights
+52.50±0.70
+43.40±0.97
+37.02±0.93
+Nearest source weights
+53.77±0.55
+44.37±0.78
+38.48±1.33
+Direct MLP
+54.19±1.03
+45.14±0.95
+38.87±1.76
+ZeroMAG
+65.60±0.74
+54.51±1.14
+48.09±1.71
+Table C.2: Task coverage and holdout type of the target datasets.
+Target
+Task
+Holdout
+ISRUC-S3
+Sleep staging
+Dataset
+HMC
+Sleep staging
+Dataset
+MASS
+Sleep staging
+Dataset
+SEED-V
+Emotion recognition
+Dataset
+EEGMAT
+Cognitive-load estimation
+Dataset
+FoG
+Freezing-of-gait detection
+Task
+CAP
+Sleep staging
+Dataset
+DREAMER
+Emotion recognition
+Dataset
+BCI-IV-2a (BCI-IV)
+Motor imagery
+Dataset
+C.2
+CONTROLLED COMPARISONS
+Within each backbone group, the EEG-only model provides the original frozen prediction path.
+Mean source weights and nearest source weights reuse fitted source adapters; Direct MLP predicts
+22
+
+
+Preprint
+weights from the condition. These methods and ZeroMAG use the same frozen EEG encoder and
+head. The supervised reference is a separate multimodal fine-tuning experiment using the labeled
+target training split and all available modalities. Its purpose is to measure the gap between Zero-
+MAG and supervised adaptation; it is not a step in ZeroMAG training or inference and is not a
+mathematical upper bound.
+The cross-paradigm comparisons use PhysioOmni (Fu et al., 2025), the original ICML 2024
+SleepFM (Thapa et al., 2024), and Brant-X (Zhang et al., 2024). These models have native back-
+bones and different multimodal learning procedures. Their scores are the evaluations reported in
+this paper, rather than scores taken from the cited publications. In particular, the SleepFM reference
+here is the original sleepfm-codebase model, not the later clinical model.
+C.3
+RESULTS BY TASK FAMILY
+Tables C.3 and C.4 collect all means and standard deviations from main Table 1 in two task-family
+views. Both tables use the same method order.
+Table C.3: Sleep staging: balanced accuracy (%, mean ± reported SD over five seeds). Bold identi-
+fies ZeroMAG in each backbone group.
+Method
+ISRUC-S3
+HMC
+MASS
+CBraMod
+EEG-only
+75.83 ± 0.76
+72.78 ± 0.50
+74.29 ± 0.58
+Supervised reference
+84.04 ± 0.88
+80.81 ± 0.41
+82.41 ± 0.68
+Mean source weights
+74.31 ± 0.82
+72.93 ± 0.49
+75.91 ± 0.63
+Nearest source weights
+76.63 ± 0.61
+73.18 ± 0.52
+76.35 ± 0.51
+Direct MLP
+76.89 ± 0.73
+73.43 ± 0.55
+77.48 ± 0.65
+ZeroMAG
+83.59 ± 0.59
+80.29 ± 0.42
+82.03 ± 0.52
+CSBrain
+EEG-only
+75.94 ± 0.93
+73.31 ± 0.48
+75.89 ± 0.54
+Supervised reference
+84.10 ± 1.43
+81.39 ± 0.39
+84.15 ± 0.62
+Mean source weights
+75.42 ± 0.62
+73.51 ± 0.45
+77.72 ± 0.58
+Nearest source weights
+76.74 ± 0.55
+73.82 ± 0.52
+77.98 ± 0.63
+Direct MLP
+79.18 ± 0.71
+74.21 ± 0.48
+80.45 ± 0.72
+ZeroMAG
+83.67 ± 0.61
+80.83 ± 0.52
+83.74 ± 0.83
+CodeBrain
+EEG-only
+76.57 ± 0.73
+72.95 ± 0.49
+77.24 ± 0.51
+Supervised reference
+84.92 ± 1.61
+80.93 ± 0.38
+85.67 ± 0.58
+Mean source weights
+77.02 ± 0.68
+73.28 ± 0.42
+79.12 ± 0.72
+Nearest source weights
+77.22 ± 0.62
+73.65 ± 0.48
+80.21 ± 0.68
+Direct MLP
+79.92 ± 0.55
+73.92 ± 0.51
+81.65 ± 0.61
+ZeroMAG
+84.44 ± 0.77
+80.43 ± 0.48
+85.25 ± 0.72
+Multimodal physiological models
+PhysioOmni
+84.62 ± 0.63
+81.05 ± 0.42
+85.50 ± 0.65
+SleepFM
+83.27 ± 0.61
+80.01 ± 0.47
+81.61 ± 0.52
+Brant-X
+85.19 ± 0.54
+81.51 ± 0.46
+86.07 ± 0.59
+Sleep staging.
+ZeroMAG improves over EEG-only by 7.48–7.87 points on ISRUC-S3 and HMC,
+and by 7.74–8.01 points on MASS. Its smallest supervised-reference gap in the displayed benchmark
+is 0.38 points for CBraMod on MASS. Improvements occur for all three separately trained backbone
+instantiations, although their absolute scores differ.
+Emotion recognition.
+SEED-V has smaller absolute improvements over EEG-only, at 4.21, 4.36,
+and 4.32 points for CBraMod, CSBrain, and CodeBrain. Its recovery of supervised gain is also
+lower than that of the other displayed targets, ranging from 87.34% to 88.71%. Thus, the lower gain
+is not explained solely by a smaller supervised-minus-EEG baseline interval. The table does not
+identify the source of this task-dependent gap.
+23
+
+
+Preprint
+Table C.4: Emotion, cognitive load, and gait: balanced accuracy (%, mean ± reported SD over five
+seeds). Bold identifies ZeroMAG in each backbone group.
+Method
+SEED-V
+EEGMAT
+FoG
+CBraMod
+EEG-only
+40.62 ± 1.24
+73.38 ± 2.48
+76.61 ± 1.35
+Supervised reference
+45.44 ± 1.58
+81.46 ± 1.93
+85.02 ± 1.21
+Mean source weights
+39.83 ± 1.13
+73.52 ± 0.92
+76.73 ± 0.78
+Nearest source weights
+40.68 ± 1.37
+74.63 ± 0.81
+77.52 ± 0.73
+Direct MLP
+40.99 ± 1.05
+75.21 ± 1.02
+78.03 ± 0.62
+ZeroMAG
+44.83 ± 1.22
+80.99 ± 0.81
+84.47 ± 0.72
+CSBrain
+EEG-only
+41.38 ± 1.32
+75.38 ± 2.67
+75.96 ± 1.52
+Supervised reference
+46.32 ± 1.17
+83.57 ± 1.43
+85.13 ± 1.31
+Mean source weights
+41.75 ± 0.62
+75.91 ± 0.71
+77.08 ± 0.65
+Nearest source weights
+42.28 ± 0.55
+75.83 ± 0.66
+78.73 ± 0.59
+Direct MLP
+42.69 ± 0.48
+78.12 ± 0.58
+80.02 ± 0.52
+ZeroMAG
+45.74 ± 0.44
+83.08 ± 0.71
+84.60 ± 0.65
+CodeBrain
+EEG-only
+41.52 ± 1.46
+76.62 ± 2.83
+76.77 ± 1.26
+Supervised reference
+46.39 ± 1.34
+85.02 ± 1.63
+85.25 ± 1.33
+Mean source weights
+41.88 ± 0.58
+77.22 ± 0.66
+77.85 ± 0.71
+Nearest source weights
+42.35 ± 0.52
+77.98 ± 0.59
+79.22 ± 0.65
+Direct MLP
+42.87 ± 0.45
+79.28 ± 0.52
+80.55 ± 0.58
+ZeroMAG
+45.84 ± 0.55
+84.51 ± 0.63
+84.65 ± 0.58
+Multimodal physiological models
+PhysioOmni
+46.04 ± 1.32
+84.81 ± 2.13
+84.93 ± 0.53
+SleepFM
+44.48 ± 0.58
+80.54 ± 0.72
+84.09 ± 0.68
+Brant-X
+46.49 ± 0.63
+85.31 ± 0.61
+85.37 ± 0.72
+Cognitive load and gait.
+On EEGMAT, the improvements over EEG-only are 7.61, 7.70, and 7.89
+points. The corresponding FoG improvements are 7.86, 8.64, and 7.88 points. CSBrain on FoG has
+the largest displayed gain over EEG-only, whereas CodeBrain has the highest absolute ZeroMAG
+score on both targets. The best absolute score and the largest incremental gain therefore need not
+identify the same backbone.
+C.4
+GAINS ACROSS BACKBONES
+Fig. C.1 compares the improvement over EEG-only and Direct MLP with a common color scale.
+All 18 backbone–dataset settings have positive mean differences for both comparisons. The largest
+advantage over Direct MLP occurs on HMC with CBraMod (6.86 points); the smallest occurs on
+SEED-V with CodeBrain (2.97 points).
+C.5
+AGGREGATE COMPARISONS
+Let ej, zj, sj, mj be EEG-only, ZeroMAG, supervised, and Direct MLP balanced-accuracy means
+for setting j. Values are in percentage points. Define
+∆EEG
+j
+= zj −ej,
+∆MLP
+j
+= zj −mj,
+Gsup
+j
+= sj −zj.
+(C.1)
+Table C.5 lists differences between reported means. Paired uncertainty requires the seed-wise co-
+variance.
+24
+
+
+Preprint
+ISRUC-S3
+HMC
+MASS
+SEED-V
+EEGMAT
+FoG
+CBraMod
+CSBrain
+CodeBrain
++7.76
++7.51
++7.74
++4.21
++7.61
++7.86
++7.73
++7.52
++7.85
++4.36
++7.70
++8.64
++7.87
++7.48
++8.01
++4.32
++7.89
++7.88
+(a) Gain over EEG-only
+ISRUC-S3
+HMC
+MASS
+SEED-V
+EEGMAT
+FoG
+CBraMod
+CSBrain
+CodeBrain
++6.70
++6.86
++4.55
++3.84
++5.78
++6.44
++4.49
++6.62
++3.29
++3.05
++4.96
++4.58
++4.52
++6.51
++3.60
++2.97
++5.23
++4.10
+(b) Gain over Direct MLP
+0
+3
+6
+9
+B-ACC gain (percentage points)
+Figure C.1: Gains in balanced accuracy over EEG-only and Direct MLP, in percentage points. Both
+panels use the same scale. Values are differences of means from main Table 1; no paired uncertainty
+or significance is inferred.
+Table C.5: Arithmetic derived from main Table 1; no additional experimental
+runs. Recovery is 100(z −e)/(s −e) for each row.
+Backbone
+Target
+∆EEG
+∆MLP
+Gsup
+Recovery (%)
+CBraMod
+ISRUC-S3
+7.76
+6.70
+0.45
+94.52
+CBraMod
+HMC
+7.51
+6.86
+0.52
+93.52
+CBraMod
+MASS
+7.74
+4.55
+0.38
+95.32
+CBraMod
+SEED-V
+4.21
+3.84
+0.61
+87.34
+CBraMod
+EEGMAT
+7.61
+5.78
+0.47
+94.18
+CBraMod
+FoG
+7.86
+6.44
+0.55
+93.46
+CSBrain
+ISRUC-S3
+7.73
+4.49
+0.43
+94.73
+CSBrain
+HMC
+7.52
+6.62
+0.56
+93.07
+CSBrain
+MASS
+7.85
+3.29
+0.41
+95.04
+CSBrain
+SEED-V
+4.36
+3.05
+0.58
+88.26
+CSBrain
+EEGMAT
+7.70
+4.96
+0.49
+94.02
+CSBrain
+FoG
+8.64
+4.58
+0.53
+94.22
+CodeBrain
+ISRUC-S3
+7.87
+4.52
+0.48
+94.25
+CodeBrain
+HMC
+7.48
+6.51
+0.50
+93.73
+CodeBrain
+MASS
+8.01
+3.60
+0.42
+95.02
+CodeBrain
+SEED-V
+4.32
+2.97
+0.55
+88.71
+CodeBrain
+EEGMAT
+7.89
+5.23
+0.51
+93.93
+CodeBrain
+FoG
+7.88
+4.10
+0.60
+92.92
+C.5.1
+AGGREGATE GAIN RECOVERY
+Averaging the 18 displayed means with equal weight yields 69.6133 for EEG-only, 76.8322 for
+ZeroMAG, 77.3344 for the supervised reference, and 71.9383 for Direct MLP. The corresponding
+gains are 7.22 and 4.89 points, with a 0.50-point supervised gap. The corresponding advantages
+over mean and nearest source weights are 6.7772 and 5.9989 points, rounding to 6.78 and 6.00.
+25
+
+
+Preprint
+Recovery can be aggregated in two ways:
+Rratio = 100
+P
+j(zj −ej)
+P
+j(sj −ej),
+(C.2)
+Rmean = 100
+J
+X
+j
+zj −ej
+sj −ej
+.
+(C.3)
+The ratio of aggregate gains is 93.50%; averaging row-wise recovery gives 93.12%. We use the ratio
+of aggregate gains for the 93.50% summary. The row-wise ratios are listed separately in Table C.5.
+All displayed supervised gains are positive.
+The fraction of the Direct MLP gap closed by ZeroMAG is
+100
+P
+j(zj −mj)
+P
+j(sj −mj) = 90.6929%,
+(C.4)
+This 90.69% value measures the fraction of the supervised-minus-MLP performance gap closed by
+ZeroMAG.
+C.5.2
+BACKBONE COMPARISON
+The mean improvement over EEG-only is 7.1150 points for CBraMod, 7.3000 for CSBrain, and
+7.2417 for CodeBrain. Their rounded values are 7.12, 7.30, and 7.24. Their range is 0.185 points
+(approximately 0.19 points), calculated before rounding the backbone means.
+The backbone-wise ratios of aggregate gains are 93.47%, 93.59%, and 93.42%. Across the 18 rows,
+the supervised-minus-ZeroMAG margin ranges from 0.38 to 0.61 points. ZeroMAG’s displayed
+mean is higher than the EEG-only, source-transfer, and Direct MLP means in every setting. Signifi-
+cance is not inferred from these means.
+C.6
+REPORTED VARIATION AND THE SUPERVISED GAP
+Fig. C.2 preserves the reported standard deviations for EEG-only, Direct MLP, ZeroMAG, and su-
+pervised fitting. These summarize seed-to-seed variation. They are not confidence intervals for
+pairwise differences, and overlapping whiskers do not establish either significance or equivalence.
+The supervised-reference gap ranges from 0.38 to 0.61 points across the 18 settings, with mean
+0.5022 points. This is a small residual difference in the displayed averages, but it is not a formal
+equivalence result. The corresponding gain-recovery ratios describe the position of ZeroMAG be-
+tween EEG-only and supervised fitting, rather than the probability of recovering the fitted adapter
+parameters.
+C.7
+CROSS-PARADIGM COMPARISONS
+With CodeBrain, ZeroMAG exceeds the original SleepFM on all six targets by an average of 1.8533
+points. The average gaps to PhysioOmni and Brant-X are 0.3050 and 0.8033 points, respectively.
+These comparisons place the generated-adapter framework alongside native multimodal models;
+they do not isolate backbone architecture, pretraining exposure, or target adaptation as a single
+controlled factor.
+PhysioOmni explicitly supports missing modalities, while Brant-X studies physiological-signal
+alignment and SleepFM learns multimodal sleep representations. The distinguishing question here
+is how a separately trained generator equips an existing frozen EEG model with an adapter. Missing-
+modality support alone does not separate these approaches.
+D
+TRAINING AND DEPLOYMENT
+D.1
+TWO TRAINING STAGES
+ZeroMAG has two learned stages followed by deployment. Stage 1 learns the adapter representation
+and decoder; Stage 2 learns the conditional diffusion model and condition encoder while retaining
+26
+
+
+Preprint
+76
+80
+84
+88
+EEG
+MLP
+ZeroMAG
+Supervised
+(a) ISRUC-S3
+72
+76
+80
+84
+EEG
+MLP
+ZeroMAG
+Supervised
+(b) HMC
+72
+76
+80
+84
+88
+EEG
+MLP
+ZeroMAG
+Supervised
+(c) MASS
+39
+42
+45
+48
+B-ACC (%)
+EEG
+MLP
+ZeroMAG
+Supervised
+(d) SEED-V
+70
+75
+80
+85
+B-ACC (%)
+EEG
+MLP
+ZeroMAG
+Supervised
+(e) EEGMAT
+72
+76
+80
+84
+88
+B-ACC (%)
+EEG
+MLP
+ZeroMAG
+Supervised
+(f) FoG
+CBraMod
+CSBrain
+CodeBrain
+Figure C.2: Means and reported ±1 SD for four methods within each target. Marker shapes identify
+backbones. Horizontal limits vary by target to show within-target differences; all values are balanced
+accuracy (%).
+the Stage 1 representation. Fig. D.1 shows their inputs, outputs, and update boundaries. The target
+deployment path is an inference procedure, not a third training stage.
+Stage 1  |  Representation learning
+Update encoder and decoder
+Stage 2  |  Conditional generation
+Update condition encoder and denoiser
+Deployment  |  Target inference
+All learned parameters fixed
+Reference adapter
+! ¤
+Block encoder + CBT
+sampled block tokens
+MoE decoder
+f! = d(U)
+Parameter +
+functional losses
+Source condition
+C = Á(R cond; ¿)
+Conditional DiT
+Ut; t; C ! cU0
+Frozen decoder
+c! = d(cU0)
+Diffusion +
+auxiliary losses
+Fixed target: posterior means + CBT
+Calibration
+unlabeled + task
+Condition + sampler
+noise to adapter latent
+Decode + install
+f ! a ! h
+Disjoint query
+predictions
+Figure D.1: Training and deployment within one separately trained backbone instantiation. Stage 1
+produces the encoder and decoder. Stage 2 uses a fixed canonical latent and propagates auxiliary-
+loss gradients through the frozen decoder. Deployment uses unlabeled calibration data and fixed
+model parameters.
+27
+
+
+Preprint
+D.2
+REFERENCE ADAPTERS
+For a source recording, the reference adapter solves the supervised fitting problem with the EFM
+encoder and head fixed:
+ω∗= arg
+min
+ω∈RP (A)
+X
+ri∈Rfit
+ℓ(LA
+i (ω), Yi).
+(D.1)
+Its weights provide the parameter target for representation learning and conditional generation. Its
+predictions on the disjoint source subset Rfun provide the functional target. Thus, reference fitting
+and functional supervision use different source samples, and the latter still belongs to offline training
+rather than to target evaluation.
+D.3
+STAGE 1: REPRESENTATION LEARNING
+For each block, the encoder predicts a Gaussian mean and variance, samples a pre-contextual token,
+and applies the cross-block transformer:
+Ub,pre = µb + exp(ℓb/2) ⊙ϵb,
+ϵb ∼N(0, I),
+(D.2)
+U = CBT([Ub,pre + Eb]B
+b=1),
+(D.3)
+eω = d(U; ψ).
+(D.4)
+The representation follows variational encoding (Kingma & Welling, 2014); the shared block
+schema and functional objective specify how it is applied to adapter weights. Stage 1 combines
+block reconstruction, direction alignment, functional agreement, posterior regularization, and expert
+balancing (Fedus et al., 2022):
+LAE = Lblk + 0.1Lcos + 10−4LKL + 1.0δfun(ω∗, eω) + 0.01Lbal.
+(D.5)
+The reconstruction term acts on block parameters, the cosine term on direction, the KL term on
+the Gaussian posterior, and the balancing term on expert use. Functional supervision constrains the
+decoded adapter’s predictions through the frozen EFM. The terms address different properties and
+do not turn the whole objective into a pure likelihood bound.
+Algorithm D.1 Stage 1: adapter representation learning
+Require: Source references ω∗and associated Rfun; fixed f, h.
+Ensure: Learned encoder η, decoder ψ, and canonical targets U0.
+1: while Stage 1 training continues do
+2:
+Sample source reference adapters and associated functional inputs.
+3:
+Encode blocks into (µb, ℓb) and sample Ub,pre.
+4:
+U ←CBT([Ub,pre + Eb]B
+b=1).
+5:
+eω ←d(U; ψ).
+6:
+Evaluate LAE in Eq. (D.5).
+7:
+Update η, ψ; keep f, h, ω∗fixed.
+8: end while
+9: Freeze η, ψ.
+10: for each source reference ω∗do
+11:
+U0 ←¯e(ω∗; η) = CBT([µb + Eb]B
+b=1).
+12: end for
+D.4
+STAGE 2: CONDITIONAL GENERATION
+The canonical target fixes a deterministic coordinate for each reference adapter:
+U0 = ¯e(ω∗; η) = CBT([µb + Eb]B
+b=1).
+(D.6)
+The condition C = Econd(Rcond, τ; ξ) guides the diffusion-transformer noise predictor (Peebles &
+Xie, 2023). The noise-prediction, latent, weight, and functional terms jointly train θ and ξ. The
+latter three are active only when ¯αt > 0.5:
+Lgen = Ldiff + 1[¯αt > 0.5] (0.1Llat + 0.1Lw + 1.0δfun(ω∗, bω)) .
+(D.7)
+The diffusion term is active at every timestep. Expert balancing is used only in Stage 1; neither stage
+uses a diversity loss.
+28
+
+
+Preprint
+Algorithm D.2 Stage 2: conditional adapter generation
+Require: Source triples (R, τ, ω∗); fixed η, ψ, f, h and U0.
+Ensure: Learned denoiser θ and condition encoder ξ.
+1: while Stage 2 training continues do
+2:
+Sample a source triple and unlabeled Rcond ⊆Rfit.
+3:
+C ←Econd(Rcond, τ; ξ).
+4:
+Sample a training timestep t and ϵ ∼N(0, I).
+5:
+Ut ←√¯αtU0 + √1 −¯αtϵ.
+6:
+Predict ϵθ(Ut, t, C) and evaluate Ldiff.
+7:
+if ¯αt > 0.5 then
+8:
+Estimate bU0 using Eq. (E.9).
+9:
+bω ←d(bU0; ψ).
+10:
+Add weighted latent, weight, and functional losses.
+11:
+end if
+12:
+Update θ, ξ, propagating auxiliary gradients through fixed d.
+13: end while
+D.5
+DEPLOYMENT
+For an unseen recording, generation requires only the unlabeled calibration subset, the supported
+task, and the selected backbone’s trained generator and decoder. No reference adapter is required.
+Query samples are excluded from condition construction.
+Algorithm D.3 Target inference with fixed parameters
+Require: Unlabeled Rcond, task τ, query inputs Rqry; fixed model components.
+Ensure: Query predictions with a generated adapter.
+1: C ←Econd(Rcond, τ; ξ).
+2: Draw ϵ ∼N(0, I).
+3: bω ←d(sθ(ϵ, C); ψ).
+4: for each query sample (XEEG
+i
+, XA
+i ) do
+5:
+Zi ←f(XEEG
+i
+).
+6:
+bYi ←arg max h(a(Zi, XA
+i ; bω)).
+7: end for
+The sampled initial noise makes adapter generation stochastic even when the remaining inference
+operations are fixed. This differs from posterior sampling during Stage 1: deployment samples a
+conditional adapter latent, whereas Stage 1 samples a representation of a known reference vector.
+Neither process requires target labels.
+E
+OBJECTIVE ANALYSIS
+E.1
+CANONICAL LATENT COORDINATES
+The block posterior is defined before cross-block contextualization. Let Fη denote adding block
+embeddings and applying CBT. For pre-contextual tokens Upre, the stochastic output is Fη(Upre)
+and the canonical output is Fη(µ). In general,
+Fη(E[Upre])̸ = E[Fη(Upre)].
+(E.1)
+For example, a scalar nonlinear map F(u) = u2 gives F(E[u]) = µ2 but E[F(u)] = µ2 + σ2. The
+same distinction applies to nonlinear contextualization. The Stage 2 target is the explicit means-
+before-CBT path in Eq. (D.6), not an estimate of the exact mean after a nonlinear transformer.
+29
+
+
+Preprint
+E.2
+POSTERIOR REGULARIZATION
+For a diagonal Gaussian posterior qb = N(µb, diag(exp ℓb)), its KL to a standard normal has the
+closed form
+DKL(qb∥N(0, I)) = 1
+2
+d
+X
+r=1
+(µ2
+b,r + exp ℓb,r −1 −ℓb,r).
+(E.2)
+Here d is token width and r indexes a token coordinate. This identity concerns the pre-contextual
+posterior. It does not imply that the distribution after CBT is diagonal Gaussian. It also does not
+specify whether a training implementation sums or averages over blocks; a change of reduction
+changes the scale of the corresponding loss coefficient.
+For one coordinate, the partial derivatives are ∂DKL/∂µ = µ and ∂DKL/∂ℓ= (exp ℓ−1)/2. The
+minimum occurs at zero mean and unit variance when this term is considered alone. Reconstruction
+and functional objectives compete with that regularizer, so a trained posterior is not expected to
+minimize the KL term independently of the other losses.
+E.3
+BLOCK RECONSTRUCTION AND DIRECTION
+Parameter reconstruction and cosine alignment provide distinct constraints. A positive rescaling of
+a nonzero reference block, eωb = cω∗
+b with c > 0, has cosine similarity one even when c̸ = 1. Its
+squared reconstruction error is (c−1)2∥ω∗
+b∥2
+2. Conversely, a small error in a large block can dominate
+a coordinate-wise reconstruction sum while a smaller block has a larger relative discrepancy.
+Thus, block structure carries information that a whole-vector direction score alone does not recover.
+The reconstruction and direction objectives complement predictive supervision through the frozen
+EFM. Neither imposes a direct bound on target accuracy.
+E.4
+FUNCTIONAL DISCREPANCY AND ITS DERIVATIVE
+On a fixed source functional subset, write the reference probability vector as pi = softmax(LA
+i (ω∗))
+and the student vector as qi = softmax(LA
+i (ω′)). The main discrepancy is
+δfun(ω∗, ω′) = 1
+n
+n
+X
+i=1
+K
+X
+c=1
+pi,c log pi,c
+qi,c
+.
+(E.3)
+Reference probabilities are constants for the student update. For a student logit zi,c, the derivative is
+∂δfun
+∂zi,c
+= 1
+n(qi,c −pi,c).
+(E.4)
+This follows by expressing the cross-entropy term as −P
+c pczc+log P
+c exp zc and using P
+c pc =
+1. It shows that the objective aligns distributions, not just the most likely class.
+No labels are required to compute this discrepancy. Nonetheless, its reference predictions inherit the
+behavior of an adapter that was fitted using source labels. Functional matching is therefore not an
+unsupervised proof of correctness: it transfers the source reference’s useful behavior and its errors.
+A confident but wrong teacher prediction is still a target of the KL term.
+The direction of KL also matters. The main text uses reference-to-student KL; reversing its ar-
+guments produces a different objective. The expression uses the untempered softmax in the main
+formulation. Stable log-softmax evaluation preserves this objective without taking logarithms of
+rounded probabilities.
+E.5
+PREDICTION AGREEMENT
+A small parameter distance alone does not ensure a small predictive error. Locally, for a differen-
+tiable logit map L,
+L(ω + ∆ω) −L(ω) = JL(ω)∆ω + o(∥∆ω∥2).
+(E.5)
+Sensitivity depends on the Jacobian and on the direction of the error. Two equally sized perturbations
+can have different functional effects. Conversely, multiple parameter vectors can implement the
+same predictions, so exact weight recovery is not necessary for functional agreement.
+30
+
+
+Preprint
+Prediction agreement admits a simple margin condition. Suppose p and q are two class-probability
+vectors, the reference winning class is c∗, and its margin is
+m = pc∗−max
+c̸=c∗pc > 0.
+(E.6)
+If ∥p −q∥∞< m/2, the student has the same unique winning class. Indeed, for any competitor c,
+qc∗−qc ≥pc∗−pc −2 ∥p −q∥∞> 0.
+(E.7)
+This statement concerns agreement with the reference, not agreement with the true label. It also does
+not convert a mean training-subset KL into a uniform target-query bound. A new dataset can shift
+both margins and discrepancies. Functional consistency is an objective evaluated through predictive
+behavior, rather than a universal guarantee of target generalization.
+E.6
+FORWARD DIFFUSION AND CLEAN-LATENT ESTIMATION
+Following the Gaussian diffusion formulation (Ho et al., 2020), for schedule coefficients αt = 1−βt
+and ¯αt = Qt
+r=1 αr, the forward marginal is
+Ut = √¯αtU0 +
+√
+1 −¯αtϵ,
+ϵ ∼N(0, I).
+(E.8)
+The conditional denoiser predicts ϵθ(Ut, t, C). Solving the forward relation for U0 after substituting
+this prediction gives
+bU0 = Ut −√1 −¯αtϵθ(Ut, t, C)
+√¯αt
+.
+(E.9)
+No new assumption is needed for this algebra beyond ¯αt > 0. The estimator’s quality does depend
+on learned noise prediction and numerical stability.
+E.7
+LOW-NOISE SUPERVISION
+Subtract the true U0 from its estimator to obtain the exact identity
+bU0 −U0 =
+r
+1 −¯αt
+¯αt
+ ϵ −ϵθ(Ut, t, C)
+
+.
+(E.10)
+Thus squared clean-latent error multiplies squared noise-prediction error by (1 −¯αt)/¯αt. This
+factor increases as the signal coefficient decreases. Low-noise gating in the main text is therefore
+consistent with avoiding strongly amplified reconstruction and functional gradients from heavily
+corrupted latents.
+Writing SNRt = ¯αt/(1 −¯αt), the multiplier is 1/SNRt. For a fixed noise-prediction residual,
+a lower signal-to-noise ratio therefore yields a larger clean-latent error. This algebra motivates
+applying the auxiliary losses at low-noise timesteps; the implementation uses ¯αt > 0.5 (SNR > 1)
+with a cosine noise schedule, as specified in Appendix H.1.
+E.8
+MOE DECODING
+Sparse mixture-of-experts models select a subset of experts for each input (Shazeer et al., 2017). In
+ZeroMAG, routing uses the contextualized token and its block identity:
+πb = softmax(route([Ub; Eb]; ψr)),
+(E.11)
+eωb = headtype(b)
+
+
+X
+j∈TopK(πb)
+πb,jrj(Ub)
+
+.
+(E.12)
+The block type is temporal, spectral, projection, or shared. Experts act on latent tokens; the output
+heads map their mixtures back to the appropriate parameter blocks. The mixture uses the softmax
+routing weights πb,j for the selected experts, as in the main formulation.
+Top-k selection restricts the active expert set. Away from routing-boundary changes, the selected
+computation is differentiable through expert outputs and routing weights. At a boundary, the selected
+set can change discontinuously. The presence of an expert-balancing objective does not establish
+uniform expert utilization; the main formulation uses it as a training regularizer.
+31
+
+
+Preprint
+E.9
+GRADIENTS THROUGH A FROZEN DECODER AND EFM
+Write the student logit path as z = h(a(f(X), XA; dψ(bU0))). For an auxiliary loss J (z), the chain
+rule includes
+∂J
+∂θ = ∂J
+∂z
+∂z
+∂bω
+∂dψ(bU0)
+∂bU0
+∂bU0
+∂θ .
+(E.13)
+Freezing ψ means not updating its stored values. It does not set its input Jacobian to zero. Similarly,
+the head can remain frozen while its derivative transmits a functional error to generated adapter
+weights. Reference predictions may be detached; generated student predictions must preserve the
+relevant graph.
+More explicitly, the Stage 2 parameter update satisfies ψ(k+1) = ψ(k), whereas θ and ξ receive
+gradients. This fixed-parameter condition does not require the mathematical derivative ∂J /∂ψ to
+vanish. The relevant derivative for generator learning is the decoder input Jacobian, which remains
+in the chain rule.
+For the condition encoder, the same path additionally contains ∂bU0/∂C and ∂Econd/∂ξ. Thus the
+functional objective can shape the recording-derived condition even though the teacher, decoder, and
+EFM are fixed. Detaching the generated weights would eliminate this auxiliary supervision rather
+than merely freezing the decoder.
+E.10
+LATENT ERROR AND FUNCTIONAL ERROR
+Let bU0 = U0 + ∆U and assume the decoder is differentiable at U0. Locally,
+d(U0 + ∆U; ψ) −d(U0; ψ) = Jd(U0)∆U + o(∥∆U∥).
+(E.14)
+Combining this with the logit Jacobian gives a first-order predictive perturbation JLJd∆U. Its size
+depends on both decoder sensitivity and the frozen EFM’s response to the decoded adapter. Equal
+latent reconstruction errors can therefore yield different logit errors, motivating an objective that
+observes the final prediction path.
+There are also two distinct discrepancies: reconstruction compares d(¯e(ω∗)) with ω∗, while genera-
+tion compares d(bU0) with ω∗. A generator that exactly recovers U0 still inherits any reconstruction
+error in the learned representation. Conversely, a high-quality autoencoder does not ensure that the
+conditional diffusion model recovers the appropriate latent for every recording.
+F
+EFFICIENCY
+F.1
+MEASURED TARGET-SIDE TIME
+Target-side wall-clock time was measured programmatically with timers in the code, under the same
+hardware and protocol for the two compared procedures. Condition construction and adapter gener-
+ation took approximately 2 minutes, compared with approximately 15 minutes for supervised target
+adaptation. These measurements give
+speedup = 15
+2 = 7.5,
+time reduction = 100
+
+1 −2
+15
+
+≈86.7%.
+(F.1)
+The difference is approximately 13 minutes per measured adaptation procedure. These are elapsed-
+time measurements of the reported procedures, rather than isolated GPU kernel timings. The timed
+procedures exclude source-bank construction and offline generator training.
+F.2
+COST DECOMPOSITION
+The target workflow consists of conditioning, iterative denoising, decoding, and installing the gen-
+erated weights. A symbolic decomposition is
+Tgen = Tcond + NevalTdenoise + Tdecode + Tinstall.
+(F.2)
+Here Neval is the number of denoiser evaluations and each T denotes the corresponding elapsed
+cost under a fixed execution convention. This expression describes the operations; it does not assign
+32
+
+
+Preprint
+0
+5
+10
+15
+Elapsed time (minutes)
+Condition + generation
+Supervised adaptation
+2 min
+15 min
+Figure F.1: Target-side wall-clock time measured programmatically: condition construction plus
+adapter generation versus supervised adaptation, under the same hardware and protocol. The 7.5×
+ratio uses the reported 2- and 15-minute measurements. No timing variance or component-wise
+timing breakdown is inferred.
+portions of the measured time to individual components. Query prediction then adds the cost of the
+fixed EEG model and active adapter branches.
+No target-side optimization is required, but generation still performs computation. The 7.5× mea-
+surement compares adaptation procedures; it does not establish a 7.5× speedup for every subsequent
+query prediction or for the entire offline-plus-online pipeline.
+F.3
+AMORTIZATION ACROSS TARGETS
+Let Toff denote source-bank construction and both training stages for one separately trained back-
+bone instantiation. For N deployments, the generated-adapter route has cost Toff+NTgen, excluding
+shared query prediction. The supervised route has incremental adaptation cost NTsup. Under equal
+per-target costs, the generated route becomes cheaper when
+N >
+Toff
+Tsup −Tgen
+.
+(F.3)
+Using the measured target-side difference gives N > Toff/(13 minutes). This is a symbolic break-
+even condition, not a measured deployment count: no numerical offline training cost is assigned
+here. Offline training is associated with a fixed source configuration and backbone; separate back-
+bone instantiations have separate offline costs.
+F.4
+LATENT AND OUTPUT COMPLEXITY
+For B tokens of width d, dense latent self-attention stores an attention map with B2 entries per head.
+Token projections and feed-forward transformations also depend on B and d. Reducing latent width
+can reduce the denoiser computation, while the decoder still produces P scalar adapter coordinates.
+Compact latent generation does not remove the output storage and installation cost of the adapter
+itself.
+Sparse expert selection limits the active reconstruction functions in the stated decoder. The runtime
+benefit depends on how expert computation is executed; the selection rule alone does not provide a
+measured speedup. Functional supervision adds an adapter-and-head prediction path during offline
+training, but this loss evaluation is absent from target deployment.
+G
+COMPONENT ABLATIONS
+G.1
+COMPONENT ABLATIONS
+Main Table 2 reports Full ZeroMAG at 73.41 balanced accuracy and eight component variants av-
+eraged across all nine held-out target datasets. All variants come from one ablation run under the
+main protocol, separate from the runs in main Table 1 and Table C.1, where the CBraMod nine-
+target average of ZeroMAG is 70.01; each decrease is measured against Full ZeroMAG within the
+33
+
+
+Preprint
+ablation run; its three functional-supervision variants are analyzed in Appendix G.3. The arithmetic
+drops from 73.41 are 11.09 for task+modality only, 9.24 for shuffled subject condition, 11.07 for
+direct weight MLP, 8.18 for modular latent MLP, 5.07 for modular latent DiT without MoE, 4.16
+for a shared modality encoder, 8.12 for temporal-only encoding, and 6.58 for mean fusion. All
+differences use the same full-model reference.
+The reported task+modality reduction of 11.09 points corresponds to 100 × 11.09/73.41 =
+15.1069% of the full score. This is a relative score reduction, not a 15.1 percentage-point change
+and not a loss of 15.1% of the supervised gain.
+Table G.1: Component ablations from main Table 2. B-ACC and decrease are reported in percentage
+points as mean ± standard deviation over five seeds. The aggregation uses CBraMod over all nine
+target datasets, as in main Table 2.
+Component
+Variant
+B-ACC
+Decrease
+Condition
+Task + modality only
+62.32 ± 0.41
+11.09 ± 0.72
+Shuffled subject
+64.17 ± 0.53
+9.24 ± 0.98
+Generator
+Direct weight MLP
+62.34 ± 0.67
+11.07 ± 0.88
+Modular latent MLP
+65.23 ± 0.62
+8.18 ± 0.83
+Latent DiT, no MoE
+68.34 ± 0.21
+5.07 ± 0.71
+Adapter
+Shared encoder
+69.25 ± 0.33
+4.16 ± 0.81
+Temporal only
+65.29 ± 0.72
+8.12 ± 1.03
+Mean fusion
+66.83 ± 0.32
+6.58 ± 0.71
+Full
+ZeroMAG
+73.41 ± 0.71
+—
+Ablation settings.
+The source bank, source training splits, frozen EEG model, prediction head,
+and evaluation protocol are held fixed as stated in the main text. The condition variants test whether
+recording-specific information and its alignment are useful. The generator variants compare direct
+parameter regression, latent regression, diffusion, and MoE decoding. The adapter variants alter
+modality-specific encoding, spectral information, and shared coordination.
+Results analysis.
+The modular latent MLP exceeds direct weight MLP by 2.89 points; replacing
+that latent regressor with DiT contributes another 3.11 points in the displayed sequence, and the
+full configuration exceeds the no-MoE variant by 5.07 points. These are incremental differences
+between the listed variants, not an additive causal decomposition independent of training configu-
+ration. Removing subject conditioning and shuffling it cause substantial declines, consistent with
+recording-aligned information contributing beyond task and modality identity.
+G.2
+INTERPRETING THE INTERVENTIONS
+The shuffled-subject comparison changes alignment between a condition and its recording while re-
+taining the set of subject-condition vectors. Its 9.24-point decrease is consistent with the importance
+of recording-aligned information. The task-plus-modality variant removes that factor and decreases
+accuracy by 11.09 points. The two interventions answer related but distinct questions: availability
+of subject information and correctness of its assignment.
+The temporal-only variant has an 8.12-point decrease, compared with 4.16 points for a shared modal-
+ity encoder and 6.58 points for mean fusion. The larger temporal-only decrease is consistent with
+a useful contribution from the spectral branch in this experiment. It does not quantify an indepen-
+dent spectral contribution that can be added to the other decreases, because the variants are separate
+trained systems.
+The reported decreases are paired with the standard deviations given in main Table 2. They are com-
+puted from seed-wise paired differences rather than from the two marginal score standard deviations.
+The functional-loss ablation below isolates the supervision applied in the two learning stages.
+34
+
+
+Preprint
+0
+3
+6
+9
+12
+Decrease from full ZeroMAG (percentage points)
+Task + modality only
+Shuffled subject
+Direct weight MLP
+Modular latent MLP
+Latent DiT, no MoE
+Shared encoder
+Temporal only
+Mean fusion
+11.09
+9.24
+11.07
+8.18
+5.07
+4.16
+8.12
+6.58
+Condition
+Generator
+Adapter
+Figure G.1: Performance decrease under component ablation. Markers show the decreases re-
+ported in main Table 2 relative to full ZeroMAG (B-ACC 73.41 ± 0.71). Whiskers reproduce the
+table’s reported standard deviations of the decreases; they are not newly calculated confidence in-
+tervals. Variants are grouped by condition, generator, and adapter. These are separate interventions,
+not additive contributions. The aggregation covers all nine target datasets, as in main Table 2.
+G.3
+FUNCTIONAL SUPERVISION
+We evaluate four functional-loss settings using CBraMod on the same set of nine held-out target
+datasets as the main ablation study. The variants use five matched random seeds, the same data
+splits and reference-adapter banks, and matched training budgets, initialization rules, and evaluation
+protocols. B-ACC is reported as mean ± standard deviation over the five seeds.
+Evaluation.
+Reconstruction and generated-weight errors use the same parameter-distance defini-
+tion, comparing eω and bω, respectively, with the supervised reference ω∗. The prediction discrepancy
+is DKL(pω∗∥pbω), evaluated on a fixed independent evaluation subset and averaged over samples, tar-
+gets, and seeds. Full ZeroMAG is the comparison baseline in Table G.2: each error is divided by
+the corresponding error of Full ZeroMAG. Its normalized values are therefore 1.00 by definition.
+The normalization baseline is distinct from the reference adapter ω∗used in the underlying error
+definitions; the three normalized metrics need not have equal absolute values.
+Results.
+Removing Stage 1 functional supervision reduces reconstruction error by 6%, yet in-
+creases final generated-weight error by 5% and prediction KL by 31%; B-ACC falls by 1.15 per-
+centage points. Thus, better reconstruction of reference parameters does not necessarily yield better
+generated-adapter predictions. Removing Stage 2 functional supervision leaves Stage 1 reconstruc-
+tion error unchanged, while generated-weight error increases by 8%, prediction KL by 48%, and
+B-ACC decreases by 1.58 points. Removing both losses gives the largest observed B-ACC de-
+crease, 2.87 points, and raises prediction KL by 82%. These results support functional supervision
+during adapter representation learning and conditional generation.
+H
+IMPLEMENTATION AND EVALUATION PROTOCOL
+H.1
+IMPLEMENTATION DETAILS
+Table H.1 gives the training and inference settings. Batch size counts reference-adapter samples per
+optimizer step, not subjects or signal windows. Each sample has B = 3M + 1 active blocks and
+35
+
+
+Preprint
+Table G.2: Functional-loss ablation. Parameter-error and KL columns are normalized to their re-
+spective Full values; lower is better. Reconstruction error evaluates the Stage 1 output against the
+reference adapter. Generated-weight error evaluates the final generated adapter against the same
+reference. KL evaluates the final generated adapter.
+Setting
+B-ACC (%)
+Stage 1
+recon. error
+Generated
+weight error
+Prediction
+KL
+Full
+73.41 ± 0.71
+1.00
+1.00
+1.00
+w/o Stage 1 functional
+72.26 ± 0.76
+0.94
+1.05
+1.31
+w/o Stage 2 functional
+71.83 ± 0.79
+1.00
+1.08
+1.48
+w/o both functional
+70.54 ± 0.86
+0.93
+1.14
+1.82
+a B × 128 latent sequence. Block identity conditioning and attention masks handle configuration-
+dependent sequence lengths without allocating missing-modality blocks.
+H.2
+SEPARATE BACKBONE INSTANTIATIONS
+Each of CBraMod, CSBrain, and CodeBrain has a separately trained generator. The EFM encoder
+is loaded from its checkpoint, and the compatible source-trained prediction head is fixed throughout
+the ZeroMAG pipeline (Appendix A.2). Reference-adapter fitting updates only adapter parameters.
+Functional losses use the same frozen head, whose parameters are not part of the adapter bank or
+generator output. At deployment, the known task selects its output layer; no target labels or target-
+side updates are used.
+Within a selected instantiation, generated vectors use the block layout expected by its decoder and
+adapter. This scope is essential for the meaning of bω = g(R, τ): the symbol g identifies that
+instantiation’s generator, rather than one universal weight generator shared by all architectures. The
+reported multi-backbone evaluation tests repeated applicability of the framework.
+H.3
+DATASET HOLDOUT AND RECORDING SPLITS
+The adapter-bank and generator source datasets are ISRUC-S1 (Khalighi et al., 2016), Sleep-EDF
+Expanded (Kemp et al., 2000), SHHS (Quan et al., 1997), DEAP (Koelstra et al., 2012), ASCER-
+TAIN (Subramanian et al., 2016), SEED-VIG (Zheng & Lu, 2017), WAUC (Albuquerque et al.,
+2020), and OpenBMI (Lee et al., 2019). The target datasets are ISRUC-S3 (Khalighi et al., 2016),
+HMC (Alvarez-Estevez & Rijsman, 2021), MASS-SS3 (reported as MASS) (O’Reilly et al., 2014),
+SEED-V (Liu et al., 2022), EEGMAT (Zyma et al., 2019), Multimodal FoG (Zhang et al., 2022),
+CAP (Terzano et al., 2001), DREAMER (Katsigiannis & Ramzan, 2018), and BCI-IV-2a (reported
+as BCI-IV) (Brunner et al., 2008). Let Dsrc and Dtgt denote these two disjoint sets:
+Dsrc ∩Dtgt = ∅,
+|Dtgt| = 9.
+(H.1)
+All target datasets are excluded from encoder/head training, source reference-adapter fitting, both
+generator-training stages, and model selection in the ZeroMAG pipeline. Task supervision comes
+from source training data; target recordings are used only for unlabeled conditioning and evaluation.
+For a source recording, Rcond ⊆Rfit is read without its labels. The functional subset is separate:
+Rfun ∩Rfit = ∅,
+Rfun ∩Rcond = ∅.
+(H.2)
+The labels associated with Rfit train the reference adapter. Functional supervision compares predic-
+tions on Rfun without reading its labels. These distinct roles prevent the condition encoder’s input
+from being confused with the reference adapter’s supervised fitting data.
+For each target subject, calibration and query subsets are disjoint:
+Rcond
+tgt
+∩Rqry
+tgt = ∅.
+(H.3)
+The condition is constructed from calibration signals and the supported task. The generated adapter
+is evaluated on query inputs without target-side gradient updates. Query labels serve evaluation
+rather than adapter fitting or condition construction.
+36
+
+
+Preprint
+Table H.1: Implementation settings. M is the number of active companion modalities. Auxiliary
+Stage 2 losses share the same low-noise gate; diffusion loss is always active.
+Group
+Setting
+Value
+Representation
+Active parameter blocks / latent shape
+3M + 1 / (3M + 1) × 128
+CBT layers / hidden width / heads
+2 / 256 / 8
+Decoder
+Experts / routing
+4 / learned soft top-2
+Expert MLP widths
+128 →256 →128
+Both stages
+Optimizer / learning rate / weight decay
+AdamW / 10−4 / 10−4
+Batch size
+64 reference-adapter samples
+Stage 1
+Training duration
+300 epochs
+Block / cosine / KL coefficients
+1.0 / 0.1 / 10−4
+Functional / balance coefficients
+1.0 / 0.01
+Stage 2
+DiT layers / hidden width / heads
+4 / 256 / 8
+Training diffusion horizon / schedule / prediction
+1000 / cosine / ϵ
+Training duration
+10,000 optimizer updates
+Diffusion / latent / weight coefficients
+1.0 / 0.1 / 0.1
+Functional coefficient
+1.0
+Auxiliary reconstruction/function losses
+¯αt > 0.5 (SNR > 1)
+Training
+Gradient clipping threshold / EMA decay
+1.0 / 0.9999
+Source bank
+Size / eligibility
+311 per backbone / all eligible
+Sampling
+Dataset-balanced
+Inference
+DDIM (Song et al., 2020) steps / ηDDIM
+50 / 0
+Calibration per subject
+64 unlabeled windows
+Sleep window duration
+30 s
+Evaluation
+Matched seeds
+5
+H.4
+SOURCE ADAPTER BANK
+For backbone b, the bank contains all eligible fitted reference adapters from the fixed source datasets:
+A(b)
+src =
+[
+Di∈Dsrc
+A(b)
+i ,
+N (b)
+src = |A(b)
+src|.
+(H.4)
+Here eligibility includes excluding source records from any subject present in the target datasets.
+This exclusion is applied across related cohorts, including ISRUC-S1/S3, before reference-adapter
+fitting. No target dataset contributes adapters to the bank. There is no fixed bank-size cap or per-
+dataset quota. After eligibility filtering, the bank contains 311 reference adapters per backbone.
+Training uses dataset-balanced sampling so that large source datasets do not dominate the adapter
+batches.
+H.5
+BASELINE INTERFACES
+The EEG-only baseline evaluates h(f(XEEG)). Mean-source transfer averages compatible fitted
+source vectors,
+bωmean = 1
+n
+n
+X
+j=1
+ω∗
+j .
+(H.5)
+Nearest-source transfer selects a source adapter for reuse, whereas Direct MLP directly maps the
+condition to adapter weights. The controlled adapter comparisons are grouped by frozen backbone;
+native multimodal models remain separate cross-paradigm references.
+H.6
+REPORTED METRICS
+Let Nab count predictions with true class a and predicted class b, with na = P
+b Nab, bnb = P
+a Nab,
+and N = P
+a na. For K classes with positive support, balanced accuracy (Brodersen et al., 2010) is
+B-ACC = 1
+K
+K
+X
+c=1
+Ncc
+nc
+.
+(H.6)
+37
+
+
+Preprint
+Equal class weighting distinguishes balanced accuracy from ordinary accuracy, which weights the
+class recalls by their observed prevalences. The displayed result tables express B-ACC as a percent-
+age; differences between those values are percentage points.
+Weighted F1 uses the class-support weights:
+WF1 =
+K
+X
+c=1
+nc
+N F1c,
+F1c =
+2Ncc
+nc + bnc
+,
+(H.7)
+for nonzero denominators. Cohen’s kappa (Cohen, 1960) adjusts observed agreement for agreement
+induced by the marginal label frequencies:
+po =
+P
+c Ncc
+N
+,
+pe =
+X
+c
+ncbnc
+N 2 ,
+κ = po −pe
+1 −pe
+.
+(H.8)
+These metrics are not determined by B-ACC alone. Consequently, no kappa or weighted-F1 values
+are inferred from the B-ACC tables in this appendix. Likewise, the binary-task AUROC and AUPRC
+require score-level predictions; class-balanced accuracy cannot reconstruct either curve. Precision–
+recall analysis is particularly useful when class prevalence is imbalanced (Saito & Rehmsmeier,
+2015).
+H.7
+SEED VARIATION AND PAIRWISE COMPARISONS
+Main Tables 1 and 2 report means and standard deviations over five matched seeds. The plotted
+whiskers reproduce these reported SDs. A standard deviation describes seed-to-seed variation and
+is distinct from a standard error or confidence interval.
+For two matched seed scores xs, ys, the difference is ds = xs −ys. Its variance satisfies
+Var(d) = Var(x) + Var(y) −2 Cov(x, y).
+(H.9)
+Marginal SDs do not determine the covariance. Therefore the derived mean gains in Appendix C
+are shown without newly inferred paired error bars. The reported SDs of ablation decreases remain
+those given in main Table 2.
+H.8
+AGGREGATION
+The six-target comparisons average the 18 displayed backbone–dataset means with equal weight.
+This gives equal weight to each displayed setting, not to each participant or window. Within a tar-
+get, the backbone groups reuse the target dataset and are not independent participant cohorts. The
+CBraMod ablation summary in main Table 2 averages results over all nine target datasets, includ-
+ing CAP, DREAMER, and BCI-IV, yielding 73.41 for Full ZeroMAG. It therefore has a different
+evaluation scope from the six-target comparison.
+Recovery ratios and score differences answer different questions.
+A percentage-point differ-
+ence measures absolute movement in B-ACC; a recovery percentage divides that movement by
+a supervised-reference gain. The ratio-of-aggregate-gains convention in Appendix C makes the
+93.50% summary explicit and separates it from the average of row-wise percentages.
+I
+GENERALIZATION AND DATA EFFICIENCY
+I.1
+MODALITY HOLDOUT
+The generalization experiments summarized in the main text consider unseen combinations of
+known modalities and modality types in M that are excluded from generator training. ZeroMAG
+recovers 89.7% and 82.6% of the supervised multimodal gain, respectively. Fig. I.1 compares the
+two recovery rates.
+The type-holdout summary is 7.1 percentage points lower in recovery rate than the combination-
+holdout summary. This difference is in recovery percentage, not in balanced-accuracy percentage
+points. Both refer to the supported modality interface. They do not establish compatibility with an
+arbitrary signal type for which the model defines no encoder, identity embedding, or adapter block.
+38
+
+
+Preprint
+Unseen
+combination
+Held-out
+type
+0
+25
+50
+75
+100
+Supervised gain
+recovered (%)
+89.7%
+82.6%
+(a) Modality holdout
+50% source bank
+0
+25
+50
+75
+100
+Full-bank gain
+retained (%)
+97.2%
+(b) Source-bank size
+Figure I.1: Reported generalization and source-bank summaries from the main text. Left: recovery
+of supervised gain for unseen combinations and held-out modality types. Right: retention of the
+full-bank multimodal gain when using half the source bank. The panels have different reference
+denominators; no seed-level intervals are inferred.
+I.2
+CALIBRATION DATA
+Performance saturates at approximately 64 unlabeled calibration windows in the experiment sum-
+marized in the main text. This concerns the amount of data used to form the condition, rather than
+a target optimization batch size: there is no target-side fitting step. Once constructed, the condition
+guides generation of the adapter used on the disjoint query subset.
+A window count describes the number of calibration units rather than a universal duration in seconds.
+Window duration and signal sampling rates differ across physiological tasks. The reported saturation
+point therefore characterizes the evaluated calibration setting and does not imply that all recordings
+or tasks require exactly the same observation duration.
+I.3
+SOURCE-BANK SIZE
+Using 50% of the source adapter bank retains 97.2% of the full-bank multimodal gain in the reported
+data-efficiency experiment. This is a 2.8% reduction in the reference gain, not a 2.8-point reduction
+in B-ACC. The denominator is the full-bank multimodal gain.
+Together, the calibration and bank-size summaries concern two different resource requirements.
+Calibration windows are collected from a new target recording at deployment. Source adapters
+are fitted and organized offline. Reducing one does not directly reduce the other, and the reported
+summaries do not provide a joint optimum over calibration budget and bank size.
+39
+
+
+Preprint
+J
+COMPARISON WITH RELATED METHODS
+J.1
+EXTENDED RELATED WORK
+Multimodal physiological models.
+SleepFM and PhysioOmni learn multimodal physiological
+representations through pretraining (Thapa et al., 2024; Fu et al., 2025), whereas Brant-X uses a
+pretrained EEG foundation model to align EEG and other physiological signals and trains an EXG
+encoder (Zhang et al., 2024). ZeroMAG generates a plug-in adapter for a selected existing EFM,
+preserving its frozen encoder and prediction head at target deployment.
+Parameter-efficient and test-time adaptation.
+Adapters, LoRA, and prompt tuning (Houlsby
+et al., 2019; Hu et al., 2022; Lester et al., 2021; Han et al., 2024), including EEG-specific adapter
+designs (Suzumura et al., 2024), reduce the number of trainable parameters but still optimize them
+on labeled target data. Test-time and unsupervised domain adaptation (Liang et al., 2023; Wang
+et al., 2021; Liang et al., 2020) avoid target labels but update parameters on target data, where
+hyperparameters and stopping criteria are difficult to validate. ZeroMAG amortizes adaptation into
+an offline-trained generator and performs no target-side gradient step.
+Parameter generation.
+Hypernetworks (Ha et al., 2017) and meta networks (Munkhdalai & Yu,
+2017) generate weights from task representations, shared hypernetworks generate adapters for multi-
+task fine-tuning (Karimi Mahabadi et al., 2021), and neural network diffusion models parameters
+with latent diffusion (Wang et al., 2024b). Recent work applies parameter generation to zero-shot
+adaptation of large language models: Text-to-LoRA generates LoRA adapters from natural-language
+task descriptions (Charakorn et al., 2025), and Drag-and-Drop LLMs maps batches of unlabeled task
+prompts to LoRA weights (Liang et al., 2025). ZeroMAG shares the goal of replacing per-target
+optimization with generation, but differs in three respects: its condition is computed from unlabeled
+physiological recordings rather than text; the generated adapter must accommodate varying modality
+configurations within a shared block schema; and generation combines parameter-level targets with
+functional agreement through the frozen EFM.
+J.2
+ADAPTATION MECHANISMS
+Table J.1 distinguishes methods by the object they adapt and the information used for adaptation. It
+is a methodological comparison; the methods listed here are not additional experimental baselines.
+Table J.1: Adaptation mechanisms in related work. Target-time optimization and conditional pa-
+rameter generation are separate design choices.
+Method family
+Adapted object
+Adaptation mechanism
+Adapters (Houlsby et al., 2019)
+Inserted modules
+Optimize a small set of task-specific
+parameters.
+LoRA (Hu et al., 2022)
+Low-rank weight updates
+Learn an update while freezing the
+original weights.
+Prompt tuning (Lester et al.,
+2021)
+Continuous input prompts
+Optimize prompt embeddings for the
+task.
+Tent (Wang et al., 2021)
+Normalization parameters
+Minimize prediction entropy on test
+inputs.
+SHOT (Liang et al., 2020)
+Target feature extractor
+Adapt with a fixed source classifier
+and unlabeled target data.
+Hypernetworks (Ha et al., 2017;
+Karimi Mahabadi et al., 2021)
+Generated network or adapter
+weights
+Predict parameters from a learned
+conditioning representation.
+Meta Networks (Munkhdalai &
+Yu, 2017)
+Fast weights
+Use meta-learning to generate
+task-dependent parameters.
+Neural network
+diffusion (Wang et al., 2024b)
+Network parameters
+Generate parameters through a
+learned latent diffusion model.
+ZeroMAG
+Multimodal adapter
+Generate weights from unlabeled
+calibration signals and task context;
+keep the EEG model fixed.
+40
+
+
+Preprint
+The closest connection is to adapter generation and diffusion over network parameters. ZeroMAG
+uses a variable-length semantic block sequence to represent companion-signal adapters, and evalu-
+ates decoded weights through the frozen EEG prediction path. Its target condition comes from the
+recording and supported task. The generators for the three EEG backbones are trained separately.
+The method depends on the supplied frozen EFM and compatible prediction head, the quality of
+source reference adapters, and the coverage of the calibration data. The reported results concern
+these evaluated interfaces. They do not establish transfer of one generator to an arbitrary new archi-
+tecture or a task outside the supported vocabulary.
+41
