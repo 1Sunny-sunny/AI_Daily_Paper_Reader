@@ -1,6 +1,11 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-10-12 <!--dpr-date:20261012-->
+    * <a class="dpr-sidebar-brief-link" href="#/202610/12/README">📝 今日简报</a>
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202610/12/2610.10850v1-similar-predictive-fit-but-different-latent-dynamics-characterizing-learned-dynamical-structure-in-personalized-models-of-brain-disorders" data-sidebar-item="{&quot;title&quot;: &quot;Similar Predictive Fit but Different Latent Dynamics: Characterizing Learned Dynamical Structure in Personalized Models of Brain Disorders&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2610.10850v1-similar-predictive-fit-but-different-latent-dynamics-characterizing-learned-dynamical-structure-in-personalized-models-of-brain-disorders&quot;, &quot;score&quot;: &quot;7.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;分析EEG基础模型的潜在动力学以解释模型内部&quot;}">Similar Predictive Fit but Different Latent Dynamics: Characterizing Learned Dynamical Structure in Personalized Models of Brain Disorders</a>
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202610/12/2610.12004v1-the-polytopal-neural-network" data-sidebar-item="{&quot;title&quot;: &quot;The Polytopal Neural Network&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2610.12004v1-the-polytopal-neural-network&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;基于多面体结构的神经网络可解释处理&quot;}">The Polytopal Neural Network</a>
   * 2026-10-10 <!--dpr-date:20261010-->
     * <a class="dpr-sidebar-brief-link" href="#/202610/10/README">📝 今日简报</a>
     * 精读区
