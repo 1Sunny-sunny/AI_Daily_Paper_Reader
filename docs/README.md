@@ -1,25 +1,40 @@
 ## 最新日报
-- 最新运行日期：2026-10-12
-- 运行时间：2026-10-12 06:53:32 北京时间
+- 最新运行日期：2026-10-13
+- 运行时间：2026-10-13 09:53:35 北京时间
 - 运行状态：成功
-- 本次总论文数：2
-- 精读区：0
+- 本次总论文数：7
+- 精读区：5
 - 速读区：2
 
 ### 今日简报（AI）
-今天速读两篇论文，分别拆解脑疾病个性化模型的隐藏动力学，以及一种多面体神经网络新结构。  
-最值得看：脑疾病模型即使预测表现相近，内在动力学也可能完全不同；多面体神经网络则尝试用几何结构改进建模。  
-建议先从脑疾病潜在动力学那篇入手，理解“预测准”为何不等于“机制对”。
-- 详情：[/202610/12/README](/202610/12/README)
+- 今日共生成 7 篇推荐（精读 5 篇，速读 2 篇）
+- 精读：《Replaying the Movie in Your Mind Decoding Dynamic Visual Perception and Recall from EEG》（10.0/10）, 《Neurons++: A Unified Visual-Stream Framework for Image and Video Reconstruction from fMRI with Neural-to-Visual Interpretability》（10.0/10）
+- 速读：《Learning structured linear dynamical systems from missing observations》（6.0/10）, 《FlyHack: Stress-Testing Mechanistic Claims in a Connectome-Constrained Visual Model》（6.0/10）
+- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
+- 详情：[/202610/13/README](/202610/13/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [Replaying the Movie in Your Mind Decoding Dynamic Visual Perception and Recall from EEG](/202610/13/2610.13120v1-replaying-the-movie-in-your-mind-decoding-dynamic-visual-perception-and-recall-from-eeg)  
+   标签：评分：10.0/10、query:sr
+   evidence：从EEG解码动态视觉内容
+2. [Neurons++: A Unified Visual-Stream Framework for Image and Video Reconstruction from fMRI with Neural-to-Visual Interpretability](/202610/13/2610.13763v1-neurons-a-unified-visual-stream-framework-for-image-and-video-reconstruction-from-fmri-with-neural-to-visual-interpretability)  
+   标签：评分：10.0/10、query:sr
+   evidence：fMRI视觉重建用于脑机接口
+3. [MindVLM: Neural-Grounded Visual Captioning via Subject-Aware Semantic Evidence Selection](/202610/13/2610.12673v1-mindvlm-neural-grounded-visual-captioning-via-subject-aware-semantic-evidence-selection)  
+   标签：评分：9.0/10、query:sr
+   evidence：将视觉脑活动翻译成自然语言
+4. [Teaching neural decoders with language](/202610/13/2610.12921v1-teaching-neural-decoders-with-language)  
+   标签：评分：9.0/10、query:sr
+   evidence：语言监督神经解码提升BCI语音、运动、视觉解码
+5. [Nimbus Studio reproduces reference BCI decoding pipelines: a validation study on public benchmarks across protocols and paradigms](/202610/13/2610.13894v1-nimbus-studio-reproduces-reference-bci-decoding-pipelines-a-validation-study-on-public-benchmarks-across-protocols-and-paradigms)  
+   标签：评分：9.0/10、query:sr
+   evidence：在公开基准上验证包括时序解码算法在内的标准BCI解码流程
 
 ### 速读区论文标签
-1. [Similar Predictive Fit but Different Latent Dynamics: Characterizing Learned Dynamical Structure in Personalized Models of Brain Disorders](/202610/12/2610.10850v1-similar-predictive-fit-but-different-latent-dynamics-characterizing-learned-dynamical-structure-in-personalized-models-of-brain-disorders)  
-   标签：评分：7.0/10、query:sr
-   evidence：分析EEG基础模型的潜在动力学以解释模型内部
-2. [The Polytopal Neural Network](/202610/12/2610.12004v1-the-polytopal-neural-network)  
+1. [Learning structured linear dynamical systems from missing observations](/202610/13/2610.11869v1-learning-structured-linear-dynamical-systems-from-missing-observations)  
    标签：评分：6.0/10、query:sr
-   evidence：基于多面体结构的神经网络可解释处理
+   evidence：从缺失观测中学习线性动态系统；可应用于神经群体动力学模型
+2. [FlyHack: Stress-Testing Mechanistic Claims in a Connectome-Constrained Visual Model](/202610/13/2610.13018v1-flyhack-stress-testing-mechanistic-claims-in-a-connectome-constrained-visual-model)  
+   标签：评分：6.0/10、query:sr
+   evidence：对连接组约束神经网络模型中的机制声明进行压力测试
 
