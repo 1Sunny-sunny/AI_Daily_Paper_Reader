@@ -1,0 +1,664 @@
+Gate-Based Feature Importance in Simulation-Based
+Inference for EEG: A Cautionary Tale
+Shrivatsa Deshmukh1,†
+Sasha Brenner2,3
+Thomas R. Knösche2,∗
+Nico Scherf2,4,∗
+deshm080@umn.edu
+brenner@cbs.mpg.de
+knoesche@cbs.mpg.de
+nscherf@cbs.mpg.de
+1University of Minnesota – Twin Cities, USA
+2Max Planck Institute for Human Cognitive and Brain Sciences, Leipzig, Germany
+3Leipzig University, Germany
+4ScaDS.AI, Dresden/Leipzig, Germany
+Abstract
+Simulation-based inference (SBI) provides a powerful way to fit mechanistic mod-
+els to data, but offers little insight into which information in the data shapes the
+inferred parameter values. It could therefore benefit from robust and inexpensive
+interpretability methods. Learned weighting mechanisms such as feature gates
+provide a potential route to low-cost interpretability, although their interpretation
+assumes that predictive training reveals which inputs drive performance. We ex-
+amined this assumption in a computational neuroscience setting, where neural
+posterior estimation (NPE) is used to infer four physiological parameters of a dy-
+namical model of interacting neuronal populations (Jansen-Rit). We tested whether
+the learned gate weights captured feature importance by comparing them with
+a retrain-based ablation benchmark, in which each feature was removed in turn
+and the NPE retrained. We considered two jointly trained gates: independent
+sigmoid weights and competing softmax weights. If these reliably reflect feature
+importance, they should align with the ablation-based estimates. Across nine
+independent training seeds, however, gate-based and ablation-based importance
+were negatively correlated (Spearman’s rho approximately -0.61 for sigmoid gat-
+ing and -0.56 for softmax gating). The feature that ablation identified as most
+important, total signal power, was among the features the gate down-weighted
+most, despite gating costing negligible predictive accuracy. These results extend
+a pattern previously documented for attention mechanisms in natural language
+processing and for explainability methods in electroencephalography (EEG) deep
+learning to the simulation-based inference setting, and suggest caution when inter-
+preting learned gate weights as measures of causal feature importance in scientific
+machine-learning pipelines.
+1
+Introduction
+Mechanistic models of neural activity, from single-compartment Hodgkin-Huxley neurons to neural
+mass models of cortical columns, offer parameters that are biologically interpretable in a way purely
+statistical decoders do not provide. The Jansen–Rit model [1] is a canonical case: a six-state neural
+mass model of a cortical column that reproduces electroencephalography (EEG) rhythms from a
+small number of physiologically grounded parameters. Fitting such models to data remains hard
+[2–4]. Their dynamics are nonlinear, and the likelihood of the observed data given the model’s
+parameters p(x | θ) has no closed form, since it would require marginalizing over the full space of
+stochastic input trajectories consistent with the observed output [5]. Classical approaches, including
+†Lead and corresponding author.
+∗Equal senior contribution.
+40th Conference on Neural Information Processing Systems (NeurIPS 2026). Workshop: Sim2Science and Interp4Discovery.
+arXiv:2610.30364v1  [q-bio.NC]  21 Oct 2026
+
+
+(a)
+C
+μ
+κ
+g
+θ ∼prior
+P
+E
+I
+μ
+Jansen–Rit simulator
+six-state ODE, 1 kHz
+source signal
+EEG forward model
+fsaverage BEM, signed lead field
+5 electrodes
+1/f
+f
+P
++ pink noise
+SNR ∼U[5,25] dB
+observed EEG x
+(b)
+x
+7 statistics
+per channel, z-scored
+zi  (5 channels × 7 features)
+⊙
+zi αi
+NSF density estimator
+5 transforms, 125 hidden
+θ
+posterior p(θ∣x)
+mean over channels
+pooled ̄zi
+gate MLP 7→32→7
+sigmoid or softmax
+gate weights αi (darker = larger)
+tiled to all 5 channels
+Figure 1: Pipeline overview. (a) Simulation: parameters θ drawn from the prior drive the Jansen–Rit
+model, giving the observed EEG x. (b) Inference: seven z-scored summary statistics per channel form
+the 5 × 7 array zi; in gated configurations (blue) a small MLP produces one weight αi per feature,
+tiled to all five channels, so the estimator receives zi αi in place of zi. Shades in (b): seed-averaged
+sigmoid importance of Table 1.
+grid search, moment matching, and approximate Bayesian computation, scale poorly as the number
+of free parameters grows [6].
+Simulation-based inference (SBI) completely sidesteps evaluating intractable likelihoods by training
+a neural density estimator directly on simulation outputs, learning an amortized mapping from data
+features to a posterior over parameters [6–8]. Gonçalves et al. [9] established this approach for
+mechanistic neuroscience models, applying neural posterior estimation to single-neuron and small-
+circuit models, and showed that hand-designed summary-statistic embeddings are often sufficient for
+accurate, well-calibrated inference.
+In scientific applications of SBI, it becomes crucial to understand how each feature of the data
+contributes to parameter inference. Normally, a feature’s contribution is established only after
+training; the gold standard in SBI is retrain-based ablation, in which the model is retrained with
+one feature excluded and the change in the inferred posterior is quantified, a causal measure by
+construction. This is the procedure the current practice guide points to for assessing which features
+constrain parameters [10], and the criterion against which Beck et al. [11] validated a faster analytic
+alternative, Feature Selection through Likelihood Marginalization. Both measure the effect that
+excluding a feature actually has on the posterior: one by performing the exclusion directly, the other
+by approximating it analytically. An appealing, cheaper alternative is to learn the weighting itself by
+incorporating a small differentiable gate, trained end-to-end with the rest of the network. The gate
+multiplies each feature by a weight in (0, 1), and after training it can be read as importance at no
+extra cost. Indeed, gates of exactly this form are reported in various settings: as electrode importance
+in EEG deep learning [12, 13]; and, in tabular learning and forecasting, the reading is built into the
+methods themselves, through learned input masks [14], attention-based feature selection [15], and
+variable-selection layers [16]. In SBI, however, the idea appears not to have been taken up (although
+it has been suggested [17]), and we believe it could be attractive in principle, since the standard
+ablation test costs one full retraining per feature.
+Evidence regarding the interpretability of learnable gates in deep-learning pipelines is still mixed,
+however. On the one hand, architectures built for feature selection do sometimes recover known
+relevant variables on synthetic data. For example, TabNet’s sparse masks identified ground-truth
+features [14]; importantly, however, their weights are not generally guaranteed to represent importance.
+More negative evidence comes from the UCI Adult dataset, where learned mask and attention scores
+showed little agreement with KernelSHAP, a method that estimates each feature’s contribution to a
+prediction [18]. Results from natural language processing (NLP) are similarly cautionary: attention
+weights sometimes tracked input effects, but too inconsistently to provide reliable importance
+measures [19]. In EEG, explanation quality also depends on the method: saliency failed a model-
+randomization check, whereas DeepLIFT did not [20, 21]. More fundamentally, jointly trained
+2
+
+
+selectors can encode predictions in their masks [22], while unconstrained multiplicative scales may
+be non-identifiable under downstream rescaling [23]. Taken together, these findings suggest that
+learned weights can be informative without necessarily providing reliable importance estimates. That
+uncertainty extends to SBI, where the relationship between learned weights and retrain-based ablation
+remains largely unexplored.
+We compare the gating and ablation measures of importance directly in a Jansen–Rit EEG model (Fig-
+ure 1). Neural posterior estimators (NPEs) are trained over four mechanistic parameters: connectivity
+strength, input drive, the joint excitatory/inhibitory timescale-scaling factor, and inhibitory synaptic
+gain. These parameters are inferred from simulated EEG, using seven statistical-summary features
+computed at five electrodes. Two gated variants, independent (sigmoid) and competing (softmax)
+per-feature weighting, are compared against an ungated baseline in terms of model performance, and
+against the gold-standard measure of feature importance, obtained by retraining the full pipeline from
+scratch with each feature excluded in turn and measuring the resulting drop in posterior accuracy.
+We only use simulated EEG data in order to have a clean ground truth to evaluate the feasibility of
+the gating method. Indeed, many more challenges are introduced by real data which are beyond the
+scope of this work.1
+2
+Methods
+2.1
+Simulation and forward model
+We simulated EEG using the standard six-state Jansen–Rit neural mass model of a cortical column
+[1] (Figure 1a), integrated with a fixed-step Euler scheme at 1000 Hz. We varied and subsequently
+inferred four parameters: connectivity strength (C), mean input drive (µ), a joint scaling factor for
+the excitatory and inhibitory postsynaptic time constants (κ), and inhibitory synaptic gain (g). κ
+scales both time constants proportionally and holds their ratio fixed at 2:1; these time constants are
+what set the model’s oscillation frequency [24]. Excitatory gain was held fixed deliberately, so that
+the excitatory-inhibitory gain degeneracy reported for larger Jansen–Rit parameter sets [25] cannot
+arise here by construction. All four parameters were given independent log-uniform priors, enforcing
+positivity and giving roughly equal prior weight across their plausible range; the ranges are listed in
+Appendix A.
+We projected the single-source output to scalp-sensor space using MNE-Python’s [26, 27] fsaverage
+template head model and a three-layer boundary-element (BEM) forward solution, with the source
+located in the visual cortex. From the resulting lead-field, we selected the five electrodes with the
+highest absolute sensitivity to this source, then projected the source signal using each electrode’s
+actual (signed) lead-field value rather than its magnitude (Figure 1a), preserving realistic scalp
+topography rather than collapsing to a single scalar channel. We added pink (1/f) noise to each
+simulated trial, with signal-to-noise ratio (SNR) drawn independently per trial from a uniform
+distribution over 5–25 dB during training, a range specifically chosen to span moderate to light signal
+corruption. Simulation and preprocessing parameters are given in full in Appendix A.
+2.2
+Feature embedding and gating
+Figure 1b illustrates the embedding and gating. From each of the five electrode channels, we
+computed seven hand-crafted summary statistics: skewness, kurtosis, spectral slope, total signal
+power, dominant frequency, Hjorth mobility, and Hjorth complexity [28]. In gated configurations,
+each feature value was first z-scored per feature and channel using the training-set statistics, giving zi
+for feature i.2 A small multilayer perceptron mapped the seven features, pooled (averaged) across
+channels, to seven per-feature, sample-dependent gate weights αi ∈(0, 1). These were then tiled
+back out across channels and applied multiplicatively, so that the density estimator received zi αi in
+place of zi. Note that all five channels of feature i shared the same weight αi. Appendix B discusses
+the design choice.
+We compared two gate activation functions: an element-wise sigmoid and a softmax. The sigmoid
+weighted each feature independently with no explicit temperature term, whereas softmax introduced
+1All code required to reproduce these results is available at https://github.com/Shrivatsa-Deshmukh/
+sbi-gate-vs-ablation; its contents are described in Appendix E.
+2The notation zi omits channel dependence.
+3
+
+
+cross-feature competition by forcing the seven weights to sum to one. The gate parameters were
+optimized jointly with the rest of the network on the same objective. Crucially, no separate loss or
+gradient-blocking was applied to its forward pass.
+The per-feature importance we report for the gate (Table 1) is |zi| · αi, averaged over samples,
+channels, and seeds. Because the estimator’s input is the signed product, we took the absolute value
+of zi before averaging so that magnitude contributions of either sign would not cancel across the
+evaluation set. We also report a robustness check using the raw gate weight alone in the Results
+section.
+2.3
+Inference, ablation, and evaluation
+We estimated the posterior over the Jansen–Rit parameters given the feature embedding using single-
+round neural posterior estimation as implemented in the sbi package [29], with a neural spline flow
+[30] density estimator. Every configuration was trained independently across nine seeds, with training
+parameter sets redrawn independently for each seed; architecture and training hyperparameters are
+given in Appendix C.
+We estimated feature importance by retrain-based leave-one-feature-out ablation: for each of the
+seven features and each seed, we retrained the full pipeline from scratch with that feature excluded
+from the embedding, using the same simulated training set as the corresponding full-feature run for
+that seed. We quantified importance as the drop in mean R2 relative to the full-feature model trained
+on the same seed, where R2 is the coefficient of determination between true and posterior-mean
+parameter values, computed on a held-out set for each of the four parameters and then averaged over
+them. We used this retrain-based procedure, rather than a post-hoc masking heuristic, as it measures
+each feature’s causal contribution by construction.
+We computed all accuracy metrics on a fixed set of 250 held-out simulations per seed, drawn as
+described in Appendix C. For each held-out simulation we drew 1,000 posterior samples and took the
+posterior mean as the point estimate, from which we computed R2 and the fraction of 50%, 90%, and
+95% credible intervals containing the true value, following the spirit of simulation-based calibration
+checks [31], which we will refer to as credible-interval coverage henceforth. Additional metrics and
+per-parameter breakdowns are given in Appendix D. For paired comparisons across seeds, such as
+ablation- versus gate-based importance rankings, we used an exact sign-flip test over all 29 = 512
+possible ±1 sign assignments of the nine per-seed statistics, avoiding both distributional assumptions
+and Monte Carlo approximation error.3
+3
+Results and Discussion
+Across nine independent training seeds, ablation identified total signal power as the most important
+of the seven features by a wide margin: excluding it dropped mean R2 by 0.210 (SD 0.009), roughly
+five times the drop from the next-largest feature. Testing each feature’s own ablation effect against
+the null with the exact sign-flip test described in Methods, six of the seven features had an effect
+significantly different from zero (Table 1), spectral slope being the only exception (p = 0.727).
+In contrast, the gate did not favor total signal power. In fact, it assigned the feature the lowest or
+second-lowest weight under both activations (Table 1), while its two most-favored features, dominant
+frequency and Hjorth mobility, had ablation effects an order of magnitude smaller.
+This disagreement was systematic. We computed the Spearman rank correlation between ablation-
+based and gate-based importance separately for each seed (seven features per seed) and tested the
+seed-averaged correlation against zero with the exact sign-flip test. Independent (sigmoid) gating gave
+ρ = −0.607 and competing (softmax) gating gave ρ = −0.556, both at p = 0.0039. Meanwhile,
+the two gating variants agreed with each other on which features mattered (ρ = 0.643, p = 0.0039).
+Thus, the gate was internally consistent and reproducible across activation functions; it simply tracked
+something other than what ablation tracked.
+The negative correlations remained significant after excluding any single feature. The full exclusion
+analysis is given in Appendix D, Table D1. They also persisted after jointly excluding the top-
+3With nine seeds the smallest attainable two-sided p-value is 2/512 ≈0.0039. Several results below sit at this floor and
+should be read as “all seeds agreed,” not as evidence for an arbitrarily small true p-value.
+4
+
+
+Table 1: Feature importance: gold-standard ablation vs. learned gate. Mean (SD) drop in R2
+across 9 seeds when the feature is excluded and the pipeline retrained from scratch, with the exact
+sign-flip test’s p-value. † marks the test’s minimum attainable value, p = 0.0039, reached through
+unanimous agreement across all nine seeds. Gate columns give the per-feature importance |zi| αi of
+Section 2.2, pooled across channels. Rank 1 = most important by that method.
+Ablation
+Sigmoid gate
+Softmax gate
+Feature
+R2 drop (SD)
+p
+Rank
+|zi| αi
+Rank
+|zi| αi
+Rank
+Total signal power
+0.210 (0.009)
+†
+1
+0.343
+7
+0.094
+6
+Kurtosis
+0.042 (0.010)
+†
+2
+0.349
+6
+0.087
+7
+Skewness
+0.041 (0.012)
+†
+3
+0.451
+4
+0.123
+5
+Hjorth complexity
+0.041 (0.010)
+†
+4
+0.471
+3
+0.124
+4
+Hjorth mobility
+0.031 (0.009)
+†
+5
+0.595
+1
+0.126
+2
+Dominant frequency
+0.012 (0.016)
+0.031
+6
+0.594
+2
+0.132
+1
+Spectral slope
+0.002 (0.013)
+0.727 (n.s.)
+7
+0.443
+5
+0.124
+3
+scoring features of ablation and gating, i.e., total signal power and dominant frequency, respectively
+(sigmoid: ρ = −0.300, p = 0.027; softmax: ρ = −0.333, p = 0.035; Appendix D). Moreover, the
+negative sign of the correlation also significantly persisted using the raw gate weights alone (sigmoid:
+ρ = −0.298, p = 0.0039; softmax: ρ = −0.214, p = 0.008), showing that it was not purely an
+artifact of including feature magnitude in the score. It did weaken, which suggests feature magnitude
+does contribute to the effect.
+We next asked whether this disagreement could reflect a poorly performing model. A priori, it
+seemed possible that the gate’s disagreement with ablation simply reflected a network that was
+performing poorly overall. This was not the case. Gating cost little in raw accuracy: mean R2
+was 0.791 without gating, 0.792 with per-feature (sigmoid) gating, and 0.761 with competing
+(softmax) gating, differences small relative to their seed-to-seed spread. Credible-interval coverage
+was close to the nominal 50%, 90%, and 95% levels under all three configurations, thus showing
+no evidence of systematic over- or under-confidence from either gating variant. Moreover, ordering
+the four parameters by per-parameter R2 resulted in an identical ranking under every configuration
+(Appendix D).
+Our main finding was that ablation-based and gate-based feature importance were negatively corre-
+lated for both gating variants. This disagreement is arguably more pronounced than a weak correlation,
+such as, for example, that reported by Jain and Wallace [32] in a natural language processing setting.
+Our results therefore reinforce the broader conclusion that mechanisms purely optimized for predic-
+tive accuracy should not automatically be interpreted as reliable indicators of feature importance. In
+the terms of Jacovi and Goldberg [33], the gate was plausible but not faithful: its feature-importance
+rankings were consistent across training seeds and moderately similar between the sigmoid and
+softmax variants (ρ = 0.643), yet it assigned the least importance to the feature whose removal most
+impaired performance.
+Even if a measure of causal importance were extractable from the network’s learned parameters, we
+have shown that in this setting it is not as simple as reading gate values. What the gate tracked instead
+is not established by this study, nor is whether the disagreement persists where ground truth is not
+simulated and ablation must be scored against a proxy such as held-out predictive likelihood.
+4
+Conclusion
+A feature-gating mechanism trained end-to-end alongside a simulation-based posterior estimator did
+not recover the feature importance established by gold-standard retrain-based ablation, and did so
+while costing negligible accuracy and being optimized on exactly the objective the modeler cares
+about. Practitioners using learned gating or attention as a cheap stand-in for feature-importance
+analysis in scientific, simulation-based inference pipelines should treat this as a caution rather than a
+shortcut. A gating mechanism optimized purely for predictive accuracy is not thereby guaranteed to
+possess explanatory power.
+5
+
+
+Responsible-use statement.
+The risk this work identifies is misplaced trust: a coherent-looking
+gate can support an incorrect scientific conclusion under the appearance, rather than the substance,
+of mechanistic justification. We therefore recommend that learned weighting be validated against a
+causal measure, such as the retrain-based ablation used here, before it is reported as importance.
+Acknowledgments and Disclosure of Funding
+The authors declare no competing interests.
+References
+[1] Ben H. Jansen and Vincent G. Rit. Electroencephalogram and visual evoked potential generation
+in a mathematical model of coupled cortical columns. Biological Cybernetics, 73(4):357–366,
+1995.
+[2] Agus Hartoyo, Peter J. Cadusch, David T. J. Liley, and Damien G. Hicks. Parameter estimation
+and identifiability in a neural population model for electro-cortical activity. PLOS Computational
+Biology, 15(5):e1006694, 2019. doi: 10.1371/journal.pcbi.1006694.
+[3] Alessia Caccamo, Dominic M. Dunstan, Mark P. Richardson, Alexander D. Shaw, and Marc
+Goodfellow. Dynamics-informed priors (DIP) for neural mass modelling. Imaging Neuroscience,
+4, 2026. doi: 10.1162/IMAG.a.1250.
+[4] Jonathan Hadida, Stamatios N. Sotiropoulos, Romesh G. Abeysuriya, Mark W. Woolrich, and
+Saad Jbabdi. Bayesian optimisation of large-scale biophysical networks. NeuroImage, 174:
+219–236, 2018. doi: 10.1016/j.neuroimage.2018.02.063.
+[5] Scott A. Sisson, Yanan Fan, and Mark A. Beaumont, editors. Handbook of Approximate
+Bayesian Computation. Chapman and Hall/CRC, 2018. doi: 10.1201/9781315117195.
+[6] Kyle Cranmer, Johann Brehmer, and Gilles Louppe. The frontier of simulation-based inference.
+Proceedings of the National Academy of Sciences, 117(48):30055–30062, 2020.
+[7] George Papamakarios and Iain Murray. Fast ϵ-free inference of simulation models with Bayesian
+conditional density estimation. Advances in Neural Information Processing Systems, 29, 2016.
+[8] David S. Greenberg, Marcel Nonnenmacher, and Jakob H. Macke. Automatic posterior trans-
+formation for likelihood-free inference. In Proceedings of the 36th International Conference on
+Machine Learning, volume 97 of PMLR, pages 2404–2414, 2019.
+[9] Pedro J. Gonçalves, Jan-Matthis Lueckmann, Michael Deistler, Marcel Nonnenmacher, Kaan
+Öcal, Giacomo Bassetto, Chaitanya Chintaluri, William F. Podlaski, Sara A. Haddad, Tim P.
+Vogels, David S. Greenberg, and Jakob H. Macke. Training deep neural density estimators to
+identify mechanistic models of neural dynamics. eLife, 9:e56261, 2020.
+[10] Michael Deistler, Jan Boelts, Peter Steinbach, Guy Moss, Thomas Moreau, Manuel Gloeckler,
+Pedro L. C. Rodrigues, Julia Linhart, Janne K. Lappalainen, Benjamin Kurt Miller, Pedro J.
+Gonçalves, Jan-Matthis Lueckmann, Cornelius Schröder, and Jakob H. Macke. Simulation-
+based inference: A practical guide. arXiv preprint arXiv:2508.12939, 2025.
+[11] Jonas Beck, Michael Deistler, Yves Bernaerts, Jakob H. Macke, and Philipp Berens. Efficient
+identification of informative features in simulation-based inference. In Advances in Neural
+Information Processing Systems, volume 35, pages 19260–19273, 2022.
+[12] Wei Tao, Chang Li, Rencheng Song, Juan Cheng, Yu Liu, Feng Wan, and Xun Chen. EEG-
+based emotion recognition via channel-wise attention and self attention. IEEE Transactions on
+Affective Computing, 14(1):382–393, 2023. doi: 10.1109/TAFFC.2020.3025777.
+[13] Lina Tong, Yihui Qian, Liang Peng, Chen Wang, and Zeng-Guang Hou. A learnable EEG chan-
+nel selection method for MI-BCI using efficient channel attention. Frontiers in Neuroscience,
+17:1276067, 2023. doi: 10.3389/fnins.2023.1276067.
+6
+
+
+[14] Sercan Ö. Arik and Tomas Pfister. TabNet: Attentive interpretable tabular learning. In Proceed-
+ings of the AAAI Conference on Artificial Intelligence, volume 35, pages 6679–6687, 2021. doi:
+10.1609/aaai.v35i8.16826.
+[15] Ning Gui, Danni Ge, and Ziyin Hu. AFS: An attention-based mechanism for supervised feature
+selection. In Proceedings of the AAAI Conference on Artificial Intelligence, volume 33, pages
+3705–3713, 2019. doi: 10.1609/aaai.v33i01.33013705.
+[16] Bryan Lim, Sercan Ö. Arık, Nicolas Loeff, and Tomas Pfister. Temporal fusion transformers for
+interpretable multi-horizon time series forecasting. International Journal of Forecasting, 37(4):
+1748–1764, 2021. doi: 10.1016/j.ijforecast.2021.03.012.
+[17] Jash Kakadia, Shubh Agrawal, Kunhao Zhong, and Bhuvnesh Jain. Vision transformers for
+cosmological fields: Application to weak lensing mass maps. arXiv preprint arXiv:2512.07125,
+2025.
+[18] Vadim Borisov, Tobias Leemann, Kathrin Seßler, Johannes Haug, Martin Pawelczyk, and Gjergji
+Kasneci. Deep neural networks and tabular data: A survey. IEEE Transactions on Neural
+Networks and Learning Systems, 35(6):7499–7519, 2024. doi: 10.1109/TNNLS.2022.3229161.
+[19] Sofia Serrano and Noah A. Smith. Is attention interpretable? In Proceedings of the 57th Annual
+Meeting of the Association for Computational Linguistics, pages 2931–2951, 2019.
+[20] Akshay Sujatha Ravindran and Jose L. Contreras-Vidal. An empirical comparison of deep
+learning explainability approaches for EEG using simulated ground truth. Scientific Reports,
+13:17709, 2023.
+[21] Avanti Shrikumar, Peyton Greenside, and Anshul Kundaje. Learning important features through
+propagating activation differences. In Doina Precup and Yee Whye Teh, editors, Proceedings of
+the 34th International Conference on Machine Learning, volume 70 of Proceedings of Machine
+Learning Research, pages 3145–3153. PMLR, 06–11 Aug 2017.
+[22] Neil Jethani, Mukund Sudarshan, Yindalon Aphinyanaphongs, and Rajesh Ranganath. Have
+we learned to explain?: How interpretability methods can learn to encode predictions in their
+interpretations. In Proceedings of the 24th International Conference on Artificial Intelligence
+and Statistics, volume 130 of Proceedings of Machine Learning Research, pages 1459–1467,
+2021.
+[23] Zhuang Liu, Jianguo Li, Zhiqiang Shen, Gao Huang, Shoumeng Yan, and Changshui Zhang.
+Learning efficient convolutional networks through network slimming. In Proceedings of the
+IEEE International Conference on Computer Vision, pages 2755–2763, 2017. doi: 10.1109/
+ICCV.2017.298.
+[24] Olivier David and Karl J. Friston. A neural mass model for MEG/EEG: coupling and neuronal
+dynamics. NeuroImage, 20(3):1743–1755, 2003. doi: 10.1016/j.neuroimage.2003.07.015.
+[25] Devika Tilwani and Christian O’Reilly. Deep Jansen-Rit parameter inference for model-driven
+analysis of brain activity. In 7th International Conference on Advances in Signal Processing
+and Artificial Intelligence (ASPAI’2025), 2025.
+[26] Alexandre Gramfort, Martin Luessi, Eric Larson, Denis A. Engemann, Daniel Strohmeier,
+Christian Brodbeck, Roman Goj, Mainak Jas, Teon Brooks, Lauri Parkkonen, and Matti
+Hämäläinen. MEG and EEG data analysis with MNE-Python. Frontiers in Neuroscience, 7:
+267, 2013.
+[27] Alexandre Gramfort, Martin Luessi, Eric Larson, Denis A. Engemann, Daniel Strohmeier,
+Christian Brodbeck, Lauri Parkkonen, and Matti S. Hämäläinen. MNE software for processing
+MEG and EEG data. NeuroImage, 86:446–460, 2014.
+[28] Bo Hjorth. EEG analysis based on time domain properties. Electroencephalography and
+Clinical Neurophysiology, 29(3):306–310, 1970.
+7
+
+
+[29] Alvaro Tejero-Cantero, Jan Boelts, Michael Deistler, Jan-Matthis Lueckmann, Conor Durkan,
+Pedro J. Gonçalves, David S. Greenberg, and Jakob H. Macke. sbi: A toolkit for simulation-
+based inference. Journal of Open Source Software, 5(52):2505, 2020.
+[30] Conor Durkan, Artur Bekasov, Iain Murray, and George Papamakarios. Neural spline flows. In
+Advances in Neural Information Processing Systems, volume 32, pages 7511–7522, 2019.
+[31] Sean Talts, Michael Betancourt, Daniel Simpson, Aki Vehtari, and Andrew Gelman. Val-
+idating Bayesian inference algorithms with simulation-based calibration.
+arXiv preprint
+arXiv:1804.06788, 2018.
+[32] Sarthak Jain and Byron C. Wallace. Attention is not Explanation. In Proceedings of the 2019
+Conference of the North American Chapter of the Association for Computational Linguistics:
+Human Language Technologies, pages 3543–3556, 2019.
+[33] Alon Jacovi and Yoav Goldberg. Towards faithfully interpretable NLP systems: How should we
+define and evaluate faithfulness? In Proceedings of the 58th Annual Meeting of the Association
+for Computational Linguistics, pages 4198–4205, 2020.
+8
+
+
+A
+Simulation details
+In Section 2.1, all four inferred parameters were drawn from independent log-uniform priors across
+the following ranges: C ∈[135, 270], µ ∈[120, 350], κ ∈[0.75, 1.25], and g ∈[0.5, 2.0]. Input
+noise standard deviation (σ) was fixed at 4.5 rather than inferred, since once observation noise is
+added downstream, σ and observation noise are not jointly identifiable from the signal alone. Each
+simulation discarded an initial 2 s transient and retained the following 3 s, decimated from the
+internal 1000 Hz integration rate to a 250 Hz output rate. Training parameter sets were drawn using
+scrambled Sobol sequences, for better prior coverage than independent sampling would give, redrawn
+independently for each of the nine training seeds used throughout.
+The signed lead-field projection described in Section 2.1 preserves sign inversion across electrode
+pairs, a feature of realistic scalp topography that a magnitude-only projection would discard. The
+per-trial SNR draw over 5–25 dB ensures that the density estimator learns a posterior robust to a
+spread of data quality rather than overfitting to a single noise level.
+B
+Gating design details
+In Section 2.2, one gate weight αi was applied to all five channels of feature i, rather than learning a
+separate weight for each of the thirty-five (feature, channel) pairs. We made this choice so the gate and
+the ablation procedure would operate on the same unit of analysis: ablation excludes a feature across
+all five channels at once, never a single channel of a single feature, so a gate that weighted channels
+independently would not be answering the same question. Table 1’s two importance columns are
+comparable by construction because both are computed over that same seven-feature unit.
+C
+Training and evaluation details
+In Section 2.3, we estimated the posterior with a neural spline flow using five transform layers
+with 125 hidden features per layer. We trained on 32,768 simulations by default, with batch size
+512, learning rate 5 × 10−4, for up to 250 epochs with early stopping after 15 epochs without
+validation-loss improvement, and a 15% validation split.
+The held-out evaluation set of 250 simulations was drawn once per seed and reused across every con-
+figuration and ablation condition, so comparisons were not affected by which simulations happened
+to be drawn. Normalized RMSE (NRMSE) is root-mean-squared error divided by each parameter’s
+prior range, which makes error comparable across parameters despite their different prior scales.
+Credible-interval coverage at a given level is the fraction of held-out simulations for which the true
+parameter value fell within the corresponding symmetric, equal-tailed percentile interval of the 1,000
+posterior samples drawn for that simulation.
+All experiments were run on a single consumer NVIDIA RTX 4050 Laptop GPU. The 90 training
+runs reported here comprised three gating configurations and seven leave-one-feature-out ablation
+conditions across nine seeds each, and took approximately 5 GPU-hours in total, or roughly 3 minutes
+per run including simulation, training, and evaluation.
+D
+Exclusion analysis, accuracy, and per-parameter recovery
+Table D1 gives the full single-exclusion rank correlations summarized in Results; every column is
+significant at p = 0.0039. Table D2 gives pooled accuracy and calibration by gating configuration.
+Tables D3 and D4 break recovery down by parameter.
+9
+
+
+Table D1: Rank correlation between ablation-based and gate-based importance. Seed-averaged
+Spearman ρ, computed on all seven features and recomputed on the six remaining features after
+excluding the named feature.
+All 7
+Total
+Dominant
+Hjorth
+Hjorth
+Kurtosis
+Skewness
+Spectral
+features
+signal power
+frequency
+mobility
+complexity
+slope
+Sigmoid ρ
+−0.607
+−0.410
+−0.562
+−0.632
+−0.683
+−0.517
+−0.581
+−0.771
+Softmax ρ
+−0.556
+−0.410
+−0.530
+−0.511
+−0.651
+−0.568
+−0.562
+−0.575
+Table D2: Model accuracy and calibration by gating configuration. Mean (SD) across 9 seeds.
+Configuration
+R2
+NRMSE
+Pearson r
+50% coverage
+90% coverage
+95% coverage
+No gating
+0.79 (0.007)
+0.13 (0.002)
+0.89 (0.004)
+0.49 (0.015)
+0.88 (0.007)
+0.94 (0.009)
+Sigmoid gating
+0.79 (0.016)
+0.13 (0.005)
+0.89 (0.009)
+0.50 (0.009)
+0.89 (0.011)
+0.95 (0.008)
+Softmax gating
+0.76 (0.019)
+0.14 (0.006)
+0.87 (0.011)
+0.53 (0.015)
+0.90 (0.011)
+0.95 (0.008)
+Table D3: Per-parameter recovery and calibration under the ungated baseline. Mean across 9
+seeds.
+Parameter
+R2
+NRMSE
+Pearson r
+50% cov.
+90% cov.
+95% cov.
+Connectivity (C)
+0.812
+0.122
+0.902
+0.497
+0.877
+0.941
+Input drive (µ)
+0.702
+0.157
+0.838
+0.492
+0.880
+0.939
+Timescale scaling (κ)
+0.738
+0.144
+0.860
+0.472
+0.880
+0.941
+Synaptic gain (g)
+0.915
+0.086
+0.958
+0.502
+0.903
+0.952
+Table D4: Per-parameter recovery (R2) across gating configurations. Mean across 9 seeds per
+configuration.
+Parameter
+No gating
+Sigmoid gating
+Softmax gating
+Connectivity (C)
+0.812
+0.813
+0.778
+Input drive (µ)
+0.702
+0.695
+0.653
+Timescale scaling (κ)
+0.738
+0.745
+0.725
+Synaptic gain (g)
+0.915
+0.914
+0.885
+E
+Code, environment, and licenses
+The repository linked in the Introduction contains the full pipeline used here: the Jansen–Rit simulator
+and forward-model construction of Section 2.1, the sigmoid and softmax gate implementations of
+Section 2.2, the retrain-based ablation loop of Section 2.3, and the evaluation scripts that produce
+every table in this paper. The exact commands corresponding to each configuration and ablation
+condition are listed in the repository’s README.
+Results were produced under Python 3.11 with a CUDA 12.4 build of PyTorch v2.5.1. The full
+pinned environment is given in the repository’s requirements.txt.
+All software used is open source. sbi v0.25.0 (github.com/sbi-dev/sbi) is used under the Apache
+License 2.0. MNE-Python v1.11.0 (github.com/mne-tools/mne-python) is used under the BSD 3-
+Clause License. PyTorch v2.5.1, NumPy v1.26.4, SciPy v1.12.0 and pandas v2.3.3 are used under
+the BSD 3-Clause License, and Matplotlib v3.10.8 under its own BSD-compatible license.
+10

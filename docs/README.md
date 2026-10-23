@@ -1,34 +1,34 @@
 ## 最新日报
-- 最新运行日期：2026-10-23
-- 运行时间：2026-10-23 06:35:15 北京时间
+- 最新运行日期：2026-10-24
+- 运行时间：2026-10-24 06:41:42 北京时间
 - 运行状态：成功
 - 本次总论文数：5
-- 精读区：3
-- 速读区：2
+- 精读区：5
+- 速读区：0
 
 ### 今日简报（AI）
-- 今日共生成 5 篇推荐（精读 3 篇，速读 2 篇）
-- 精读：《BrainCodes: A Lightweight EEG Foundation Model over Discrete Neural Codes》（9.0/10）, 《NeuroCodec: EEG-Guided Latent-Domain Generative Model for High-Fidelity Target Speaker Extraction》（9.0/10）
-- 速读：《From Common Information to Canonical Correlation Analysis and Beyond: Bridging Information Theory, Signal Processing, and Machine Learning》（7.0/10）, 《A Bayesian Distance-Weighted Ising Model for Task-Related Regional Analysis of Neuroimaging Data》（6.0/10）
+- 今日共生成 5 篇推荐（精读 5 篇，速读 0 篇）
+- 精读：《Memory-Augmented Online Test-Time Adaptation for EEG Motor Imagery via Perturbation Consistency and Confidence Calibration》（9.0/10）, 《EEG-Captioner: Grounding EEG-to-Language Generation in Fundamental Signal Properties》（9.0/10）
 - 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202610/23/README](/202610/23/README)
+- 详情：[/202610/24/README](/202610/24/README)
 
 ### 精读区论文标签
-1. [BrainCodes: A Lightweight EEG Foundation Model over Discrete Neural Codes](/202610/23/2610.29320v1-braincodes-a-lightweight-eeg-foundation-model-over-discrete-neural-codes)  
+1. [Memory-Augmented Online Test-Time Adaptation for EEG Motor Imagery via Perturbation Consistency and Confidence Calibration](/202610/24/2610.30422v1-memory-augmented-online-test-time-adaptation-for-eeg-motor-imagery-via-perturbation-consistency-and-confidence-calibration)  
    标签：评分：9.0/10、query:sr
-   evidence：轻量级脑电图基础模型，学习离散神经编码和可迁移特征用于解码
-2. [NeuroCodec: EEG-Guided Latent-Domain Generative Model for High-Fidelity Target Speaker Extraction](/202610/23/2610.29815v1-neurocodec-eeg-guided-latent-domain-generative-model-for-high-fidelity-target-speaker-extraction)  
+   evidence：提出用于EEG运动想象的无源在线测试时适应方法以处理跨受试者分布偏移
+2. [EEG-Captioner: Grounding EEG-to-Language Generation in Fundamental Signal Properties](/202610/24/2610.30995v1-eeg-captioner-grounding-eeg-to-language-generation-in-fundamental-signal-properties)  
    标签：评分：9.0/10、query:sr
-   evidence：基于EEG的听觉注意解码用于目标说话人提取
-3. [Probing Spatial and Spectral Grounding in EEG Foundation Models](/202610/23/2610.29367v1-probing-spatial-and-spectral-grounding-in-eeg-foundation-models)  
+   evidence：基于信号属性的EEG到语言生成，用于神经信号解码
+3. [DRAFT: Decoding and Reconstructing 3D Room Layouts from fMRI and Camera Trajectories](/202610/24/2610.31108v1-draft-decoding-and-reconstructing-3d-room-layouts-from-fmri-and-camera-trajectories)  
+   标签：评分：9.0/10、query:sr
+   evidence：仅从fMRI信号重建3D房间布局
+4. [Spectral Uncertainty Decomposition for Sparse Bayesian Learning](/202610/24/2610.30207v1-spectral-uncertainty-decomposition-for-sparse-bayesian-learning)  
    标签：评分：8.0/10、query:sr
-   evidence：探测方法揭示 EEG 基础模型如何利用空间/频谱特征
+   evidence：M/EEG源估计的谱不确定性分解
+5. [Gate-Based Feature Importance in Simulation-Based Inference for EEG: A Cautionary Tale](/202610/24/2610.30364v1-gate-based-feature-importance-in-simulation-based-inference-for-eeg-a-cautionary-tale)  
+   标签：评分：8.0/10、query:sr
+   evidence：检验特征门控在脑电仿真推理中的可解释性
 
 ### 速读区论文标签
-1. [From Common Information to Canonical Correlation Analysis and Beyond: Bridging Information Theory, Signal Processing, and Machine Learning](/202610/23/2610.28978v1-from-common-information-to-canonical-correlation-analysis-and-beyond-bridging-information-theory-signal-processing-and-machine-learning)  
-   标签：评分：7.0/10、query:sr
-   evidence：CCA用于从多模态神经影像数据恢复共同成分，是联系外部变量与神经活动的数学框架。
-2. [A Bayesian Distance-Weighted Ising Model for Task-Related Regional Analysis of Neuroimaging Data](/202610/23/2610.25656v1-a-bayesian-distance-weighted-ising-model-for-task-related-regional-analysis-of-neuroimaging-data)  
-   标签：评分：6.0/10、query:sr
-   evidence：贝叶斯 Ising 模型关联任务标签与功能神经影像信号
+- 本次无速读推荐。
 

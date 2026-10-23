@@ -1,0 +1,632 @@
+EEG-CAPTIONER: GROUNDING EEG-TO-LANGUAGE GENERATION IN FUNDAMENTAL
+SIGNAL PROPERTIES
+Leyuan Jin1, Jiahao Mei1, Yixuan Yuan2, Shimeng Li1, Mengyue Wu1, Yue Ding2
+1X-LANCE Lab, Shanghai Jiao Tong University, Shanghai, China
+2Shanghai Mental Health Center, Shanghai Jiao Tong University School of Medicine, Shanghai, China
+ABSTRACT
+Electroencephalography (EEG)-to-language models offer a promis-
+ing approach for translating complex neural signals into human-
+readable descriptions.
+However, generating plausible language
+does not necessarily demonstrate that a model has learned to in-
+terpret the underlying EEG signal.
+A direct way to assess such
+interpretation is to probe objectively measurable properties of the
+signal itself. We therefore construct an EEG-language dataset of
+160,781 segments annotated with signal-level question answering
+(QA) pairs, where each question targets one of five property families
+and requires a quantitative comparison involving spectral, spatial,
+temporal, or lateral signal properties. Each segment is also paired
+with a feature-grounded EEG caption. We further propose a Dual-
+Domain EEG Encoder that jointly models temporal waveforms and
+spectral-spatial representations, and introduce EEG-Captioner, a
+unified EEG-to-language framework trained with both signal-level
+QA and EEG caption supervision. Experiments show that the pro-
+posed encoder achieves the highest overall macro-averaged balanced
+accuracy (Macro-BA) among the compared EEG encoders, while
+EEG-Captioner achieves a Macro-BA of 88.81% on signal-level QA
+and improves caption factual consistency from 82.06% to 83.46%
+over caption-only language adaptation, demonstrating the comple-
+mentary benefits of signal-level QA and caption supervision.
+Index Terms— Electroencephalography (EEG), EEG-to-language,
+large language models, EEG representation learning, EEG caption
+generation
+1. INTRODUCTION
+Electroencephalography (EEG) provides a non-invasive and tem-
+porally precise measurement of neural activity. Interpreting EEG
+requires reasoning jointly about multiple signal characteristics, in-
+cluding temporal dynamics, spectral patterns, spatial distributions,
+and hemispheric asymmetries. Large language models (LLMs) offer
+a promising way to translate such complex signals into human-
+readable descriptions. However, generating plausible text does not
+necessarily imply that an EEG-to-language model has captured the
+underlying signal characteristics. Faithful EEG descriptions should
+therefore be grounded in measurable signal characteristics.
+Recent EEG-to-language studies have made progress toward
+such grounding. E2-LLM [1] integrates pretrained EEG represen-
+tations with an LLM for affective reasoning, but does not explic-
+itly supervise the underlying signal properties. CerebraGloss [2]
+instruction-tunes a vision-language model for fine-grained clinical
+EEG interpretation, focusing primarily on clinically relevant EEG
+characteristics. NeuroNarrator [3] incorporates spectro-spatial and
+Corresponding authors: Mengyue Wu and Yue Ding.
+temporal modeling and uses LLM-based scoring to assess signal
+properties in generated captions.
+Despite these advances, exist-
+ing approaches still lack explicit and comprehensive supervision
+and direct evaluation of fundamental EEG properties, making it
+difficult to determine whether generated descriptions are systemat-
+ically grounded in the underlying temporal, spectral, spatial, and
+lateral characteristics. This need for explicit signal-level supervi-
+sion also raises a question of whether the EEG representations used
+by language-based models preserve these signal properties. EEG
+representation learning has progressed from compact convolutional
+and Transformer architectures, such as EEGNet [4] and SleepTrans-
+former [5], to large-scale pretrained models including BIOT [6],
+EEGPT [7], LaBraM [8], and CBraMod [9]. Although strong on
+downstream tasks, these models are not primarily designed to pre-
+serve the EEG properties needed for grounded language generation.
+To address these limitations, we first construct an EEG-language
+dataset that provides explicit supervision and evaluation of funda-
+mental EEG properties through signal-level question answering
+(QA) and feature-grounded captions.
+The QA annotations cover
+five property families across temporal, spectral, spatial, and lateral
+dimensions. To better preserve the signal information required by
+these properties, we further propose a Dual-Domain EEG Encoder
+that jointly models raw temporal dynamics and spectral-spatial
+structure. Instead of serializing precomputed EEG features as text,
+the encoder maps raw EEG into compact learned tokens, enabling
+more efficient and scalable EEG-to-language generation. Building
+on the dataset and encoder, we introduce EEG-Captioner, a uni-
+fied framework jointly trained with signal-level QA and caption
+supervision for grounded EEG caption generation.
+Experiments show that the proposed Dual-Domain EEG En-
+coder achieves higher macro-averaged balanced accuracy (Macro-
+BA) than the compared encoders on signal-level QA, while joint
+QA-caption training further improves both QA performance and
+grounded caption generation over the single-supervision variants.
+The main contributions are:
+• We construct an EEG-language dataset that pairs EEG seg-
+ments with signal-level QA and feature-grounded captions,
+enabling explicit supervision and direct evaluation of funda-
+mental EEG properties alongside caption generation.
+• We propose a Dual-Domain EEG Encoder that jointly mod-
+els temporal waveforms and spectral-spatial representations,
+achieving stronger performance than existing EEG encoders
+on the proposed signal-level QA tasks.
+• We introduce EEG-Captioner, a unified EEG-to-language
+framework that jointly learns from signal-level QA and cap-
+tion supervision, improving both fundamental EEG under-
+standing and grounded caption generation.
+arXiv:2610.30995v1  [cs.LG]  22 Oct 2026
+
+
+Table 1. Composition of the proposed EEG-language dataset. Each EEG segment generates one caption and 25 candidate relational questions
+across five task categories, with five questions per category. The reported relational counts are the numbers retained after numerical validity
+and signal-quality filtering.
+Component
+Task
+Question
+Answer Space
+Valid Count
+Signal-level QA
+Dominant Band
+Which frequency band has the highest power in a
+given time interval and spatial region?
+Delta, Theta, Alpha, Beta,
+Gamma
+652,345
+Strongest Region
+Which brain region has the highest power in a given
+frequency band and time interval?
+Frontal, Central, Parietal,
+Occipital, Temporal
+6,879
+Peak Period
+In which time interval—Early, Middle, or Last—does
+a given EEG feature reach its highest value?
+Early, Middle, Last
+311,861
+Temporal Pattern
+How does a given EEG feature change across the
+Early, Middle, and Last intervals?
+Increasing, Decreasing,
+Increase-then-Decrease,
+Decrease-then-Increase, Stable
+491,189
+Lateral Dominance
+Which hemisphere shows stronger activity in
+corresponding channels or brain regions?
+Left, Right, Approximately
+Symmetric
+784,302
+EEG Caption
+Free-form Caption
+Please describe the EEG signal in one coherent
+English caption.
+In the early interval, the EEG is
+dominated by ,,,
+160,781
+2. METHOD
+The EEG-language dataset construction pipeline is illustrated in
+Fig. 1, while the overall framework of EEG-Captioner is shown
+in Fig. 2. We first describe the construction of the EEG-language
+dataset, followed by the Dual-Domain EEG Encoder and the joint
+EEG-to-language training framework.
+2.1. EEG-Language Dataset Construction
+1  Multi-channel EEG
+Fz
+Cz
+Pz
+Oz
+Time
+2  Preprocessing
+Noisy EEG → Clean EEG
+Filtering
+Resampling
+Segmentation
+3  Deterministic feature summary
+Channel band
+power
+Regional band
+power
+Hemispheric
+asymmetry
+Temporal
+features
+Spectral
+features
+Source
+networks
+One 10-s EEG segment
+Early
+Middle
+Last
+4  Relational Q: five tasks
+Signal-level
+QA
++
+Caption
+5  LLM-based caption generation
+Feature
+summary
+LLM
+EEG caption
+4  Relational QA: five tasks
+Dominant
+band
+δ θ α β γ
+Strongest
+region
+Peak
+period
+E   M   L
+Temporal
+pattern
+↑↑ ↓↓ ↑↓ ↓↑ ≈
+Lateral
+dominance
+L  ≈  R
+F/O/C/P/T
+Fig. 1.
+Illustration of the EEG-Language dataset construction
+pipeline.
+We construct the EEG-language dataset from the Temple Uni-
+versity EEG Corpus (TUEG) v2.0.2 [10]. EEG recordings are pro-
+cessed using a standardized pipeline consisting of channel harmo-
+nization, filtering and resampling, fixed-length segmentation, and
+multi-level quality control.
+For each valid EEG segment, we compute a deterministic nu-
+merical feature summary describing its temporal, spectral, spatial,
+and lateral characteristics. Specifically, each segment is divided into
+Early, Middle, and Last intervals, from which we extract channel-
+level band power, region-of-interest (ROI)-level band power, source-
+network power, inter-hemispheric asymmetry, time-domain features,
+and spectral-domain features.
+Based on these features, we construct signal-level QA for five
+EEG property families: dominant band, strongest region, peak pe-
+riod, temporal pattern, and lateral dominance. Rather than regressing
+absolute feature values, which can vary substantially across record-
+ings and subjects, we formulate the tasks as relational comparisons
+that capture interpretable structure across frequency bands, spatial
+regions, temporal intervals, and hemispheres. Each property fam-
+ily contains five predefined feature conditions, yielding 25 candidate
+QA pairs for each segment. Ground-truth answers are computed di-
+rectly from full-precision numerical features. We further apply task-
+specific validity and ambiguity criteria to remove unreliable anno-
+tations, including invalid feature values, insufficient separation be-
+tween competing maxima, and inconsistent temporal patterns. The
+strongest region task retains fewer samples because regional compar-
+isons require all constituent channels to satisfy the validity criteria.
+Along with signal-level QA pairs, we generate a feature-
+grounded caption for each segment. The numerical feature sum-
+mary is provided to DeepSeek-V4-Flash [11], which is instructed to
+describe the observed temporal, spectral, spatial, and lateral charac-
+teristics while avoiding clinical or cognitive inference. Each sample
+therefore contains the raw EEG segment, the retained signal-level
+QA pairs, and an EEG caption, as summarized in Table 1.
+2.2. Dual-Domain EEG Encoder
+We propose a Dual-Domain EEG Encoder to jointly represent in-
+formation from the raw temporal waveform and its spectral-spatial
+structure. The encoder contains two parallel branches whose repre-
+sentations are subsequently aligned and fused.
+In the temporal branch, each channel waveform is divided into
+short patches and projected into temporal tokens, allowing the en-
+
+
+Dual-Domain EEG Encoder
+1
+EEG-to-LLM Framework
+2
+Multi-channel
+EEG segment
+Temporal Branch
+Temporal patch embedding
+Spectral-Spatial Branch
+Early
+Middle
+Last
+PSD
+Frequency
+Spatial Transformer
+Across-channel self-attention
+Dual-domain
+Fusion
+Temporal + spectral-
+spatial
+representations
+EEG Tokens
+Global
+Transformer
+Projector
+LLM
+Relational QA in 5 tasks
+Dominant band
+Strongest region
+Peak period
+Temporal pattern
+Lateral dominance
+Caption Generation
+In the early interval, the EEG is 
+dominated by high-amplitude delta 
+activity across all channels ... The 
+middle interval showed ... a notable 
+increase in right-sided asymmetry for 
+delta and theta in frontal and central 
+pairs . From middle to last, delta power 
+partially recovers, while theta and 
+gamma power decrease, and alpha 
+power shows mixed changes ...
+Fig. 2. Overview of the proposed Dual-Domain EEG Encoder and EEG-to-LLM framework for relational QA and caption generation;
+representative outputs are shown on the right.
+coder to model local waveform dynamics directly from the raw
+signal. In parallel, the spectral-spatial branch divides the EEG seg-
+ment into Early, Middle, and Last intervals and computes channel-
+wise power spectral density (PSD) using Welch’s method [12].
+Within each interval, channel self-attention [13] models dependen-
+cies across electrodes from the resulting spectral representations.
+The outputs of the two branches are then aligned and fused to
+combine temporal dynamics with spectral-spatial context. Channel-
+wise attention pooling followed by a Global Transformer further ag-
+gregates information across channels and temporal positions, pro-
+ducing the final EEG tokens used by downstream language tasks.
+2.3. EEG-Captioner
+EEG-Captioner connects the Dual-Domain EEG Encoder to an LLM
+through a learnable projector. Given an EEG segment, the encoder
+produces a sequence of EEG tokens, which are mapped by the pro-
+jector into the LLM embedding space and provided as multimodal
+context for language generation.
+We jointly train the framework using the two annotation types
+provided by the EEG-language dataset. For signal-level QA, the
+model receives a property-specific question and generates the cor-
+responding answer.
+For caption generation, the model generates
+a natural-language description of the signal characteristics. Both
+tasks share the same EEG encoder, projector, and LLM, while task-
+specific instructions specify the expected output format. The model
+is jointly optimized on both types of training examples.
+3. EXPERIMENTS
+3.1. Experimental Setup
+Dataset.
+All experiments are conducted on the proposed EEG-
+language dataset. The 160,781 EEG segments are split into 128,625
+/ 16,078 / 16,078 training, validation, and test samples in a filename-
+disjoint manner, and the same partitions are used for all experiments.
+Evaluation metrics. For fundamental signal understanding, we
+report balanced accuracy (BA) for each relation family and Macro-
+BA, computed as their unweighted average. For caption generation,
+we report BLEU-4 [14] and ROUGE-L [15] to measure lexical over-
+lap with reference captions. To assess signal grounding beyond lex-
+ical similarity, we further evaluate factual consistency using GPT-
+5.6 Sol through the ChatGPT web interface with High reasoning ef-
+fort. The evaluator compares each generated caption with a feature
+summary derived from the corresponding EEG segment and assesses
+four signal-level aspects: dominant spectral pattern, temporal trend,
+spectral features, and spatial distribution, producing an overall fac-
+tual consistency score from 0% to 100%.
+Implementation details. For the classifier stage, all encoders
+are trained with a single-layer classifier for 30,000 steps using
+AdamW, cosine decay, 1,000 warmup steps, and weight decay 0.01.
+CBraMod and LaBraM are initialized from pretrained weights and
+optimized with an encoder learning rate of 3 × 10−5, whereas the
+Dual-Domain encoder is trained from scratch with a learning rate
+of 3 × 10−4; all classifier heads use a learning rate of 3 × 10−4.
+Effective batch sizes are 16 for CBraMod/LaBraM and 48 for Dual-
+Domain.
+For the encoder-to-Qwen stage, the encoders from the
+classifier stage are frozen and connected to frozen Qwen2.5-Omni-
+7B [16] through a newly initialized projector. Low-Rank Adaptation
+(LoRA) [17] is applied to the Q/K/V/O projections of the language
+model (r = 8, α = 32, dropout=0.05). The projector and LoRA
+parameters are trained for 30,000 steps using AdamW with a learn-
+ing rate of 1 × 10−4, weight decay 0.01, and an effective batch size
+of 4 on two GPUs. For EEG-Captioner, all variants use the same
+frozen Dual-Domain EEG encoder obtained from the classifier stage,
+thereby isolating differences in the language-adaptation strategy
+from differences in EEG-encoder pretraining. For the caption-only
+adaptation, the projector and LoRA parameters are re-initialized and
+trained for 15,000 steps using only caption supervision at a learning
+rate of 5 × 10−5. Validation performance had converged by the end
+of the 15,000-step training. EEG-Captioner instead initializes the
+projector and LoRA parameters from the signal-level QA checkpoint
+and continues training for three consecutive 15,000-step stages with
+caption fractions of 0.25, 0.75, and 0.90, respectively. All captioning
+stages use AdamW with weight decay 0.01, an effective batch size
+of 4, and seed 42.
+3.2. Evaluation Protocols
+Encoder comparison.
+We compare the proposed Dual-Domain
+EEG Encoder with LaBraM and CBraMod, two representative state-
+of-the-art EEG encoders, at both representation and language levels.
+
+
+Table 2.
+Comparison of EEG encoders on five relational tasks and EEG-input sanity checks. In the Classifier stage, each EEG encoder is
+trained jointly with a relational classification head. In the Qwen stage, the trained encoder is frozen, and the projector and LoRA adapters
+are trained for relational instruction tuning. All values are balanced accuracy (%), and Macro-BA is the unweighted mean across the five task
+families.
+EEG Encoder
+Stage
+Dominant
+Strongest
+Peak
+Temporal
+Lateral
+Macro-BA
+Band(%)
+Region(%)
+Period(%)
+Pattern(%)
+Dominance(%)
+(%)
+CBraMod
+Classifier
+71.68
+72.59
+34.13
+33.60
+40.27
+50.45
+LaBraM
+Classifier
+90.56
+70.60
+89.87
+71.68
+57.60
+76.06
+Dual-Domain
+Classifier
+93.76
+91.29
+93.87
+87.52
+82.93
+89.87
+CBraMod
+Qwen
+61.76
+69.53
+36.27
+36.00
+36.27
+47.96
+LaBraM
+Qwen
+89.76
+72.23
+84.00
+68.80
+52.53
+73.47
+Dual-Domain
+Qwen
+88.64
+87.01
+94.67
+81.60
+78.40
+86.06
+EEG input sanity check for Dual-Domain + Qwen
+Shuffled EEG
+Qwen
+20.00
+20.37
+35.73
+18.72
+28.53
+24.67
+Zero EEG
+Qwen
+20.00
+20.00
+33.33
+20.00
+33.33
+25.33
+Table 3. Comparison of EEG-Captioner training strategies. Factual Consistency evaluates the accuracy of fundamental EEG signal descrip-
+tions in generated captions with respect to the corresponding numerical feature summary using GPT-5.6 Sol.
+Training
+Signal-level QA
+Caption Generation
+Supervision
+Macro-BA(%) ↑
+Factual Consistency(%) ↑
+ROUGE-L ↑
+BLEU-4 ↑
+Caption-only adaptation
+47.82
+82.06
+0.4722
+0.3124
+Signal-level QA only
+86.06
+44.10
+0.1470
+0.0083
+Signal-level QA + Caption
+88.81
+83.46
+0.4865
+0.3302
+At the representation level, performance is evaluated over the five
+signal-level QA property families using balanced accuracy. At the
+language level, all encoders are evaluated with the same Qwen-based
+setup on signal-level QA. We additionally assess the dependence of
+the Dual-Domain + Qwen model on EEG input through perturbation
+experiments, replacing the original EEG with cross-sample shuffled
+EEG or zero signals while keeping the questions unchanged.
+EEG-Captioner evaluation. We compare EEG-Captioner with
+two variants under the same model configuration. The caption-only
+adaptation variant trains only the language adaptation modules with
+caption supervision, while retaining the same frozen QA-pretrained
+Dual-Domain encoder used in the other variants for a controlled
+comparison. The signal-level-QA-only variant corresponds to the
+model after signal-level QA training, without subsequent caption
+training. Captioning performance is evaluated on the same held-out
+test set using identical metrics across all variants.
+4. RESULTS
+Comparison of EEG Encoders. Table 2 compares different EEG
+encoders under signal-level QA evaluation. At the classifier stage,
+the proposed Dual-Domain EEG Encoder achieves 89.87% Macro-
+BA, outperforming LaBraM (76.06%) and CBraMod (50.45%). The
+gains are particularly pronounced for strongest-region, temporal-
+pattern, and lateral-dominance prediction, suggesting that the pro-
+posed representation better preserves information relevant to these
+signal-level EEG properties.
+After transferring the frozen encoders to Qwen, the Dual-
+Domain encoder retains its advantage, achieving 86.06% Macro-BA
+compared with 73.47% for LaBraM and 47.96% for CBraMod, sug-
+gesting that the signal-level information captured by the proposed
+encoder can be effectively transferred to language-based QA.
+EEG input perturbation further leads to substantial performance
+degradation, suggesting that the model’s predictions depend on the
+EEG input rather than solely on language-side shortcuts.
+Effectiveness of EEG-Captioner.
+Table 3 compares the three
+variants using the same frozen QA-pretrained EEG encoder. On
+signal-level QA, caption-only adaptation achieves 47.82% Macro-
+BA, while signal-level-QA-only training reaches 86.06%.
+EEG-
+Captioner further improves Macro-BA to 88.81%, suggesting that
+caption supervision can complement signal-level QA training. For
+caption generation, EEG-Captioner improves factual consistency
+from 82.06% to 83.46% compared with caption-only adaptation,
+while increasing ROUGE-L from 0.4722 to 0.4865 and BLEU-4
+from 0.3124 to 0.3302. Overall, the joint training strategy main-
+tains strong signal-level QA performance while providing modest
+improvements in caption quality.
+5. CONCLUSION
+In this paper, we present EEG-Captioner, a unified EEG-to-language
+framework for grounded EEG understanding. We construct an EEG-
+language dataset that pairs EEG captions with signal-level QA pairs
+covering fundamental temporal, spectral, spatial, and lateral sig-
+nal properties. We further introduce a Dual-Domain EEG Encoder
+to model temporal and spectral-spatial information. Experiments
+show that the proposed encoder achieves improved performance on
+signal-level QA tasks, while joint QA-caption training improves
+both signal-level QA performance and caption factual consistency.
+These results suggest that incorporating explicit signal-level supervi-
+sion can help improve the grounding of EEG-to-language generation
+in measurable EEG properties.
+
+
+6. COMPLIANCE WITH ETHICAL STANDARDS
+This study used the de-identified Temple University Hospital EEG
+Corpus (TUEG), which was collected with approval from the Temple
+University Institutional Review Board and in accordance with the
+Declaration of Helsinki [10]. No new participants were recruited or
+data collected in this study.
+7. REFERENCES
+[1] Fei Ma, Han Lin, Yifan Xie, Hongwei Ren, Xiaoyu Shen,
+Wenbo Ding, and Qi Tian, “Eˆ2-LLM: Bridging Neural Sig-
+nals and Interpretable Affective Analysis,” Jan. 2026.
+[2] Wei Gu, Tianming Luo, Qiran Zhang, Mohan Ye, Xiao Shen,
+Wenxin Chen, Yunhuan Li, Yichen Zhang, Jing Hong, Bao-
+liang Lu, and Wei-Long Zheng, “CerebraGloss: Instruction-
+Tuning a Large Vision-Language Model for Fine-Grained
+Clinical EEG Interpretation,” in The Fourteenth International
+Conference on Learning Representations, 2026.
+[3] Guoan Wang, Shihao Yang, Jun-en Ding, Hao Zhu, and Feng
+Liu, “NeuroNarrator: A Generalist EEG-to-Text Foundation
+Model for Clinical Interpretation via Spectro-Spatial Ground-
+ing and Temporal State-Space Reasoning,” 2026.
+[4] Vernon J. Lawhern, Amelia J. Solon, Nicholas R. Waytowich,
+Stephen M. Gordon, Chou P. Hung, and Brent J. Lance, “EEG-
+Net: A compact convolutional neural network for EEG-Based
+Brain-Computer Interfaces,” Journal of Neural Engineering,
+vol. 15, no. 5, pp. 056013, 2018.
+[5] Huy Phan, Kaare Mikkelsen, Oliver Y. Ch´en, Philipp Koch,
+Alfred Mertins, and Maarten De Vos, “SleepTransformer: Au-
+tomatic Sleep Staging With Interpretability and Uncertainty
+Quantification,” IEEE Transactions on Biomedical Engineer-
+ing, vol. 69, no. 8, pp. 2456–2467, Aug. 2022.
+[6] Chaoqi Yang, M. Westover, and Jimeng Sun, “BIOT: Biosignal
+Transformer for Cross-data Learning in the Wild,” Advances
+in Neural Information Processing Systems, vol. 36, pp. 78240–
+78260, Dec. 2023.
+[7] Guangyu Wang, Wenchao Liu, Yuhong He, Cong Xu, Lin Ma,
+and Haifeng Li, “EEGPT: Pretrained Transformer for Univer-
+sal and Reliable Representation of EEG Signals,” in Advances
+in Neural Information Processing Systems. 2024, vol. 37, pp.
+39249–39280, Curran Associates, Inc.
+[8] Wei-Bang Jiang, Li-Ming Zhao, and Bao-Liang Lu, “Large
+Brain Model for Learning Generic Representations with
+Tremendous EEG Data in BCI,” May 2024.
+[9] Jiquan Wang, Sha Zhao, Zhiling Luo, Yangxuan Zhou, Haiteng
+Jiang, Shijian Li, Tao Li, and Gang Pan, “CBraMod: A Criss-
+Cross Brain Foundation Model for EEG Decoding,” Nov. 2025.
+[10] Iyad Obeid and Joseph Picone, “The Temple University Hos-
+pital EEG Data Corpus,” Frontiers in Neuroscience, vol. 10,
+May 2016.
+[11] DeepSeek-AI,
+“DeepSeek-V4:
+Towards Highly Efficient
+Million-Token Context Intelligence,” June 2026.
+[12] P. Welch, “The use of fast Fourier transform for the estima-
+tion of power spectra: A method based on time averaging over
+short, modified periodograms,” IEEE Transactions on Audio
+and Electroacoustics, vol. 15, no. 2, pp. 70–73, June 1967.
+[13] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszko-
+reit, Llion Jones, Aidan N. Gomez, Łukasz Kaiser, and Illia
+Polosukhin, “Attention is All you Need,” Advances in Neural
+Information Processing Systems, vol. 30, 2017.
+[14] Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing
+Zhu, “Bleu: a Method for Automatic Evaluation of Machine
+Translation,” in Proceedings of the 40th Annual Meeting of
+the Association for Computational Linguistics, July 2002, pp.
+311–318.
+[15] Chin-Yew Lin,
+“ROUGE: A Package for Automatic Evalu-
+ation of Summaries,”
+in Text Summarization Branches Out,
+Barcelona, Spain, July 2004, pp. 74–81, Association for Com-
+putational Linguistics.
+[16] Jin Xu, Zhifang Guo, Jinzheng He, Hangrui Hu, Ting He,
+Shuai Bai, Keqin Chen, Jialin Wang, Yang Fan, Kai Dang, Bin
+Zhang, Xiong Wang, Yunfei Chu, and Junyang Lin, “Qwen2.5-
+Omni Technical Report,” Mar. 2025.
+[17] Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu,
+Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen, “LoRA:
+Low-Rank Adaptation of Large Language Models,” Oct. 2021.

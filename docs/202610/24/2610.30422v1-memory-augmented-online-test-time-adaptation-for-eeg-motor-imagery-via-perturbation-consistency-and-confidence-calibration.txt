@@ -1,0 +1,1890 @@
+1
+Memory-Augmented Online Test-Time Adaptation for EEG Motor
+Imagery via Perturbation Consistency and Confidence Calibration
+Kunkun Zhang, Kehao Wu, Zhitao Chen, Haigen Hu, Member, IEEE, and Qianwei Zhou, Member, IEEE
+Abstract—Recently,
+electroencephalography
+(EEG)-based
+brain–computer
+interfaces
+(BCIs)
+have
+gained
+traction
+as
+portable
+neural
+measurement
+systems.
+However,
+the
+practical deployment of these instruments is often hindered by
+nonstationarity and cross-subject distribution shifts, which lead
+to significant intersubject inconsistency. Existing adaptation
+methods remain impractical for real-time measurement scenarios,
+as they typically require offline access to source or aggregated
+target data. To address these challenges, this article proposes
+memory-augmented online test-time adaptation (OTTA) with
+perturbation consistency and confidence calibration (MOPC),
+a source-free framework designed to enhance the reliability of
+BCI instrumentation. MOPC enables the measurement system to
+update its decoding parameters on the fly during the inference
+stage,
+facilitating
+single-pass
+adaptation
+without
+accessing
+sensitive source data. We introduce random-mask perturbations
+to enforce prediction consistency against inherent EEG signal
+noise and acquisition artifacts. Furthermore, a confidence-
+calibrated reweighting loss is designed to integrate feature-space
+similarity, effectively mitigating unreliable pseudolabels and class
+imbalance during continuous signal acquisition. To ensure system
+stability and prevent the catastrophic forgetting of established
+neural patterns, a lightweight memory module is incorporated
+to
+regularize
+parameter
+updates
+within
+a
+tight
+latency
+budget. Evaluated on the BCI IV IIb and OpenBMI datasets,
+MOPC achieves state-of-the-art performance, outperforming
+prior methods by 2.22 % and 3.67 %, respectively, while
+keeping
+the
+per-trial
+adaptation
+latency
+to
+approximately
+40–60 ms. This study provides a robust, recalibration-free
+solution for real-time EEG decoding, marking a significant
+advancement in the precision and usability of practical BCI
+measurement instruments. The source code is available at
+https://github.com/KunKun-Zhang/MOPC.git
+Index
+Terms—Brain–computer
+interface
+(BCI),
+electroen-
+cephalography, motor imagery (MI), test-time adaptation (TTA).
+I. INTRODUCTION
+Received 25 March 2026; revised 21 August 2026; accepted 28 August
+2026. Date of publication 22 September 2026; date of current version 5
+October 2026. This work was supported in part by the National Natural
+Science Foundation of China under Grant 62271448 and Grant 62373324 and
+in part by the “Pioneer” and “Leading Goose” Research and Development
+Program of Zhejiang under Grant 2026C02A1221 and Grant 2025C02160.
+The Associate Editor coordinating the review process was Dr. Susanna
+Spinsante. (Corresponding author: Qianwei Zhou.)
+The authors are with the College of Computer Science and Technology,
+Zhejiang University of Technology, Hangzhou 310023, China, and also
+with Zhejiang Key Laboratory of Visual Information Intelligent Processing,
+Hangzhou 310023, China (e-mail: zqw@zjut.edu.cn).
+Digital Object Identifier 10.1109/TIM.2026.3736160
+© 2026 IEEE. Personal use of this material is permitted. Permission from
+IEEE must be obtained for all other uses, in any current or future media,
+including reprinting/republishing this material for advertising or promotional
+purposes, creating new collective works, for resale or redistribution to servers
+or lists, or reuse of any copyrighted component of this work in other works.
+DOI: 10.1109/TIM.2026.3736160
+B
+RAIN-COMPUTER interfaces (BCIs) serve as advanced
+neural measurement instruments, establishing direct path-
+ways between the human brain and external devices for neu-
+rorehabilitation and robotics [1, 2]. Among various paradigms,
+electroencephalography (EEG)-based motor imagery (MI) is
+a pivotal measurement technique due to its noninvasiveness
+and portability [3]. By decoding imagined movements from
+EEG signals, MI-based BCIs can restore motor function in
+paralyzed patients and enhance human capabilities in virtual
+environments. These systems have been successfully applied
+in multiple fields, including wheelchair control [4] and lower
+limb exoskeleton assistance systems [5].
+Early MI-BCI decoding methods relied on manual feature
+extraction techniques, such as common spatial patterns (CSPs)
+and statistical bandpower measures, followed by conventional
+classifiers [6, 7]. The advent of deep learning has led to
+the development of end-to-end neural models that automat-
+ically learn spatial–temporal representations from raw EEG,
+resulting in significant improvements in measurement accuracy
+and robustness [8, 9]. Despite these advancements, MI-EEG
+models trained on a set of subjects (source domain) often
+experience a sharp decline in decoding reliability when applied
+to new individuals (target domain) [10]. This is attributed
+to the differences in signal amplitude and frequency char-
+acteristics between subjects [11]. In metrological terms, the
+decoder is an instrument whose reliability and reproducibility
+must hold across subjects and over time, yet this cross-subject
+variability behaves as instrument drift whose usual remedy,
+per-subject recalibration, lengthens setup and undermines re-
+peatability [12].
+Because such drift degrades any model transferred to a
+new user, robust transfer learning has become essential [13–
+15]. Domain adaptation (DA) addresses it by transferring
+knowledge from a labeled source to an unlabeled target [16],
+and is commonly divided, depending on whether the source
+data remain accessible, into unsupervised DA (UDA) and
+source-free UDA (SFUDA). UDA aligns the two distributions
+during joint training [17]. DANN, for instance, learns domain-
+invariant features with a gradient-reversal adversary [18].
+The instrumentation and measurement literature has pursued
+this line to reconcile cross-subject and cross-device record-
+ings, through multiview contrastive learning [19], prototype-
+supervised transfer across multiple source brains (PSATs) [20],
+interdevice sample reweighting (SRENet) [21], multisource
+associate alignment across subjects and sessions [22], and
+semisupervised multisource joint-distribution adaptation that
+further exploits a few labeled target trials [23], as illustrated in
+Fig. 1(a). Instead, SFUDA adapts a pretrained model without
+revisiting the source, thereby preserving subject privacy [24].
+arXiv:2610.30422v1  [cs.LG]  21 Oct 2026
+
+
+2
+Labeled source data
+Unlabeled target data
+Target
+model
+Labeled source data
+Unlabeled target data
+Pre-trained
+model
+Labeled source data
+Unlabeled target data
+Pre-trained
+model
+(a)
+(b)
+(c)
+Target online
+data stream
+Fig. 1.
+Conceptual comparison of three domain-adaptation paradigms for
+cross-subject EEG decoding. (a) UDA. (b) SFUDA. (c) OTTA.
+SHOT aligns the target with the source hypothesis through
+information maximization and pseudolabeling [25], while
+USFDA adds a generative classifier for out-of-distribution
+rejection [26], as shown in Fig. 1(b). Effective as these
+methods are, they all operate offline: each collects the entire
+target set, or even a labeled calibration subset of it, and revisits
+it over several passes before producing a prediction, and the
+UDA variants further require the source recordings to remain
+accessible at the deployment site. This assumption does not
+fit a BCI that must decode a continuous stream one trial at a
+time.
+Online test-time adaptation (OTTA) lifts the offline re-
+quirement by updating the model during inference, in a
+single pass over the incoming data [27, 28], which matches
+the low-latency operation a deployed BCI needs, as de-
+picted in Fig. 1(c). Existing OTTA methods fall into four
+families. Entropy minimization sharpens predictions by tun-
+ing batch-normalization (BN) parameters, as in TENT [29]
+and the sharpness-aware SAR [30]. Pseudolabeling super-
+vises the model with its own outputs, as in the paired-
+view DPLOT [31] and the backpropagation-free T3A [32].
+Consistency regularization enforces stable predictions across
+perturbed views, as used for EEG sleep staging [33] and
+for masked self-supervision [10]. Antiforgetting regularization
+preserves source knowledge over long runs, as in the teacher-
+based CoTTA [34] and the probabilistic PETAL [35]. All four
+were designed for image streams, however, and overlook two
+properties of EEG: its trials are short and noisy, and their class
+balance drifts as the user’s engagement varies. The few EEG-
+specific efforts remain partial. MD-CAT copes with evolving
+distributions, but by continual retraining rather than test-time
+adaptation (TTA) [36]; Wang et al. [37] refine a personalized
+MI decoder trial by trial, retraining on the user’s own cue-
+locked online trials to track day-to-day nonstationarity; Jiao
+et al. [38] combine subject-specific stimulation and filter-
+bank settings, optimized offline, with periodic retraining of
+the decoder during online use; neither considers label-free,
+source-free transfer to a new user; and T-Time, the closest
+online baseline, maximizes information over an ensemble yet
+treats trials as independent, so it cannot exploit their temporal
+order [39]. Offline prototype networks such as SST-DPN
+confirm that temporal context is informative [40], but they
+cannot adapt once deployed.
+We close this gap with MOPC, a memory-augmented
+OTTA method with perturbation consistency and confidence
+calibration. MOPC keeps a short first-in-first-out memory
+of recent prealigned trials together with their predictions,
+and this memory serves two purposes. First, it continuously
+re-estimates the Euclidean alignment (EA) of the incoming
+stream, turning a normally static prealignment [41] into an
+adaptive one. Second, it provides the context for three coupled
+objectives tailored to EEG: a perturbation-consistency term
+that keeps the prediction stable when the trial is corrupted
+by a random time-mask [10], a joint entropy term that sharp-
+ens the predictions on both the original and masked views,
+and a confidence-calibrated reweighting term that discounts
+unreliable pseudolabels and offsets class drift using feature
+similarity among same-class neighbors in memory together
+with an effective-number class weight [42]. Every arriving trial
+is first labeled by an ensemble of N=5 models and then used
+to update only the BN parameters of one member, selected in
+round-robin. Since the update touches nothing else, its cost is
+independent of the number of classes, which keeps the method
+fast enough for real-time use. The overall MOPC framework
+is illustrated in Fig. 2.
+MOPC therefore differs from prior work in both setting and
+design. Unlike the offline adaptation of PSAT and SRENet or
+the continual retraining of MD-CAT, it adapts to each trial in a
+single streaming pass and never revisits the source; unlike the
+personalized online MI-BCIs of [37] and [38], which train
+the decoder on the user’s own recordings and refine it by
+retraining on that user’s online trials, it starts from a cross-
+subject source ensemble and adapts from unlabeled trials in
+a single pass without any retraining, so it can serve as the
+decoder-adaptation component of such systems. Unlike the
+entropy-only, memoryless T-Time, it uses its memory both
+to stay stable and to follow the changing class balance. Its
+novelty lies not in any single mechanism, several of which
+exist in isolation, but in their integration into one lightweight
+scheme suited to nonstationary EEG. Practically, this targets
+the outcomes that matter in deployment: it sustains decoding
+reliability as the signal drifts, reduces the per-subject recali-
+bration burden, and runs on the acquisition hardware in real
+time, extending the cross-subject transfer line from offline
+calibration to online operation.
+The main contributions of this work are as follows.
+1) We formulate cross-subject MI decoding as source-free,
+single-pass OTTA under real-time constraints, in which
+target trials arrive one at a time and the source is never
+revisited. This setting is distinct from offline source-free
+DA and from methods that rely on continual retraining.
+2) We
+propose
+MOPC,
+in
+which
+a
+fixed-capacity
+FIFO memory drives a dynamic EA of the stream
+and couples three EEG-aware objectives: a time-
+masked perturbation-consistency loss, a joint entropy-
+minimization loss, and a confidence-calibrated reweight-
+ing loss that suppresses noisy pseudolabels and corrects
+class imbalance.
+3) We keep the adaptation lightweight: each trial updates
+only the BN parameters of a single member of an N=5
+ensemble, so the number of trainable parameters does
+not grow with the number of classes.
+
+
+3
+𝑫𝒔𝟏
+𝑫𝒔𝑲
+Real-time EEG 
+Measurement Stream
+…
+…
+𝑫𝒕
+Online testing
+Pre-alignment
+Concatenation 
+across subjects
+𝒙𝒔𝟏∈ℝ𝑵×𝑪×𝑻
+𝒙𝒕
+𝒎∈ℝ𝑪×𝑻
+𝒙𝒔∈ℝ𝑲𝑵×𝑪×𝑻
+𝒙𝒔𝑲∈ℝ𝑵×𝑪×𝑻
+⨁
+Domain pre-
+alignment
+Data augmentation
+𝓛𝒋𝒆𝒎
+𝓛𝒄𝒄𝒓
+Confidence
+calibration
+Similarity matrix
+Softmax
+𝓛𝒄𝒆
+𝒚𝒔
+𝒚𝒔′
+ො𝑦𝑡
+𝑚
+Softmax
+𝓛𝒑𝒄𝒓
+Feature 
+extractor
+Classifier
+push
+pull
+: Source Data flow
+: Probabilities
+: Model transfer
+⨁: Concatenate
+: per-trial update
+: Target Inference Data flow
+: Target adaption Data flow
+𝓛𝒄𝒄𝒓
+Feature 
+extractor
+Classifier
+𝒛∈𝓩
+𝑖-th model
+Memory bank
+N-Model 
+Ensemble
+𝑖-th model
+Offline training
+…
+Fig. 2. Overview of MOPC. Top (offline training): EEG data from K source subjects are prealigned and concatenated to train an N-model ensemble via
+cross-entropy loss Lce. Bottom (online testing): For each trial xm
+t
+in the real-time measurement stream: 1) inference: the trial is prealigned and evaluated by
+the ensemble to yield the soft-voted prediction ˆym
+t , while the aligned data is pushed to the FIFO memory bank; and 2) adaptation: a random-mask view is
+generated to compute Lpcr and Ljem. Simultaneously, a pairwise feature-similarity matrix is constructed from the memory bank to derive the confidence-
+calibrated loss Lccr. The framework minimizes the hybrid loss to update the BN parameters of ensemble members sequentially in a round-robin fashion,
+ensuring a highly efficient, single-pass adaptation.
+The remainder of this article is structured as follows.
+Section II presents the methodology. Section III provides ex-
+perimental results. Section IV offers an interpretable analysis
+of system stability. Section V concludes this article.
+II. METHODOLOGY
+A. Preliminaries
+We consider the EEG decoding task as a dynamic mea-
+surement problem. Assume that the source domains {Dk
+s}K
+k=1
+consist of K labeled source subjects. For the kth subject, the
+source domain Dk
+s = {(xk,i
+s , yk,i
+s )}nk
+s
+i=1 contains nk
+s EEG trials,
+where xk,i
+s
+∈RC×T represents the ith EEG signal of the
+kth subject, with C denoting the number of sensor channels
+and T the number of time samples, yk,i
+s
+∈{1, . . . , Y } is
+the corresponding class label. We perform end-to-end training
+on the pooled data from multiple source subjects to obtain
+a model fθ0. The network comprises a feature extractor gϕ
+and a classifier hθ, i.e., fθ0 = hθ ◦gϕ. This means that the
+ith EEG trial is first projected into a latent space zi ∈RD
+(where D is the feature dimension) by the feature extractor,
+and then mapped to a probability vector pi ∈RY in the label
+space. Concretely, each input trial is a matrix of shape C × T,
+instantiated as 3 × 1000 on BCI IV IIb and 20 × 1000 on
+OpenBMI (a 4-s window at 250 Hz); the feature extractor
+compresses it to a latent vector of dimension D = 32, and the
+classifier produces Y class scores.
+During online adaptation phases, the target domain Dt =
+{xj
+t}nt
+j=1 consists of an unlabeled stream of samples from a
+subject, which is different from the subjects in the source
+domain. When the mth EEG signal xm
+t
+arrives, the proposed
+OTTA aims to perform an online prediction of xm
+t
+based on
+the pretrained model fθ0 and the previously received samples
+{x1
+t, x2
+t, . . . , xm−1
+t
+} while updating the model parameters θ0
+to adapt to the target domain.
+B. Domain Prealignment
+Physiological differences between subjects and device noise
+lead to nonstationarity in the distribution of EEG trials [11].
+The significant disparity between the source and target do-
+mains may result in performance degradation when applying
+the model directly to the target domain. To reduce this shift,
+we adopt EA [41], which aligns trial covariances to construct
+a more stable latent space.
+For each source subject k, compute the mean spatial covari-
+ance matrix R
+k
+s ∈RC×C
+R
+k
+s = 1
+nks
+nk
+s
+X
+i=1
+xk,i
+s (xk,i
+s )⊤.
+(1)
+
+
+4
+Then the inverse square root of the above matrix is taken
+and applied to each trial in the domain
+¯xk,i
+s
+= (R
+k
+s)−1/2xk,i
+s .
+(2)
+If multiple sessions are available for a subject, EA is
+performed per session. During online testing, the target domain
+alignment matrix is estimated from the most recent B target
+trials (see the memory bank below) and updated as the stream
+evolves.
+C. Source Model Training
+Given the constraints of real-time BCI instrumentation,
+we avoid computationally heavy architectures. We employ
+EEGNet [9] as the backbone due to its efficiency in extracting
+spectral–spatial features. In particular, we configure the first
+convolutional block with a temporal kernel size of (1, 64)
+and a depthwise kernel of (C, 1) to capture sensorimotor
+rhythms. We set the pointwise convolution filter size to 32 and
+append a global average pooling (GAP) layer. Consequently,
+the resulting latent feature vector zi for each trial has a
+dimension of R32.
+To enhance generalization, we apply leave-one-subject-out
+(LOSO) cross-validation. In each iteration, data from all
+subjects except the target are used for training with cross-
+entropy loss Lce. We perform N = 5-fold cross-validation,
+retaining the best model from each fold. These N models
+form an ensemble for robust measurement inference.
+D. Online Test-Time Inference and Adaptation
+1) Soft Voting Ensemble Learning: OTTA aims to enable a
+model to adapt to changes in target domain data after training,
+particularly when there is a significant discrepancy between
+the source and target domain sample distributions. To help the
+model progressively adapt to the target domain data, we adopt
+a multimodel update strategy. In this approach, model updates
+occur in rounds, where only one model is updated at a time
+during each data update. The final prediction is obtained by
+integrating the softmax probability distributions of multiple
+models, yielding the most likely class label. In particular, for
+a sequentially arriving test sample xm
+t , the prediction ˆym
+t
+is
+ˆym
+t = arg max
+c
+ 
+1
+N
+N
+X
+i=1
+softmax(fi(¯xm
+t ))c
+!
+(3)
+where N is the number of ensemble models and ¯xm
+t
+is the
+prealigned trial (Section II-B).
+2) Dynamic Memory Bank: Streaming EEG exhibits strong
+temporal dependencies. Updating the model based solely on
+the current sample makes the model sensitive to transient
+noise. To address this, we maintain a FIFO memory bank M
+with capacity B. Each entry stores the prealigned input ¯xj
+t and
+its output distribution p j
+t . After the mth trial has arrived, the
+bank is defined as
+M = {(¯xj
+t, pj
+t)}m
+j=max(1,m−B+1).
+(4)
+Upon arrival of a new trial, the oldest entry is discarded to
+keep |M| = B. The memory capacity is set to B = 24,
+which empirically balances the tradeoff between tracking
+recent distribution drifts and maintaining sufficient statistics
+for stable updates (see Fig. 3).
+3) Perturbation Consistency Regularization: To improve
+the model’s robustness during the OTTA and prevent over-
+fitting to noise and perturbations in the target domain, we
+introduce perturbation consistency regularization. This reg-
+ularization term enhances the model’s adaptation to target
+domain data by enforcing consistency in predictions between
+the original EEG signal and its augmented version in the
+output space.
+We employ a random masking data augmentation strategy
+to simulate information loss and noise perturbations in the
+signal. In particular, a random time point τ is initialized from
+the time interval [0, T −W], and a local EEG signal with a
+masking window of length W is used for augmentation, such
+that ¯xj
+t[1 : C, τ : τ + W] = 0. The augmented sample is then
+denoted as ˜xj
+t. In all main experiments, we use W = 200 as
+the default time samples.
+For the original signal ¯xj
+t and its augmented version ˜xj
+t in
+the memory bank, we define the perturbation consistency regu-
+larization by calculating the Kullback–Leibler (KL) divergence
+between their output probability distributions
+Lpcr = 1
+B
+B
+X
+j=1
+DKL(fθ(¯xj
+t)||fθ(˜xj
+t)).
+(5)
+In our experiments, compared to cross-entropy loss [31, 34],
+the KL divergence as a consistency loss yields better perfor-
+mance.
+4) Joint Entropy Minimization: Entropy minimization is
+widely used in TTA methods such as TENT [29] to reduce
+the prediction uncertainty on target domain samples, thus
+improving the model’s confidence. This process helps improve
+intraclass feature consistency and narrows the domain gap
+between the source and target domains, enhancing the model’s
+generalization ability on the target domain.
+In our approach, we combine the original data and its
+augmented version (generated via perturbation) in the entropy
+minimization process. The joint loss is calculated by minimiz-
+ing the Shannon entropy of both the original signal ¯xj
+t and its
+augmented version ˜xj
+t, as follows:
+Ljem = −1
+B
+B
+X
+j=1
+X
+c
+h
+ˆyj
+c log ˆyj
+c + ˆy
+˜j
+c log ˆy
+˜j
+c
+i
+(6)
+where ˆyj
+c and ˆy˜j
+c represent the predicted probabilities for class
+c on ¯xj
+t and ˜xj
+t, respectively.
+5) Confidence-Calibrated Reweighting: In online EEG MI
+decoding, the class proportions in the target stream may
+drift away from the training prior, and pseudolabel noise can
+distort the predicted class distribution [30]. We address both
+issues with a confidence-calibrated reweighting loss Lccr that
+emphasizes reliable and minority samples.
+We first derive a confidence weight per sample by compar-
+ing latent features pairwise based on the historical data stored
+in the memory bank, and aggregating similarities from same-
+class neighbors. The latent features themselves are recalculated
+
+
+5
+each time dynamically, based on the current sample and the
+stored historical data. Let zj be the latent feature of the trial
+j and Sji = cos(zj, zi) the cosine similarity. The confidence
+weight is
+ˆCj =
+PB
+i=1 exp(Sji) × Mji
+PB
+i=1 Mji + ϵ
+(7)
+where ϵ is a small constant to prevent division by zero and
+Mji is the class similarity mask
+Mji =
+(
+1,
+if yj = yi and j̸ = i
+0,
+else.
+(8)
+To mitigate class imbalance under nonstationary priors, we
+adopt the effective-number weighting [42]
+αˆyj =
+1 −β
+1 −βnˆyj
+(9)
+where nˆyj is the running pseudocount of class ˆyj observed
+in the stream so far and β ∈[0, 1) controls the degree of
+balancing. Combining confidence, class balance, and focal
+modulation yields
+Lccr = −1
+B
+B
+X
+j=1
+h
+ˆCj · αˆyj(1 −p(ˆyj))γ log(p(ˆyj))
+i
+(10)
+where p(ˆyj) is the predicted probability of the pseudolabel
+for trial j and γ > 0 is the focal parameter. This formulation
+downweights unreliable pseudolabels, upweights informative
+minority and hard samples, and stabilizes adaptation under
+class-imbalanced, nonstationary test streams.
+E. Optimization of MOPC
+To jointly optimize MOPC in the streaming setting, we
+minimize a hybrid objective that combines perturbation
+consistency regularization, joint entropy minimization, and
+confidence-calibrated reweighting
+Ltotal = Lpcr + Ljem + Lccr.
+(11)
+For each incoming trial, we first obtain its prediction and
+subsequently perform a single adaptation step via one gra-
+dient update with Ltotal while keeping all network weights
+fixed except for the BN layers. The update touches only
+the affine scale-and-shift parameters of the BN layers in the
+selected ensemble member, while the convolutional kernels,
+the depthwise and pointwise filters, and the classifier weights
+remain frozen. Each trial is thus handled in one streaming
+pass: one soft-voted ensemble prediction over the N = 5
+members, followed, once the memory bank is populated, by a
+single BN-only gradient step over the B = 24 memory entries,
+with no trial ever revisited. This per-trial schedule couples
+inference with adaptation to enable continuous online learning.
+Algorithm 1 summarizes this schedule.
+Algorithm 1 Proposed MOPC Framework
+Input: Labeled source domain data {Dk
+s}K
+k=1;
+Initial N-model ensemble {fθi}N
+i=1;
+Streaming target data {xm
+t }nt
+m=1;
+B, the memory bank capacity;
+Output: The classification ˆym
+t
+for xm
+t .
+// Stage 1: Offline Training
+for i = 1 : N do
+Train model fθi on N −1 folds using Lce;
+Retain the best-performing model to build the ensemble
+{fθi}N
+i=1;
+end for
+// Stage 2: Online Testing
+Initialize the dynamic memory bank M = ∅;
+for m = 1 : nt do
+// Online Inference
+if |M| < B then
+Align xm
+t
+via source EA matrix to get ¯xm
+t ;
+else
+Calculate the covariance matrix on M by (1);
+Perform EA on xm
+t
+to get ¯xm
+t ;
+end if
+Calculate pm
+t
+and predicted label ˆym
+t
+by (3);
+Append (¯xm
+t , pm
+t ) to M;
+if |M| > B then
+Dequeue the oldest trial from M;
+end if
+// Online Adaptation
+if |M| == B then
+Select the ensemble member i = (m mod N) + 1;
+Calculate Lpcr on M by (5);
+Calculate Ljem on M by (6);
+Calculate Lccr on M by (10);
+Calculate total loss Ltotal by (11) and update the BN
+parameters θBN
+i
+of fθi using ∇Ltotal;
+end if
+end for
+III. EXPERIMENTS AND RESULTS
+A. Datasets
+To evaluate the classification performance of our frame-
+work in the OTTA setting, we conducted experiments using
+two public datasets: BCI Competition IV IIb and OpenBMI.
+Because each benchmark defines its own measurement front-
+end, we detail below the acquisition instrumentation, electrode
+montage, and sampling resolution of the two datasets, comple-
+menting the processing pipeline summarized in Table I. A third
+dataset, the four-class BCI Competition IV 2a, is introduced
+only as the basis for the preliminary multiclass validation of
+Section IV-C, and is not part of the binary experiments.
+1) BCI IV IIb: The BCI IV IIb [43] dataset contains EEG
+signals from 9 healthy subjects (B01–B09), recorded across
+five separate sessions at a sampling rate of 250 Hz using 3
+EEG channels (around C3/Cz/C4 under the 10–20 system).
+Each subject performed two MI tasks: left-hand (LH) and
+right-hand (RH) movement imagery. The first two sessions
+
+
+6
+consisted of 120 trials each, without feedback, while the last
+three sessions included 160 trials each, with a smiley face
+displayed on the screen as feedback. In our experiments, we
+extract a 4-s segment of EEG data following the visual cue
+as an EEG trial. At acquisition, these three derivations were
+recorded as bipolar channels, accompanied by three monopolar
+EOG channels retained solely for artifact processing and never
+used for decoding; Fz served as the ground. The amplifier
+applied a 0.5–100-Hz recording bandpass and a 50-Hz notch,
+with its dynamic range set to ±100 µV for the two no-
+feedback sessions and ±50 µV for the three feedback sessions.
+Each 4-s cue-locked trial therefore corresponds to a 1000-
+sample analysis window, evenly split between the left- and
+RH classes, and the cross-subject protocol yields about 5760
+pooled source trials with 320 test trials per subject.
+2) OpenBMI: The OpenBMI [44] dataset contains multi-
+session, multiparadigm EEG signals recorded from 54 healthy
+subjects (subj01-subj54) at a sampling rate of 1000 Hz, using
+62 EEG electrode channels. In this study, we focused on
+the MI paradigm using a subset of 20 channels located over
+the FC, C, CP, and P rows to balance spatial resolution and
+computational latency [44]. Each subject participated in two
+sessions, each consisting of an offline training phase and an
+online testing phase, with 100 trials in each phase. We consider
+the EEG data from [0, 4] seconds after the visual cue as a
+trial. Acquisition used a BrainAmp amplifier (Brain Products,
+Munich, Germany) with Ag/AgCl electrodes placed according
+to the international 10–20 system. Recordings were nasion-
+referenced and grounded at AFz, with electrode impedance
+kept below 10 kΩ. After the down-sampling summarized in
+Table I, the 0–4-s cue-locked segment gives a 1000-sample
+analysis window, evenly split between the two motor-imagery
+classes, for a pooled source set of 21 200 trials and 200 test
+trials per subject.
+3) BCI IV 2a: The four-class BCI Competition IV 2a
+dataset [45] is the multiclass sibling of BCI IV IIb, recorded at
+the same 250-Hz sampling rate under the shared Graz acquisi-
+tion protocol. It comprises 9 subjects (A01–A09) and, unlike
+the three bipolar derivations of IIb, provides 22 EEG channels
+and four motor-imagery classes (left hand, right hand, feet,
+and tongue), with 288 trials in each of two sessions (training
+and evaluation). As in the other datasets, we take the 0–4 s
+cue-locked segment, yielding a 1000-sample analysis window
+at 250 Hz. This dataset is used solely for the preliminary
+multiclass validation of Section IV-C, and not for the main
+binary experiments.
+B. Data Preprocessing
+Before feeding the raw digitized signals into the MOPC
+framework, a rigorous preprocessing pipeline was imple-
+mented to minimize measurement noise and cross-session
+instabilities. For the BCI IV IIb dataset, we further apply a
+fifth-order Butterworth bandpass filter with a passband of 4–
+40 Hz for analysis. For the OpenBMI dataset, we apply a
+bandpass filter in the range of 8–30 Hz [44], and downsample
+the data to 250 Hz to reduce the data size and improve
+computational efficiency during online processing [46]. To
+remove amplitude discrepancies between trials, filtered EEG
+signals are normalized using the following trial normalization
+before applying Euclidean calibration [47]:
+xi =
+xi
+max(|xi|).
+(12)
+C. Experiment Settings
+To evaluate the generalization capability across different
+individuals, we employ LOSO cross-validation to simulate
+cross-subject deployment. In each iteration, one subject’s data
+is treated as the unlabeled target domain (test set), while the
+labeled data from all other subjects form the source domain.
+The labeled source domain is then divided into N = 5 folds
+for cross-validation. In each of the N rounds, one fold is held
+out for validation, while the remaining N −1 folds are used for
+training, resulting in N pretrained source-domain models. The
+hyperparameters for the Lccr were set to β = 0.999 following
+the effective-number weighting of [42], and γ = 0.5 as a
+standard focal-modulation setting.
+All sessions from the source subjects are pooled for training
+and validation, and only the test sessions from the target
+subject are used for testing. Under this setup, the BCI IV IIb
+source set contains approximately 5760 trials, and the test set
+contains 320 trials per subject. For OpenBMI, the source set
+comprises 21 200 trials, and the test set contains 200 trials per
+subject.
+The source domain models are trained using the PyTorch
+framework on an Intel1 Xeon1 Silver 4210R CPU @ 2.40 GHz
+and an NVIDIA RTX A6000 GPU. Offline, all network
+parameters of each EEGNet instance are trained with Lce by
+AdamW under the cosine-annealing schedule of Table I, and
+the checkpoint with the best accuracy on the held-out inner
+fold is retained; neither training nor checkpoint selection ever
+sees the target subject, and the procedure is repeated over five
+random seeds.
+In the target DA process, simulating an online scenario, all
+updates run on the CPU and use the same 4-s trial window
+as offline training (T = 1000 samples at 250 Hz). Adaptation
+is deliberately conservative. Per trial, a single AdamW step
+with a reduced learning rate of 6 × 10−4 updates only the
+BN affine parameters of one ensemble member, selected in
+round-robin, with the loss Ltotal evaluated over the B entries
+of the memory bank. Each ensemble member keeps its own
+optimizer; no optimizer state is carried over from the offline
+stage, and every trial is predicted before the update it triggers
+and is never revisited. The hyperparameters required no tuning
+beyond B: β and γ follow the settings given above, the mask
+length was fixed a priori to W = 200 samples (0.8 s, one
+fifth of the trial window), and the three losses are summed
+with equal weights. The capacity B itself was chosen from
+the sweep of Fig. 3 as a single value shared by both datasets
+and all subjects. No hyperparameter is tuned per subject or
+per dataset, and the same configuration is reused for the class-
+imbalanced protocol, the other backbones, and the four-class
+experiment. Table I consolidates the complete configuration so
+that the pipeline can be replicated from a single reference.
+1Registered trademark.
+
+
+7
+TABLE I
+CONSOLIDATED EXPERIMENTAL CONFIGURATION FOR REPRODUCIBILITY. ALL VALUES ARE THOSE REPORTED IN THE TEXT; THE TABLE GATHERS THEM
+INTO A SINGLE REFERENCE
+Parameter
+Value
+Note
+Signal acquisition and preprocessing
+Sampling rate
+250 Hz (IIb); 1000→250 Hz (OpenBMI)
+OpenBMI down-sampled for online efficiency
+EEG channels C
+3 (IIb: C3/Cz/C4); 20 (OpenBMI)
+OpenBMI uses a 20-channel subset of 62
+Trial window
+4 s = 1000 samples (T)
+0–4 s after the cue, at 250 Hz
+Band-pass filter
+4–40 Hz, 5th-order Butterworth (IIb);
+8–30 Hz (OpenBMI)
+Offline source-model training
+Optimizer
+AdamW
+lr 1 × 10−3 (cosine annealing), weight decay
+1 × 10−5
+Epochs / batch size
+1000 / 32
+Cross-validation
+LOSO (outer), 5-fold (inner)
+one model per fold; ensemble size N = 5
+Random seeds
+5
+cuDNN deterministic mode
+Online test-time adaptation
+Updated parameters
+BN affine (scale/shift) only
+all other weights frozen; O(1) in class count
+Adaptation optimizer
+AdamW, lr 6 × 10−4
+one gradient step per trial, on CPU
+Memory bank size B
+24
+FIFO
+Mask window W
+200 samples (0.8 s)
+random time mask for consistency
+Class-balance / focal (β, γ)
+0.999 / 0.5
+effective-number weighting; focal modulation
+D. Baseline Methods
+To rigorously assess the measurement reliability of the
+MOPC framework, we benchmarked it against three distinct
+categories of transfer learning methods: direct transfer (DT),
+DA, and TTA. The DT baselines include three end-to-end
+models: EEGNet [9], ConvNet [8], and LMDANet [47]. The
+DA group consists of the unsupervised domain adaptation
+(UDA) method DANN [18] and the source-free unsuper-
+vised domain adaptation (SFUDA) method SHOT [25]. The
+TTA baselines include four established methods: TENT [29],
+CoTTA [34], T-Time [39], and DPLOT [31]. All methods
+are evaluated under the same LOSO protocol with balanced
+classes, and we report cross-subject performance metrics,
+including accuracy, F1-score, Cohen’s kappa, and standard
+deviation. For all transfer learning baseline methods, EEGNet
+is used as the backbone, and the same domain prealignment
+(DPA) procedure is applied during model transfer, so that the
+adaptation mechanism is the only factor that differs between
+the DA and TTA rows of Tables II–IV; the absolute values are
+therefore not meant to be compared with those reported in the
+original papers, which use other datasets, splits, or backbones.
+E. Results
+1) Class-Balanced Accuracy Evaluation: MOPC consis-
+tently outperforms DT, DA, and TTA baselines on both the
+BCI IV IIb and OpenBMI datasets, as reported in Tables II
+and III. On BCI IV IIb, MOPC achieves an average accuracy
+of 81.23 %, exceeding the best direct-transfer model EEGNet
+by 4.95 %, surpassing the leading domain-adaptation method
+SHOT by 2.91 %, and improving on the strongest TTA base-
+line T-Time by 2.22 %. These gains are observed for nearly
+all subjects, indicating robust cross-subject generalization and
+stable performance. On OpenBMI, MOPC attains an average
+accuracy of 78.94 %, which represents a 3.67 % improvement
+over T-Time at 75.27 %. In addition, MOPC reduces cross-
+subject variability and increases the F1-score to 78.39 %,
+while Cohen’s kappa rises to 57.88, reflecting more reliable
+and balanced decoding across users. Wilcoxon signed-rank
+tests [48] on paired accuracies confirm that all improvements
+are significant (p-value < 0.05).
+The per-subject columns of Table II show where these
+gains land: MOPC wins 77 of the 81 paired comparisons
+against the nine baselines, with two ties and two losses of
+at most 1.25 points. Its margins are smallest on B02 and B03,
+whose source-only accuracies are near chance, and largest
+(7.5–8.8 points over EEGNet) on B04, B06, and B08, whose
+source models already partially separate the classes. This is the
+expected behavior of a label-free method: the three objectives
+can realign a decision boundary that the source representation
+encodes, as Fig. 4 illustrates for B04 and B06, but cannot
+create class structure that it lacks. The one subject where T-
+Time leads, B03, lies in this near-chance regime.
+The mechanisms behind the family level ordering are also
+visible. Although SHOT revisits the entire target session over
+several epochs, it still trails the single-pass MOPC by 2.9 and
+4.6 points on the two datasets. Thus, for nonstationary EEG,
+the most recent B trials are more informative than global target
+statistics. TENT updates the same BN affine parameters as
+MOPC but uses only the current trial, and it gains far less over
+EEGNet (1.2 and 0.6 points, against 5.0 and 5.4 for MOPC).
+Removing the memory bank from MOPC reproduces this drop
+(see Section III-F), identifying the memory-driven context as
+the primary source of the gain. Against the strongest baseline,
+T-Time, which treats trials independently, MOPC further raises
+kappa on OpenBMI by 7.3 points. It also attains the lowest
+cross-subject standard deviation of all ten methods (11.59)
+while raising the mean, so the improvement is not carried by
+a few well-performing subjects.
+
+
+8
+TABLE II
+CLASS-BALANCED CROSS-SUBJECT CLASSIFICATION ACCURACIES ON BCI IV IIB (%)
+Category
+Method
+B01
+B02
+B03
+B04
+B05
+B06
+B07
+B08
+B09
+Avg. acc ± std
+DT
+EEGNet
+73.12
+61.79
+56.87
+88.75
+80.94
+75.94
+76.88
+84.38
+87.81
+76.28 ± 11.03**
+ConvNet
+63.75
+59.29
+54.69
+93.75
+71.25
+74.38
+74.06
+80.63
+86.25
+73.12 ± 12.64**
+LMDANet
+72.81
+60.00
+55.94
+90.31
+73.12
+82.50
+76.56
+81.87
+86.56
+75.52 ± 11.55**
+DA
+DANN
+73.75
+62.50
+57.50
+89.69
+86.25
+76.88
+76.56
+84.06
+87.50
+77.19 ± 11.22**
+SHOT
+75.31
+59.29
+57.81
+95.94
+84.38
+74.38
+80.94
+90.62
+86.25
+78.32 ± 13.11*
+TTA
+TENT
+73.12
+57.86
+54.69
+96.56
+83.44
+78.75
+78.75
+89.69
+84.38
+77.47 ± 13.80**
+CoTTA
+75.31
+63.57
+55.31
+93.75
+81.25
+78.12
+78.75
+91.56
+86.88
+78.28 ± 12.51*
+T-Time
+75.31
+58.57
+59.06
+95.31
+84.38
+82.50
+79.37
+89.38
+87.19
+79.01 ± 12.80*
+DPLOT
+75.00
+63.21
+56.25
+94.37
+79.06
+73.75
+80.94
+90.94
+85.62
+77.68 ± 12.37**
+MOPC
+79.37
+63.57
+57.81
+96.88
+85.94
+84.69
+81.25
+91.87
+89.69
+81.23 ± 12.88
+The best accuracies are marked in bold, and the second best by an underline.
+*: p < 0.05, **: p < 0.01, ***: p < 0.001; Wilcoxon signed-rank test comparing each baseline to ours.
+TABLE III
+CLASS-BALANCED CROSS-SUBJECT CLASSIFICATION ACCURACIES ON
+OPENBMI (%)
+Category
+Method
+Average
+Std
+F1
+Kappa
+DT
+EEGNet
+73.57***
+12.66
+74.71
+47.14
+ConvNet
+72.83***
+12.92
+73.85
+45.66
+LMDANet
+70.17***
+15.52
+68.76
+40.33
+DA
+DANN
+73.82***
+12.71
+74.76
+47.64
+SHOT
+74.32**
+12.53
+75.14
+48.64
+TTA
+TENT
+74.21***
+12.49
+75.31
+48.42
+CoTTA
+74.07***
+12.52
+74.21
+48.14
+T-Time
+75.27**
+12.60
+75.37
+50.54
+DPLOT
+75.05***
+12.71
+74.10
+50.10
+MOPC
+78.94
+11.59
+78.39
+57.88
+The best accuracies are marked in bold, and the second best by an underline.
+*: p < 0.05, **: p < 0.01, ***: p < 0.001; Wilcoxon signed-rank test
+comparing each baseline to ours.
+TABLE IV
+CLASS-IMBALANCED CROSS-SUBJECT ACCURACY (%) ON BCI IV IIB
+AND OPENBMI
+Category
+Method
+BCI IV IIb
+OpenBMI
+DT
+EEGNet
+76.75 ± 0.76
+74.99 ± 0.43
+ConvNet
+74.96 ± 0.83
+73.42 ± 0.57
+LMDANet
+76.31 ± 0.63
+72.67 ± 0.39
+DA
+DANN
+76.20 ± 0.72
+74.31 ± 0.53
+SHOT
+77.21 ± 0.57
+75.21 ± 0.37
+TTA
+TENT
+76.93 ± 0.64
+75.17 ± 0.46
+CoTTA
+77.53 ± 0.81
+75.29 ± 0.34
+T-Time
+77.77 ± 0.44
+75.73 ± 0.76
+DPLOT
+77.41 ± 0.67
+75.34 ± 0.55
+MOPC
+78.86 ± 0.46
+78.78 ± 0.45
+The best accuracies are marked in bold, and the second best by an underline.
+2) Class-Imbalanced Accuracy Evaluation: To emulate a
+class imbalance scenario during test time, we randomly re-
+moved half of the samples from one class in each target
+test set, creating a 2:1 ratio between the two motor-imagery
+classes. In particular, for BCI IV IIb we removed 50 % of
+RH trials, and for OpenBMI we removed 50 % of LH trials.
+The adaptation protocol and hyperparameters were identical
+to those used in the balanced setting. As reported in Ta-
+ble IV, MOPC consistently surpasses all baselines under this
+imbalance, outperforming T-Time (which includes a marginal-
+distribution regularizer intended for imbalanced test data) by
+1.09 % and 3.05 % on BCI IV IIb and OpenBMI datasets,
+respectively.
+Because plain accuracy on an imbalanced set is dominated
+by the majority class, Table IV should be read together with
+the balanced results: the ranking of the two strongest methods
+and of the direct-transfer models is preserved, and MOPC’s
+margin over the strongest baseline stays close to its balanced
+value on OpenBMI (3.05 versus 3.67 points) while narrowing
+on BCI IV IIb (1.09 versus 2.22 points), so the adaptation
+gain is retained rather than traded when the class prior
+drifts. Consistently, removing Lccr causes the largest single-
+term drop in Table V on both datasets (−1.65 and −1.78
+points), identifying the confidence-calibrated reweighting as
+the component that counters the drifting prior.
+F. Ablation Experiments
+1) Component Ablation Study: To quantify the contribu-
+tions of each loss component, we ablated Lpcr, Ljem, and
+Lccr in turn on BCI IV IIb. In Table V, baseline denotes the
+nonadaptation setting, i.e., DT with EEGNet. When each term
+is removed from the MOPC, the average accuracy drops from
+81.23 % to 80.32 %, 79.67 %, and 79.58 %, respectively, with
+corresponding declines in kappa, which confirms the necessity
+of all three components. A similar trend is observed on
+OpenBMI, where omitting any term reduces accuracy by ap-
+proximately 0.8 %–1.4 %, further indicating that perturbation-
+consistency regularization, joint entropy minimization, and
+confidence-calibrated reweighting each play a critical role in
+maximizing adaptation performance.
+We further evaluated the impact of DPA and the dynamic
+memory bank, as shown in Table VI. Disabling DPA lowers
+both accuracy and kappa while removing the memory bank
+
+
+9
+TABLE V
+ABLATION STUDY OF THE HYBRID LOSS ON BCI IV IIB AND OPENBMI
+(%)
+Dataset
+Model
+Acc ± std
+Kappa ± std
+BCI IV IIb
+baseline
+76.28 ± 0.42
+52.55 ± 0.83
+w/o Lpcr
+80.32 ± 0.24
+60.64 ± 0.47
+w/o Ljem
+79.67 ± 0.15
+59.33 ± 0.29
+w/o Lccr
+79.58 ± 0.15
+59.16 ± 0.31
+Whole
+81.23 ± 0.11
+61.99 ± 0.23
+OpenBMI
+baseline
+73.57 ± 0.34
+50.07 ± 0.67
+w/o Lpcr
+77.56 ± 0.12
+55.13 ± 0.25
+w/o Ljem
+77.75 ± 0.23
+55.51 ± 0.46
+w/o Lccr
+77.16 ± 0.29
+54.31 ± 0.57
+Whole
+78.94 ± 0.14
+57.88 ± 0.28
+The best accuracies are marked in bold.
+TABLE VI
+ABLATION OF DPA AND MEMORY BANK (%)
+Dataset
+Model
+Acc ± std
+Kappa ± std
+BCI IV IIb
+w/o DPA
+80.03 ± 0.44
+60.07 ± 0.87
+w/o Bank
+77.65 ± 0.37
+55.29 ± 0.75
+Whole
+81.23 ± 0.11
+61.99 ± 0.23
+OpenBMI
+w/o DPA
+77.86 ± 0.35
+55.72 ± 0.69
+w/o Bank
+76.69 ± 0.19
+53.37 ± 0.38
+Whole
+78.94 ± 0.14
+57.88 ± 0.28
+The best accuracies are marked in bold.
+leads to an even larger decline in these metrics. The pro-
+nounced degradation when either component is omitted con-
+firms that real-time alignment and memory-augmented context
+retention are essential for preventing catastrophic forgetting
+and ensuring robust online adaptation.
+2) Impact of Memory Bank Size: We evaluated memory
+bank sizes B ranging from 8 to 128 on BCI IV IIb and
+OpenBMI datasets, as presented in Fig. 3. On BCI IV IIb,
+accuracy increased from 80.61 % at size 8 to a peak of
+81.23 % at size 24, then declined. On OpenBMI, accuracy
+rose from 78.58 % at size 8 to 79.10 % at size 16, plateaued
+at 78.94 % for size 24, and decreased thereafter. The shaded
+regions denote the standard deviation across five random seeds,
+reflecting run-to-run variability.
+These trends highlight a tradeoff: a small bank provides
+insufficient context for stable adaptation, whereas an overly
+large bank retains outdated samples that hinder responsiveness
+to recent domain shifts. Based on these findings, we selected a
+memory bank size of 24 for all experiments, as it offers near-
+optimal accuracy on both datasets while keeping memory and
+computational overhead manageable.
+3) Model-Agnostic Generalization: To verify the generality
+of our approach, we compare MOPC with the source-only
+setting and observe consistent improvements across all four
+backbones. The results are shown in Table VII. Both the
+convolutional models (EEGNet, ConvNet) and the attention-
+based models (LMDA, Conformer) achieve clear gains. The
+original ranking is largely preserved, while the gaps narrow
+Fig. 3. Effect of memory bank size on cross-subject accuracy.
+TABLE VII
+PERFORMANCE AND COMPUTATIONAL COST ACROSS DIFFERENT
+BACKBONES
+Backbone
+Baseline
+MOPC
+Parameters
+FLOPs
+EEGNet
+76.28
+81.23
+2,060
+2.87M
+ConvNet
+73.12
+76.96
+10,802
+7.66M
+LMDA
+75.52
+79.32
+3,094
+6.71M
+Conformer
+74.70
+78.60
+839,797
+20.15M
+with MOPC, indicating that the gains arise from mitigating
+distribution shift rather than model-specific tuning. These
+benefits span convolutional and attention-based designs, show-
+ing that the framework transfers effectively to the target
+domain. Overall, MOPC is model-agnostic and plug-and-play,
+demonstrating the universality of our OTTA approach and its
+ability to enhance cross-subject generalization and improve the
+domain adaptability of classic MI classification frameworks.
+IV. INTERPRETABLE ANALYSIS AND DISCUSSION
+A. Feature Visualization
+To evaluate feature space adaptation, we applied t-SNE to
+BCI IV IIb embeddings (subjects B04 and B06), as shown in
+Fig. 4. Under DT [Fig. 4(a) and (c)], LH and RH imagery sam-
+ples remain heavily intermingled due to severe cross-subject
+domain shifts. On the contrary, by dynamically updating the
+network’s BN statistics via our unsupervised hybrid loss,
+MOPC effectively mitigates this variability. Consequently, the
+adapted embeddings [Fig. 4(b) and (d)] exhibit clearly sepa-
+rated LH and RH clusters. This sharpened decision boundary
+confirms that our calibration-free approach produces highly
+discriminative representations on unseen data, significantly
+enhancing online classification robustness for real-world BCI
+applications.
+B. Computational Efficiency and Real-Time Suitability
+To validate the feasibility for closed-loop instrumentation,
+we quantified the runtime latency on a standard workstation
+
+
+10
+(a)
+(b)
+(c)
+(d)
+Direct transfer
+OTTA
+Fig. 4.
+t-SNE embeddings of BCI IV IIb features for (a) and (b) subjects
+B04 and (c) and (d) B06. (a) and (c) DT, while (b) and (d) effect of OTTA.
+using an Intel Xeon Silver 4210R CPU. Quantitative analysis
+reveals that the total processing pipeline incurs a latency of
+approximately 40–60 ms per trial on a CPU. This pipeline
+includes preprocessing, inference, and the proposed online
+adaptation. This latency is low enough for responsive closed-
+loop feedback, for which keeping processing delay and tim-
+ing jitter small is a recognized design concern in real-time
+BCI [49].
+Table VIII illustrates the comparison of the test-time cost
+of each adaptation method. MOPC and TENT are the only
+methods that restrict gradient updates to the BN affine param-
+eters, whereas CoTTA, T-Time, and DPLOT update the full
+network, and SHOT adapts the entire encoder offline over the
+whole target set. MOPC also keeps adaptation independent of
+the class count, and its only additional state is a bounded FIFO
+memory of B = 24 trials and an N = 5 ensemble. Although
+TENT shares this lightweight BN-only update, MOPC attains
+substantially higher cross-subject accuracy at the same update
+cost (Tables II and III). The complete pipeline runs at 40–60
+ms per trial, as reported above.
+Table VII details the performance and overhead across
+various backbones. MOPC consistently improves decoding
+accuracy while keeping its added cost bounded rather than
+negligible: adaptation is confined to BN-affine updates over a
+fixed-size memory bank and a single member of an N = 5
+ensemble per trial, so the parameter and memory overhead
+stays small enough for real-time use.
+C. Extension to Multiclass MI
+MOPC extends from binary to multiclass MI without any
+architectural modification. Because each trial updates only the
+BN affine parameters of a single ensemble member, the num-
+ber of trainable parameters is independent of the class count,
+so the adaptation step remains O(1) in the number of classes
+(Table VIII); moving to K classes changes only the output
+TABLE VIII
+TEST-TIME COMPUTATIONAL PROFILE OF THE ADAPTATION METHODS,
+DERIVED FROM EACH METHOD’S DESIGN (BACKBONE-INDEPENDENT)
+Method
+Params updated
+(test)
+Backprop /
+update
+Cost vs.
+#cls.
+Direct transfer
+none
+none
+O(1)
+SHOT†
+feature encoder
+multi-epoch
+O(K)
+TENT
+BN affine only
+1
+O(1)
+CoTTA‡
+full network
+1
+O(1)
+T-Time
+full net, ×M
+M
+O(K)
+DPLOT
+full network
+2
+O(1)
+MOPC (ours)
+BN affine, 1 of
+N=5
+1
+O(1)
+K: number of classes; M/N: ensemble size; B: memory-bank size. All
+methods adapt online per trial except SHOT (†), which adapts offline over
+the whole target set for multiple epochs. ‡CoTTA also runs up to 32
+augmentation-averaged teacher passes per trial when teacher confidence is
+low, so its O(1)-in-classes label does not imply a low per-trial cost. Extra
+state: SHOT keeps information-maximization statistics; CoTTA and DPLOT
+keep an EMA teacher (CoTTA also a source snapshot, DPLOT prototypes);
+T-Time keeps M model copies + EA state; MOPC keeps a B=24 FIFO
+bank + N=5 ensemble; TENT and direct transfer keep none. Backprop
+depth is the parameter subset receiving a gradient step per adapted trial;
+measured end-to-end MOPC latency is 40–60 ms/trial (this section).
+TABLE IX
+PRELIMINARY FOUR-CLASS DECOMPOSITION ON BCI IV 2A
+(SINGLE-SEED, LOSO). MOPC IS COMPARED ONLY AGAINST ITS OWN
+SOURCE-ONLY AND ALIGNMENT-ONLY ABLATIONS; NO COMPETING
+TEST-TIME-ADAPTATION METHOD IS EVALUATED HERE
+Condition
+Acc. (%)
+κ (%)
+∆vs. source
+Source-only (static EA)
+39.97
+19.96
+—
++ dynamic EA (no BN)
+52.56
+36.75
++12.59
+MOPC (dynamic EA + BN)
+55.05
+39.73
++15.08
+dimension of the classifier head, while the memory bank, the
+dynamic EA, and all three loss terms operate unchanged. This
+contrasts with methods whose test-time cost grows with the
+class count, such as the per-class information-maximization
+objectives of SHOT and T-Time. The three losses are them-
+selves defined over the predictive distribution p ∈RY and are
+agnostic to the number of classes: the perturbation-consistency
+and joint-entropy terms reduce to a KL divergence and a
+Shannon entropy over the Y -way softmax, and the confidence-
+calibrated reweighting assigns an effective-number weight per
+class, so it naturally accommodates additional classes and any
+greater imbalance they introduce.
+To complement this structural argument, we ran a prelim-
+inary empirical check on the four-class BCI Competition IV
+2a dataset under a LOSO protocol, applying MOPC with no
+architectural change: only the classifier head was widened to
+four outputs, while the ensemble (N = 5), the memory bank,
+the dynamic EA, and all three loss terms were reused with
+the binary hyperparameters (β = 0.999, γ = 0.5, W = 200,
+BN-affine-only updates, equal 1:1:1 weighting; 1000-epoch
+source models using the same EEGNet backbone as the binary
+experiments). Table IX summarizes the outcome: relative to a
+frozen source ensemble with static source-reference alignment,
+the full MOPC pipeline improves four-class accuracy for all
+nine subjects.
+
+
+11
+To keep this gain interpretable, we decompose it with an
+intermediate condition, namely the same frozen ensemble with
+the online, memory-bank-derived target-reference alignment
+enabled but the BN adaptation switched off (Table IX, middle
+row). Dynamic alignment accounts for +12.59 percentage
+points of the improvement (all nine subjects), while the online
+adaptation contributes the remaining +2.49 points, improving
+six of the nine subjects and slightly regressing the other three
+(including the near-chance subject A02, whose source model
+sits close to the 25% level). The adaptation contribution is
+thus real but modest, and smaller than in the binary setting:
+we attribute this to the difficulty of four-class decoding, where
+pseudolabel-driven updates on near-chance subjects are fragile
+or mildly counterproductive, and the benefit concentrates on
+middifficulty subjects. The validation is preliminary and com-
+pares MOPC only against its own source-only and alignment-
+only ablations, so it establishes that the framework operates
+unchanged and improves over source transfer at four classes,
+but makes no claim of superiority over competing test-time-
+adaptation methods; a full multiclass benchmark against such
+methods, with multiseed statistics, remains future work.
+V. CONCLUSION
+In this study, we presented MOPC, a memory-augmented
+OTTA framework explicitly designed for robust EEG instru-
+mentation in nonstationary measurement environments. By in-
+tegrating perturbation consistency regularization, joint entropy
+minimization, and confidence-calibrated reweighting, MOPC
+enables efficient, source-free, single-pass cross-subject decod-
+ing. Extensive experiments on two public MI-BCI datasets
+show that MOPC consistently surpasses DT, DA, and state-of-
+the-art TTA baselines while maintaining highly stable cross-
+subject measurement reliability. Ablation studies confirm that
+each loss term and architectural component is integral to
+overall performance, contributing to robust and stable online
+adaptation. Furthermore, model updates incur fewer than 60
+ms of latency on a standard CPU, satisfying real-time BCI con-
+straints. However, current limitations include empirical valida-
+tion centered on binary classification (with a preliminary four-
+class result confirming that the framework operates unchanged
+and improves over source transfer), while the design extends
+to multiclass decoding at O(1) adaptation cost and relies on
+initial pseudolabel quality for effective reweighting. Future
+work will investigate adaptive augmentation strategies, mul-
+timodal physiological fusion, and comprehensive multiclass
+benchmarking, spanning four-class MI and continuous control,
+to further enhance robustness and practical applicability in
+real-world BCI systems.
+REFERENCES
+[1] J.
+R.
+Wolpaw,
+N.
+Birbaumer,
+D.
+J.
+McFarland,
+G. Pfurtscheller, and T. M. Vaughan, “Brain–computer
+interfaces for communication and control,” Clin. Neuro-
+physiol., vol. 113, no. 6, pp. 767–791, 2002.
+[2] L. F. Nicolas-Alonso and J. Gomez-Gil, “Brain computer
+interfaces, a review,” Sensors, vol. 12, no. 2, pp. 1211–
+1279, 2012.
+[3] G. Pfurtscheller and C. Neuper, “Motor imagery and
+direct brain-computer communication,” Proc. IEEE,
+vol. 89, no. 7, pp. 1123–1134, 2001.
+[4] J. Long, Y. Li, H. Wang, T. Yu, J. Pan, and F. Li, “A
+hybrid brain computer interface to control the direction
+and speed of a simulated or real wheelchair,” IEEE Trans.
+Neural Syst. Rehabil. Eng., vol. 20, no. 5, pp. 720–729,
+2012.
+[5] W. Li, Y. Ma, K. Shao, Z. Yi, W. Cao, M. Yin, T. Xu, and
+X. Wu, “The human–machine interface design based on
+semg and motor imagery eeg for lower limb exoskeleton
+assistance system,” IEEE Trans. Instrum. Meas., vol. 73,
+pp. 1–14, 2024.
+[6] H. Ramoser, J. Muller-Gerking, and G. Pfurtscheller,
+“Optimal spatial filtering of single trial eeg during imag-
+ined hand movement,” IEEE Trans. Rehabil. Eng., vol. 8,
+no. 4, pp. 441–446, 2000.
+[7] B. Blankertz, R. Tomioka, S. Lemm, M. Kawanabe, and
+K.-R. M¨uller, “Optimizing spatial filters for robust eeg
+single-trial analysis,” IEEE Signal Process. Mag., vol. 25,
+no. 1, pp. 41–56, 2008.
+[8] R. T. Schirrmeister, J. T. Springenberg, L. D. J. Fiederer,
+M. Glasstetter, K. Eggensperger, M. Tangermann, F. Hut-
+ter, W. Burgard, and T. Ball, “Deep learning with convo-
+lutional neural networks for eeg decoding and visualiza-
+tion,” Hum. Brain Mapp., vol. 38, no. 11, pp. 5391–5420,
+2017.
+[9] V. J. Lawhern, A. J. Solon, N. R. Waytowich, S. M.
+Gordon, C. P. Hung, and B. J. Lance, “Eegnet: a com-
+pact convolutional neural network for eeg-based brain–
+computer interfaces,” J. Neural Eng., vol. 15, no. 5, p.
+056013, 2018.
+[10] K. Zhang, Q. Zhou, and H. Hu, “A novel self-supervised
+contrastive learning framework for masked eeg motor
+imagery modeling,” in Proc. IEEE Int. Conf. Acoust.,
+Speech, Signal Process. (ICASSP).
+IEEE, 2025, pp. 1–
+5.
+[11] X. Zhang, L. Yao, X. Wang, J. Monaghan, D. Mcalpine,
+and Y. Zhang, “A survey on deep learning-based non-
+invasive brain signals: recent advances and new fron-
+tiers,” J. Neural Eng., vol. 18, no. 3, p. 031002, 2021.
+[12] Y. Li, W. Zeng, W. Dong, D. Han, L. Chen, H. Chen,
+Z. Kang, S. Gong, H. Yan, W. T. Siok, and N. Wang, “A
+tale of single-channel electroencephalography: Devices,
+datasets, signal processing, applications, and future di-
+rections,” IEEE Trans. Instrum. Meas., vol. 74, pp. 1–20,
+2025.
+[13] D. Wu, Y. Xu, and B.-L. Lu, “Transfer learning for eeg-
+based brain–computer interfaces: A review of progress
+made since 2016,” IEEE Trans. Cogn. Dev. Syst, vol. 14,
+no. 1, pp. 4–19, 2020.
+[14] K. Zhang, N. Robinson, S.-W. Lee, and C. Guan, “Adap-
+tive transfer learning for eeg motor imagery classification
+with deep convolutional neural network,” Neural Net-
+works, vol. 136, pp. 1–10, 2021.
+[15] F. Mattioli, C. Porcaro, and G. Baldassarre, “A 1d cnn
+for high accuracy classification and transfer learning in
+motor imagery eeg-based brain-computer interface,” J.
+
+
+12
+Neural Eng., vol. 18, p. 066053, 2021.
+[16] A. Farahani, S. Voghoei, K. Rasheed, and H. R. Arabnia,
+“A brief review of domain adaptation,” Advances in data
+science and information engineering: proceedings from
+ICDATA 2020 and IKE 2020, pp. 877–894, 2021.
+[17] X. Zhang, F. X. Yu, S.-F. Chang, and S. Wang,
+“Deep transfer network: Unsupervised domain adapta-
+tion,” arXiv preprint arXiv:1503.00591, 2015.
+[18] Y. Ganin and V. Lempitsky, “Unsupervised domain adap-
+tation by backpropagation,” in Proc. Int. Conf. Mach.
+Learn.
+PMLR, 2015, pp. 1180–1189.
+[19] S. Asgarian, Z. Wang, F. Wan, C. M. Wong, F. Liu,
+Y. Mohsenzadeh, B. Wang, and C. X. Ling, “Multiview
+contrastive learning for unsupervised domain adapta-
+tion in brain–computer interfaces,” IEEE Trans. Instrum.
+Meas., vol. 73, pp. 1–10, 2024.
+[20] J. Zhang, J. Fang, S. Liu, D. Liu, H. Wu, and J. Long,
+“Towards cross-brain computer interface: A prototype-
+supervised adversarial transfer learning approach with
+multiple sources,” IEEE Trans. Instrum. Meas., 2024.
+[21] B. Fu, F. Li, Y. Ji, Y. Li, X. Xie, X. Li, and G. Shi,
+“Improved motor imagery eeg interdevice decoding by
+reweighting multisource domain samples,” IEEE Trans.
+Instrum. Meas., vol. 73, pp. 1–12, 2024.
+[22] Q. She, C. Zhang, F. Fang, Y. Ma, and Y. Zhang, “Multi-
+source associate domain adaptation for cross-subject and
+cross-session EEG emotion recognition,” IEEE Trans.
+Instrum. Meas., vol. 72, pp. 1–12, 2023.
+[23] M. Jim´enez-Guarneros and G. Fuentes-Pineda, “Cross-
+subject EEG-based emotion recognition via semisuper-
+vised multisource joint distribution adaptation,” IEEE
+Trans. Instrum. Meas., vol. 72, pp. 1–11, 2023.
+[24] Y. Fang, P.-T. Yap, W. Lin, H. Zhu, and M. Liu, “Source-
+free unsupervised domain adaptation: A survey,” Neural
+Networks, p. 106230, 2024.
+[25] J. Liang, D. Hu, and J. Feng, “Do we really need to
+access the source data? source hypothesis transfer for
+unsupervised domain adaptation,” in Proc. Int. Conf.
+Mach. Learn.
+PMLR, 2020, pp. 6028–6039.
+[26] J. N. Kundu, N. Venkat, R. V. Babu et al., “Univer-
+sal source-free domain adaptation,” in Proc. IEEE/CVF
+Conf. Comput. Vis. Pattern Recognit., 2020, pp. 4544–
+4553.
+[27] J. Liang, R. He, and T. Tan, “A comprehensive survey
+on test-time adaptation under distribution shifts,” Int. J.
+Comput. Vis., vol. 133, no. 1, pp. 31–64, 2025.
+[28] M. Wimpff, M. D¨obler, and B. Yang, “Calibration-free
+online test-time adaptation for electroencephalography
+motor imagery decoding,” in Proc. 12th Int. Winter Conf.
+Brain-Comput. Interface (BCI).
+IEEE, 2024, pp. 1–6.
+[29] D. Wang, E. Shelhamer, S. Liu, B. Olshausen, and
+T. Darrell, “Tent: Fully test-time adaptation by entropy
+minimization,” in Proc. Int. Conf. Learn. Represent.,
+2021.
+[30] S. Niu, J. Wu, Y. Zhang, Z. Wen, Y. Chen, P. Zhao, and
+M. Tan, “Towards stable test-time adaptation in dynamic
+wild world,” in Proc. Int. Conf. Learn. Represent., 2023.
+[31] Y.
+Yu,
+S.
+Shin,
+S.
+Back,
+M.
+Ko,
+S.
+Noh,
+and
+K. Lee, “Domain-specific block selection and paired-
+view pseudo-labeling for online test-time adaptation,” in
+Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit.,
+June 2024, pp. 22 723–22 732.
+[32] Y. Iwasawa and Y. Matsuo, “Test-time classifier adjust-
+ment module for model-agnostic domain generalization,”
+Adv. Neural Inf. Process. Syst., vol. 34, pp. 2427–2440,
+2021.
+[33] H. Guo, C. Li, H. Peng, Z. Han, and X. Chen, “Test time
+adaptation for cross-domain sleep stage classification,”
+Biomed. Signal Process. Control, vol. 100, p. 106980,
+2025.
+[34] Q. Wang, O. Fink, L. Van Gool, and D. Dai, “Continual
+test-time domain adaptation,” in Proc. IEEE/CVF Conf.
+Comput. Vis. Pattern Recognit., 2022, pp. 7201–7211.
+[35] D. Brahma and P. Rai, “A probabilistic framework for
+lifelong test-time adaptation,” in Proc. IEEE/CVF Conf.
+Comput. Vis. Pattern Recognit., 2023, pp. 3582–3591.
+[36] J. Jin, Z. Chen, H. Cai, and J. Pan, “Affective eeg-
+based person identification with continual learning,”
+IEEE Trans. Instrum. Meas., vol. 73, pp. 1–16, 2024.
+[37] J. Wang, W. Wang, J. Su, Y. Wang, and Z.-G. Hou,
+“Toward a fast and robust mi-bci: Online adaptation of
+stimulus paradigm and classification model,” IEEE Trans.
+Instrum. Meas., vol. 73, pp. 1–12, 2024.
+[38] Y. Jiao, W. Wang, S. Liu, J. Wang, and Z.-G. Hou, “On-
+line adaptive decoding for MI-BCI based on stimulation
+and feature optimization and data augmentation,” IEEE
+Trans. Instrum. Meas., vol. 73, pp. 1–13, 2024, art. no.
+4012413.
+[39] S. Li, Z. Wang, H. Luo, L. Ding, and D. Wu, “T-time:
+Test-time information maximization ensemble for plug-
+and-play bcis,” IEEE Trans. Biomed. Eng., vol. 71, no. 2,
+pp. 423–432, 2023.
+[40] C. Han, C. Liu, J. Wang, Y. Wang, C. Cai, and D. Qian,
+“A spatial–spectral and temporal dual prototype network
+for motor imagery brain–computer interface,” Knowl.-
+Based Syst., vol. 315, p. 113315, 2025.
+[41] H. He and D. Wu, “Transfer learning for brain–computer
+interfaces: A euclidean space data alignment approach,”
+IEEE Trans. Biomed. Eng., vol. 67, no. 2, pp. 399–410,
+2019.
+[42] Y. Cui, M. Jia, T.-Y. Lin, Y. Song, and S. Belongie,
+“Class-balanced loss based on effective number of sam-
+ples,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern
+Recognit., 2019, pp. 9268–9277.
+[43] R. Leeb, C. Brunner, G. M¨uller-Putz, A. Schl¨ogl, and
+G. Pfurtscheller, “Bci competition 2008–graz data set b,”
+Graz University of Technology, Austria, vol. 16, pp. 1–6,
+2008.
+[44] M.-H. Lee, O.-Y. Kwon, Y.-J. Kim, H.-K. Kim, Y.-
+E. Lee, J. Williamson, S. Fazli, and S.-W. Lee, “Eeg
+dataset and openbmi toolbox for three bci paradigms:
+An investigation into bci illiteracy,” GigaScience, vol. 8,
+no. 5, p. giz002, 2019.
+[45] C. Brunner, R. Leeb, G. M¨uller-Putz, A. Schl¨ogl, and
+G. Pfurtscheller, “Bci competition 2008–graz data set a,”
+Institute for knowledge discovery (laboratory of brain-
+
+
+13
+computer interfaces), Graz University of Technology,
+vol. 16, no. 1-6, p. 1, 2008.
+[46] J. Wang, L. Yao, and Y. Wang, “Ifnet: An interactive
+frequency convolutional neural network for enhancing
+motor imagery decoding from eeg,” IEEE Trans. Neural
+Syst. Rehabil. Eng., vol. 31, pp. 1900–1911, 2023.
+[47] Z. Miao, M. Zhao, X. Zhang, and D. Ming, “Lmda-net:
+A lightweight multi-dimensional attention network for
+general eeg-based brain-computer interfaces and inter-
+pretability,” NeuroImage, vol. 276, p. 120209, 2023.
+[48] F. Wilcoxon, “Individual comparisons by ranking meth-
+ods,” in Breakthroughs in statistics: Methodology and
+distribution.
+Springer, 1992, pp. 196–202.
+[49] J. A. Wilson, J. Mellinger, G. Schalk, and J. Williams,
+“A procedure for measuring latencies in brain–computer
+interfaces,” IEEE Trans. Biomed. Eng., vol. 57, no. 7, pp.
+1785–1797, 2010.
+Kunkun Zhang received the B.S. degree in math-
+ematics from Nanyang Institute of Technology,
+Nanyang, China, in 2021. He is currently pursuing
+the Ph.D. degree in computer science with Zhejiang
+University of Technology, Hangzhou, China.
+He is currently a Visiting Scholar with Weill Cor-
+nell Medicine, New York, NY, USA. His research
+interests include brain–computer interfaces, EEG
+decoding, and the measurement of cortical dynamics
+with electrophysiological and optical imaging tech-
+niques, with an emphasis on distribution shift and
+cross-session generalization of neural decoders.
+Kehao Wu received the M.S. degree in computer
+technology from the School of Computer Science
+and Technology, Zhejiang University of Technology,
+Hangzhou, China, in 2026.
+His research interests include brain–computer in-
+terfaces, biomedical machine learning, and transfer
+learning, with a focus on online test-time adaptation
+for cross-subject EEG decoding in practical mea-
+surement systems.
+Zhitao Chen received the M.S. degree in software
+engineering from the College of Computer Science
+and Technology, Zhejiang University of Technology,
+Hangzhou, China, in 2026.
+His research interests include brain–computer in-
+terfaces, motor imagery EEG decoding, and statis-
+tical manifold learning, with a focus on geometric
+methods for the analysis of nonstationary neurophys-
+iological signals.
+Haigen Hu (Member, IEEE) received the Ph.D.
+degree in control theory and control engineering
+from Tongji University, Shanghai, China, in 2013.
+He has come out from the Post-Doctoral station
+of the LITIS Laboratory, University of Rouen Nor-
+mandy, Rouen, France, in 2019. He is currently a
+Professor with the College of Computer Science
+and Technology, Zhejiang University of Technology,
+Hangzhou, China. His current research interests in-
+clude machine learning, computer vision, and med-
+ical image processing.
+Qianwei Zhou (Member, IEEE) received the Ph.D.
+degree in communication and information systems
+from Shanghai Institute of Microsystem and Infor-
+mation Technology, University of Chinese Academy
+of Sciences, Shanghai, China, in 2014.
+In July 2014, he joined Zhejiang University of
+Technology, Hangzhou, China, where he is currently
+an Associate Professor with the College of Computer
+Science and Technology. He was a Visiting Scholar
+with the Imaging Research Division, Department of
+Radiology, University of Pittsburgh, Pittsburgh, PA,
+USA, from August 2018 to August 2019, and a Post-Doctoral Associate
+with the Department of Anesthesiology, Weill Cornell Medicine, New York,
+NY, USA, from September 2024 to September 2026, where he worked on
+simultaneous electrocorticography and cell-type-resolved calcium imaging
+of the rodent cortex. He has published scientific papers in international
+journals and conference proceedings, including Nature Communications,
+IEEE TRANSACTIONS ON INDUSTRIAL ELECTRONICS, IEEE SIGNAL
+PROCESSING LETTERS, and IEEE TRANSACTIONS ON MAGNETICS.
+He has been awarded grants from the National Natural Science Foundation of
+China (61802347 and 62271448). His research interests include robust EEG
+understanding, in particular cross-session and cross-subject generalization,
+robustness to electrode-side perturbations, such as channel reordering and
+partial electrode failure, and the use of concurrent optical and intracranial
+recordings as supervision for surface electrophysiology.
