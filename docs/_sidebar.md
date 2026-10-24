@@ -1,6 +1,12 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-10-25 <!--dpr-date:20261025-->
+    * <a class="dpr-sidebar-brief-link" href="#/202610/25/README">📝 今日简报</a>
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202610/25/2610.30685v1-learning-domain-trajectories-with-flow-matching-for-gradual-domain-adaptation" data-sidebar-item="{&quot;title&quot;: &quot;Learning Domain Trajectories with Flow Matching for Gradual Domain Adaptation&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2610.30685v1-learning-domain-trajectories-with-flow-matching-for-gradual-domain-adaptation&quot;, &quot;score&quot;: &quot;7.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;流匹配渐进域自适应，适用于跨天脑机接口&quot;}">Learning Domain Trajectories with Flow Matching for Gradual Domain Adaptation</a>
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202610/25/2610.29036v1-grail-from-saliency-to-semantics-in-time-series-explanation" data-sidebar-item="{&quot;title&quot;: &quot;GRAIL: From Saliency to Semantics in Time-Series Explanation&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2610.29036v1-grail-from-saliency-to-semantics-in-time-series-explanation&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;可应用于神经编码模型的时间序列解释方法&quot;}">GRAIL: From Saliency to Semantics in Time-Series Explanation</a>
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202610/25/2610.31350v1-graph-recurrent-learning-of-emergent-collective-dynamics" data-sidebar-item="{&quot;title&quot;: &quot;Graph-Recurrent Learning of Emergent Collective Dynamics&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2610.31350v1-graph-recurrent-learning-of-emergent-collective-dynamics&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;图递归学习集体动力学，可应用于神经群体动力学建模&quot;}">Graph-Recurrent Learning of Emergent Collective Dynamics</a>
   * 2026-10-24 <!--dpr-date:20261024-->
     * <a class="dpr-sidebar-brief-link" href="#/202610/24/README">📝 今日简报</a>
     * 精读区

@@ -1,0 +1,709 @@
+Title: GRAIL: From Saliency to Semantics in Time-Series Explanation
+
+URL Source: https://arxiv.org/pdf/2610.29036v1
+
+Published Time: Thu, 22 Oct 2026 00:27:33 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# GRAIL: From Saliency to Semantics in Time-Series Explanation 
+
+# Enver Menadjiev 1∗, Yiqiu Shen 2, Jaesik Choi 1, Julia Stoyanovich 2∗
+
+> 1
+
+KAIST 
+
+> 2
+
+NYU enver@kaist.ac.kr, ys1001@nyu.edu, jaesik.choi@kaist.ac.kr, stoyanovich@nyu.edu 
+
+Abstract 
+
+Explaining a time-series model requires both locating the ev-idence and extracting meaningful knowledge from it. Yet a single timestep is not a semantic unit: the meaningful pat-terns live across many samples, not in any one of them. Per-timestep saliency is therefore noisy, high-dimensional, and unstable. Existing methods address this by introducing fixed-size windows and treating them as independent players in a cooperative game. Evaluating a coalition of such players re-quires defining a “baseline” region, which prior work tackles with fixed counterfactuals (e.g., a flat line, noise, or a spec-tral surrogate). This choice frequently dominates the resulting explanation, obscuring the model’s true decisions. To address these issues, we propose GRAIL, a region-based time-series explanation framework that uses domain-specific intervals, such as the P-wave and the QRS complex of an electrocardiogram (ECG) beat, as players. We describe each region with human-readable features and generate counter-factual baselines with an on-manifold conditional generator. Such a choice of players also admits non-temporal features: static covariates enter as singleton players attributed with the temporal regions on one scale, so a patient’s tabular evidence (e.g., age, sex) is weighed directly against the signal. We at-tribute the predictions to the features via Owen values with common-random-number variance reduction. Experimental results on both synthetic and real data show that the proposed framework produces faithful and robust explanations, evalu-ated under matched on- and off-manifold operators, offering meaningful knowledge to domain experts. 
+
+# 1 Introduction 
+
+Deep learning models are increasingly deployed on high-stakes time series, from clinical data to industrial sensors and financial data. Wherever they are used, deploying them hinges on a question that’s hard to answer for time series: which part of the signal drove a decision, in terms a domain expert can act on. 
+
+Example 1. Consider a cardiologist inspecting a single heartbeat (Figure 1a). Rather than reasoning sample by sam-ple, the cardiologist reads a sequence of named regions: the P-wave (atrial activation), the QRS complex (the sharp ven-tricular spike), and the T-wave (ventricular recovery), and attaches clinical meaning to each. Left-ventricular hypertro-phy (LVH), for instance, is read chiefly from the QRS voltage. A saliency map that reports “sample 137 was important” may 
+
+> ∗
+
+Corresponding author. Copyright © 2027, Association for the Advancement of Artificial Intelligence (www.aaai.org). All rights reserved. 0 50 100 150 200 250 300 350    
+
+> Timesteps
+> 05
+> Amplitude  PQRS T
+> Atrial depolarisation Ventricular repolarisation
+> same value (+1.04)
+
+(a) a cardiologist-delineated ECG beat 1.0 0.5 0.0 0.5 1.0 1.5 2.0  
+
+> (log-odds LVH)
+> Other PSex QRS TAge
+
+(b) an explanation of the LVH-positive prediction by GRAIL 
+
+Figure 1: From saliency to semantics on one LUDB beat. 
+
+(a) A real ECG beat split into P, QRS, T, and the isoelectric background. Two samples of equal amplitude ( +1 .04 ) fall in different regions, so a per-timestep view cannot separate them. (b) GRAIL scores each region and static covariate (age, sex) on a single log-odds scale for this beat, which the model correctly classifies as LVH-absent. The prediction relies primarily on the QRS region, even though the patient’s age and T region would suggest otherwise. localize evidence, but it does not directly express the regional pattern or its clinical meaning. Predictive patterns typically span multiple samples, ren-dering per-timestep saliency maps high-dimensional, unsta-ble, and difficult for domain experts to interpret (Ismail et al. 2020). This motivates our first design choice: explain in the domain expert’s units. We take the unit of explanation to be the region, a contiguous, named interval corresponding to a recognizable event: the P/QRS/T waves of an ECG beat, or an injected pulse, a seasonal stretch, or a trend in a synthetic signal. Regions are few, human-readable, and carry a prior, since cardiology tells us which region should distinguish an LVH from a normal beat. Additionally, models are routinely given non-temporal in-arXiv:2610.29036v1 [cs.AI] 21 Oct 2026 signal x       
+
+> Segmenter
+> delineation / model-aware regions
+> R1, . . . , R N
+> Codec
+> named features
+> ˆθper region
+> Game v(S)
+> absent ⇒
+> regenerate
+> on-manifold
+> Owen+CRN
+> estimator (exact)
+> Amortized net
+> gψ(x)trained on the game
+> ϕ+ region roll-up + ρ
+
+Figure 2: The GRAIL pipeline. A signal is segmented into named regions; a codec encodes each as human-readable features and can regenerate it. In the game, a present feature keeps its observed value while an absent one triggers on-manifold regeneration ,so every coalition is a plausible real signal. Owen values (features nested in regions) are estimated exactly with a common-random-number sweep, yielding a complete, region-rolled-up attribution plus the residual ρ. An amortized network (blue), trained on the same game, reproduces the attribution in one forward pass for fast, robust deployment. formation alongside the temporal signal. Returning to Exam-ple 1, a cardiologist reads an ECG differently depending on the patient’s sex and age, since the voltage criteria for left-ventricular hypertrophy are sex-specific and normal intervals shift with age. This motivates our second design choice: to place the signal and covariates on a common scale. A faith-ful explanation must weigh such covariates against the wave-form, so a model’s reliance on demographics in addition to morphology can be read directly from the model. Figure 1b provides a clinically meaningful explanation of the correct diagnosis: the model calls this 68-year-old LVH-positive de-spite a normal QRS, consistent with the lower QRS-voltage threshold that LVH criteria apply at older ages. 
+
+Our approach. We propose GRAIL (Generative Region Attribution with Interpretable Labels), a framework that explains time-series predictions in domain-aligned units. GRAIL produces feature-based, additive explanations via a cooperative game: each region and each covariate is a player ,and its value is its contribution to the prediction across all coalitions, so the contributions sum to the model’s output. Scoring a coalition requires saying what the signal looks like when a region is absent , but there is no canonical “off” state for a stretch of a time series such as an ECG: prior work fills it with a fixed counterfactual, a flat line, noise, or a spectrally matched surrogate, an arbitrary choice that fre-quently dominates the resulting explanation (Sundararajan and Najmi 2020). The choice of the absent state is thus not an implementation detail; it is the explanation. In this work, we stop choosing from a fixed menu and instead build the counterfactual: an interpretable codec encodes each region as named features, and a conditional generator regenerates an absent region on the data manifold , so every coalition remains a plausible real signal. GRAIL attributes the model’s log-odds to regions and co-variates with Owen values (Owen 1972) (a two-level Shapley value (Shapley 1953), features nested in regions) estimated by a common-random-number sweep, and always reports the residual ρ, so the accounting is exactly complete. Figure 2 shows the pipeline of GRAIL, which also amortizes into a fast single-pass surrogate for deployment. 
+
+Contributions. 
+
+1. A region-and-covariate cooperative game. We cast time-series attribution as a cooperative game whose play-ers are semantic temporal regions and non-temporal co-variates, credited on one common scale, so reliance on metadata is read off alongside the waveform. To our knowledge, no prior time-series explainer accommodates both (Section 3.1). 2. An exact, on-manifold attribution. GRAIL plays the game by generating each absent region on the data man-ifold rather than from a fixed filler, and attributes with exactly-complete Owen values (CRN-estimated). This is the faithful but slow reference; a model-aware segmenter recovers regions absent a prior (Section 3.2). 3. A fast surrogate for deployment. GRAIL-fast amortizes the game into one forward pass, ∼10 3× cheaper and still exactly complete, though its on-manifold faithfulness holds only on real data (Section 3.3). 4. A comprehensive benchmark. An at-scale comparison over four families of benchmarks, including real ECG, scoring every method under matched on- and off-manifold operators with paired significance tests against concept-and group-level Shapley baselines, with kernel, generator, reference, and segmenter ablations (Section 4). 
+
+# 2 Related Work 
+
+Attribution and time-series explainers. Attribution via Shapley values (Shapley 1953; Lundberg and Lee 2017) de-pends on how an “absent” feature is modeled (Sundarara-jan and Najmi 2020; Janzing, Minorics, and Blöbaum 2020; Covert, Lundberg, and Lee 2021). Most time-series explain-ers give per-timestep saliency (Theissler et al. 2022); those at a coarser grain group timesteps into windows or segments (WindowSHAP (Nayebi et al. 2023), TimeSHAP (Bento et al. 2021), TS-MULE (Schlegel et al. 2021), LIMESeg-ment (Sivill and Flach 2022), Dynamask (Crabbé and Van Der Schaar 2021)), but all fill the absent state with a fixed, off-manifold filler. Instead, we make the removal operator a conditional generator that stays on-manifold and lift the flat Shapley game to a two-level Owen value (Owen 1972) over features nested within regions. 
+
+Closest comparators and evaluation. Nearest to us are methods that highlight time series players: C-SHAP (Jutte et al. 2025) uses signal concepts, while GroupSegment-SHAP (Kim and Park 2026). We also benchmark these ap-proaches. They redefine the player but keep an off-manifold mean-replacement operator, whereas we hold the player structure fixed and change the operator, and neither ad-mits non-temporal covariates. CausalConceptTS (Lopez Al-caraz and Strodthoff 2025) shares our generative premise but imputes over full recordings, and ManifoldShap (Taufiq, Blöbaum, and Minorics 2023) restricts the interventional background to an on-manifold region rather than generating it. Our per-region generation keeps an exact Owen sweep af-fordable. Because perturbation faithfulness is confounded by the removal operator (Hooker et al. 2019; Jethani et al. 2021), we score every method under both a matched on-manifold and a neutral off-manifold operator, and amortize the exact game for deployment (Jethani et al. 2022). Appendix A ex-pands each baseline and the hierarchical-credit connection. 
+
+# 3 The GRAIL framework 
+
+GRAIL represents time-series attribution as a cooperative game and solves it on the data manifold. We define the game and its players, semantic regions together with non-temporal covariates in Section 3.1; play it exactly, generating each ab-sent region’s counterfactual on-manifold and attributing with exactly-complete Owen values in Section 3.2; and amortize the exact game into a fast single-pass surrogate for deploy-ment in Section 3.3. 
+
+3.1 Defining the Cooperative Game 
+
+We write a signal as x ∈ RC×T over C channels ( C =1 for a univariate series) and denote the model’s logit for the target class by f . A segmenter partitions x into named regions R1, . . . , R M , each keyed by (channel, span), and a codec (an interpretable encoder paired with a conditional generator) encodes each region as human-readable features 
+
+ˆθr . The players N are the region features, grouped into Owen coalition blocks B. Static covariates are treated as singleton players appended after the regions, so that signal and tabular evidence are evaluated on a single scale. This ensures no contribution leakage into v(∅).For a coalition S ⊆ N we pin each present feature to its observed value and draw each absent feature from a reference, 
+
+θi(S, ω ) = 
+
+(ˆθi, i ∈ S (present: observed ),F −1 
+
+> p0,i
+
+(ui), i / ∈ S (absent: generated ),
+
+(1) with ui ∼ Unif[0 , 1] and F −1 
+
+> p0,i
+
+the quantile function of fea-ture i’s reference marginal (App. B). Each region is then regenerated from its features by a conditional generator, conditioned only on its own channel since boundary con-tinuity is a within-channel property. Folding the reference draws u and generator noise ε into a fixed base randomness 
+
+ω = ( ε, u ) makes the assembled signal a deterministic func-tion x′(S, ω ), and the coalition value is the expected logit 
+
+v(S) = Eω
+
+ f (x′(S, ω )) . (2) With v(∅) defined, the Shapley/Owen axioms hold automati-cally, and attributions aggregate by additivity from features to regions and, for multivariate signals, from regions to chan-nels (Section 4.3). The codec is pluggable through three domain-blind interfaces; Table 1 lists the ones we use. 
+
+Intervention and reference semantics. The interven-tional default draws absent features from the marginal p0, iso-lating what the model uses, while the conditional draw takes them from p(θ ¯S | θS ), crediting shared information. This is referred to as the interventional-versus-observational dis-tinction (Janzing, Minorics, and Blöbaum 2020). A marginal reference is assumption-free, whereas a class-conditional ref-erence draws the absent value from a labeled cohort: the normal cohort (default), so each ϕi reads as its deviation from normal; the sample’s own class; or a foil, giving the contrastive “why this class rather than another.” Conditional draws use a Gaussian copula that stays deterministic in u (so CRN coupling survives) and collapses exactly to the marginal when the conditioning set is empty, so any difference is at-tributable to conditioning alone; App. F compares the four references. 
+
+3.2 Playing the Game On-manifold 
+
+Playing the game means evaluating coalition values, each of which requires regenerating the absent regions on the data manifold. The codec’s generator makes “feature absent →
+
+regenerate region” well-defined. Our default generator is a Gaussian process (GP) poste-rior: a distribution over plausible region shapes given the retained features and the region’s boundary. A present fea-ture conditions the GP on its value, an absent feature is set to the reference, and the region is sampled from that posterior. This keeps every coalition on the data manifold. For exam-ple, a spectrally and autocorrelation-matched GP sample of an ECG resembles the original form rather than a flat or noisy filler. The generator is swappable. Replacing it changes only the region sampler, not the game, estimator, or residual. A learned conditional VAE (Kingma and Welling 2014; Sohn, Lee, and Yan 2015) keeps the analytic encoder but replaces the GP sampler, improving off-manifold behavior at a small on-manifold cost, and swapping only the GP kernel (RBF, Matérn, or spectral) alters the counterfactual’s texture for ro-bustness (App. D). The exact GP game is our on-manifold reference: its closed-form posterior is what keeps an exact Owen sweep affordable, since a learned generator pays a per-coalition sampling cost it cannot amortize. 
+
+Owen values and exact completeness. We attribute fea-ture importance with Owen values, the average marginal con-tribution of a region-feature under permutations that preserve the block (region) structure. Since features are nested in re-gions, their Owen values roll up consistently. For instance, values of the QRS region’s R-amplitude and width should Table 1: Codec zoo : each is an interpretable encoder paired with a conditional generator. All are general except clinical 
+
+(ECG); shape is the default.           
+
+> Codec Generator Named features shape GP / cVAE level, trend, scale, peak stat GP level, scale, slope spectral-mix GP per-band energy/width clinical Matérn GP R-amp, QRS-width, ST/QT
+
+sum to the QRS’s Shapley value (Owen consistency), so the “regions → features” explanation is coherent. A telescop-ing common-random-number (CRN) sweep estimates every player from |N |+1 model calls along one nested chain: 
+
+ϕi += f (x′(S ∪ { i}, ω )) − f (x′(S, ω )) . (3) Reusing the same ω across adjacent coalitions, each term measures the effect of toggling feature i rather than the gap between two noise draws. Antithetic pairing and a cached unit-variance Cholesky factor ( O(n3) → O(n2)) re-duce cost further. The estimator is efficient at any budget: P 
+
+> i
+
+ϕi = v(N ) − v(∅) holds to machine precision because it follows from the telescoping sweep, not from averaging permutations. The reconstruction residual ρ = f (x) − v(N ) is the part of the decision that the feature representation cannot repro-duce, since even the all-present coalition regenerates x only approximately. We are required to always report ρ because neglecting it breaks efficiency. Additionally, a large ρ in-dicates an off-manifold generator. Therefore, to make the accounting exactly complete, we add a lossless morphology-residual player per region that restores the region’s exact residual when present ( v(N ) = f (x), ρ → 0) and regener-ates normally when absent, so the opaque residual becomes one attributable named channel. Finally, to recover within-region resolution, we distribute each ϕr across its timesteps by a normalized occlusion profile ( P 
+
+> t∈r
+
+saliency t = ϕr ); in Example 1, this concentrates saliency at the R-peak within QRS. 
+
+Region discovery with GRAIL-auto When no region prior is available, the segmenter must find regions itself. The proposed segmenter model adopts three sources of in-formation: a prior, when available; Pruned Exact Linear Time (PELT) change points (Killick, Fearnhead, and Eckley 2012); and a model-aware segmenter. The signal-only default is PELT change, which reacts only to the signal. Our model-aware segmenter instead learns a selector (trained REAL-X-style (Jethani et al. 2021) with the generator as imputer) that reads regions from a thresholded mask. A raw selector might place boundaries within meaningful regions, where the codec regenerates from ambiguous fluctuations. We move each boundary at inference to the nearest clean-cut point, minimizing a cleanliness cost c(t) (the distance to a PELT boundary or to an edge of the generator’s informativeness profile), without retraining. 
+
+3.3 Amortizing for Deployment with GRAIL-fast 
+
+The exact GP game of Section 3.2 is faithful but expensive: each coalition value invokes the generator and the model, and an exact Owen sweep evaluates many coalitions per in-stance. Because the game is a value function rather than a solver, its region-Owen attribution can be amortized. We train a single-forward-pass network gψ against the game with the FastSHAP objective (Jethani et al. 2022) and enforce the additive-efficiency constraint P 
+
+> i
+
+ϕi = f (x) − v(∅) by pro-jection, so completeness holds exactly at inference rather than only in expectation. The resulting GRAIL-fast runs ∼10 3×
+
+faster than the exact sweep while staying exactly complete. The speedup comes at a cost in faithfulness. Because the surrogate is trained against a cross-sample removal operator, it is faithful to that operator: faithful off-manifold and, on real structured data, competitive with the exact game on-manifold. Its on-manifold faithfulness holds only where the signal carries sufficient structure for the surrogate to learn; on low-signal synthetic data it degrades, a limitation we report explicitly (App. J). We therefore recommend GRAIL-fast for deployment on real data, and retain the exact GP game as our on-manifold reference throughout. 
+
+# 4 Experimental Evaluation 
+
+We evaluate GRAIL on six datasets across three domains: two synthetic families with ground-truth region masks (Synth and Mixed, which add static covariates); two clin-ical ECG families with cardiologist P/QRS/T annotations (ECG, from MIT-BIH (Moody and Mark 2001) and QT (La-guna et al. 1997); and multivariate LUDB (Kalyakulina et al. 2021), carrying patient age and sex; and two industrial-sensor families without region annotation (FordA, Wafer). All tar-gets are InceptionTime (Ismail Fawaz et al. 2020) classifiers. We invoke GRAIL in three configurations: (i) provided regions; (ii) discovered regions with GRAIL-auto; and 
+
+(iii) amortized deployment with GRAIL-fast, against six time series-specific windowing and perturbation baselines (WindowSHAP (Nayebi et al. 2023), TimeSHAP (Bento et al. 2021), TS-MULE (Schlegel et al. 2021), LIMESeg-ment (Sivill and Flach 2022), Dynamask (Crabbé and Van Der Schaar 2021)), the closest concept- and group-level Shapley players (C-SHAP (Jutte et al. 2025), GS-SHAP (Kim and Park 2026)), and non-time series gradient and sampling attributions (Integrated Gradients (Sundararajan, Taly, and Yan 2017), gradient ×input (Simonyan, Vedaldi, and Zisser-man 2014), KernelSHAP (Villani, Lockhart, and Magazzeni 2022)). Since perturbation faithfulness depends on how evidence is removed, we score each method under two matched op-erators: a neutral off-manifold operator and an on-manifold regeneration operator. We additionally report localization, robustness, cost, and completeness; every claim is gated on a paired Wilcoxon test with family-wide Benjamini–Hochberg 
+
+q < 0.05 . Setup details are in Appendix E. 
+
+In summary, the exact game is the most faithful method on-manifold on every family and exactly complete (Sec-tion 4.1); reporting both operators exposes the teaching-to-the-test trap, where the exact game still wins on real data under the comparators’ own operator (Section 4.2); signal and static covariates are attributed on one common scale, so a model’s reliance on metadata is read directly off the explanation (Section 4.3). The method is robust to its de-sign choices and discovers regions unaided (Section 4.4), while direct diagnostics show the generator’s uncertainty is miscalibrated even where its attributions are most faithful (Section 4.5); and the amortized surrogate recovers all of this at lower cost on real data (Section 4.6). Table 2: Method × metric across 6 families. faith on ↑, faith off ↑. Bold = best in column, underline = runner-up. Sample sizes: Synth n=30, Mixed n=30, ECG n=100, LuDB n=20, FordA n=24, Wafer n=24. Every method within a family is scored on the same instances from a single run. † = GRAIL beats every baseline for every dataset with statistical significance BH q < 0.05 .Paired two-sided Wilcoxon signed-rank test on per-instance differences. FordA and Wafer carry no region annotation. 
+
+synth mixed ecg ludb forda wafer Method faith on faith off faith on faith off faith on faith off faith on faith off faith on faith off faith on faith off 
+
+GRAIL 0.872 † -0.184 0.921 † 0.219 0.828 † 0.374 0.657 † 0.535 0.864 † 0.048 0.542 † -0.079 GRAIL-auto 0.774 -0.086 0.850 -0.051 0.496 0.191 0.485 0.204 0.600 -0.046 0.774 0.102 windowshap (stat.) -0.298 0.548 0.070 0.275 0.625 0.506 0.284 0.525 0.089 0.386 0.020 0.157 windowshap (dyn.) -0.268 0.553 0.103 0.313 0.646 0.517 0.463 0.574 -0.019 0.406 0.047 0.335 
+
+timeshap -0.303 0.550 0.566 0.316 0.591 0.440 0.437 0.561 0.025 0.386 0.039 -0.022 ts-mule (unif.) -0.286 0.550 0.595 0.330 0.604 0.418 0.407 0.518 0.053 0.410 0.092 0.045 ts-mule (sax) -0.295 0.541 0.595 0.295 0.637 0.439 0.396 0.519 0.078 0.356 0.094 -0.046 limesegment -0.290 0.541 0.576 0.363 0.507 0.304 0.274 0.282 0.093 0.355 0.049 0.110 dynamask -0.114 0.083 0.091 0.009 0.616 0.366 0.208 0.128 -0.051 0.231 0.069 0.037 c-shap -0.397 0.484 0.401 0.217 0.659 0.402 0.437 0.295 -0.023 0.231 -0.000 0.048 gs-shap -0.361 0.525 0.646 0.267 0.453 0.335 0.168 0.286 0.060 0.133 0.042 -0.095 integrated grad. -0.288 0.568 0.526 0.358 0.518 0.426 0.317 0.406 0.077 0.311 0.007 0.081 gradient ×input -0.293 0.530 0.598 0.309 0.427 0.266 0.134 0.148 0.047 0.265 0.113 -0.266 kernelshap -0.227 0.491 0.149 0.385 0.662 0.478 0.462 0.611 0.043 0.405 0.090 0.152 
+
+4.1 Explanation Faithfulness and Completeness 
+
+On-manifold, where every method is scored under the same generative removal it is asked to explain, the exact game is the most faithful method on every family (Table 2); here faith-fulness is the rank correlation between a player’s attributed importance and the model’s response when that player is removed by on-manifold regeneration (Bhatt, Weller, and Moura 2020). Provided regions (GRAIL) leads on Synth ( 0.872 ), Mixed ( 0.921 ), ECG ( 0.828 ), LuDB ( 0.657 ), FordA ( 0.864 ), and discovered regions (GRAIL-auto) leads on Wafer ( 0.774 ). For each dataset, GRAIL outperforms all twelve baselines. The margin is significant against all twelve baselines jointly (Benjamini–Hochberg q < 0.05 over the 
+
+144 tests). This exact game is the reference standard against which the amortized surrogate is measured in Section 4.6. Since in the exact game ρ=0 , each attribution is an Owen value estimated by a common-random-number (CRN) sweep over a permutation budget P . Therefore, the estimate must be tight within the provided budget. Figure 3 depicts P on a fixed Synth game. In this game, the per-player standard error falls at the Monte-Carlo-optimal rate. At the operating budget of ¯P =128 , the region ranking already matches the largest-P run at Spearman correlation 0.98 , with a noise floor of about 14% of mean |ϕ|. So “exact” names the estimand, the true two-level Shapley value rather than a windowing or gradient surrogate, and the residual is estimation variance that shrinks at the optimal rate with budget, not a modeling approximation. Completeness is exact by construction. GRAIL adds a residual player that closes the gap ρ between the summed attributions and the model output, so v(N )= f (x) and the mean absolute residual |ρ| is 0.000 on every family, for both the exact game and the amortized surrogate. This matches the additive KernelSHAP-family baselines. The surrogate Table 3: Multivariate LUDB (LVH task, n=20 ,
+
+P =48 /Q=2 ; ±: between-seed SEM). Three leads beat one on every quality metric in both regimes, at ≈39 × runtime. Completeness stays exact. † localization is not comparable across columns. 
+
+3 leads (I/II/V1) 1 lead (II) provided  faith on ↑ 0.735 ±.003 0.659 ±.002 
+
+faith off ↑ 0.591 ±.028 0.370 ±.006 
+
+loc-AUPRC † 0.745 ±.024 0.514 ±.031 
+
+|ρ| 0.000 0.000 
+
+runtime (s) 94.4 2.4 
+
+> discov.
+
+faith on ↑ 0.511 ±.054 0.454 ±.046 
+
+faith off ↑ 0.175 ±.039 0.154 ±.055 
+
+loc-AUPRC † 0.535 ±.016 0.234 ±.004 
+
+|ρ| 0.000 0.000 
+
+runtime (s) 260.8 6.9 
+
+inherits exact completeness from the efficiency projection rather than re-deriving it (Section 3.3). 
+
+4.2 Comparison against Other Methods 
+
+The perturbation and windowing baselines build players solely from time. Two recent methods build them differ-ently and are the closest comparators to our region-and-covariate construction: C-SHAP, whose players are decom-position concepts (trend, bias, scale, variance, and low/high frequency) with no position, and GS-SHAP, whose players are feature-group × time-interval cells found by HSIC group-ing and MMD segmentation. Neither releases code, so both are our reimplementations (Appendix K). Both remove a player by off-manifold mean or splice replacement, and both are exactly complete, so they are honest comparators rather 10 2   
+
+> Permutations P
+> 10 −1
+> 6 × 10 −2
+> 2 × 10 −1
+> 3 × 10 −1
+> mean SEM( ϕ)
+> P−1/2
+> measured (-0.495)
+> (a)
+> 10 2
+> Permutations P
+> 20 40
+> SEM / mean | ϕ| (%)
+> (b)
+> 10 2
+> Permutations P
+> 0.0 0.5 1.0
+> Spearman  ρ
+> (c)
+
+Figure 3: Owen estimator convergence in the permutation budget P , on a fixed game ( synth ; regions, codec and reference held fixed, only the estimator re-run). (a) the standard error falls as P −1/2 (fitted slope −0.495 ; the grey band is the Monte-Carlo ideal, which the measured curve sits on top of). (b) the same noise relative to mean |ϕ|. (c) region-ranking agreement with the largest-P run. The budget is measured, not assumed. than approximations we could beat on accounting alone. On Synth the two operators point in opposite directions, and significantly so. The exact game beats both compara-tors on-manifold, and loses to both off-manifold. A method whose players are removed by mean or splice replacement is scored most favorably by a metric that removes evidence the same way; that is the teaching-to-the-test failure the two-operator protocol exists to expose, and it is why we report both columns for every method rather than choosing one. On ECG, the disagreement disappears, and the exact game wins on-manifold, while preserving an approximate perfor-mance off-manifold. With real structure to model, GRAIL leads on-manifold by ≈ 0.17 over C-SHAP, and 0.375 over GS-SHAP. Meanwhile, the off-manifold method underper-forms C-SHAP by 0.028 and outperforms GS-SHAP by 
+
+0.039 . This can be interpreted as statistically insignificant. Therefore, on-manifold advantage is not an artifact of scoring the method under its own metric. The exact game performs well under baselines’ preferred operator too. 
+
+4.3 Temporal Signal and Covariates on One Scale 
+
+The cooperative game admits static covariates as singleton players (Section 3.1), so signal regions and metadata share a single scale, and a model’s reliance on it is read off rather than inferred. On the LVH task, with sex and age as players at matched instances, region support, and budget ( n=40 ), age receives mean |ϕ| = 1 .663 , above the top ECG region (1.542 ; QRS 1.430 ), while sex, a near-distractor, receives 
+
+0.238 ; together the statics carry 24 .8% of the total |ϕ|, and age is the highest-ranked player on 62 .5% of instances. Ad-mitting the statics costs no on-manifold faithfulness ( 0.598 
+
+to 0.597 , p=0 .89 ) and leaves completeness exact, but it drops the expected-region hit rate from 0.575 to 0.325 (p=0 .002 ): QRS loses top rank to age exactly where the model leans on age. Appendix I gives the per-player table, a synthetic distractor control, and the full ablation. The same construction extends to multichannel signals, in which the game places every lead on a single scale (Sec-tion 3.1). We run the LVH task on LUDB twice under an otherwise identical configuration, once on leads I/II/V1 and once on lead II alone, at the same reduced Owen budget (P =48 , Q=2 ), the same n=20 instances and seeds, and both region regimes (Table 3). Three leads beat one on ev-ery quality metric in both regimes (on-manifold faithfulness 
+
+0.659 to 0.735 with provided regions, 0.454 to 0.511 with discovered ones) at about 39 × the runtime ( 2.4 to 94 .4 s). The player count roughly triples, from 64 to 104 effective players, and each coalition assembly regenerates three times as many regions, so a roughly quadratic blow-up is the ex-pected shape of the cost rather than a surprise; the unaided arm pays worse than the exact one ( 6.9 to 260 .8 s), because PELT re-segments every lead independently and produces more regions to price. The channel roll-up is exact by additivity, P
+
+> c
+
+P 
+
+> i∈c
+
+ϕi
+
+plus the statics returns Σϕ without renormalization, and it recovers the clinically expected lead unprompted: averaged over instances the share of |ϕ| is V1 0.398 , I 0.366 , II 0.235 ,so V1 dominates and lead II is least informative, exactly what the Sokolow–Lyon criterion says, since it reads S in V1 and does not use lead II. This also flags that our other LUDB results, computed on lead II, use the least informative lead for this task. One localization number needs care: the multi-lead score is measured against the union of the expected region across leads with saliency summed over channels, so part of the 0.514 to 0.745 gain is pooling rather than better placement; the comparable statement is within-setting, where provided regions localize far better than discovered ones ( 0.745 vs 0.535 ). 
+
+4.4 Region Discovery and Ablations 
+
+When regions must be found unaided, what matters is faithful attribution, not boundary recovery. Boundary-snapping (Sec-tion 3.2, Table 4) delivers this with no retraining: the learn-able model-aware selector matches or beats the signal-only PELT default on synth, mixed, and ludb, localizing better at far fewer players. The headline is ludb: the un-snapped selec-tor collapses to 0.34 , worst of any arm, and snapping recovers 
+
+0.73 , past the incumbent, so placement, not count, was the problem. The strongest result is comparative: a ground-truth prior (the annotated P/QRS/T mask) further improves faith-fulness and localization and dominates every unaided arm, so we recommend the annotated segmenter when a prior exists and the snapped, model-aware one when it does not. Further, in the appendix, we ablate the kernel choices and their impact on the method’s decisions. The kernel sets the counterfactual’s texture: RBF is the most on-manifold faith-ful arm on ECG ( 0.872 ), while the rougher Matérn kernels are the most robust (max-sensitivity 0.72 /0.74 against RBF’s 
+
+0.91 ); we default to RBF and report both directions (Ap-pendix D). The reference p0 barely moves faithfulness (the five arms lie within one between-seed SEM on all datasets), so choosing one is a decision about what an explanation means, not a lever on quality (Appendix F). Conditional semantics is not a weak effect but an exactly zero one: it reproduces the marginal arm to machine preci-sion ( max |∆| ≈ 10 −15 ) on every region-level metric, even on real ECG where the codec features correlate three times as strongly as on synthetic. The reason is structural: Owen block values only focus on whole-block coalitions, where no ab-sent feature has a retained sibling to condition on. Thus, fea-ture correlation cannot change which regions matter. Within-region redistribution remains invariant. Faithfulness does not change for all six datasets, and only trades localization pre-cision against recall (Appendix G). 
+
+4.5 Generator Fit and Calibration 
+
+The counterfactual generator is a swappable module: a GP posterior by default, or a cVAE or a DDPM in its place, and all three leave the accounting exactly complete. Expressive-ness is not free, though. The more learned the generator, the more its regenerations resemble the counterfactuals a splice-based operator would produce, blurring the on-manifold/off-manifold distinction the two-operator protocol relies on, so a more powerful generator can raise measured faithfulness while weakening the very contrast that makes on-manifold faithfulness meaningful. Because of this, we judge the generator by direct diagnos-tics rather than by the downstream faithfulness it produces. A probability-integral-transform check, whether held-out ob-servations fall in their predicted quantiles at the right rate, gives Kolmogorov-Smirnov distances of 0.23 to 0.40 from uniform: the generator’s predictive uncertainty is miscali-brated exactly on the families where its attributions are most faithful. Passing downstream faithfulness is therefore weaker evidence of a good generative model than it appears, which is why we report the fit directly (Appendix H). 
+
+4.6 Efficiency of Amortized Deployment 
+
+The exact game’s main cost is runtime, and it is not intrinsic to the game. Amortizing the same value function into a learned explainer (Section 3.3) replaces the per-instance Owen sweep with a single forward pass, a 10 3× reduction from the exact game’s 17 .9 s per ECG beat, and the surrogate inherits exact Table 4: Region discovery, unaided. Downstream on-manifold faith on per family (reduced-budget GRAIL re-run over each arm’s regions); bold = best. masknet is a model-aware selector snapped onto clean cut points at inference (no retraining); pelt-l2 is the signal-only default.               
+
+> Segmenter synth mixed ecg ludb pelt-l2 (signal-only) 0.711 0.864 0.555 0.683 masknet (learnable+snap) 0.721 0.908 0.518 0.729
+
+completeness from the efficiency projection rather than re-deriving it ( |ρ|=0 .000 ). It stays faithful where it matters: on real data its on-manifold faithfulness tracks the exact game (ECG 0.556 vs. 0.872 ) and pays a cost only on low-signal synthetic families, where there is little on-manifold structure for a single-pass predictor to amortize (Appendix J, Tables 13 and 14). We measure the amortized arm against a representative four-baseline subset, one per paradigm (window-Shapley, LIME, realistic-LIME, and gradient-mask), at the deploy-ment budget namo . The trade is deliberate, and it is the same one the fast comparators make with their own approximations (Section 4.2): a single-pass explainer at deployment cost that keeps the exact game’s completeness and its faithfulness on the data with structure to explain. 
+
+# 5 Conclusion 
+
+Meaningful time-series explanation begins with the choice of the right unit, the region, and the non-temporal covari-ates a model uses alongside it. Having fixed the players, an explanation is governed by the definition of a "baseline" re-gion, defined by a counterfactual. Instead of choosing a fixed filler, the proposed method generates an absent region on the data manifold. Then it attributes the logit via Owen val-ues estimated with common random numbers, and always reports the residual. Since all players share a single scale, the model’s overreliance on static data rather than time series can be assessed. Experiments show that the exact game is the most faithful on-manifold on every family and exactly complete. On real ECG data, GRAIL almost reaches the same off-manifold performance as other baselines. Finally, we attempt to ease the deployment process by introducing an amortized surrogate that reduces runtime on real data; a faithfulness-aware segmenter that enables region discovery without ground truth; and a game that supports multi-lead signals by recovering the clinically expected leads. 
+
+Limitations. The most important question we want to ad-dress is whether these explanations are useful to domain experts. Therefore, our next step is conducting a user study. Since the amortized surrogate is trained on a single model, the model-randomization sanity check requires retraining the surrogate. Although the method achieves high performance on non-stationary data, we need to explore additional signals that a GP cannot represent. The exact generator saturates the logit, which the residual ρ detects, and the swappable cVAE and DDPM generators mitigate this effect. Automated region discovery is improved but still unsolved. Further lessons that generalize beyond GRAIL, an expert-rule agreement analy-sis, and the scope of our reimplementations, diffusion arm, and multivariate claims are developed in Appendix K. 
+
+# References 
+
+Adebayo, J.; Gilmer, J.; Muelly, M.; Goodfellow, I.; Hardt, M.; and Kim, B. 2018. Sanity checks for saliency maps. In Advances in Neural Information Processing Systems (NeurIPS) , 9525–9536. Bento, J.; Saleiro, P.; Cruz, A. F.; Figueiredo, M. A. T.; and Bizarro, P. 2021. TimeSHAP: Explaining recurrent models through sequence perturbations. In Proc. ACM SIGKDD Int. Conf. Knowledge Discovery and Data Mining (KDD) ,2565–2573. Bhatt, U.; Weller, A.; and Moura, J. M. F. 2020. Evaluat-ing and aggregating feature-based model explanations. In 
+
+Proceedings of the 29th International Joint Conference on Artificial Intelligence (IJCAI) , 3016–3022. Chen, J.; Song, L.; Wainwright, M. J.; and Jordan, M. I. 2018. Learning to Explain: An Information-Theoretic Perspective on Model Interpretation. In International Conference on Machine Learning (ICML) .Covert, I.; Lundberg, S. M.; and Lee, S.-I. 2021. Explaining by removing: A unified framework for model explanation. 
+
+Journal of Machine Learning Research , 22(209): 1–90. Crabbé, J.; and Van Der Schaar, M. 2021. Explaining Time Series Predictions with Dynamic Masks. In Meila, M.; and Zhang, T., eds., Proceedings of the 38th International Con-ference on Machine Learning , volume 139 of Proceedings of Machine Learning Research , 2166–2177. PMLR. DeYoung, J.; Jain, S.; Rajani, N. F.; Lehman, E.; Xiong, C.; Socher, R.; and Wallace, B. C. 2020. ERASER: A benchmark to evaluate rationalized NLP models. In Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics (ACL) , 4443–4458. Fong, R. C.; and Vedaldi, A. 2017. Interpretable explanations of black boxes by meaningful perturbation. In Proc. IEEE Int. Conf. Computer Vision (ICCV) , 3429–3437. Goldberger, A. L.; Amaral, L. A. N.; Glass, L.; Hausdorff, J. M.; Ivanov, P. C.; Mark, R. G.; Mietus, J. E.; Moody, G. B.; Peng, C.-K.; and Stanley, H. E. 2000. PhysioBank, PhysioToolkit, and PhysioNet: components of a new re-search resource for complex physiologic signals. Circulation ,101(23): e215–e220. Gretton, A.; Borgwardt, K. M.; Rasch, M. J.; Schölkopf, B.; and Smola, A. 2012. A Kernel Two-Sample Test. Journal of Machine Learning Research , 13(25): 723–773. Gretton, A.; Bousquet, O.; Smola, A.; and Schölkopf, B. 2005. Measuring Statistical Dependence with Hilbert-Schmidt Norms. In Algorithmic Learning Theory (ALT) ,63–77. Ho, J.; Jain, A.; and Abbeel, P. 2020. Denoising Diffusion Probabilistic Models. In Advances in Neural Information Processing Systems (NeurIPS) .Hooker, S.; Erhan, D.; Kindermans, P.-J.; and Kim, B. 2019. A benchmark for interpretability methods in deep neural networks. In Advances in Neural Information Processing Systems (NeurIPS) , 9737–9748. Ismail, A. A.; Gunady, M.; Corrada Bravo, H.; and Feizi, S. 2020. Benchmarking deep learning interpretability in time series predictions. In Advances in Neural Information Processing Systems (NeurIPS) , 6441–6452. Ismail Fawaz, H.; Lucas, B.; Forestier, G.; Pelletier, C.; Schmidt, D. F.; Weber, J.; Webb, G. I.; Idoumghar, L.; Muller, P.-A.; and Petitjean, F. 2020. InceptionTime: Find-ing AlexNet for time series classification. Data Mining and Knowledge Discovery , 34(6): 1936–1962. Janzing, D.; Minorics, L.; and Blöbaum, P. 2020. Feature relevance quantification in explainable AI: A causal prob-lem. In Proc. Int. Conf. Artificial Intelligence and Statistics (AISTATS) , 2907–2916. Jethani, N.; Sudarshan, M.; Aphinyanaphongs, Y.; and Ran-ganath, R. 2021. Have we learned to explain? How inter-pretability methods can learn to encode predictions in their interpretations. In International Conference on Artificial In-telligence and Statistics (AISTATS) , 1459–1467. Jethani, N.; Sudarshan, M.; Covert, I.; Lee, S.-I.; and Ran-ganath, R. 2022. FastSHAP: Real-Time Shapley Value Esti-mation. In International Conference on Learning Represen-tations (ICLR) .Jutte, A.; Ahmed, F.; Linssen, J.; and van Keulen, M. 2025. C-SHAP for time series: An approach to high-level temporal explanations. ArXiv , abs/2504.11159. Kalyakulina, A. I.; Yusipov, I. I.; Moskalenko, V. A.; Nikol-skiy, A. V.; Kosonogov, K. A.; Osipov, G. V.; Zolotykh, N. Y.; and Ivanchenko, M. V. 2021. Lobachevsky University Electrocardiography Database. PhysioNet .Killick, R.; Fearnhead, P.; and Eckley, I. A. 2012. Optimal detection of changepoints with a linear computational cost. 
+
+Journal of the American Statistical Association , 107(500): 1590–1598. Kim, J.; and Park, S. 2026. GroupSegment-SHAP: Shapley Value Explanations with Group-Segment Players for Multi-variate Time Series. ArXiv , abs/2601.06114. Kingma, D. P.; and Welling, M. 2014. Auto-Encoding Varia-tional Bayes. In International Conference on Learning Rep-resentations (ICLR) .Kumar, I. E.; Venkatasubramanian, S.; Scheidegger, C.; and Friedler, S. 2020. Problems with Shapley-value-based expla-nations as feature importance measures. In Proc. Int. Conf. Machine Learning (ICML) , 5491–5500. Laguna, P.; Mark, R. G.; Goldberger, A.; and Moody, G. B. 1997. A database for evaluation of algorithms for measure-ment of QT and other waveform intervals in the ECG. In 
+
+Computers in Cardiology , 673–676. Lopez Alcaraz, J. M.; and Strodthoff, N. 2025. Explain-ing Time Series Classification Predictions via Causal Attri-butions. In IEEE International Conference on Tools with Artificial Intelligence (ICTAI) . ArXiv:2405.15871; code at https://github.com/AI4HealthUOL/CausalConceptTS. Lundberg, S. M.; and Lee, S.-I. 2017. A unified approach to interpreting model predictions. In Advances in Neural Information Processing Systems (NeurIPS) , 4765–4774. Moody, G. B.; and Mark, R. G. 2001. The impact of the MIT-BIH arrhythmia database. IEEE Engineering in Medicine and Biology Magazine , 20(3): 45–50. Nayebi, A.; Tipirneni, S.; Reddy, C. K.; Foreman, B.; and Subbian, V. 2023. WindowSHAP: An efficient framework for explaining time-series classifiers based on Shapley values. 
+
+Journal of Biomedical Informatics , 144: 104438. Owen, G. 1972. Multilinear extensions of games. Manage-ment Science , 18(5-part-2): 64–79. Petsiuk, V.; Das, A.; and Saenko, K. 2018. RISE: Random-ized input sampling for explanation of black-box models. In 
+
+British Machine Vision Conference (BMVC) .Rasmussen, C. E.; and Williams, C. K. I. 2006a. Gaussian Processes for Machine Learning . MIT Press. Rasmussen, C. E.; and Williams, C. K. I. 2006b. Gaussian Processes for Machine Learning . MIT Press. Raykar, V. C.; Jati, A.; Mukherjee, S.; Aggarwal, N.; Sarpat-war, K.; Ganapavarapu, G.; and Vaculin, R. 2023. TsSHAP: Robust model agnostic feature-based explainability for time series forecasting. arXiv:2303.12316. Schlegel, U.; Vo, D. L.; Keim, D. A.; and Seebacher, D. 2021. TS-MULE: Local Interpretable Model-Agnostic Ex-planations for Time Series Forecast Models. In Machine Learning and Principles and Practice of Knowledge Dis-covery in Databases , 5–14. Cham: Springer International Publishing. ISBN 978-3-030-93736-2. Shapley, L. S. 1953. A value for n-person games. Contribu-tions to the Theory of Games , 2(28): 307–317. Simonyan, K.; Vedaldi, A.; and Zisserman, A. 2014. Deep inside convolutional networks: Visualising image classifica-tion models and saliency maps. In Workshop at International Conference on Learning Representations (ICLR) .Sivill, T.; and Flach, P. 2022. LIMESegment: Meaning-ful, Realistic Time Series Explanations. In Camps-Valls, G.; Ruiz, F. J. R.; and Valera, I., eds., Proceedings of The 25th International Conference on Artificial Intelligence and Statistics , volume 151 of Proceedings of Machine Learning Research , 3418–3433. PMLR. Sohn, K.; Lee, H.; and Yan, X. 2015. Learning Structured Output Representation using Deep Conditional Generative Models. In Advances in Neural Information Processing Sys-tems (NeurIPS) .Štrumbelj, E.; and Kononenko, I. 2014. Explaining predic-tion models and individual predictions with feature contribu-tions. Knowledge and Information Systems , 41(3): 647–665. Sundararajan, M.; and Najmi, A. 2020. The many Shapley values for model explanation. In Proc. Int. Conf. Machine Learning (ICML) , 9269–9278. Sundararajan, M.; Taly, A.; and Yan, Q. 2017. Axiomatic attribution for deep networks. In Proc. Int. Conf. Machine Learning (ICML) , 3319–3328. Taufiq, M. F.; Blöbaum, P.; and Minorics, L. 2023. Manifold Restricted Interventional Shapley Values. In Proceedings of the 26th International Conference on Artificial Intelligence and Statistics , volume 206 of Proceedings of Machine Learn-ing Research , 5079–5106. PMLR. Theissler, A.; Spinnato, F.; Schlegel, U.; and Guidotti, R. 2022. Explainable AI for time series classification: A review, taxonomy and research directions. IEEE Access , 10: 100700– 100724. Villani, M.; Lockhart, J.; and Magazzeni, D. 2022. Feature Importance for Time Series Data: Improving KernelSHAP. arXiv:2210.02176. Wilson, A. G.; and Adams, R. P. 2013. Gaussian process ker-nels for pattern discovery and extrapolation. In International Conference on Machine Learning (ICML) , 1067–1075. A Related Work 
+
+Shapley attribution and the removal operator. Shapley values, originally proposed by Shapley (1953), form the foun-dation of the modern attribution framework SHAP (Lund-berg and Lee 2017). The framework satisfies four basic ax-ioms: efficiency, symmetry, dummy, and additivity. The main modeling decisions of Shapley attributions are the “absence” and sampling of features (Štrumbelj and Kononenko 2014). Building on top of the framework, Sundararajan and Najmi (2020) and Kumar et al. (2020) introduce attribution ambi-guities; Janzing, Minorics, and Blöbaum (2020) represent the observational-vs-interventional choice as causal; Covert, Lundberg, and Lee (2021) parameterize removal-based ex-planations with a masking operator. To adapt the removal mechanism for time series, we implement feature removal with a conditional generator to stay on-manifold. Further, we extend the value function from a traditional Shapley game to a two-level Owen value (Owen 1972) over nested features with corresponding time-series regions. 
+
+Time-series explainers. Time-series-specific explanation methods treat time steps as players to produce attribu-tions (Theissler et al. 2022). However, as Example 1 sug-gests, timestep saliency might not be sufficiently expressive. To test this, we compare GRAIL against five representa-tive methods that operate at, or can be aggregated to, the region level: WindowSHAP (Nayebi et al. 2023) explains fixed-sized windows, TimeSHAP (Bento et al. 2021) per-turbs sequence events with pruning, TS-MULE (Schlegel et al. 2021) runs LIME over segmented series, LIMESeg-ment (Sivill and Flach 2022) builds realistic time-series per-turbations, and Dynamask (Crabbé and Van Der Schaar 2021) learns a soft temporal perturbation mask. We lever-age a region-based approach to learn generators that sample regions on the manifold. 
+
+Concept- and group-level players. Alternatively, other methods approach the saliency problem by defining play-ers differently. C-SHAP (Jutte et al. 2025) decomposes a series into high-level concepts and computes exact Shapley values over them, trading localization for interpretability: its players are global properties and carry no position. For the multivariate methods, GroupSegment-SHAP (Kim and Park 2026) builds players as (feature group × time interval) cells, grouping variables by Hilbert–Schmidt independence (Gret-ton et al. 2005) and segmenting time by maximum mean dis-crepancy (Gretton et al. 2012). While these methods adopt a similar two-level construction, they redefine the player and keep an off-manifold removal operator (mean replacement). Oppositely, we hold the player structure fixed and change the operator. Our harness scores both axes at once, so Table 2 can separate them. 
+
+Hierarchical credit assignment. Nesting players is ex-actly what Owen values (Owen 1972) formalizes: a coalition structure partitions players into blocks, credit is allocated be-tween blocks and then within them, and the result reduces to Shapley when the partition is trivial. We adopt that structure directly—features nested in regions, and regions nested in channels for multivariate signals—rather than building a be-spoke coarse-to-fine procedure, which buys the consistency and efficiency guarantees for free. 
+
+Generative imputation for counterfactual concepts. We build on the notion that counterfactuals are generated rather than spliced. Thus, our generator operates only on a single region conditioned on its retained features and boundary, al-lowing us to keep exact Owen value computation affordable. We include a region-scale conditional DDPM (Ho, Jain, and Abbeel 2020) as a third generator family (Section B) to test whether the choice of generator, rather than the decision to generate at all, is what matters. 
+
+Generators and backbones. Our default generator is a Gaussian process (Rasmussen and Williams 2006a) with a spectral-mixture kernel (Wilson and Adams 2013) and a beat-template mean for ECG; a learned conditional VAE (Kingma and Welling 2014; Sohn, Lee, and Yan 2015) and a condi-tional DDPM (Ho, Jain, and Abbeel 2020) are the alter-natives we explored behind the same game. Segmentation change points are identified via PELT (Killick, Fearnhead, and Eckley 2012). As a predictive baseline, we leverage In-ceptionTime (Ismail Fawaz et al. 2020). 
+
+Amortized and learned explanation. Solving an exact game for every instance is computationally expensive, which motivated training learnable networks to predict explana-tions. FastSHAP (Jethani et al. 2022) amortizes Shap-ley values with an efficiency-constrained regression loss, L2X (Chen et al. 2018) and REAL-X (Jethani et al. 2021) learn instance-wise feature selectors. We leverage the Fast-SHAP objective while modifying the model to account for time-series specifics. This allows the deployment of the ex-pensive exact method. 
+
+On- vs off-manifold evaluation. Perturbation-based faith-fulness is defined by corresponding methods’ feature re-moval mechanisms (Petsiuk, Das, and Saenko 2018; Fong and Vedaldi 2017). Scoring an explainer only with an off-manifold operator rewards methods that measure impor-tance in that same space, i.e., the “teaching-to-the-test” trap (Hooker et al. 2019; Jethani et al. 2021). We report faithfulness under both a neutral off-manifold operator and a matched on-manifold one, applied identically to every method. 
+
+# B Implementation details 
+
+In the following section, we define the default implementa-tion details for the experiments presented. 
+
+Codec feature encoders. Aiming to produce encodings for the generators, we propose codecs. A codec is a pair of an encoder ϕ and a conditional generator. The encoder is a closed-form read of the region without fitting and learned parameters. Thus, we can maintain the same feature mean-ing across all regions and signals. stat encodes level 
+
+(region mean), slope (least-squares linear coefficient in t), and scale (standard deviation of the residual after removing level and slope). shape is a strict superset that adds a named extremum: peak_amp , the signed height of the dominant extremum above the fitted line, and peak_loc , its posi-tion as a fraction of the region span in [0 , 1] normalized in a way that regions of different lengths pool into one reference distribution. shape ’s scale is calibrated on the residual after the fitted peak, so the generator’s variance matches what the named features leave behind. basis encodes low-order DCT coefficients; sm encodes spectral-mixture hyperparam-eters; nonstationary encodes a per-region lengthscale profile. Under GRAIL_stabilized , the slope is a Theil– Sen estimate instead of least squares. The generator’s mean is the encoder read backwards (level + slope · (t − ¯t), plus peak_amp · g(t) for shape , with g a Gaussian bump of width max(1 .5, 0.08 L) at peak_loc · (L−1) ); the residual is a boundary-conditioned GP draw. All experiments here use 
+
+shape with an RBF residual kernel. 
+
+Gaussian Process. The residual kernel has an amplitude, fixed by the encoded scale , and a lengthscale ℓ = f · L for region length L. The default f = 0 .25 is a heuristic. Un-der GRAIL_empirical_bayes , it is instead selected by maximizing the mean per-sample marginal log-density over the grid f ∈ { 0.03 , 0.06 , 0.10 , 0.15 , 0.25 , 0.35 , 0.50 }, eval-uated on the reference corpus and cached per (codec , L ). Se-lection never sees the explained signal, so the value function stays independent of the instance. A σ2 
+
+> n
+
+= 10 −2 var( xr ) is added before the Cholesky. Given this value is not provided, the criterion ranks candidates by conditioning on fit (§3.2). Jitter is 10 −6, and the boundary flank width is 8 samples on each side. 
+
+Reference corpus. p0 is fitted once per run, before the at-tributions are provided. Then, with the segmenter preserved independently of a data split, regions are encoded. Resulting feature pools are based on the empirical marginals. A fea-ture value is sampled by inverse-CDF from the corresponding pool. To preserve the on-manifold assumption, we restrict the pool conditionally by class_conditional , label (nor-mal cohort, target class, or foil-class, §F). Conditional 
+
+additionally fits a Gaussian copula and draws the absent co-ordinate from the Gaussian conditional given the retained features, evaluated at the same uniform u, such that CRN coupling survives. When neither retained features nor a sin-gle correlation block is kept, the algorithm falls back to the marginal, so conditional reduces to marginal exactly. 
+
+Estimator budget. The budget hyperparameters used in the experiments are as follows: restricted permutations 
+
+P =128 , base-randomness draws Q=3 , exact enumeration whenever a block has ≤ 10 players, batch size 2048 , an-tithetic pairing on. To enhance the processing speed, we employ batched forward passes on coalitions. Figure 3 mea-sures the resulting error: the mean per-player standard error (SME) falls as P −0.495 against the Monte-Carlo ideal of 
+
+P −1/2, i.e., CRN reduces the constant without changing the rate, and P =128 is located at the curve’s flat span relative to its own cost. On the other hand, the DDPM generator runs at 
+
+P =16 , Q=1 (§3.2) and the multivariate arm at P =48 , Q=2 .
+
+Neural generators. The cVAE is a 64 -point grid au-toencoder, dz =8 , hidden width 128 , trained 200 epochs at 
+
+lr=10 −3 with βKL =0 .05 and a cycle-consistency term of weight 0.2, on region crops from at most 400 training sig-nals. The DDPM shares the grid and the conditioning vec-tor θ, both boundary flanks, two presence flags, normalized length, optionally a class index, with 200 training steps and a 
+
+20 -step strided DDIM reverse chain at sampling time. Both expose the identical sample (θ, left , right , L, ε ) signature as the GP, and both are deterministic in ε. The reverse chain con-sumes slices of the same ε as the CRN sweep, so toggling a feature measures the toggle, not a fresh noise draw. Regions are resampled to the grid and back by linear interpolation. GRAIL-fast is a FastSHAP-style head trained on 200 sig-nals × 24 coalitions. We ablate the operator that generates its targets in §J.4. 
+
+# C A worked clinical example 
+
+In Fig. 5, ϕ is one (region, feature) player and Σϕ a region roll-up. Both are at different levels of the game and are never compared directly. Fig. 4 shows the roll-up over 40 abnormal beats of the PVC task under the default arm (shape codec, RBF, deviation-from-normal reference). The QRS complex, which is the clinical ground truth, carries the largest mean roll-up ( Σϕ=+5 .07 ±0.30 ), leads on 31 /40 beats, and is pos-itive on all 40 beats. The aggregated isoelectric segment is second ( +3 .42 ±0.14 ), but only because it is the sum of six separate background spans ranging from +0 .21 to +0 .89 .The largest is still almost 6 times below QRS, which is why Fig. 4 splits that bar into the spans composing it. Based on the received attributions, we can algorithmically construct the explanation narrative as follows: “ the strongest driver toward class 1 is the QRS complex’s elevated baseline/ST level (extremely, 4.9σ; ϕ=+4 .16 ±0.09 log-odds); QRS con-tributes the most in total ( Σϕ=+5 .70 ); 0% of the decision is unexplained ( ρ=+0 .0000 ); within-signal saliency peaks at t=110 , inside the QRS. ” The PVC task is primarily deter-mined by abnormalities in QRS morphology that highlight the importance of the most attributed region, thus proving the faithfulness of the algorithm. Completeness here is measured to be max |ρ|<10 −4 across all 40 beats. 
+
+# D Kernel functions 
+
+The generator module can be selected depending on the nature of the data. The kernel defines the counterfactual’s underlying function and thus determines what a coalition looks like without pinned features. Our default RBF is in-finitely smooth, yet it is expected to perform poorly for non-smooth signals; it showed the best performance in a non-stationary setting. Behind the identical game, we there-fore compare three cheap variance-separable kernels: RBF, Matérn-3/2, Matérn-5/2 (Rasmussen and Williams 2006b), whose rougher sample paths track real signals while keep-ing the cached-Cholesky speed-up (§3.1)—and a filterbank 
+
+spectral-mixture codec that fixes a component’s frequency to a log-spaced band grid, so its identity is stable under input jitter (at the cost of the non-separable solve). Every arm is exactly complete ( |ρ|=0 ). On ECG (Table 5), all four exact-game kernels are more on-manifold faithful than every baseline ( 0.72 –0.84 vs. ≤
+
+0.66 ) and exactly complete. However, the trade-off for faith-QRS isoelectric T_wave P_wave 012345
+
+> mean Σ ϕ (normal → abnormal logit)
+> 6 spans
+> pvc: region roll-up, 40 abnormal beats (orange = ground truth QRS)
+
+Figure 4: GRAIL region roll-ups over 40 abnormal PVC beats (shape codec, RBF, deviation-from-normal reference; 
+
+ρ=0 on every beat). Bars are the mean summed Owen value per region, ±SEM; orange marks the clinical ground truth (QRS), which leads on 31 /40 beats. The isoelectric bar is the aggregation of background regions. Therefore, it is split into its six constituent spans. fulness is runtime speed, which may be one to three orders of magnitude slower. Localization is saliency-dependent: at this sweep’s setting, the baselines edge ahead (timeshap loc-AUPRC 0.554 vs. our best 0.519 ), but under the shipped occ-
+
+w=6 default GRAIL takes the ECG localization lead (Ta-ble 2, §G). Among kernels, Matérn-5/2 is the most faithful, and the rougher Matérn kernels are the most robust, reach-ing a lower max-sensitivity than the smooth RBF ( 0.72 /0.74 
+
+vs. 0.91 ). Fig. 5 traces one PVC beat under the Matérn-5/2 arm: segmentation into named cardiac regions, and the QRS complex correctly surfaced as the top region—an exactly-complete, clinically-right explanation. App. D extends the ablation to non-stationary FordA and the mass-accounting mechanism. We default to RBF since on-manifold faithful-ness is the primary objective in this work. The filterbank codec can be used primarily for jitter-stable component iden-tity. 
+
+Non-stationary data (FordA). On a non-stationary family (FordA engine-sensor, UCR; no region ground truth, so lo-calization is undefined), the tradeoff is more evident. While the expressive kernels help achieve input robustness, i.e., max-sensitivity falls from RBF’s 0.39 to 0.21 for the fil-terbank codec, with completeness still exact. However, the expressiveness entails lower on-manifold faithfulness. Par-ticularly, RBF is the most faithful ( 0.864 ), while Matérn-5/2 drops to 0.790 . The results here are the exact opposite of ECG, since FordA’s discriminative signal is not preserved by the residual. 
+
+Importance of kernel selection. Since RBF is over-smoothing, the residual becomes large, preventing recovery of the target signal. On FordA, only 18% of the attributed mass sits on named, interpretable features under RBF, ver-sus roughly half under Matérn-5/2, while the fixed-basis and Table 5: Kernel ablation vs. baselines on real ECG. Exact-game kernels ( n=120 , ablation sweep) against the eight base-lines ( n=200 , frozen full run): real numbers, reported side by side but not sample-paired (different n). On-manifold faithfulness ↑, localization loc-AUPRC ↑, max-sensitivity ↓,runtime s ↓; every exact-game arm has |ρ|=0 by construction. 
+
+Bold = best in column. The exact game leads to faithfulness and completeness; the rougher Matérn kernels are the most robust (lowest max-sensitivity).                                                     
+
+> Method faith on loc m-sens sGRAIL (rbf) 0.831 0.480 0.908 12.2 GRAIL (matérn-3/2) 0.828 0.519 0.719 12.1 GRAIL (matérn-5/2) 0.841 0.514 0.744 12.2 GRAIL (filterbank) 0.723 0.445 0.767 40.0 windowshap (stat.) 0.634 0.542 –1.4 windowshap (dyn.) 0.658 0.508 –2.7 timeshap 0.624 0.554 –2.7 ts-mule (unif.) 0.620 0.460 –0.02 ts-mule (sax) 0.649 0.497 –0.02
+> limesegment 0.591 0.468 –0.50 tsshap-surrogate 0.469 0.447 –0.03 dynamask 0.633 0.511 –1.5
+
+spectral codecs push most of the mass onto named players. Matching the generator’s roughness to the signal keeps the explanation interpretable, which is why Matérn improves ro-bustness in such settings. Therefore, we recommend Matérn-5/2 as the default for non-stationary settings. Meanwhile, RBF can be selected when the last of on-manifold faithful-ness matters most. Finally, the filterbank codec can be used when stability under jitter is the priority. 
+
+# E Experimental Setup 
+
+Datasets. We use six datasets across three domains; region ground truth is used only to score localization and is never seen at explanation time except by the provided-regions arm. We define data sizes in the following manner: number of samples × number of channels × sequence size. 
+
+Synth is a synthetic family of T=100 -step univariate se-ries: i.i.d. background with localized injected features whose combinations define the target classes, and the injection masks are the ground-truth region attributions. Data size: 
+
+1500 ×1×100 .
+
+Mixed extends Synth with static features acting as short-cut, informative, or distractor variables, giving a controlled setting with known signal and known covariate ground truth. Data size: 1500 ×1×100 .
+
+ECG uses the MIT-BIH Arrhythmia (Moody and Mark 2001) and QT (Laguna et al. 1997) databases from Phys-ioNet (Goldberger et al. 2000); each R-aligned beat carries cardiologist P/QRS/T regions across five binary tasks. Data size: 4000 ×1×288 .
+
+LUDB is the Lobachevsky University Database (Kalyakulina et al. 2021): real ECG with cardiologist P/QRS/T boundaries and per-subject age and sex, on the left-ventricular-hypertrophy (LVH) task; it is 02        
+
+> segmented (a) segmentation into named regions
+> bg0 bg1 Pbg2 QRS bg3 Tbg4 bg5 050 100 150 200 250 300
+> time (samples)
+> 02
+> attributed (b) most-important region
+> QRS Σϕ= + 5.70
+
+Figure 5: From signal to attributed regions (GRAIL, RBF, a PVC beat). (a) the beat’s segmentation into named P/QRS/T waves plus the chunked isoelectric background ( bg0 –bg5 ); (b) the same beat with the top region by Owen value shaded. The QRS complex, which is the clinical ground truth for a PVC, is the most important region ( Σϕ=+5 .70 , a region roll-up), and the accounting is exactly complete ( ρ=+0 .0000 ). The beat is the median one among those with QRS leads in the Fig. 4 cohort, where the typical case rather than the most favorable one holds, and both figures come from a single run of a single config. multivariate (leads I, II, V1). Data size: 1799 ×3×400 .
+
+FordA is a UCR engine-sensor series, non-stationary and without region annotation (localization undefined). Data size: 4921 ×1×100 .
+
+Wafer is a UCR semiconductor-sensor series, also without region annotation. Data size: 7164 ×1×100 .
+
+Target models. All explanations target InceptionTime (Is-mail Fawaz et al. 2020) classifiers trained per dataset. We train the model with Adam at a peak learning rate of 
+
+10 −3 and a batch size of 64 . For the synth, ecg, forda, and wafer families, utilize the fastai one-cycle schedule (fit_one_cycle , lr max =10 −3) with a validation batch size of 128 and a TSStandardize batch transform. The static-fusion families (mixed, ludb, and the 3-lead ludb build) use a plain torch loop at a constant 10 −3 with no schedule. Every family minimizes cross-entropy. Epoch numbers are 
+
+50 on synth and mixed, 30 on ecg, 40 on forda and wafer, and 60 on both ludb builds. 
+
+Methods and configurations. GRAIL uses the shape 
+
+codec on general families and the clinical codec on ECG, a class-conditional (normal-cohort) reference, and the lossless morphology-residual player. It appears in three configura-tions: with a provided region prior (GRAIL); discovering its own regions via the model-aware segmenter with boundary snapping (GRAIL-auto, §3.2); and as the amortized single-forward-pass deployment (GRAIL-fast, §3.3). The pertur-bation and windowing baselines are WindowSHAP (station-ary, dynamic) (Nayebi et al. 2023), TimeSHAP (Bento et al. 2021), TS-MULE (uniform, SAX) (Schlegel et al. 2021), LIMESegment (Sivill and Flach 2022), TsSHAP (Raykar et al. 2023), and Dynamask (Crabbé and Van Der Schaar 2021). C-SHAP (Jutte et al. 2025) and GS-SHAP (Kim and Park 2026) do not release code. We have reimplemented them and made the code available in the supplementary materials. Gradient baselines are integrated gradients (Sun-dararajan, Taly, and Yan 2017), gradient ×input, and Ker-nelSHAP (Lundberg and Lee 2017). The full head-to-head uses all configurations. The amortized-arm tables use a rep-resentative four-baseline subset (one per paradigm) at the reduced sample size namo . The baselines share the same re-gion support and harness; GRAIL-auto discovers its own. 
+
+Metrics. Faithfulness is scored under two matched removal operators, a neutral off-manifold splice and an on-manifold 
+
+regeneration, via comprehensiveness/sufficiency (DeYoung et al. 2020), faithfulness correlation (Bhatt, Weller, and Moura 2020), and deletion/insertion AUC; the on- and off-manifold variants are reported side by side (the _on /_off 
+
+columns). Localization compares the per-timestep saliency to the annotated region mask (Ismail et al. 2020) by AUPRC and a pointing game. Robustness covers shift/jitter stability, max-sensitivity, and the model-randomization sanity check (Ade-bayo et al. 2018). Cost is the effective-player count and wall-clock runtime; completeness is |ρ|; and self-segmentation is boundary F1 against the mask. 
+
+Statistical protocol. Within a family, every method is scored on the same instances from a single run, so all com-parisons are genuinely paired. Every “wins/loses” claim is gated on a paired two-sided Wilcoxon signed-rank test on per-instance differences, corrected family-wide with Benjamini– Hochberg at q < 0.05 , and reported with the effect size. The Table 6: Reference ablation, faithfulness_corr_on 
+
+(± between-seed SEM; n=80 synth, 80 ecg, 16 ludb). “Pro-vided” uses ground-truth region support, “discovered” un-aided segmentation.                                              
+
+> synth ecg ludb reference p0prov. disc. prov. disc. prov. disc. marginal 0.636 0.540 0.684 0.466 0.613 0.473 normal cohort 0.620 0.582 0.694 0.462 0.628 0.461 target class 0.626 0.560 0.696 0.478 0.607 0.476
+> foil class 0.638 0.581 0.669 0.466 0.617 0.468 conditional 0.636 0.533 0.684 0.466 0.613 0.473 spread 0.018 0.049 0.027 0.016 0.021 0.015
+
+sample sizes are provided in the description of Table 2. 
+
+Implementation. Codec feature encoders, GP kernels and hyperparameters (including the residual lengthscale, fitted by marginal likelihood over the reference corpus rather than the explained signal, and the observation-noise nugget 
+
+σ2 
+
+> n
+
+= 10 −2 var ), reference-corpus construction and the Gaussian-copula conditional reference, the estimator budget (P , Q), and the cVAE and DDPM generator architectures and training are specified in Appendix B. 
+
+# F “Absent” features 
+
+The reference p0 is one of the two switches (conditional, in-terventional) that change what an explanation means. Table 6 sweeps all five on synth at n=80 (20 instances × 2 seeds ×
+
+2 runs) and repeats the sweep on both real families ( n=80 
+
+ecg, n=16 ludb), each in both region regimes. 
+
+Importance of reference. With ground-truth regions, the five synth arms lie within roughly one between-seed SEM (0.620 –0.638 ); the spread widens only under unaided seg-mentation ( 0.533 –0.582 ), where the normal-cohort default leads. Real data agrees and is tighter still: on ecg the arms span 0.669 –0.696 (provided) and 0.462 –0.478 (discovered), on ludb 0.607 –0.628 and 0.461 –0.476 . The choice of p0
+
+is therefore a choice about what the explanation means —deviation from normal, from the predicted class, from the foil—and not a lever on measured faithfulness. That is a cleaner statement than “our default is best”, and it is the one the data supports. 
+
+Conditional semantics is zero. The conditional arm re-produces the marginal arm on every region-level metric, on all three families, to machine precision ( max |∆| ≈ 10 −15 ). Our first explanation was that the codec features are nearly independent, so a Gaussian conditional is the marginal; that explanation is wrong, and real data refutes it. Copula corre-lation among the codec features is a property of the reference corpus that can be measured without running the ablation at all, and on real ECG it is about three times synth’s: max |ρij |
+
+of 0.41 –0.49 (mean 0.12 –0.18 ) across the five ecg tasks and 0.41 (mean 0.14 ) on ludb, against synth’s 0.155 (mean 
+
+0.070 ). We predicted the conditional arm would separate there. It does not, by a margin of 10 −15 .The real reason is a structural property of Owen values Table 7: Within-region redistribution on synth (n=80 ). All six profile arms leave faithfulness bit-identical (0.620 pro-vided / 0.582 discovered), as the roll-up invariant requires; only rank-alignment perturbs it, downward. “occ-w” is oc-clusion at window width w; “+f” adds the 0.25 uniform floor.                                   
+
+> provided regions discovered regions profile AUPRC pointing AUPRC pointing flat (broadcast) 0.634 0.525 0.515 0.312 occ-1 0.538 0.600 0.481 0.588 occ-6 0.595 0.562 0.543 0.600
+> occ-6 +f (default) 0.606 0.550 0.542 0.600
+> gradient 0.563 0.550 0.499 0.600
+> gradient ×input 0.523 0.600 0.467 0.600
+> rank-align 0.50.606 0.550 0.542 0.600
+
+rather than of the data. Instrumenting the draw confirms that the conditional branch fires on 60% of absent draws and the 
+
+feature -level Owen values do move, by up to 3.3% of Σ|ϕ|.What does not move is the region roll-up. Owen block values telescope to the Shapley value of the game played over whole blocks, and in a whole-block coalition every region is either entirely retained or entirely absent, so an absent feature never has a retained sibling in its own region to condition on. The conditional reference falls back to the marginal on precisely the coalitions the region roll-up is built from, so P 
+
+> i∈r
+
+ϕi is identical by construction, at any feature correlation. Every metric in this paper consumes that roll-up, or a saliency profile derived from it, and is therefore blind to the switch by design rather than by accident. This is worth stating plainly because it binds a whole class of proposed improvements. Conditional semantics is a within-region refinement. It changes how a region’s credit is divided among its named features. It cannot change which regions are important. The class-conditional cohorts, by con-trast, redraw the pool a fully-absent region is filled from, so they do change the block-level game, which is why those three arms separate while this one cannot. 
+
+# G Where a region’s credit goes 
+
+Within-region redistribution (§B) preserves the region roll-up by construction, so it can only move localization —never faithfulness. Table 7 confirms this holds exactly in practice and shows what the choice does buy. The invariant is exact: six arms spanning two perturbation families (structural occlusion and finite-difference gradients) and three uniform-floor settings return the same faithfulness to three decimals. Only rank-align , which by design reorders regions, changes it—and it changes it for the worse (0.620 → 0.561 , 0.582 → 0.534 ) while leaving localization untouched, so we leave it off by default. What the profile does control is a genuine trade, and its direction flips with the region regime. With ground-truth re-gions, the flat broadcast is best on area metrics (AUPRC 
+
+0.634 ) and worst at pointing ( 0.525 ): when the annotated span is the ground truth, spreading credit uniformly max-imizes overlap and any sharpening can only lose it. With discovered regions the smoothed occlusion profile wins both (0.543 AUPRC, 0.600 pointing), because imprecise bound-aries leave real slack for the profile to recover. The honest summary is that within-region redistribution earns its keep exactly when the segmentation does not already hand you the answer. 
+
+On real data, the trade is a precision/recall axis, not a single winner. Because the arms cannot move faithfulness, the sweep can be run the cheap way—one Owen pass per instance, all six profiles scored off the same attribution— which is what makes it affordable on real ECG. Table 8 repeats it on ecg and ludb, and the synthetic story survives only in part. The clean regime flip we saw on synth is really a precision-versus-recall split that the synthetic data was too small to separate. Across all four real cells, the occlusion profiles win the precision family—AUP and pointing—and the flat broadcast wins the recall family—AUR and, where the region support is handed over, AUPRC and IoU. This is what the two profiles are for: uniform credit maximizes overlap with a span, a peaked profile maximizes agreement with a point. What the region regime controls is how much of the recall advantage flat retains. With ground-truth support on ecg it is large (AUPRC 0.688 vs 0.594 ); with discovered regions it collapses to nothing ( 0.379 vs 0.375 ); and on ludb’s discov-ered regions it reverses (0.193 vs 0.249 ), matching synth. The mechanism is the same one the synthetic sweep suggested: when the annotated span is the region, coverage comes free, and there is nothing for a profile to recover, and when bound-aries are approximate there is slack the profile can claim. The real data just shows this is a matter of degree rather than a switch. The default ( occ-6 +f ) is defensible on this evidence without being the winner of every column. It is never worst in any cell; it is best or tied-best at pointing in the two discovered cells—the regime that matters at deployment, where nobody hands you the regions—and it is runner-up on AUPRC in all four. The pure-gradient profiles are the clear losers on real data (worst or near-worst in seven of eight columns), which is worth stating: a finite-difference sensitivity inside a region is a poor guide to where that region’s coalitional 
+
+credit belongs. We report the ludb cells as directional only— at n=16 the between-seed SEMs on AUPRC reach ±0.10 .
+
+# H Swapping the generator, and asking whether it fits 
+
+Section 3.2 argues the generator is a component rather than a commitment, and that its adequacy can be checked directly instead of inferred from task metrics. Both claims are cheap to test, and neither is flattering in the way we expected. 
+
+Swappability holds, and there is a gradient behind it. 
+
+All three generators leave the game exactly complete, so the interface claim is met: the counterfactual moves and the ac-counting does not. What is more informative is the ordering. As the generator becomes more learned and less analytic, on-manifold faithfulness falls ( 0.662 → 0.610 → 0.430 ) while 
+
+off -manifold faithfulness rises monotonically ( −0.092 →
+
+0.335 → 0.439 ). The learned generators drift towards pro-ducing counterfactuals a splice-based operator recognizes, which is precisely the property the analytic GP was chosen to avoid. Part of the DDPM’s on-manifold deficit is its 8×
+
+smaller permutation budget and we do not read its 0.430 
+
+as a converged number; the off-manifold ordering , which is budget-insensitive in direction, is the part we rely on. 
+
+The generator fits real ECG better than synthetic noise. 
+
+Per-sample log-density is highest on ecg with annotated re-gions ( −12 .4) and lowest on synth ( −17 .8 to −21 .5), and the regeneration distances agree ( 0.36 vs. 2.24 ). This inverts the intuition that synthetic data is the easy case: synth’s in-formative regions sit on i.i.d. background, which a smooth boundary-conditioned GP is a poor model of, whereas a QRS complex is exactly the kind of correlated excursion it represents well. It also supplies a mechanism for a result we previously only observed: the exact game’s large synth ad-vantage on-manifold is measured against a generator that fits synth worst .
+
+Segmentation quality is visible in the generator, not just downstream. On ecg, moving from annotated to discov-ered regions costs 54 nats per sample ( −12 .4 → − 67 .0)— a far larger swing than anything in the synth column, and larger than the corresponding faithfulness gap would sug-gest. Change-point boundaries place region edges where the GP’s boundary conditioning is badly wrong. This makes the log-density useful as a segmentation diagnostic that needs no ground-truth mask, which is exactly the setting where boundary F1 is unavailable. 
+
+The uncertainty is not honest, and we should say so. PIT KS distances of 0.23 –0.40 are large: if the generator’s pos-terior were calibrated, the whitened residual L−1(xr − μr )
+
+would be standard normal and this number would be near zero. It is not. The generator’s mean is evidently good enough to drive the most faithful attributions in this paper while its 
+
+error bars are miscalibrated—which is the whole point of reporting a diagnostic that task performance cannot see. Two consequences follow. Any use of GRAIL that reads the gener-ator’s variance (confidence intervals on a counterfactual, say) is not currently supported by this evidence. And the down-stream faithfulness metrics are demonstrably insensitive to error-bar calibration, so passing them is weaker evidence of a good generative model than it appears. 
+
+# I Static covariates on one scale 
+
+Section B admits static covariates as singleton Owen players alongside the temporal regions, and Table 2 reports what they receive. This appendix gives the full accounting, because the claim is otherwise only structural. 
+
+The main tables hold the statics fixed. In every run reported in the main text the observed covariates are bound into the model, so each method explains the signal with the patient’s context held constant—which is what keeps the comparison against the eight signal-only baselines like-for-like. The game reported here is the other one: sex and age are players, priced in the same log-odds units as QRS. It is run on the same instances, the same region support, the same codec and reference, and the same estimator budget, so the two are paired instance-by-instance. Table 8: Within-region redistribution on real data. Localization only: the profile cannot change faithfulness (the roll-up invariant), which the synth sweep confirms to three decimals. n=80 per ecg cell (8 instances × 5 tasks × 2 seeds), n=16 
+
+per ludb cell; ± is the between-seed SEM. AUPRC/AUR reward covering the annotated span, AUP/pointing reward hitting its peak—the two families disagree, and that disagreement is the result. 
+
+ecg ludb provided discovered provided discovered profile AUPRC point AUPRC point AUPRC point AUPRC point flat (broadcast) 0.688 0.637 0.379 0.588 0.630 0.500 0.193 0.625 occ-1 0.406 0.625 0.280 0.562 0.316 0.625 0.197 0.562 occ-6 0.504 0.650 0.363 0.675 0.436 0.625 0.254 0.750 
+
+occ-6 +f (default) 0.594 0.637 0.375 0.700 0.499 0.625 0.249 0.750 
+
+gradient 0.512 0.613 0.269 0.487 0.424 0.625 0.177 0.688 gradient ×input 0.422 0.625 0.267 0.450 0.326 0.625 0.170 0.625 
+
+Table 9: Three generators behind one game (synth, n=40 ,
+
+± between-seed SEM). The DDPM runs at its reduced budget (P =16 , Q=1 vs. 128 /3), so its faithfulness is not budget-matched and is a lower bound. 
+
+generator faith on ↑ faith off ↑ loc-AUPRC GP, analytic (provided) 0.662 ±.025 −0.092 0.585 
+
+GP, analytic (discovered) 0.510 ±.010 0.017 0.574 cVAE 0.610 ±.064 0.335 0.500 DDPM ∗ 0.430 ±.027 0.439 0.533 
+
+Table 10: Generator diagnostics (n=20 per cell): marginal log-density per sample ( ↑), PIT KS distance of the whitened residual from N (0 , 1) (↓, 0 = honest uncertainty), and the two regeneration distances ( ↓). Defined only for the GP arms; the cVAE and DDPM have no tractable density and are reported as absent, not as zero. 
+
+regions log-dens. PIT-KS stat-d spec-d synth provided −17 .8 0.387 2.24 0.73 discovered −21 .5 0.397 2.61 0.84 ecg provided −12 .4 0.233 0.36 0.36 
+
+discovered −67 .0 0.269 0.66 0.47 
+
+Age dominates, sex does not, and completeness is un-touched. Table 11 gives the accounting. Age’s mean |ϕ|
+
+of 1.663 exceeds the top temporal region’s 1.542 and the QRS’s 1.430 ; the two covariates together take 24 .8% of the total |ϕ|, against a mean of 0.132 for an unnamed background span. Sex at 0.238 is where §E said it would be. The extra players do not perturb the accounting: |ρ| = 4 .8×10 −8, i.e. 
+
+v(N ) = f (x) to machine precision with the static channel active. An independent, non-Shapley check agrees: flipping age alone to its cohort-median reference and holding every-thing else observed moves the target log-odds by +1 .149 on average, the same sign and roughly the magnitude of its mean 
+
+ϕ (+1 .265 ). 
+
+The distractor control. On real data we have no ground truth for what a covariate should receive, so the synthetic Table 11: Static covariates as Owen players (ludb n=40 ,mixed n=30 ; ± is the SEM over instances). Bold rows are static covariates. The remaining ones are temporal regions in the same game and the same units. On ludb, age out-scores every ECG region and is the highest-ranked player on 62 .5% 
+
+of instances, while sex sits an order of magnitude below it. 
+
+mixed is the control: its covariates have declared roles, and the signed means recover them (shortcut and informative are 
+
+80 σ and 8σ from zero, the distractor 1σ). 
+
+Player mean ϕ mean |ϕ| top-1 rate ludb 
+
+age (static) 1.265 ±.227 1.663 0.62 sex (static) 0.067 ±.037 0.238 0.00 QRS 0.891 ±.432 1.430 0.33 T-wave 0.141 ±.089 0.452 0.05 P-wave 0.077 ±.052 0.174 0.00  
+
+> background spans (mean of 14)
+
+– 0.132 –mixed  class code (shortcut) 0.501 ±.006 0.501 0.00 
+
+mean (informative) 0.390 ±.048 0.425 0.00 
+
+jitter (distractor) 0.063 ±.064 0.253 0.00  
+
+> injected + background regions
+
+– 2.078 –
+
+mixed family carries the falsifiable version: its three co-variates are injected with declared roles. The signed means recover the declared ordering—shortcut 0.501 ± .006 , infor-mative 0.390 ± .048 , distractor 0.063 ± .064 —with only the distractor consistent with zero. Note the contrast in share :statics take 24 .8% of |ϕ| on ludb but only 4.9% on mixed, where the injected temporal features are the whole signal. The static channel is not biased towards attributing to statics; it reports what the model uses. 
+
+What it costs, and one caveat. Table 12 pairs the two games. Faithfulness and localization are statistically un-moved on both families—the covariates are additional play-ers, not a different value function over the signal. The one significant movement is the expected-region hit rate under the joint ranking, and it is the finding rather than a regres-sion: on 25% of instances age out-ranks the annotated QRS. This is the quantitative form of the localization deficit LUDB shows throughout the paper (§K). Caveat: the held-fixed arm Table 12: With statics as players vs. held fixed , paired per instance (ludb n=40 , mixed n=30 ; ∗ = paired Wilcoxon p < 
+
+0.05 ). Admitting the covariates is close to free in faithfulness and localization; what it changes is the ranking . On ludb the expected-region hit rate is unmoved among signal players but falls to 0.325 once age competes with QRS. 
+
+held fixed as players ∆
+
+> ludb
+
+faith on ↑ 0.598 0.597 −0.001 
+
+loc-AUPRC ↑ 0.473 0.473 0.000 
+
+expected-region hit (signal only) 0.575 0.625 +0 .050 
+
+expected-region hit (all players) 0.575 0.325 −0.250 ∗
+
+Σ|ϕ| on signal regions 5.901 5.983 +0 .082 
+
+> mixed
+
+faith on ↑ 0.786 0.788 +0 .002 
+
+loc-AUPRC ↑ 0.680 0.683 +0 .003 
+
+expected-region hit (signal only) 0.833 0.800 −0.033 
+
+expected-region hit (all players) 0.833 0.800 −0.033 Σ|ϕ| on signal regions 23.759 23.879 +0 .120 
+
+here is a re-run, not the frozen row. It reproduces the frozen 
+
+ludb faithfulness closely (faith on 0.598 vs. 0.601 ) but its loc-AUPRC is 0.473 rather than the frozen CSV’s 0.353 ,because that CSV predates the shipped occ-w=6 saliency default (§G); 0.473 is the comparable number, and the ∆
+
+column is paired within this run either way. 
+
+# J Amortized deployment for fast attribution 
+
+The exact GP game is faithful and exactly complete but slow. Because it is a value function , the same attribution can be recovered by a learned network trained against it. This sec-tion emphasizes amortized deployment and the trade-off with faithfulness. 
+
+J.1 Amortizing the game for deployment 
+
+The exact estimator’s cost is |N |+1 generator-and-model evaluations per permutation. We amortize it into a network that reproduces the same region attribution in one forward pass. We report two heads, because the difference between them is the finding of this appendix. 
+
+GRAIL-fast: a FastSHAP density. The first head is a convolutional map gψ : RT → RT emitting a per-timestep attribution density (pooled per region at explain time, so it is segmentation-agnostic), trained with the Fast-SHAP objective (Jethani et al. 2022): sampled coalitions with the additive-efficiency constraint enforced by projection given the measured v(∅) and v(N ). A convolutional den-sity is translation-equivariant and cannot express position-dependent attribution, so we add a positional input chan-nel, without which the network converges to its target mean and learns nothing. Its training coalitions are realized with a cross-sample removal operator, and it is correspond-ingly strong off-manifold and only real-data -competitive on-manifold—a deficit we first read as a training-operator mis-match and then measured (§J.4). 
+
+GRAIL-fast: region tokens against the on-manifold game. The deployed head replaces both the target and 0.00 0.25 0.50 0.75 1.00 1.25 1.50          
+
+> mean (log-odds)
+> background (mean of 14)
+> cat sex
+> P wave T wave QRS
+> num age
+> Owen value per player, statics included
+> 3210123
+> log 2|| num age / top signal region
+> 012345
+> instances
+> num age wins on 62% of instances
+
+Figure 6: Age against the signal, LUDB LVH (n=40 ). Top: 
+
+mean Owen value per player with the static variables in the game (bold = static, orange = the expected QRS region, unnamed background spans pooled); age carries more mass than any ECG region, sex carries little. Bottom: per instance, 
+
+log 2 of age’s |ϕ| over the largest |ϕ| among all temporal re-gions. Mass to the right of 0 is an instance where the covariate outweighs the whole signal— 62% of them. The ratio is plot-ted rather than the raw pair because a single instance reaches 
+
+|ϕ|=14 on its top region and would otherwise compress the rest into a corner. the architecture. It regresses the Owen values themselves ,computed by the exact on-manifold game of §3.1, rather than coalition values under a splice operator. A dilated con-volutional trunk over five input channels—signal, position, region-boundary indicator, own-region width, and a normal-ized occlusion-sensitivity profile that carries model evidence 
+
+into the input—is pooled per region into a token (mean/std/-max, both endpoints, and eight geometry features), and the tokens are mixed by a small transformer encoder, so a region’s attribution is a function of the other regions present rather than of its own span alone. Three heads read out shape ( ψr ), log-magnitude ( log P 
+
+> r
+
+|ϕr |) and v(∅) separately, which de-couples ranking from scale; the training loss is a masked Pearson term on ψ against the teacher ϕ (plus a small MSE, scale, v(∅), and within-region profile-KL term), so the objec-tive is the ranking the faithfulness metric measures. Teachers are 400 –1000 signals per run at ρholdout =0 .75 –0.99 .Both heads keep the efficiency projection, so P 
+
+> r
+
+ϕr =
+
+f (x) − v(∅) holds exactly at inference and completeness is preserved by construction (measured |ρ| < 10 −14 for both, all four families). Because both are smooth functions of the Table 13: GRAIL-fast runtime Method exactly complete and carry baseline-level effective-player counts; GRAIL-fast gives back ∼5× of GRAIL-fast’s speed-up for the model-evidence channel. Runtimes are medians : each run’s first explained instance carries a one-off ∼1.6 s warm-up that inflates a mean over 20 –100 instances (mean-based speed-ups are 33 –257 ×).                            
+
+> runtime (s) ↓eff. players Family GRAIL Amort. Amort. GRAIL Amort. synth 4.53 0.014 0.006 27.1 6.1 mixed 2.72 0.009 0.003 28.9 5.6 ecg 12.55 0.035 0.006 45.7 9.0 ludb 8.61 0.012 0.003 52.9 13.9
+
+input, their attribution is stable under input time-shift , where the exact estimator’s fixed region-grid is most sensitive. 
+
+J.2 Runtime and robustness 
+
+The exact game’s main practical cost is runtime, and both heads pay it down (Table 13). GRAIL-fast runs in 9–35 ms against 2.7–12 .5 s—a 290 –710 × speed-up—at a baseline-level effective-player count ( 6–14 vs. GRAIL’s 27 –53 ), while remaining exactly complete. GRAIL-fast is a further 3–5×
+
+faster ( 0.7–3.2 × 10 3 overall), and the gap is the price of the model-evidence channel: GRAIL-fast runs an occlusion sweep over the signal before its forward pass, so it spends classifier calls that GRAIL-fast does not. Section J.3 high-lights this difference. Robustness was measured on the GRAIL-fast head: both it and GRAIL are jitter-stable ( ≥ 0.87 ), and max-sensitivity improves under amortization on the real families (ecg 0.76 → 0.37 , ludb 0.22 → 0.05 ) but worsens on synthetic (0.68 → 1.00 , 0.85 → 1.07 ). We do not carry that result over to GRAIL-fast: its occlusion channel is a function of the classifier, not of the signal alone, so its perturbation response need not match GRAIL-fast’s. 
+
+J.3 On-manifold faithfulness tradeoff 
+
+On-manifold faithfulness is where the exact game is un-beatable and where a surrogate performs worse (Table 14). GRAIL remains the best across all four families. But the dif-ference depends almost entirely on the head. GRAIL-fast beats the best baseline on all four datasets, including synth. What remains is a real but much narrower gap to the ex-act game. On ecg it is 0.052 (0.776 vs. 0.828 )—significant at q=8 × 10 −6 but small enough that the ordering, not the level, is what a 250 × cheaper explainer gives up. On ludb the gap ( 0.124 ) is not significant ( q=0 .12 , n=20 ): at this sam-ple size, the deployed head is statistically indistinguishable from the game it was distilled from. Synth and mixed keep a clear, significant gap ( 0.316 and 0.228 , q < 10 −5), so the exact GP game remains the on-manifold reference and the recommendation is unchanged in kind—only in degree. Localization moves the same way and further. GRAIL-fast improves loc-AUPRC over GRAIL-fast on all four families and beats the exact game on both real ones: ecg Table 14: The tradeoff (faithfulness_corr_on ,mean ± SEM, namo ). The exact game still leads, but the de-ployed head now beats the best baseline across all datasets. 
+
+> †
+
+gap to GRAIL not significant (BH-adjusted Wilcoxon 
+
+q=0 .12 ); every other GRAIL-fast −GRAIL gap has q < 
+
+10 −4. Baselines are the four-method namo subset (§E); GRAIL-fast also clears the full eight-method leader on all four families.                       
+
+> Family GRAIL (exact) GRAIL-fast best baseline synth 0.872 ±.024 0.556 ±.071 −0.114
+> mixed 0.921 ±.011 0.694 ±.047 0.595
+> ecg 0.828 ±.016 0.776 ±.021 0.646
+> ludb 0.657 ±.073 0.533 † ±.076 0.463
+
+Table 15: Distillation target ablation (n=80 per cell, 20 
+
+instances × 2 splits × 2 seeds; ± is the between-seed SEM). Training GRAIL-fast against the on-manifold value function instead of cross-sample splices does not recover on-manifold faithfulness. Paired GRAIL on the same instances is shown for scale.                         
+
+> distillation target faith on ↑loc-AUPRC ↑
+> synth cross-sample (default) −0.183 ±.071 0.415 ±.014
+> on-manifold −0.195 ±.031 0.452 ±.026
+> GRAIL (exact, paired) 0.620 0.606
+> mixed cross-sample (default) 0.003 ±.084 0.419 ±.001
+> on-manifold 0.014 ±.113 0.421 ±.004
+> GRAIL (exact, paired) 0.784 0.624
+
+0.648 vs. 0.587 (q=1 .6 × 10 −3) and ludb 0.633 vs. 0.502 
+
+(q=0 .09 ), the ecg figure also clearing the best baseline in the full eight-method run ( 0.607 ). It is not a uniform win: on mixed it still trails GRAIL ( 0.518 vs. 0.648 ), and its pointing 
+
+score is worse on mixed ( 0.10 vs. 0.60 ) and ecg ( 0.55 vs. 
+
+0.64 ). It distributes mass over the annotated region better than the exact game, but places its single peak worse. 
+
+J.4 Is the surrogate’s negative a training-operator mismatch? 
+
+There is an obvious suspect for the synthetic negatives, and it is worth naming before defending anything: GRAIL-fast regresses coalition values built by cross-sample splicing —absent spans filled from another signal—and is then scored under the on-manifold operator. Fitting one removal operator and grading against another is a semantic mismatch, and it would explain the sign. We tested it directly rather than arguing about it. We added a second distillation target that evaluates coalitions through the on-manifold GP game itself—the exact value function 
+
+v(S) of §3.1, the same one GRAIL is computed against— and left the FastSHAP machinery downstream untouched, so the training operator is the only thing that moves. Both heads were trained on identical corpora ( 200 signals, 24 
+
+coalitions each) and evaluated on identical instances and seeds (Table 15). The mismatch is not the explanation. Matching the train-ing operator to the evaluation operator moves faithfulness by 
+
+−0.012 on synth and +0 .011 on mixed. Both are far in-side a single between-seed SEM, and on synth in the wrong direction. The negative survives its most obvious confound. What the on-manifold target does buy is localization on synth (0.415 → 0.452 ), i.e. a better-placed explanation that is no more faithful: the head learns where the informative region is without learning how the model responds when that region is regenerated on-manifold. We therefore retract the operator-mismatch reading and state that the residual explanation is the narrower claim sup-ported by the data. A FastSHAP-style head is a single amor-tized map from signal to attribution; the on-manifold value function it is asked to imitate is a function of the region gen-erator as well as the classifier, and on low-signal synthetic data the classifier’s response to a regenerated region is close to noise. There is little stable structure for a single forward pass to capture, regardless of which operator produced the targets. On real data—where regenerating a QRS actually changes the decision in a repeatable way—the same archi-tecture and the same training budget succeed (ecg 0.556 , ludb 
+
+0.381 ). This is a sharper statement than the one it replaces, and it was cheap to obtain: one extra target operator, four benchmark runs. 
+
+# K Extended Discussion 
+
+GRAIL is the method to reach for when the question is which regions the model’s decision is most sensitive to, on-distribution and with a complete accounting: it is the most faithful on-manifold method on every family and ex-actly complete. GRAIL-fast is the method to deploy: on real, structured data it recovers this at a small fraction of the cost, at a faithfulness price that is modest on real data and disqualifying on low-signal synthetic data. 
+
+Three lessons that generalize. First, the costs of an exact on-manifold game are the solver’s, not the game’s: amor-tizing against the same value function pays down runtime without changing what is being explained (Section 4.6). Sec-ond, faithfulness is operator-relative; reporting both on- and off-manifold operators for every method is the only way to avoid teaching-to-the-test, and it is precisely what exposes the surrogate’s on-manifold limit (Section 4.2). Third, local-ization against a fixed anatomical prior is only as meaningful as that prior is to the model: the LUDB LVH case shows a faithful explanation can correctly point away from the anno-tated region when the model relies on static or un-annotated evidence, measurably so, since admitting age as a player takes top rank from the annotated QRS on a quarter of instances while leaving faithfulness unchanged (Section 4.3). 
+
+Limits that are structural. Three of our limits are struc-tural, and each was reached by testing a claim we had already made in print. The generator’s mean is good enough to drive the most faithful attributions here while its error bars are not calibrated, so faithfulness metrics cannot certify a gen-erative model (Section 4.5). Matching an amortized head’s training operator to its evaluation operator does not rescue it on low-signal data, so the surrogate’s deficit is not a seman-tic mismatch. And a conditional reference, however strongly its features co-vary, cannot alter a region-level attribution at all, because Owen block values only ever see whole-block coalitions (Section 4.4). Testing claims we had already com-mitted to in print is the habit we would most like to see carried forward.
