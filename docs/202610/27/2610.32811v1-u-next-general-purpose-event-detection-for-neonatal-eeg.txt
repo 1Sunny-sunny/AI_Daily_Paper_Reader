@@ -1,0 +1,425 @@
+Title: U-NeXt: General-purpose event detection for neonatal EEG
+
+URL Source: https://arxiv.org/pdf/2610.32811v1
+
+Published Time: Mon, 26 Oct 2026 01:14:46 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+Preprint • October 2026 
+
+# U-NeXt: General-purpose event detection for neonatal EEG 
+
+Robert Hogan 1* , Sean R. Mathieson 1,2 , Aurel Luca 1, Soraia Ventura 1,2 ,Sean Griffin 1, Geraldine B. Boylan 1,2,3 , John M. O’Toole 1* 
+
+> 1
+
+CergenX Ltd, Cork, Ireland 
+
+> 2
+
+INFANT Research Centre, University College Cork, Ireland 
+
+> 3
+
+Department of Paediatrics and Child Health, University College Cork, Ireland 
+
+Correspondence 
+
+rhogan@cergenx.com jotoole@cergenx.com 
+
+ABSTRACT 
+
+BACKGROUND Automated neonatal EEG analysis can support continuous monitoring where specialist expertise is limited. Existing event detectors typically classify short EEG segments, restricting temporal context and limiting detection resolution. Methods are also commonly developed separately for individual event types. 
+
+OBJECTIVES To develop a general framework that treats neonatal EEG event detection as a semantic segmentation task, improving temporal localisation, detection accuracy, and computational efficiency across seizures, low-voltage intervals (LVIs), and artefacts. 
+
+METHODS We developed U-NeXt, a convolutional encoder–decoder network that directly segments individual EEG channels, using longer EEG segments to preserve temporal context. A shared architectural design and training framework were developed using LVI, artefact, and seizure datasets from 51, 98, and 278 neonates, respectively, comprising over 11,000 hours of EEG and 82,000 annotated events. Performance was compared with task-specific ConvNeXt classifiers. For seizure detection, we also evaluated a model trained on an expanded dataset, U-NeXt+. Both U-NeXt variants and the ConvNeXt baseline were evaluated for seizure detection on two independent held-out datasets from Cork and Helsinki, comprising 130 neonates, with recordings annotated by three experts. 
+
+RESULTS U-NeXt improved detection across all three event types, with particular gains in sensitivity for short events. The U-NeXt+ variant achieved Matthews correlation coefficients of 0.862 and 0.891 on Helsinki and Cork, respectively, and improved hourly seizure burden correlations by 30–40% relative to ConvNeXt. U-NeXt+ met the criterion for expert-level performance on both datasets ( p< 0.001). In separate computational benchmarks, U-NeXt reduced batch inference time relative to ConvNeXt by 254-fold on CPU and 200-fold on GPU. 
+
+CONCLUSION A common segmentation framework improves detection across diverse neonatal EEG event types while substantially reducing inference time. Accurate seizure burden estimates and performance comparable to expert reviewers support its potential use in continuous EEG monitoring and clinical decision support. arXiv:2610.32811v1 [cs.LG] 23 Oct 2026 U-NeXt: neonatal EEG segmentation Research article 
+
+# 1 Introduction 
+
+Neonatal brain injury in the hours and days after birth remains a serious concern for the estimated 8.5 per 1000 infants born globally with neonatal encephalopathy (NE)[1]. The negative impacts of NE on neurodevel-opmental outcome make it the second leading neurological disorder contributing to disability-adjusted life years (DALYs) [2]. Early diagnosis and treatment are paramount to improving lifelong neurodevelopmental outcome. Continuous monitoring with electroencephalography (EEG) is the gold standard for the assessment of neonatal brain function. It is a relatively inexpensive and portable technology, but interpretation difficulty has limited widespread adoption. Neonatal EEG review is a highly specialised skill that is absent in many clinical settings, particularly in low- and middle-income countries where the burden of NE is particularly high [3]. In recent years there has been increasing interest in automated systems to reduce laborious expert EEG review in the NICU [4–7]. In particular, we have recently shown that scaling deep learning methods can lead to expert-level retrospective analysis [8, 9]. ConvNeXt block DeConvNeXt block U-NeXt    
+
+> d1×7, 6W 1×1, 24W 1×1, 6W LN GELU
+> Encoder stage
+> Downsample ×4 LN (except stage 1) ConvNeXt block ConvNeXt block ×N 1×1, 6W d1×7, 6W LN GELU
+> Decoder stage
+> DeConvNeXt block Concat Upsample ×4 skip Encoder 1, N=D Encoder 2, N=D Encoder 3, N=3D Encoder 4, N=D 256 s @ 64 Hz 16 Hz 4 Hz 1 Hz Decoder 2 Decoder 1 0.25 Hz 1 Hz skip connection 4 Hz skip 1 Hz Conv 7×1 Conv 7×1 4 Hz 1 Hz Deep-supervision outputs
+
+Figure 1. U-NeXt architecture. The 4-stage encoder (pale blue), adapted from ConvNeXt [8], contains downsampling, normalisation, and convolution blocks. The 2-stage decoder (pale orange) contains upsampling and convolution blocks. The blocks use depthwise convolution ( d), layer normalisation (LN), and Gaussian error linear unit (GELU) activation. Downsampling uses a 1 × 4 convolution; upsampling uses a 1 × 4 transposed convolution, both with stride 4. Skip connections concatenate encoder and decoder features and 2 decoder outputs provide deep supervision at different resolutions. W and D control width and depth, respectively. 
+
+To date, most research in this area has focused on models for a single event detection task, often trained and evaluated on a single dataset [10–12]. This leads to highly specialised models that are tuned for that particular task–dataset combination and often use a specific electrode array or montage [13]. Datasets are often small, with performance evaluated through cross-validation, seldom including independent held-out validation [10, 11]. Insufficient evaluation means generalisation performance is unclear at best. At worst, methods overfit to particular task–dataset pairings, obscuring potential downstream utility and hindering clinical translation. In addition, each neonatal EEG event type requires its own study, making it difficult to build robust and generalisable methods. EEG event detection commonly uses short-time classification, assigning one label per segment (e.g. 16 s for seizures). Post-processing then assembles these detections into a probability trace and binary mask. This approach has several limitations. First, the time resolution of the prediction mask is dependent on the length of the segments. Overlap percentage controls the sample rate, but not the resolution, although a high overlap is needed to capture the start and end times. A longer segment may make the event easier to detect but harder to localise in time [14]. Selecting a segment size is therefore a compromise for events with widely varying durations, e.g. artefacts [12, 15]. Second, short-time classification lacks the continuous temporal context experts use to annotate event boundaries. Treating variable-duration event detection as fixed-segment classification rather than segmentation therefore limits both context and temporal localisation.   
+
+> CergenX • preprint 2U-NeXt: neonatal EEG segmentation Research article
+
+In this work, we address these limitations by introducing a new general framework for event detection in neonatal EEG. We develop a new model based on a U-Net style architecture which directly learns the semantic segmentation task for 3 distinct applications: detection of seizures, low-voltage intervals (LVIs), and artefacts. Importantly, we do not customise the architecture or training recipe for each case and the design is based on single-channel input. This ensures that the framework is generalisable to other event types, independent of EEG montage. We trained and validated a model for each task using the development datasets, then evaluated seizure detection on the held-out datasets Cork and Helsinki. Training a high-quality detector for this diverse set of tasks with a single unified architecture is a significant challenge but an important step towards more general and scalable approaches to AI for neonatal EEG. The history of AI development has repeatedly shown that detailed customisation of models to each task may yield short-term gains but will ultimately be shown to be more brittle than the general systems that inevitably surpass them. 
+
+# 2 Methods 
+
+We adapted our state-of-the-art 1D ConvNeXt seizure classifier [8] for segmentation using a U-Net encoder, bottleneck, and decoder with encoder–decoder skip connections. The model width and depth can be adjusted with two parameters to suit the dataset size. We apply the same model and optimiser hyperparameters to three event detection tasks, namely seizure, artefact, and LVI detection. Event durations and signal morphologies in all three tasks vary considerably. Seizures annotated in this study are characterised by repetitive EEG patterns that evolve over the event duration [16]. They can be represented as harmonic signals with slowly varying instantaneous frequency, amplitude modulation, and morphology. Event duration can range from 10 s to many minutes, with a median duration of approximately 2 minutes [17]. LVIs are events that are ≥ 2 s with peak-to-peak amplitude <25 
+
+μV. Artefacts are the most heterogeneous group, reflecting their varied sources. They include regular patterns, such as periodic respiration artefact, and stochastic activity, such as muscle artefacts resembling band-limited noise. Artefact durations range from <1 s to hours, complicating short-time classification. Typical segment sizes for classification are from 8 to 32 s for the seizure task [8, 18], 2 s for the LVI task [9], and between 4 and 64 s [12, 15] for artefact. For all three tasks, 256 s input segments accommodate varied event durations and let the model learn from longer temporal context, similar to human review. 
+
+2.1 U-NeXt architecture 
+
+Our proposed U-NeXt architecture is a U-Net model based on the ConvNeXt backbone described in [8]. U-NeXt uses the ConvNeXt encoder without its head (Figure 1) and with downsampling now 4× between all stages, rather than 4× after the stem and 2× thereafter [8]. We then add a lightweight decoder stage for upsampling. Two integers control the architecture: D sets the blocks per stage (depth), and W sets each block’s feature dimension (width). In this work, we use 3 variants (see Table 1): Nano ( D = 1 , W = 1 ), Medium ( D = 3 , W = 4 ), and XL ( D = 6 , W = 10 ). Each decoder stage comprises an upsampling layer, concatenation with an encoder skip connection, and a DeConvNeXt block based on a simplified ConvNeXt block (see Figure 1). Note also that the decoder scales with W but does not scale with D. More complex decoders, such as mirrored ConvNeXt block structures or additional DeConvNeXt blocks, increased parameters and FLOPs without reliable performance gains. Predicting annotation masks at the 64 Hz input resolution exceeds annotation precision and risks overfitting. To address this, we made 3 modifications: 1. increased the downsampling between encoder stages, 2. reduced the number of decoder stages, 3. used deep supervision of the outputs of both decoder stages. These changes limited the maximum output resolution to 4 Hz, stabilised learning, and yielded good generali-sation performance.      
+
+> CergenX • preprint 3U-NeXt: neonatal EEG segmentation Research article
+> Table 1. Model size and compute for U-NeXt and equivalent ConvNeXt models [8]. Floating-point operation (FLOP) counts use one operation per multiply–add; U-NeXt uses 16 s inputs for direct comparison. ConvNeXt U-NeXt model depth (
+
+D) width ( W ) # params FLOP # params FLOP Nano 1 1 38.7 k 1.9 m 50.1 k 638.78 k Medium 3 4 1.7 m 84.3 m 1.9 m 23.8 m XL 6 10 20.6 m 1 G 21.7 m 280.3 m 
+
+2.2 Tasks and datasets 
+
+We test this method on 3 tasks: detection of seizures, LVIs, and artefacts. These events cover a wide range of durations, amplitudes, frequency content, and characteristic morphologies, providing a broad assessment of neonatal EEG event detection. Good performance across these diverse tasks suggests that the framework may also be suitable for other event types. For model development, we used EEG records from 329 term neonates in the fully anonymised NeoBase neonatal EEG database. EEG recordings in NeoBase were acquired during research studies at Cork University Maternity Hospital (CUMH), Ireland and University College London Hospital (UCLH), UK. During the original research studies, ethical approval was obtained from the relevant clinical research ethics committee and informed consent was obtained from the parents or guardians for the use of fully anonymised data in future research studies. In addition, ethical approval for secondary use of these datasets was obtained from the Clinical Research Ethics Committee of the Cork Teaching Hospitals in Ireland. EEG recordings began as soon as possible after birth and lasted hours or days using several different EEG acquisition machines (see [8] for details). EEGs were recorded from neonates with mixed aetiologies who were at risk of seizures in the neonatal intensive care unit (NICU) as well as a smaller group of healthy term newborns recorded in the postnatal wards ( ≤ 2 hours in recording duration) [10, 19–21]. This EEG data was used to create 3 task-specific development datasets (see Table 2). Two of the datasets used, seizure and LVI, have been previously described in [8] and [9], respectively; the artefact dataset was created for this work. Multi-channel EEG was reviewed by a neonatal neurophysiologist 1 in each case, and events were annotated on a per-channel basis. For seizures, the entire recording was reviewed. For LVI and artefact, epochs of 1 and 3 hours, respectively, were reviewed. In the case of artefact, only the 2 central channels (C4–CZ, CZ–C3) were annotated with binary labels (artefact/no artefact). Compared to [8], we have expanded the seizure development data with long-duration, fully anonymised EEGs from a further 76 neonates recorded at UCLH, annotated per channel by a single neurophysiologist. We refer to this additional cohort as "Seizure+" (see Table 2). Combining the original Seizure dataset ( n=202) with Seizure+ gives 278 neonates, 10,893 hours of multi-channel EEG, and 24,432 per-channel seizure events. U-NeXt+ was trained on this combined dataset. For direct comparison with our previous ConvNeXt model, we also trained a U-NeXt model using the original 202-neonate dataset. For seizure evaluation, we used EEG recordings from 130 neonates in the same two held-out datasets as in [8], referred to throughout as Helsinki and Cork. Helsinki is the publicly available dataset ( n=79; 112 hours; 18 channels) [18]. Cork is a subset of NeoBase ( n=51; 1,572 hours; 8 channels) recorded at CUMH. Both datasets have global seizure annotations from 3 independent reviewers. Neither the EEG data nor the reviewers overlap with those used for seizure development. 
+
+2.3 Pre-processing and data augmentation 
+
+Pre-processing of the EEG consisted of bandpass filtering within the 0.3–30 Hz passband and downsampling to 64 Hz. EEG was divided into 300 s segments with no overlap. During training, a random crop of 256 s was taken at each iteration. The training data was further dynamically augmented with flipping, magnitude jitter, and cutout [22]. Augmentation hyperparameters were fixed across datasets. We split each development dataset by neonate into training and validation sets. For the seizure dataset we used a single 80:20 split. For LVI and artefact we performed 10- and 5-fold cross-validation, respectively. For   
+
+> 1Authors SRM and SV reviewed the seizure dataset. Author SRM reviewed the LVI dataset. Author SV reviewed the artefact dataset. CergenX • preprint 4U-NeXt: neonatal EEG segmentation Research article
+
+Table 2. Cohort demographics: median (interquartile range) or number (percentage), unless stated otherwise; number of neonates ( n) indicates incomplete data. LVI: low-voltage interval; HIE: hypoxic-ischaemic encephalopathy, with severity counts ordered mild/moderate/severe/unknown. The normal cohort comprises healthy postnatal-ward neonates [20]. EEG duration is per neonate; start is postnatal age at the first included EEG segment. 
+
+> LVI
+> (
+
+n = 51 )
+
+> Artefact
+> (
+
+n = 98 )
+
+> Seizure
+> (
+
+n = 202 )
+
+> Seizure+
+> (
+
+n = 76 )Gestational age, weeks+days 40+2                                                                  
+
+> (39+2 to 40+5)
+> 39+6
+> (38+4 to 40+4)
+> n= 97
+> 40+0
+> (39+2 to 40+5)
+> n= 197
+> 40+0
+> (39+1 to 41+0)
+> Birth weight, kg 3.50
+> (3.33–3.85)
+> n= 26
+> 3.31
+> (2.32–3.57)
+> n= 67
+> 3.50
+> (3.27–3.76)
+> n= 77
+> –Sex, female 18 (35.3%) 44 (45.4%)
+> n= 97 86 (42.8%)
+> n= 201 –
+> Clinical demographics
+> Primary diagnosis Normal cohort 25 (49.0%) 0 (0%) 73 (41.0%) –HIE 26 (51.0%) 43 (51.8%) 63 (35.4%) 45 (59.2%) Severity 9 / 13 / 4 / 0 18 / 22 / 3 / 0 23 / 26 / 14 / 0 15 / 17 / 8 / 5 Birth asphyxia –5 (6.0%) 7 (3.9%) 7 (9.2%) Stroke –5 (6.0%) 9 (5.1%) 3 (3.9%) Other –9 (10.8%)
+> n= 83 9 (5.1%)
+> n= 178 21 (27.6%) Hypothermia 18 (35.3%) 17 (37.0%)
+> n= 46 28 (18.7%)
+> n= 150 –
+> EEG characteristics
+> Total duration, h 80.3 294 6,487 4,406 Duration, h 1.03 (1.00–2.00) 3.0 (3.0–3.0) 7.4 (1.1–51.6) 40.9 (20.2–88.3) Start, h 23.0 (12.0–36.0) 37.5 (17.3–63.0) 13.8 (10.3–27.8) 10.0 (6.0–22.0) Neonates w/ seizures 6 (11.8%) 22 (26.5%)
+> n= 83 77 (38.1%) 28 (36.8%) Annotated events 36,580 21,105 12,402 12,030
+
+held-out seizure evaluation on Helsinki [18] and Cork, we retrained each model on its full seizure development dataset. The baseline ConvNeXt models followed similar pre-processing and data augmentation schemes but were specialised to their respective datasets, as described in [8, 9]. For example, they used different data aug-mentations, hyperparameters, and kernel sizes. The ConvNeXt artefact baseline followed the same recipe as the ConvNeXt seizure model. ConvNeXt used 2 s, 8 s, and 16 s segments for LVI, artefact, and seizures, respectively. 
+
+2.4 Post-processing 
+
+In [8] we tried to use a minimal approach to post-processing, but recovering a high-resolution prediction from classification of 16 s segments required >98% segment overlap and smoothing with a 32 s window. We argued that this step may improve performance when tuned to a particular benchmark dataset or metric, but will in most cases impair performance on another dataset or metric. With U-NeXt the direct output of a 4 Hz prediction mask (compared to 1/16 Hz in [8]) removes the need for overlap and reduces the importance of smoothing. Keeping a 16 s smoothing window provided limited benefit for seizure detection but we dropped it for the other models. We also removed the filling of short gaps between events. The only remaining post-processing step is to remove predictions shorter than the minimum event durations ( < 10 s for seizures; 
+
+< 2 s for LVIs; no filter for artefacts). The LVI ConvNeXt baseline retained 1 s rectangular smoothing, filling of gaps shorter than 1 s, and removal of events shorter than 1 s [9]. Without the need for inference overlap, each second of EEG passes through the model only once. Combined with a more efficient forward pass (Table 1), this substantially speeds inference (Section 3). 
+
+2.5 Training 
+
+Semantic segmentation uses diverse loss functions [23], typically chosen for the data distribution (e.g. imbalance) and relative cost of errors (e.g. missing short features). To develop a general-purpose detector, we apply the same method across our 3 datasets despite their differing properties. LVIs are typically much  
+
+> CergenX • preprint 5
+
+U-NeXt: neonatal EEG segmentation Research article LVI Artefact Seizure 0.5 0.6 0.7 0.8 0.9 1.0               
+
+> 0.976
+> 0.985 0.980
+> 0.984 0.948 0.924
+> 0.970 0.965
+> 0.977 0.988
+> 0.991 0.994
+> AUC
+> Pooled Per-neonate
+> LVI Artefact Seizure 0.0 0.2 0.4 0.6 0.8 1.0
+> 0.843 0.640
+> 0.859 0.685
+> 0.759 0.544
+> 0.838 0.732
+> 0.723 0.692
+> 0.780 0.774
+> Pearson’s r
+> LVI Artefact Seizure 0.0 0.2 0.4 0.6 0.8 1.0
+> 0.799 0.601
+> 0.821 0.619
+> 0.685 0.439
+> 0.795 0.663
+> 0.648 0.551
+> 0.745 0.687
+> MCC
+> LVI Artefact Seizure 0.0 0.2 0.4 0.6 0.8 1.0
+> 0.795 0.652
+> 0.855 0.736
+> 0.629 0.347
+> 0.781 0.684
+> 0.515 0.458
+> 0.735 0.792
+> Sensitivity
+> Pooled Per-neonate
+> LVI Artefact Seizure 0.0 0.2 0.4 0.6 0.8 1.0
+> 0.973 0.993
+> 0.964 0.991 0.975
+> 0.994 0.976
+> 0.981
+> 0.999 1.000
+> 0.998
+> 1.000
+> Specificity
+> LVI Artefact Seizure 0.0 0.2 0.4 0.6 0.8 1.0
+> 0.969
+> 0.937 0.967
+> 0.954
+> 0.913 0.915
+> 0.964 0.947
+> 0.804 0.833
+> 0.810 0.914
+> Hourly burden r
+> Pooled / Per-neonate /ConvNeXt /U-NeXt
+
+Figure 2. Comparison of U-NeXt and ConvNeXt on development-set validation data. Bars show pooled metrics; diamonds and whiskers show per-neonate medians and interquartile ranges. LVI used a Nano model with 10-fold cross-validation; artefact, Medium with 5-fold cross-validation; seizure, XL with a fixed 80:20 train/validation split. U-NeXt outperformed task-customised ConvNeXt baselines on every task despite using a common configuration. 
+
+shorter than seizures, with more frequent small pauses, while artefacts span both short and long timescales. We therefore construct a loss function that performs well in all of these scenarios using a combination of sample-wise binary cross entropy (BCE) and a symmetric Dice loss. Loss = X
+
+o
+
+wo (αBCE (y , ˆy ) + (1 − α)Dice sy m (y , ˆy )) (1) where Dice sy m is a symmetric variant of the Dice loss given by Dice sy m = 12Dice (y , ˆy ) + 12Dice (1 − y , 1 − ˆy ), (2) and Dice (y , ˆy ) = 1 − 2y ⊙ ˆy + 1 
+
+y + ˆ y + 1 , (3) and y , ˆy are the ground truth and model prediction respectively and ⊙ denotes the Hadamard product. The sum runs over deep-supervision outputs o, with equal weights wo = 0 .5 for the two outputs because alternative weighting schemes showed no clear advantage. The relative weight of the BCE and Dice is controlled by α. The optimal value of this is likely dataset dependent, but for simplicity and to show the generality of the method, we fixed this to be 0.8 for all datasets. The model was right sized for each task, using Nano for LVI, Medium for artefact, and XL for seizure detection (see Table 1). For optimisation we use AdamW with a single cycle of cosine annealing and 5% warmup. We save an exponential moving average (EMA) of the model weights for improved performance and stability. Again, for generality, we fix most hyperparameters across all datasets using a batch size of 128 and β = (0 .9, 0.999) .Weight decay is 0.05 for all tasks. The learning rate, EMA decay, and number of training epochs are adjusted to account for differences in datasets, model sizes, and convergence rates. We train for 500 epochs for LVI, 80 epochs for artefact, and 90 epochs for seizure. Finally, to mitigate the seizure dataset’s approximately 50:1 imbalance, we sampled training batches with a maximum imbalance of 20:1; no other adjustments were made. 
+
+CergenX • preprint 6U-NeXt: neonatal EEG segmentation Research article 
+
+# 3 Results 
+
+3.1 Development set results 
+
+U-NeXt outperforms ConvNeXt on all three tasks (Figure 2). For LVI, U-NeXt achieves a higher pooled MCC (0.821 vs 0.799), indicating better overall detection performance, although ConvNeXt performs better on some individual metrics. Notably, each ConvNeXt baseline was designed with task-specific input lengths, hyperparameters, augmentation, and even minor architectural adaptations such as kernel sizes. U-NeXt used almost the same configuration across datasets to maintain generalisability. The superior performance across all event types and lack of customisation make it likely that the U-NeXt framework will generalise well to other event types of interest. Furthermore, the performance differences are most clear when there is larger headroom above the ConvNeXt models. As described in [9] the ConvNeXt model already does exceptionally well at detecting LVIs so there is relatively little room for improvement. As the task complexity increases, however, the results demonstrate that U-NeXt is the more flexible and capable architecture in these regimes. An example output illustrates the nature of the improvement over ConvNeXt (Figure 3(a)). ConvNeXt detects most seizures but produces a noisier trace and often misses event boundaries due to limited temporal context and output resolution. U-NeXt segments with broader EEG context, producing more coherent probabilities and accurate boundaries that better resemble human annotations. Figure 3(b) shows higher sample sensitivity across event durations, with larger relative gains for shorter events; performance is comparable for the shortest LVIs. Human expert ConvNeXt U-NeXt 10 min 2–5 5–10 10–20 20–60 60–120 ≥120 Duration (s) 050 100 Sensitivity (%) 
+
+> LVI
+> 010 20
+> <5 5–10 10–30 30–60 60–120 ≥120 Duration (s)
+> Artefact
+> 0100 200
+> <20 20–30 30–60 60–120 120–300 300–600 ≥600 Duration (s)
+> Seizure
+> 0150 300
+> Time Seizure probability
+
+a) b)   
+
+> Relative gain (%) ConvNeXt U-NeXt Relative gain (right axes)
+
+Figure 3. (a) ConvNeXt and U-NeXt seizure probabilities with expert annotation over 3.5 hours from one recording. Shading marks positive annotations or predictions at a 0.5 threshold; scale bar indicates 10 minutes. U-NeXt produces a more coherent trace, accurate event boundaries, and better short-event sensitivity. (b) Sample sensitivity by annotated event duration across the three task-specific datasets. Dashed lines show relative sensitivity gains on task-specific right axes. Error bars: 95% percentile intervals from N=3,000 per-neonate bootstrap resamples. 
+
+3.2 Held-out seizure performance 
+
+We next tested whether the gains observed during development translated to seizure detection on the Cork and Helsinki held-out datasets. Table 3 compares ConvNeXt and U-NeXt(+) on these two datasets. Since both datasets are only annotated globally, we need to aggregate the per-channel predictions. Although a simple maximum will result in the highest sensitivity we found that taking the mean of the top 2 channel probabilities before applying a standard > 0.5 threshold gave better overall performance on both datasets. There are undoubtedly more sophisticated methods for learning a global pooling operation, which we do not   
+
+> CergenX • preprint 7U-NeXt: neonatal EEG segmentation Research article
+
+explore here. For reference, we also included the open-source Helsinki SVM neonatal seizure detector [24] 2.Unfortunately, it was impractical to run inference for this model on the larger Cork dataset (see Section 3.4 for further details). 
+
+Table 3. Seizure detection on held-out Helsinki and Cork datasets. U-NeXt models used whole Helsinki recordings and 10-minute Cork segments; Helsinki SVM used leave-one-neonate-out models. FP min/h: false-positive time per hour; FD/h: false detections per hour. Burden MAE: per-neonate mean absolute burden error (min/h). ∆κ: change in inter-rater agreement when replacing one expert with the model; superscripts/subscripts give upper/lower 95% bounds from 10,000 neonate bootstrap resamples. Bold marks best value with U-NeXt models significantly improving on ConvNeXt. 
+
+Helsinki SVM ConvNeXt U-NeXt U-NeXt+ 
+
+Helsinki (n=79) 
+
+MCC 0.697 0.764 0.865 0.862 Pearson’s r 0.649 0.824 0.896 0.884 AUC 0.908 0.982 0.992 0.991 Sens./Spec. (%) 73.2/96.7 72.9/98.5 83.7/ 99.2 84.5 /99.0 PPV/NPV (%) 72.7/96.8 84.9/96.8 92.2 /98.1 90.7/ 98.2 
+
+FP min/h 1.606 0.758 0.417 0.516 Event Sensitivity (%) 70.7 69.4 72.4 76.3 
+
+FD/h 1.036 0.459 0.225 0.274 Burden r (per neonate) 0.790 0.810 0.968 0.957 Burden r (hourly) 0.690 0.739 0.948 0.956 
+
+Burden MAE: seizure ( n = 39 ) 3.259 3.333 2.038 2.301 Burden MAE: no seizure ( n = 40 ) 2.214 1.370 0.623 0.542 
+
+∆κ (95% CI) −0.109 −0.028  
+
+> −0.189
+
+−0.082 +0 .002  
+
+> −0.156
+
+−0.022 +0 .022  
+
+> −0.064
+
+−0.021 +0 .023 
+
+> −0.061
+
+Cork (n=51) 
+
+MCC — 0.739 0.783 0.891 
+
+Pearson’s r — 0.766 0.789 0.875 
+
+AUC — 0.996 0.998 0.999 
+
+Sens./Spec. (%) — 88.9/99.2 92.8/99.3 94.7 /99.7 
+
+PPV/NPV (%) — 62.0/99.8 66.6/ 99.9 84.1 /99.9 
+
+FP min/h — 0.470 0.404 0.157 
+
+Event Sensitivity (%) — 94.9 93.5 93.6 FD/h — 0.363 0.252 0.110 
+
+Burden r (per neonate) — 0.801 0.884 0.991 
+
+Burden r (hourly) — 0.667 0.754 0.937 
+
+Burden MAE: seizure ( n = 20 ) — 0.714 0.491 0.159 
+
+Burden MAE: no seizure ( n = 31 ) — 0.126 0.109 0.051 
+
+∆κ (95% CI) — −0.094 +0 .005  
+
+> −0.189
+
+−0.065 +0 .004  
+
+> −0.130
+
+−0.006 +0 .012 
+
+> −0.025
+
+U-NeXt improves substantially upon the previous state-of-the-art ConvNeXt model across a diverse set of metrics. Notably, we see large improvements in the estimation of seizure burden, with a 30–40% relative improvement over ConvNeXt in the correlation between the predicted and true seizure burden. We also report seizure burden mean absolute error (MAE), the mean absolute difference between predicted and reference burden. For U-NeXt+ on Cork, this is <10 s/h for neonates with seizures and approximately 3 s/h for those without. The event-aware segmentation of U-NeXt versus the short-segment classification approach of ConvNeXt as discussed in Section 3.1 can give some explanation for this improvement. This improvement is clinically important because seizure burden is associated with neurodevelopmental outcome [25] and initial treatment response [26]. The additional training data for U-NeXt+ led to substantial improvements over U-NeXt on Cork, but smaller gains on Helsinki. We suspect that this reflects Helsinki’s shorter total recording duration (112 hours) and these models approaching its performance ceiling. Further improvements may be difficult to assess with the existing 3 reviewers but there might still be value in comparing to a more robust consensus formed by a larger group of reviewers.   
+
+> 2Results were generated using the leave-one-baby-out models in the Helsinki neonatal seizure detector repository. A variant is commercially available in the EU as part of the ANT Neo device. CergenX • preprint 8U-NeXt: neonatal EEG segmentation Research article
+
+We also tested for expert-level equivalence. There have been several published methods for such a test that are comprehensively described and evaluated in [27]. Here we found U-NeXt+ to be equivalent to experts on 2 variants of the most reliable test which measures the impact of replacing an expert with the AI on the level of inter-rater agreement, ∆κ (see Table 3). In the first test, if ∆κ is statistically consistent with 0, then the model is deemed to be expert-level i.e. failing to reject the null hypothesis that the model is equivalent (U-NeXt+ p = 0 .368 for Helsinki and p = 0 .470 for Cork; expert equivalent). A legitimate criticism is that failing to detect a difference does not establish equivalence. Alternatively, the same ∆κ distribution supports a non-inferiority test with a margin set by the margin of error in inter-rater agreement. In this framing, rejecting the null hypothesis of model inferiority supports expert equivalence (U-NeXt+ p < 0.001 for both Helsinki and Cork; expert equivalent). In practical terms the former test is a constraint on the upper CI of the ∆κ
+
+distribution whereas the latter constrains the lower CI. 
+
+3.3 Clinical significance of false detections 
+
+One metric that is particularly salient to end users is the number of false detections. This is commonly reported as the hourly number of distinct prediction events with no overlap with a true event (FD/h in Table 3). This is clinically relevant to alarm disruption, unnecessary specialist reviews, and treatment decision-support reliability. However, FD/h is sensitive to small model changes and post-processing details. We can illustrate this by considering the case of a prediction that is improved to contain less false-positive time overall but fragments one false detection into several. Figure 4(a) shows this for a real case of a false positive on Cork where the FD/h was tripled despite a reduction in total false-positive time when moving from ConvNeXt to U-NeXt. Clearly the U-NeXt prediction is preferable but selecting for FD/h only would be misleading. The focus on FD/h therefore incentivises post-processing techniques which result in long contiguous events e.g. adding a prediction "collar" [11, 24, 28]. This however will necessarily introduce systematic bias in seizure burden estimation. In [8] we argued for minimal post-processing and we further improved that here (see Sec. 2.4) because we wanted to avoid such biases and keep the models as generalisable as possible. ConvNeXt Time U-NeXt 30 s 0 1 2 3 4 5 6 7 8 9 10 Silence after each alarm (min) 020 40 60 80 100 False alarms / false detections (%)      
+
+> Minimum event duration 10 s 20 s 30 s Cork Helsinki Cork Helsinki 0.0 0.5 1.0 1.5 False detections / hour
+> Expert vs Expert U-NeXt+ vs Expert Cork Helsinki 020 40 60 80 Event sensitivity (%)  Seizure prediction
+
+(a) (b) (c) 
+
+Figure 4. (a) False-positive fragmentation in a seizure-free interval. ConvNeXt produces one detection; U-NeXt produces three but with 29.6% less false-positive time. The U-NeXt prediction is better but triples FD/h. (b) Impact of alarm configuration (minimum event duration and post-alarm silence period) on false alarms vs false detections in the prediction mask. Reasonable values can reduce false alarms by approximately 50% relative to FD/h. (c) Comparison of inter-rater FD/h and event sensitivity with model performance when using the same expert reference. The points and error bars show the mean and standard deviation across reference-rater choices; individual data points are shown for each reference choice. 
+
+FD/h should therefore be supplemented by measures such as false-positive minutes per hour (FP min/h in Table 3). More importantly, we can directly address the clinical concern of false-alarm disruption by separating alarms from detections. First, an alarm can be configured to require a minimum event duration. In   
+
+> CergenX • preprint 9U-NeXt: neonatal EEG segmentation Research article
+
+addition, if staff identify a false detection, for example from artefactual EEG, they can silence subsequent alarms for a configurable period, such as 5 minutes. In Figure 4(b) we show some reasonable options for this configuration which can reduce alarms by approximately 50% without compromising the underlying model through aggressive post-processing. Inter-rater disagreement provides further context. In Figure 4(c), each expert’s annotation serves as the reference for the other experts and model predictions. When comparing the average over all references we see that U-NeXt+ is comparable to the experts on Cork but has approximately 50% less inter-rater FD/h on Helsinki (albeit at the cost of lower event sensitivity). This is consistent with the expert-level equivalence test in Section 3, which suggests that even when the model disagrees with the unanimous consensus, there may be other reviewers that would agree with the model 3.Finally, we consider the model’s potential role in clinical workflows. For example, seizure burden thresholds could prompt EEG review by a neurophysiologist or support decisions about antiseizure treatment. We use 0.5 min/h, proposed for neonatal treatment trials [29], and 12 min/h, used in ACNS critical-care terminology [30]. We apply these thresholds to majority-consensus annotations to label 1-hour EEG segments as positive (at or above threshold) and negative (below threshold). Table 4 reports results for Cork and Helsinki. We see that U-NeXt is able to achieve high performance for both thresholds. Notably, on Cork, whose long-duration recordings are typical of a clinical setting, we see extremely high NPVs of 99.0% and 99.6% for the 0.5 min/h and 12 min/h thresholds respectively, suggesting the model could be a reliable safety net in resource constrained settings.  
+
+> Table 4. Seizure-burden threshold classification against majority-consensus annotations. Segments are 1 h where possible (minimum 20 min; mean 59.4 min Cork, 53.9 min Helsinki). Error MAE: mean absolute predicted–reference burden difference (min/h), over FP/FN segments only.
+
+TP FP FN TN Sens. Spec. PPV NPV MCC Error MAE (min/h) 
+
+Cork 
+
+≥ 0.5 min/h ConvNeXt 301 129 29 2103 91.2 94.2 70.0 98.6 0.766 6.53 U-NeXt 304 140 26 2092 92.1 93.7 68.5 98.8 0.760 4.84 U-NeXt+ 309 96 21 2136 93.6 95.7 76.3 99.0 0.820 3.18 Cork 
+
+≥ 12 min/h ConvNeXt 61 37 14 2450 81.3 98.5 62.2 99.4 0.702 21.06 U-NeXt 63 36 12 2451 84.0 98.6 63.6 99.5 0.722 17.22 U-NeXt+ 65 20 10 2467 86.7 99.2 76.5 99.6 0.808 10.59 Helsinki 
+
+≥ 0.5 min/h Helsinki SVM 56 21 6 35 90.3 62.5 72.7 85.4 0.554 6.54 ConvNeXt 50 5 12 51 80.6 91.1 90.9 81.0 0.718 10.58 U-NeXt 53 5 9 51 85.5 91.1 91.4 85.0 0.765 5.08 U-NeXt+ 55 5 7 51 88.7 91.1 91.7 87.9 0.797 3.17 Helsinki 
+
+≥ 12 min/h Helsinki SVM 14 3 16 85 46.7 96.6 82.4 84.2 0.536 17.33 ConvNeXt 18 2 12 86 60.0 97.7 90.0 87.8 0.670 14.49 U-NeXt 19 1 11 87 63.3 98.9 95.0 88.8 0.722 8.99 U-NeXt+ 23 1 7 87 76.7 98.9 95.8 92.6 0.817 6.85 
+
+3.4 Inference performance 
+
+We compared model inference costs to quantify U-NeXt’s efficiency gains. FLOP counts (Table 1) allow hardware-independent comparison but do not convey practical speedups or account for ConvNeXt’s >98% inference overlap, which U-NeXt does not require. To make it more tangible we benchmarked seizure-model batch inference on 1 hour of the 18-channel Helsinki EEG. We benchmarked PyTorch Lightning implementations of ConvNeXt and U-NeXt on the CPU and GPU of a 2023 MacBook Pro M2 Max. The resulting 
+
+∼ 200 × gains are summarised in Figure 5(a). For 1 hour of 18-channel EEG the total compute was 1.14 TFLOPs for U-NeXt vs 268.1 for ConvNeXt. These totals use 259,200 overlapping 16 s windows for ConvNeXt (0.25 s stride) and, per channel, fourteen 256 s windows plus a final 16 s window for U-NeXt, giving a 236-fold compute reduction. Median inference times over 3 runs were 30 s vs 2 h 7 min on CPU or 0.78 s vs 2 min 37 s     
+
+> 3An important qualifier here is that we have not shown equivalence in the types of mistakes the models make compared with those made by experts. It may be the case that model failure modes lie outside the distribution of mistakes made by experts. CergenX • preprint 10 U-NeXt: neonatal EEG segmentation Research article CPU speedup GPU speedup Compute reduction 050 100 150 200 250 U-NeXt improvement over ConvNeXt  254× 200× 236×
+> Efficiency gains
+> -0.04 -0.02 0.00
+> Δ MCC -0.04 -0.02 0.00
+> Δ Burden R 0.00 0.20 0.40
+> Δ Burden MAE (min/h) 16 64 256 1024 4096 -0.03 -0.02 -0.01 0.00
+> Δ Pearson's R 16 64 256 1024 4096 -0.10 -0.05 0.00
+> Δ Sensitivity 16 64 256 1024 4096 -0.010 -0.005 0.000
+> Δ AUC Segment size (s)
+
+(a) (b) Pooled change from 256 s Bootstrap IQR (25–75%) 
+
+Figure 5. (a) U-NeXt inference-time and compute gains over ConvNeXt for seizure detection on 1 hour of 18-channel EEG from Helsinki. (b) Effect of input segment size on U-NeXt seizure detection on Helsinki, relative to the 256 s training length. Burden metrics are calculated hourly. Shading shows interquartile ranges from N=5,000 neonate bootstrap resamples, each relative to its own 256 s baseline. On the logarithmic segment-size axis, performance improves rapidly from very short segments with limited EEG context, then stabilises with modest gains for longer segments. 
+
+on GPU. For comparison the open-source MATLAB implementation of the Helsinki SVM took 4.5 hours on CPU. Although this is likely not optimised, due to the nature of the feature calculation it is not readily amenable to GPU acceleration, which is trivial for CNNs with modern frameworks. As a result, we did not evaluate the Helsinki SVM on Cork because it would have taken ∼ 212 days to complete. Both ConvNeXt and U-NeXt can process multi-channel EEG faster than it is recorded, but ConvNeXt may require a GPU or multiple CPUs processing channels in parallel. U-NeXt achieves real-time inference on one CPU by producing 4 Hz predictions in a single forward pass that would require many forward passes for ConvNeXt. These comparisons were made for batch processing. Live inference would benefit from more frequent updates, with some lag to limit pre-processing filter edge effects and allow smoothing. Classification models such as ConvNeXt also require lag because predictions nominally refer to segment centres: a 16 s window requires 8 s of future EEG. U-NeXt’s fully convolutional architecture allows variable segment sizes at inference. Figure 5(b) shows that longer segments give modest performance improvements, likely because they provide more temporal context, further supporting the move away from short-segment classification. A deployed model should therefore retain some recent EEG context, which will reintroduce some overlap and increase computational cost. 
+
+3.5 Reduced montage detection 
+
+Helsinki and Cork use 18- and 8-channel montages, respectively, whereas long-duration neonatal clinical monitoring commonly uses reduced channel montages such as 2 channels for amplitude-integrated EEG (aEEG) systems. As was the case for ConvNeXt, the per-channel training lets U-NeXt accommodate different montages. In Figure 6 we show the performance of U-NeXt+ on Cork with different reduced channel config-urations. As expected, we see some degradation in sensitivity due to localised seizures occurring outside the retained channels, but even with just two central channels, the model retains more than 80% of the eight-channel event sensitivity. Notably, overall MCC (Figure 6(c)) remains remarkably stable because the increase in PPV offsets the decrease in sensitivity. This analysis suggests that the model can be usefully deployed in reduced channel settings with the important caveat that focal seizures outside the retained channels can be missed.                   
+
+> CergenX • preprint 11 U-NeXt: neonatal EEG segmentation Research article F3 F4 T3 C3 Cz C4 T4 O1 O2
+> Channels retained Channel group 8642Fronto-central Centro-occipital Centro-temporal Central 8642Number of channels −30 −20 −10 010 20 30 Change from 8 channels (pp)
+> Sensitivity Specificity NPV PPV Event sensitivity 8642Number of channels -0.10 -0.05 0.00 0.05 0.10 Change in MCC from 8 channels
+> Pooled change Bootstrap IQR (25–75%)
+
+(a) (b) (c) 
+
+Figure 6. Reduced-montage performance of U-NeXt+ on Cork (51 neonates). (a) Bipolar derivations and channel groups retained in each montage. (b) Changes in sample-based sensitivity, specificity, NPV, PPV, and event sensitivity, in percentage points. With two central channels, event sensitivity is 82.2% of its eight-channel value. A reference event is detected if it overlaps any predicted positive interval on the unanimous-consensus timeline. (c) Change in MCC. Changes are relative to the eight-channel reference montage. All configurations use maximum aggregation across retained channels. Shading shows pointwise interquartile range from N = 5 , 000 neonate bootstrap resamples, each compared with its own eight-channel result. 
+
+# 4 Discussion 
+
+We have introduced U-NeXt, a new general-purpose event detector for neonatal EEG. It improves upon our previous ConvNeXt models, which are state of the art in both LVI [9] and seizure detection [8], along several axes. First, it comprehensively outperforms the ConvNeXt model on 3 different tasks: LVI, artefact, and seizure detection. It does this while also being far more general, without the need to tune the architecture, hyperparameters, or post-processing to a particular task. It sets a new state-of-the-art result for neonatal seizure detection on Helsinki, achieves expert-level performance on both Helsinki and Cork, and produces high-fidelity estimates of key clinical markers like seizure burden [25, 26]. Finally, we demonstrate a significantly more computationally efficient model with ∼250 × speedup vs ConvNeXt models for batch inference. Much of the literature has focused on treating event detection as a classification problem through short-time analysis. By contrast, experts perform semantic segmentation by annotating event start and end times in continuous EEG. Rather than discard this detail, we use these sample annotations directly as a rich training signal. The resulting model detection masks are much more human-like than those produced by previous approaches with smooth, coherent detections and accurate start and end times. This also improved detection sensitivity across event types, including short events that are challenging for experts and automated systems alike [31]. As in our previous work, we use per-channel modelling, which, although costly, improves training-signal quality and prediction flexibility. We demonstrate that with just 2 of 8 channels, U-NeXt retained remarkably stable MCC and more than 80% of the eight-channel event sensitivity, although focal seizures outside the retained channels could be missed. We also explored the practical clinical implications of reported false detections. Although important and of great interest to clinicians, FD/h can misrepresent performance and clinical impact. False detections should not be equated with false alarms: FD/h can overestimate the false-alarm rate by a factor of 2 or more. We also highlighted that it should always be reported in the context of inter-rater false detections, which we found to be comparable to U-NeXt on Cork but twice as large on Helsinki. Finally, when used in the context of decision support based on seizure burden, U-NeXt had remarkably good performance with a sensitivity/specificity of 86.7%/99.2% at a threshold of 12 min/h on Cork. This suggests that U-NeXt could be a valuable adjunct decision support tool for cotside caregivers when EEG expertise is unavailable or delayed. This study is not without limitations. Despite its improved generality, the framework still requires a separate model for each task. Disjoint annotations and differences in dataset scale complicate joint training. Training one large model, for example for seizure detection, then fine-tuning for other tasks may be feasible, but was not explored here. Another area for improvement would be testing with additional event types to further   
+
+> CergenX • preprint 12 U-NeXt: neonatal EEG segmentation Research article
+
+assess the framework’s generality. We selected LVI, artefact, and seizure detection for their clinical utility and diverse durations and morphologies, although many event types remain untested. The artefact dataset itself has events that vary widely in duration and morphology, ranging from brief transients to sustained periodic patterns and irregular, noise-like activity. It is promising, therefore, that this architecture would also work well on other event types. These results demonstrate the value of end-to-end learning, generality, and scale. Removing hand-crafted features, overly customised post-processing, and task-specific model adaptations can produce a high-performance, general-purpose event detector design. This can then adapt quickly to new tasks without architectural redesign. 
+
+# Acknowledgements 
+
+This work was supported under Grant DT 2023 435 by the Disruptive Technologies Innovation Fund (DTIF), administered by Enterprise Ireland, which had no role in study design, data collection, analysis or interpretation, or manuscript preparation. 
+
+# Competing Interests 
+
+All authors are affiliated with CergenX Ltd., a University College Cork spin-out developing neonatal neuromon-itoring technologies: G.B. and S.G. are co-founders; R.H., A.L. and J.O.T. are employees; and S.M. and S.V. were independent consultants. G.B. and S.G. are founders of Kephala Ltd., and S.M. is a consultant. G.B. also provides consultancy to Realta Lifesciences through University College Cork. 
+
+# References 
+
+[1] Lee, A. C. et al. Intrapartum-related neonatal encephalopathy incidence and impairment at regional and global levels for 2010 with trends from 1990. Pediatric Research 74 , 50–72 (2013). [2] Steinmetz, J. D. et al. Global, regional, and national burden of disorders affecting the nervous system, 1990–2021: a systematic analysis for the Global Burden of Disease Study 2021. The Lancet Neurology 
+
+23 , 344–381 (2024). [3] Kukka, A. J. et al. Incidence and outcomes of intrapartum-related neonatal encephalopathy in low-income and middle-income countries: a systematic review and meta-analysis. BMJ Global Health 7,e010294 (2022). [4] Proietti, J., O’Toole, J. M., Murray, D. M. & Boylan, G. B. Advances in electroencephalographic biomarkers of neonatal hypoxic ischemic encephalopathy. Clinics in Perinatology 51 , 649–663 (2024). [5] Chioma, R. et al. Applications of artificial intelligence in neonatology. Applied Sciences 13 , 3211 (2023). [6] Keles, E. & Bagci, U. The past, current, and future of neonatal intensive care units with artificial intelli-gence: a systematic review. npj Digital Medicine 6, 220 (2023). [7] Sullivan, B. A. et al. Transforming neonatal care with artificial intelligence: challenges, ethical considera-tion, and opportunities. Journal of Perinatology 44 , 1–11 (2024). [8] Hogan, R. et al. Scaling convolutional neural networks achieves expert level seizure detection in neonatal EEG. npj Digital Medicine 8, 17 (2025). [9] O’Toole, J. M. et al. Expert-level detection of low-voltage intervals in EEG as a robust biomarker of neonatal encephalopathy. arXiv preprint arXiv:2610.12680 (2026). URL https://arxiv.org/abs/2610.126 80.   
+
+> CergenX • preprint 13 U-NeXt: neonatal EEG segmentation Research article
+
+[10] Raurale, S. A., Boylan, G. B., Lightbody, G. & O’Toole, J. M. Identifying tracé alternant activity in neonatal EEG using an inter-burst detection approach. Proc Annu Int Conf IEEE Eng Med Biol Soc 5984–5987 (2020). [11] Temko, A., Thomas, E., Marnane, W., Lightbody, G. & Boylan, G. B. Performance assessment for EEG-based neonatal seizure detectors. Clinical Neurophysiology 122 , 474–482 (2011). URL https://doi.org/ 10.1016/j.clinph.2010.06.035. [12] Webb, L., Kauppila, M., Roberts, J. A., Vanhatalo, S. & Stevenson, N. J. Automated detection of artefacts in neonatal EEG with residual neural networks. Computer Methods and Programs in Biomedicine 208 ,106194 (2021). URL http://dx.doi.org/10.1016/j.cmpb.2021.106194. [13] Gramacki, A. & Gramacki, J. A deep learning framework for epileptic seizure detection based on neonatal EEG signals. Scientific Reports 12 , 13010 (2022). URL https://doi.org/10.1038/s41598-022-15830-2. [14] Seeuws, N., De Vos, M. & Bertrand, A. Avoiding post-processing with event-based detection in biomedical signals. IEEE Transactions on Biomedical Engineering 71 , 2442–2453 (2024). URL http://dx.doi.org/10. 1109/TBME.2024.3375759. [15] Stevenson, N. J., O’Toole, J. M., Korotchikova, I. & Boylan, G. B. Artefact detection in neonatal EEG . 2014 36th Annual International Conference of the IEEE Engineering in Medicine and Biology Society, 926–929 (IEEE, 2014). URL http://dx.doi.org/10.1109/EMBC.2014.6943743. [16] Tsuchida, T. N. et al. American Clinical Neurophysiology Society standardized EEG terminology and categorization for the description of continuous EEG monitoring in neonates: Report of the American Clinical Neurophysiology Society Critical Care Monitoring Committee. Journal of Clinical Neurophysiology 
+
+30 , 161–173 (2013). [17] Pavel, A. M. et al. A machine-learning algorithm for neonatal seizure recognition: a multicentre, ran-domised, controlled trial. The Lancet Child & Adolescent Health 4, 740–749 (2020). URL https: //pubmed.ncbi.nlm.nih.gov/32861271/. [18] Stevenson, N. J., Tapani, K., Lauronen, L. & Vanhatalo, S. A dataset of neonatal EEG recordings with seizure annotations. Sci Data 6, 1–8 (2019). [19] Korotchikova, I., Connolly, S., Ryan, C. A. et al. EEG in the healthy term newborn within 12 hours of birth. 
+
+Clin Neurophysiol 120 , 1046–53 (2009). [20] Korotchikova, I., Stevenson, N. J., Livingstone, V., Ryan, C. A. & Boylan, G. B. Sleep–wake cycle of the healthy term newborn infant in the immediate postnatal period. Clin Neurophysiol 127 , 2095–2101 (2016). [21] Garvey, A. A., Pavel, A. M., O’Toole, J. M. et al. Multichannel EEG abnormalities during the first 6 hours in infants with mild hypoxic–ischaemic encephalopathy. Pediatr Res 90 , 117–124 (2021). [22] DeVries, T. & Taylor, G. W. Improved regularization of convolutional neural networks with cutout. arXiv preprint arXiv:1708.04552 (2017). [23] Azad, R. et al. Loss functions in the era of semantic segmentation: A survey and outlook. arXiv preprint arXiv:2312.05391 (2023). [24] Tapani, K. T., Vanhatalo, S. & Stevenson, N. J. Time-varying EEG correlations improve automated neonatal seizure detection. International Journal of Neural Systems 29 , 1850030 (2019). [25] Kharoshankaya, L. et al. Seizure burden and neurodevelopmental outcome in neonates with hypoxic– ischemic encephalopathy. Developmental Medicine & Child Neurology 58 , 1242–1248 (2016). URL https://doi.org/10.1111/dmcn.13215. [26] Numis, A. L. et al. Relationship of neonatal seizure burden before treatment and response to initial antiseizure medication. The Journal of Pediatrics 268 , 113957 (2024). URL https://doi.org/10.1016/j.jp eds.2024.113957.   
+
+> CergenX • preprint 14 U-NeXt: neonatal EEG segmentation Research article
+
+[27] Kljajic, J., O’Toole, J. M., Hogan, R. & Skoric, T. Honest and reliable evaluation and expert equivalence testing of automated neonatal seizure detection. Medical Engineering & Physics 147 , 095024 (2026). URL https://doi.org/10.1088/1873-4030/aea852. [28] O’Shea, A., Lightbody, G., Boylan, G. & Temko, A. Neonatal seizure detection from raw multi-channel EEG using a fully convolutional architecture. Neural Networks 123 , 12–25 (2020). URL https://doi.org/ 10.1016/j.neunet.2019.11.023. [29] Soul, J. S. et al. Recommendations for the design of therapeutic trials for neonatal seizures. Pediatric Research 85 , 943–954 (2019). [30] Hirsch, L. J. et al. American Clinical Neurophysiology Society’s standardized critical care EEG terminology: 2021 version. Journal of Clinical Neurophysiology 38 , 1–29 (2021). [31] Stevenson, N. J. et al. Interobserver agreement for neonatal seizure detection using multichannel EEG. 
+
+Annals of Clinical and Translational Neurology 2, 1002–1011 (2015). URL https://doi.org/10.1002/acn3 .249.
