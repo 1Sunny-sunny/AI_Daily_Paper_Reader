@@ -1,0 +1,1980 @@
+MM-Net: A Multimodal Multi-Task Network for Sleep Staging and
+Sleep Apnea Assessment After Ischemic Stroke
+Md Wahiduzzaman Suvaa, Esm E Moula Chowdhury Abhaa, Md Imtiaj Alam Sajina, Md
+Iftekharul Mobina,∗and Jia Uddind
+aDepartment of Computer Science and Engineering, American International University-Bangladesh, Dhaka, 1229, Bangladesh
+dAI and Big Data Department, Woosong University, Daejeon, Republic of Korea
+A R T I C L E I N F O
+Keywords:
+Sleep staging
+sleep apnea
+ischemic stroke
+polysomnography
+EEG representation learning
+multi-task learning
+A B S T R A C T
+Automated polysomnography after ischemic stroke presents challenges arising from altered
+sleep-related neural activity and concurrent respiratory disturbances. Existing stroke-specific
+approaches have primarily addressed sleep-stage classification, leaving the joint analysis of sleep
+architecture and respiratory events insufficiently investigated. Furthermore, adapting pretrained
+EEG encoders introduces a representation inconsistency when downstream models are trained on
+embeddings from previously observed patients but evaluated on unseen individuals. We propose
+MM-Net, a multimodal multi-task framework that addresses this inconsistency through cross-
+fitting and ridge-based embedding alignment. Sleep-adapted EEG–EOG representations and en-
+gineered neural descriptors are integrated with learned cardiorespiratory features through cross-
+attention and shared temporal modeling to support simultaneous sleep staging and respiratory-
+event detection. On iSLEEPS, comprising 99 patients with subacute ischemic stroke, ten-fold
+patient-independent evaluation achieved 76.3% sleep-staging accuracy (Cohen’s 𝜅= 0.656) and
+0.825 respiratory-event AUC, outperforming the evaluated baselines under matched protocols.
+Controlled experiments showed that the sleep-adapted encoder improves the downstream model
+when its embeddings are aligned, raising staging accuracy by 1.4 percentage points over
+the frozen encoder (𝑝= 0.020), against 0.2 points without alignment. The framework also
+achieved 86.4% staging accuracy on healthy Sleep-EDF, above every single-EEG architecture
+reimplemented on the same recordings, and 80.3% staging accuracy with 0.889 respiratory AUC
+on ISRUC-I, exceeding its retrained staging baselines. Without retraining, the iSLEEPS-trained
+model retained respiratory AUCs of 0.833 on ISRUC-I and 0.841 on UCD. These findings
+support representation-consistent neural adaptation and joint physiological modeling across
+stroke, healthy-sleep, and sleep-disorder cohorts.
+1. Introduction
+Sleep disturbances are common after ischemic stroke and have been associated with neurological recovery
+and functional outcomes [1–4]. Sleep-disordered breathing is particularly prevalent in this population, making the
+assessment of sleep architecture and respiratory disturbance relevant to post-stroke evaluation. Polysomnography
+(PSG) records the physiological information required for both assessments, including electroencephalographic (EEG),
+electrooculographic (EOG), electromyographic (EMG), respiratory, and cardiovascular signals. Sleep-stage scoring
+primarily depends on neural and muscular activity, whereas respiratory-event identification relies on changes in
+ventilation, respiratory effort, oxygen saturation, and related physiological responses. Their concurrent analysis
+therefore requires a model capable of learning from heterogeneous signals whose relevance differs across prediction
+tasks.
+Automated sleep staging has progressed from convolutional and recurrent architectures to attention-based sequence
+models and pretrained neural representations [5–12]. Multimodal approaches have expanded this direction by inte-
+grating physiological signals, temporal context, and complementary representations. Recent studies, including MMS-
+SleepNet [13] and CrossFusionSleepNet [14], demonstrate the growing use of physiological knowledge, modality-
+specific encoding, and attention-based fusion for sleep staging. Respiratory-event detection has developed alongside
+∗Corresponding authors: M. I. Mobin (iftekhar.mobin@aiub.edu)
+26-94088-2@student.aiub.edu (M.W. Suva); 26-94089-2@student.aiub.edu (E.E.M.C. Abha);
+26-94090-2@student.aiub.edu (M.I.A. Sajin); iftekhar.mobin@aiub.edu (M.I. Mobin); jia.uddin@wsu.ac.kr (J. Uddin)
+ORCID(s): 0009-0007-6227-7282 (M.W. Suva); 0009-0008-3776-2283 (E.E.M.C. Abha); 0009-0009-2423-1835 (M.I.A. Sajin);
+0000-0002-3065-2486 (M.I. Mobin); 0000-0002-3403-4095 (J. Uddin)
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 1 of 24
+arXiv:2610.36583v1  [cs.LG]  27 Oct 2026
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+these methods, and joint approaches have established the feasibility of predicting sleep stages and respiratory events
+within a shared framework. Huttunen et al. [15] evaluated simultaneous scoring in 877 clinical PSG recordings, while
+subsequent multi-task models have investigated related problems in other sleep populations [16]. These developments
+establish a methodological foundation for joint sleep analysis, although their evaluation has primarily involved general
+sleep-disorder, suspected-apnea, or elderly cohorts.
+The application of these methods to ischemic stroke introduces additional physiological and computational consid-
+erations. Cerebrovascular injury can alter sleep spindles, slow-wave activity, and hemispheric EEG characteristics [17–
+22], potentially affecting representations learned from healthy or conventional sleep-disorder populations. The recently
+released iSLEEPS dataset [23] provides multimodal overnight PSG recordings from 100 patients with ischemic
+stroke, including expert annotations of sleep stages and respiratory events. Its initial analysis established sleep-staging
+baselines for this population. Bose et al. [24] subsequently investigated the generalization of EEG-based staging
+models between healthy and stroke cohorts, reporting performance degradation and changes in the physiological
+patterns emphasized by the model. More recently, Alhazmi [25] introduced SleepStageNet, a compact five-channel
+staging architecture evaluated on 95 iSLEEPS recordings, together with physiological attribution analyses and transfer
+to an independent healthy-sleep cohort. Collectively, these studies have advanced stroke-specific sleep classification
+and demonstrated the importance of population-dependent evaluation. The joint prediction of sleep architecture and
+respiratory-event onset from stroke PSG, however, remains insufficiently investigated.
+This gap also raises a question concerning the organization of multimodal physiological information. Neural and
+cardiorespiratory signals provide different evidence for sleep state and respiratory disturbance, although both tasks
+depend on temporal context and interactions among physiological systems. A shared model must therefore integrate
+information across modalities while retaining features relevant to individual outputs. Furthermore, respiratory-event
+annotations are closely associated with recorded airflow and respiratory-effort signals. Improved discrimination
+from multimodal inputs cannot, by itself, establish whether a model has learned complementary physiological
+relationships or relies predominantly on channels directly associated with event scoring. Controlled modality and
+channel interventions are necessary to distinguish these contributions and characterize the dependence of each task
+on its available signals.
+A separate methodological difficulty arises when pretrained EEG encoders are adapted to a clinical cohort
+and subsequently used to train a downstream prediction model. Adaptation can improve the relevance of learned
+representations to post-stroke sleep, but embeddings generated for patients used during encoder training may differ
+from those produced for previously unseen patients. Cross-fitting addresses the in-sample dependence by generating
+downstream training embeddings from encoders that have not observed the corresponding patients, consistent with
+the cross-fitting principle of double machine learning [26]. However, independently adapted encoders may produce
+representations in different feature spaces, introducing an additional inconsistency with the encoder used at deployment.
+Consequently, reliable integration requires both out-of-sample representation generation and alignment with the
+deployed encoder’s embedding space. The contribution of these operations can be evaluated directly through controlled
+encoder-integration comparisons.
+To address these problems, we develop MM-Net, a multimodal multi-task framework for joint sleep-stage
+classification and respiratory-event-onset detection. The neural stream combines physiologically defined descriptors
+with embeddings from a sleep-adapted LaBraM encoder [9]. Cross-fitting produces out-of-sample representations
+for downstream training, and ridge-based alignment maps these representations into the embedding space of the
+encoder used for inference. A complementary convolutional stream extracts information directly from cardiorespiratory
+waveforms. Cross-attention and bidirectional temporal modeling integrate the representations, while task-specific
+prediction pathways support five-class sleep staging and respiratory-event scoring. A direct cardiorespiratory pathway
+preserves respiratory information for event detection, and the resulting scores additionally support patient-level apnea–
+hypopnea index estimation.
+We evaluate the framework using patient-independent protocols across stroke, healthy-sleep, and sleep-disorder
+populations. The primary analysis uses 99 iSLEEPS patients, supported by matched staging and respiratory baselines,
+controlled encoder comparisons, and physiological signal interventions. Controlled experiments further establish
+the contribution of embedding alignment to sleep-adapted encoder integration. To examine applicability beyond
+the development population, the framework is separately evaluated on Sleep-EDF and ISRUC-Sleep. Additional
+experiments assess transfer of the iSLEEPS-trained model to independent cohorts without retraining. Together,
+these evaluations investigate both the methodological contribution of representation-consistent adaptation and the
+applicability of joint physiological modeling across different sleep populations.
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 2 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+The principal contributions of this study are threefold:
+1. Representation-consistent integration of sleep-adapted EEG features. We address the mismatch arising when an
+EEG encoder adapted on training patients supplies representations to a downstream model evaluated on unseen
+patients. A cross-fitting and embedding-alignment procedure integrates out-of-sample neural representations
+into a common deployment space, enabling the downstream framework to benefit from sleep-specific adaptation
+without relying on in-sample encoder outputs during training.
+2. Task-specialized multimodal modeling of post-stroke sleep physiology. We develop a unified framework for
+sleep-stage classification and respiratory-event detection that combines neural and cardiorespiratory represen-
+tations through shared temporal modeling while retaining task-specific respiratory information. This design
+enables concurrent characterization of sleep architecture and respiratory disturbances in subacute ischemic
+stroke, with patient-level AHI estimation as an additional output.
+3. Evidence for physiological specialization and cross-cohort applicability. Through controlled signal interventions
+and patient-independent evaluations, we examine the dependence of each prediction task on its physiological
+inputs and establish the performance of the integrated framework against matched baselines. Independent-cohort
+experiments further assess the transfer of the learned representations beyond the stroke population.
+The remainder of this paper presents the related literature, datasets, proposed methodology, experimental evalua-
+tion, and discussion of the findings.
+2. Related Work
+2.1. Automatic Sleep Staging
+Automatic sleep staging has progressed from feature-based classifiers to deep models that learn temporal and
+spectral representations directly from PSG signals. DeepSleepNet combines convolutional feature extraction with
+recurrent sequence modeling [5], and SeqSleepNet formulates sleep staging as sequence-to-sequence classification
+across consecutive epochs [6]. AttnSleep uses multi-resolution convolution and attention to capture complementary
+temporal characteristics [7], and TinySleepNet reduces model complexity while retaining recurrent modeling of stage
+transitions [8]. U-Time approaches staging as dense time-series segmentation [27], whereas XSleepNet combines
+raw-signal and spectral representations within a common sequence model [28].
+More recent work has expanded the range of temporal models and learned representations. SleepTransformer
+applies attention-based sequence modeling
+[29], L-SeqSleepNet extends modeling across longer sleep-stage se-
+quences [30], and ZleepAnlystNet and FlexSleepTransformer investigate alternative training strategies and flexible
+channel configurations
+[31, 32]. State-space architectures based on Mamba have also been explored for sleep
+staging [33, 34]. In parallel, large pretrained EEG models such as LaBraM, CBraMod, EEGPT, and BIOT provide
+representations learned from substantially larger collections of neural recordings [9–12]. Such encoders are typically
+used frozen or fine-tuned end to end for a single task. Using a fine-tuned encoder as the input of a second model
+trained on the same patients raises the requirement addressed by cross-fitting, namely that the second model be trained
+on out-of-sample first-stage outputs [26, 35].
+Most of these developments have been established on healthy or general sleep datasets. Performance can change
+substantially when models are transferred across cohorts because acquisition protocols, channel configurations, patient
+characteristics, and sleep physiology differ between datasets [36]. This issue is especially relevant after stroke, where
+the neural patterns used in conventional sleep staging may themselves be altered by neurological injury.
+2.2. Multimodal and Joint PSG Analysis
+Clinical PSG contains several complementary physiological modalities, and a parallel line of work has examined
+how these signals can be incorporated into automatic sleep analysis. U-Sleep, for example, was developed to operate
+across different EEG and EOG derivations and multiple sleep cohorts [37]. Other multimodal approaches combine
+neural, ocular, muscular, cardiac, or respiratory signals through early fusion, modality-specific encoders, or higher-level
+feature fusion. Recent work has also extended representation learning across PSG modalities, including SleepFM [38].
+Cross-scale representations, self-supervised learning, and standardized sleep benchmarks have further broadened the
+range of models evaluated across datasets [39–41].
+Joint modeling of sleep stage and sleep-related disorders has received less attention than sleep staging alone.
+Huttunen et al. [15] trained a single network for simultaneous sleep-stage and respiratory-event scoring across 877
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 3 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+clinical recordings and examined input configurations ranging from pulse oximetry to a broader PSG montage. Multi-
+task approaches combining sleep staging with apnea-related prediction have subsequently been investigated in other
+clinical populations [16]. These studies demonstrate that the two outputs can be learned within a common model, but
+they have primarily been evaluated in suspected-apnea, elderly, or general sleep populations.
+2.3. Respiratory-Event Detection
+Automated analysis of sleep-disordered breathing has largely developed as a separate task. Apnea and hypopnea
+detectors commonly use airflow, thoracic and abdominal respiratory effort, oxygen saturation, and ECG-derived cardiac
+measures. These signals describe different stages of the physiological response: airflow reflects reduction or cessation
+of ventilation, respiratory effort provides information about continued or absent breathing effort, and oximetry captures
+the subsequent change in blood oxygenation. Oxygen desaturation also forms part of the clinical criteria used in
+hypopnea scoring [42]. End-to-end deep models have also been developed for respiratory-event scoring, including
+detection from a single respiratory-effort belt [43]. Biswal et al. [44] trained a recurrent–convolutional network to
+jointly score sleep stages, apnea events, and limb movements from clinical PSG.
+Respiratory-event models are typically optimized independently of sleep staging and often operate on temporal
+resolutions different from the 30-s epoch used for stage classification. Joint models reduce this separation by learning
+both outputs from the same recording.
+2.4. Sleep and Sleep-Disordered Breathing After Stroke
+Sleep physiology is frequently altered after stroke, and sleep disturbances have been associated with neurological
+and functional recovery [1–3]. Changes in sleep-related neural activity have also been reported after cerebrovascular
+injury. Previous studies describe alterations in sleep spindles, slow-wave activity, and related electrophysiological
+patterns [17–21]; quantitative EEG measures such as the brain symmetry index have also been examined in relation
+to hemispheric injury [22]. These changes make stroke sleep a distinct setting for models whose representations were
+developed predominantly on non-stroke populations.
+Sleep-disordered breathing is also common during the subacute phase, so sleep state and respiratory disturbance
+coexist within the same clinical recording. Despite this overlap, automated stroke-specific sleep analysis remains
+limited. The iSLEEPS dataset introduced a dedicated PSG resource for subacute ischemic stroke and reported baseline
+sleep-staging performance [23]; subsequent work has further examined the behavior of deep staging models on this
+cohort [24, 25]. Existing stroke-specific studies have therefore concentrated primarily on sleep-stage classification.
+Joint epoch-level modeling of sleep stage and respiratory disturbance remains insufficiently characterized in this
+population.
+3. Datasets and Preprocessing
+Four publicly available polysomnography datasets are used in this study (Table 1): iSLEEPS [23], Sleep-EDF
+[45, 46], ISRUC-Sleep [47] with its three subgroups, and the St Vincent’s University Hospital / University College
+Dublin sleep apnea database (UCD) [48]. iSLEEPS is the primary cohort used for model development and patient-
+independent evaluation. Sleep-EDF is used as a healthy-sleep reference for implementation checks, pretraining of a
+transferred baseline, and subject-independent evaluation of the staging model outside the stroke cohort. ISRUC-Sleep
+provides independent sleep-disorder and healthy cohorts with both sleep-stage and respiratory-event annotations; it is
+used both to train and evaluate MM-Net under subject-independent cross-validation and to test the iSLEEPS-trained
+model without retraining. UCD provides a further sleep-apnea cohort recorded on a different acquisition system and
+is used for transfer only. No external cohort is used to select the reported iSLEEPS model configuration.
+3.1. iSLEEPS: Primary Stroke Cohort
+The iSLEEPS dataset contains overnight PSG from 100 patients with subacute ischemic stroke [23]. The released
+cohort has a mean age of 50.5 years and includes 77 male and 23 female participants. Sleep is scored into the five
+AASM stages: Wake (W), N1, N2, N3, and rapid-eye-movement (REM) sleep. Respiratory events are also annotated
+throughout the recordings.
+The public release contains 100 recordings. SN15 and SN28 contain the same overnight recording, so SN28 is
+excluded, leaving 𝑁= 99 patients and 92,560 30-s epochs for the analyses reported here.
+The resulting sleep-stage distribution is shown in Table 2. N2 accounts for the largest proportion of epochs, and N1
+and N3 are the least frequent stages. Respiratory-event onsets are marked in 16.0% of all epochs. At the patient level,
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 4 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+Table 1
+Datasets used in the study and their roles in the evaluation.
+Dataset
+Population
+Data used
+Role
+iSLEEPS [23]
+Subacute ischemic stroke
+99 patients
+Development and in-domain
+evaluation
+Sleep-EDF [45, 46]
+Healthy sleep
+40 recordings
+Reimplementation checks,
+healthy-sleep reference, and
+external staging
+ISRUC-Sleep I [47]
+Sleep disorders
+100 patients
+Cross-validation and transfer
+(staging, respiratory, AHI)
+ISRUC-Sleep II [47]
+Sleep disorders
+8 subjects, two nights
+each
+Cross-validation and transfer
+ISRUC-Sleep III [47]
+Healthy
+10 subjects
+Cross-validation and transfer
+UCD [48]
+Suspected sleep apnea
+25 patients
+Transfer (staging, respiratory,
+AHI)
+Table 2
+Sleep-stage distribution in the analyzed iSLEEPS cohort (𝑁= 99; 92,560 epochs).
+Stage
+W
+N1
+N2
+N3
+REM
+Share (%)
+26.7
+10.1
+42.3
+8.9
+12.1
+the fraction of event-positive epochs ranges from 0 to 60.5%; 80 of the 99 patients have respiratory events in more than
+5% of their epochs, and the median burden is 13% (Figure 1).
+0
+10
+20
+30
+40
+50
+60
+% of epochs with a scored respiratory event
+0
+2
+4
+6
+8
+10
+12
+number of patients
+Figure 1: Patient-level respiratory-event burden in iSLEEPS, measured as the fraction of 30-s epochs containing the onset
+of a scored respiratory event. The dashed line denotes the cohort median of 13%.
+3.2. Sleep-EDF: Healthy-Sleep Reference Cohort
+Sleep-EDF provides the healthy-sleep reference [45, 46]. The experiments use the Sleep Cassette subset corre-
+sponding to subjects 0–20, comprising 40 overnight recordings, with splits constructed at the subject level because
+individual subjects contribute more than one night. Sleep-EDF serves to check the reimplemented staging architectures
+in the healthy-sleep setting in which they were originally evaluated, to pretrain the transferred baseline, and to evaluate
+the proposed staging model on an independent healthy-sleep cohort. The database provides the EEG derivations Fpz-Cz
+and Pz-Oz but not the cardiorespiratory signal set or respiratory-event annotations, so respiratory performance is not
+evaluated on Sleep-EDF.
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 5 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+3.3. ISRUC-Sleep: Independent Sleep-Disorder Cohort
+ISRUC-Sleep provides the independent evaluation in populations with and without sleep disorders [47]. Subgroup I
+contains 100 patients with sleep disorders recorded on one night each, subgroup II eight patients recorded on two nights
+each, and subgroup III ten healthy adults. The recordings include central and occipital EEG derivations corresponding
+to C4, C3, O2, and O1 referenced to the contralateral mastoid, two EOG derivations and chin EMG, together with
+oronasal airflow, nasal pressure, thoracic and abdominal effort, SpO2, and ECG, and annotations of obstructive, central,
+and mixed apneas and hypopneas; the annotations of the first scorer are used. Summed effort is formed as the sum of
+the thoracic and abdominal traces, and pulse as the beat-to-beat heart rate derived from ECG R-peaks, so that every
+iSLEEPS input has an ISRUC counterpart. In 30 of the 126 ISRUC recordings the EDF header declares the EEG and
+EOG range as ±25 𝜇V, which places their N3 peak-to-peak amplitude at 9–23 𝜇V against 98–283 𝜇V in the remaining
+recordings and below the 75 𝜇V that defines N3; these channels are restored by a factor of ten, a correction decided
+from the header alone. One subgroup-I recording stores monopolar EEG and EOG, from which the mastoid-referenced
+derivations are formed.
+ISRUC-Sleep therefore supports evaluation of every output of the proposed framework: sleep-stage prediction,
+respiratory-event prediction and, in subgroup I, AHI estimation across the full severity range.
+3.4. UCD: Independent Sleep-Apnea Cohort
+The UCD database [46, 48] contains overnight PSG from 25 adults referred for suspected sleep-disordered
+breathing, with annotated AHI between 1.2 and 81.2 events/h. It records C3 and C4 EEG only, which also supply
+the occipital inputs, two EOG channels, chin EMG, ECG, oronasal airflow, thoracic, abdominal and summed effort,
+SpO2 and pulse, and its scored apneas and hypopneas carry onset times. The EDF headers of this database carry no
+physical unit, so EEG, EOG and EMG are scaled per recording to the median whole-night amplitude of iSLEEPS,
+using no labels. UCD is used only for transfer.
+3.5. Signal Selection and Harmonization
+The iSLEEPS recordings contain 22 physiological and auxiliary traces. Fifteen signals are retained for modeling
+and divided into neural and cardiorespiratory groups. The neural group contains four EEG derivations (C4:M1, C3:M2,
+O2:M1, and O1:M2), two EOG derivations (E1:M2 and E2:M2), and the submental EMG. The cardiorespiratory group
+contains ECG, oronasal thermal airflow, nasal pressure, thoracic effort, abdominal effort, summed respiratory effort,
+SpO2, and pulse.
+Signals associated with periodic limb movement, snoring, plethysmography, body position, ambient light, and
+device operation are not included in the model. The snore channel is additionally excluded from respiratory prediction
+because it is closely related to the airway information used during respiratory-event assessment. Twelve iSLEEPS
+recordings lack at least one selected cardiorespiratory channel. These patients are retained, and unavailable inputs are
+zero-filled. The same convention is used when a selected signal is unavailable in an external dataset.
+3.6. Preprocessing and Epoch Labels
+All sleep-stage predictions are defined on 30-s epochs. For iSLEEPS and ISRUC-Sleep, the respiratory annotations
+are mapped to the same epoch grid. An epoch is assigned a positive respiratory label if a scored respiratory event begins
+within it and a negative label otherwise. The primary respiratory task is therefore prediction of respiratory-event onset
+within a 30-s epoch, and the patient-level AHI is derived from these predictions (Section 4.8).
+iSLEEPS retains only the epochs scored as a sleep stage, so every cardiorespiratory signal and every respiratory-
+event label is cut at the true recording time of each retained epoch, keeping it on the same timeline as the EEG. The
+annotated AHI is the number of apneas and hypopneas starting in scored sleep per hour of scored sleep.
+The EEG, EOG, and EMG signals are resampled to 100 Hz for the engineered descriptors of Section 4.2, and the
+four EEG and two EOG derivations are resampled independently to 200 Hz for the LaBraM encoder, which does not
+receive the EMG. The eight cardiorespiratory inputs are resampled to a common 25 Hz grid by polyphase resampling
+and remain in their recorded physical units; SpO2, recorded at 4 Hz, is placed on the same grid without gaining temporal
+resolution. Engineered features are standardized within each recording, which for iSLEEPS is the patient, and the same
+per-recording procedure is applied to the external datasets, from which no labels are used to refit parameters, select
+thresholds, or adapt the reported iSLEEPS model.
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 6 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+4. Proposed Method
+4.1. Problem Formulation
+A night is a sequence of 𝑇epochs. For epoch 𝑡we form a neural feature vector 𝐟eeg
+𝑡
+∈ℝ388, formed by concatenating
+the 188 engineered descriptors below with a 200-dimensional embedding from LaBraM, a pretrained EEG encoder [9]
+adapted to sleep (Section 4.3), and a raw cardiorespiratory tensor 𝐱car
+𝑡
+∈ℝ8×750, the eight channels at 25 Hz. The
+14 engineered cardiorespiratory descriptors defined below are used by the baseline configuration against which the
+learned encoder is measured.
+The encoder receives its input in the format used during pretraining. LaBraM fixes its input length at 3000 samples
+at 200 Hz; supplying the 100 Hz signal directly would compress time by a factor of two, so that a 12 Hz spindle
+would appear at 24 Hz. Each 30-s epoch is therefore split into two 15-s sub-windows that are encoded separately
+and mean-pooled. The four EEG derivations are presented under the canonical names C4, C3, O2 and O1, the two
+EOG derivations as F7 and F8, the frontal positions nearest the eyes, so that the encoder receives the ocular activity
+that separates REM from Wake, and amplitudes are scaled to 𝜇V∕100. We learn a subject-independent map
+𝑓𝜃∶(𝐟eeg
+1∶𝑇, 𝐱car
+1∶𝑇
+) ⟼(̂𝑦stg
+1∶𝑇,̂ 𝑦apn
+1∶𝑇
+),
+(1)
+where Δ4 = {𝑝∈ℝ5 ∶𝑝𝑘≥0, ∑
+𝑘𝑝𝑘= 1} is the four-simplex,̂ 𝑦stg
+𝑡
+∈Δ4 is a distribution over the five stages
+and̂ 𝑦apn
+𝑡
+∈[0, 1] scores whether epoch 𝑡contains a respiratory event (Figure 2). We writê 𝑦apn
+𝑡
+as a score and not as a
+probability for the reason given in Section 4.7: the positive weighting in its loss displaces the optimum away from the
+conditional event rate.
+C
+input
+C
+BiLSTM 2 layers, bidirectional
+ht ∈ ℝ512
+Staging head
+512 → 5
++ HMM Viterbi decode
+Respiratory head
+[ht ; ct] · 576 → 256 → 1
+direct cardio bypass
+direct ct
+Joint objective: L = CE(ŷstg, ystg) + λ BCEpw(ŷapn, yapn), λ = 1
+388
+128
+Linear W₁
+128
+LN + GELU
+128
+Linear W₂
+128
+LN + GELU
+128
+e
+EEG encoder φeeg · FeatMLP 388 → 128
+48×375
+Conv 25, s2
+BN+GELU
+48×93
+Pool 4
+96×93
+Conv 15
+BN+GELU
+96×23
+Pool 4
+96×23
+Conv 7
+BN+GELU
+192
+mean ⊕ max
+64
+Linear
+Cardio encoder φcar
+CardioCNN: 8×750 → c ∈ ℝ64 · 156,432 p
+xcar ∈ ℝ8×750 
+per-subject z-score
+Raw cardio-
+respiratory tensor
+2×128
+tokens [e ; Wcc]
+128
+Linear Wf
+128
+GELU + Dropout
+2×128
+concat, WO, LN
+4 × (2×32)
+Cross-attention fusion
+Expert physiology, feeg ∈ ℝ188
+band power, spindle, Hjorth
+EEG
+PSG
+raw
+8×750
+...
+zfnd ∈ ℝ200 
+4 EEG + 2 EOG channels
+Sleep Adapted LaBraM
+output
+input
+conv
+pool
+linear
+norm
+Cross-fitting + alignment
+Figure 2: The two-stream, multi-task model. The neural stream combines 188 engineered descriptors with the embedding of
+a LaBraM encoder adapted to sleep from EEG and EOG and integrated by cross-fitting and alignment; the cardiorespiratory
+stream is a convolutional encoder over eight raw channels. The streams are fused and read by a bidirectional LSTM over a
+20-epoch window, which feeds a staging head and a respiratory head; the respiratory head also reads the cardiorespiratory
+embedding directly, and the AHI is computed from the respiratory scores over decoded sleep.
+4.2. Physiological Feature Representations
+Neural features (188) Per channel we take absolute and relative band powers from the Welch spectrum 𝑃(𝑓) in
+delta (0.5–4), theta (4–8), alpha (8–13), sigma (11–16), and beta (16–30) Hz; the relative power in band 𝑏is
+RP𝑏=
+∫𝑓∈𝑏𝑃(𝑓) 𝑑𝑓
+∫30
+0.5 𝑃(𝑓) 𝑑𝑓
+.
+(2)
+The conventional alpha and sigma bands overlap between 11 and 13 Hz, so the five relative powers are treated as
+correlated descriptors whose sum is unconstrained. We add spectral entropy 𝐻= −∑
+𝑖𝑝𝑖log 𝑝𝑖with 𝑝𝑖the normalized
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 7 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+spectrum, the 95% spectral-edge frequency, the three Hjorth descriptors [49], and time-domain statistics. Sleep spindles
+are detected on the sigma-band analytic envelope, the modulus of the analytic signal built from the Hilbert transform
+, 𝑒(𝑡) = |𝑥𝜎(𝑡) + 𝑖{𝑥𝜎}(𝑡)| =
+√
+𝑥𝜎(𝑡)2 + {𝑥𝜎}(𝑡)2, with density counted above a per-epoch threshold as a proxy
+for spindle density, and slow-wave descriptors summarize slow-wave amplitude. Ocular-movement energy on the EOG
+and tonic EMG level complete the set.
+Cardiorespiratory features (14) From the seven cardiorespiratory channels other than nasal pressure, which is read
+only by the learned encoder, we compute SpO2 mean, minimum, variability, and desaturation depth (median minus
+minimum); pulse mean and variability; ECG amplitude and line-length; airflow amplitude and line-length; thoracic,
+abdominal, and summed effort amplitudes; and the signed thoraco-abdominal synchrony
+sync𝑡= corr(𝑥tho
+𝑡
+, 𝑥abd
+𝑡
+),
+(3)
+whose negative values mark the paradoxical motion of chest against abdomen in an obstructed breath. These descriptors
+are read by the classical respiratory baselines. Both feature sets are standardized per patient.
+The learned cardiorespiratory encoder MM-Net does not read the 14 descriptors. Its cardiorespiratory branch is a
+three-layer convolutional encoder over the raw 8×750 tensor, with wide kernels and aggressive downsampling because
+respiratory events are slow: at 25 Hz the first kernel of 25 samples spans one second, and a hypopnea unfolds over 10
+to 30 s. Channel widths are 48, 96 and 96, each followed by batch normalization and GELU, with max-pooling by
+four after the first two. Mean and max pooling over time are concatenated and projected by a linear layer, LayerNorm,
+GELU and dropout to the same 64 dimensions as the cardiorespiratory feature MLP it replaces, so the encoder is a
+drop-in replacement and every other part of the network is unchanged. The branch holds 156,432 trainable parameters
+with eight input channels (155,232 with seven), is trained end-to-end with the rest of the network, and adds no external
+dependency.
+4.3. Sleep-Adapted EEG Encoder
+Adaptation Within each training fold, LaBraM-Base (5.8 M parameters) is fine-tuned with a linear staging head on
+single epochs of the fold’s training patients, using AdamW at 3×10−5 for the encoder and 10−3 for the head, a one-cycle
+schedule over three passes of the training epochs, batch size 64 and mixed precision; the state with the highest accuracy
+on the fold’s validation patients is kept. Test patients never reach the encoder.
+Cross-fitting An encoder fine-tuned on a patient embeds that patient in-sample. If the downstream model is trained
+on such embeddings and tested on out-of-sample ones, the two distributions differ, and the downstream model is fitted
+to representations of higher quality than those available at test time. Each fold’s training patients are therefore split into
+𝐾= 3 parts 𝑃1, 𝑃2, 𝑃3, and an encoder 𝜙𝑘is fine-tuned on the training patients outside 𝑃𝑘; every training patient in 𝑃𝑘
+is embedded by 𝜙𝑘, an encoder that never saw it. The full-fold encoder 𝜙, fine-tuned on all training patients, embeds
+the validation and test patients.
+Alignment Cross-fitting makes every embedding out of sample but places the training patients in the spaces of 𝐾
+different encoders, which do not coincide with the space of 𝜙used at test time. Each 𝜙𝑘is mapped into the space of 𝜙
+by a ridge regression [50] fitted on the patients of 𝑃𝑘, for whom both embeddings exist,
+𝑊𝑘= arg min
+𝑊
+‖‖‖(𝐸𝜙
+𝑃𝑘−𝜇𝜙
+𝑘) −(𝐸𝜙𝑘
+𝑃𝑘−𝜇𝜙𝑘
+𝑘)𝑊‖‖‖
+2
+𝐹+ 𝜆𝑛𝑘‖𝑊‖2
+𝐹,
+(4)
+and the training embeddings becomẽ 𝐞𝑡= (𝐞𝜙𝑘
+𝑡
+−𝜇𝜙𝑘
+𝑘)𝑊𝑘+ 𝜇𝜙
+𝑘, with 𝜆= 0.01 and 𝑛𝑘the number of epochs in 𝑃𝑘. The
+map uses training patients only. Every training embedding is thereby produced by an encoder that never saw its patient
+and expressed in the coordinates the downstream model receives at test time; Section 5.5 shows that the alignment is
+what allows the adapted encoder to benefit the downstream model.
+4.4. Two-Stream Encoders
+The neural stream is a two-layer perceptron with LayerNorm; the cardiorespiratory stream is the convolutional
+encoder described above, which emits a vector of the same width as the feature perceptron it replaced,
+𝑒𝑡= GELU(LN(𝑊2 GELU(LN(𝑊1𝐟eeg
+𝑡
+)))) ∈ℝ128,
+(5)
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 8 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+𝑐𝑡= CardioCNN(𝐱car
+𝑡
+) ∈ℝ64.
+(6)
+LayerNorm is used in place of BatchNorm because the recurrent windows are short and mix patients within a batch.
+4.5. Fusion
+Two fusion operators were compared. Concatenation, used in the frozen-encoder configuration, projects the joined
+embeddings back to the stream width,
+𝑧𝑡= GELU(𝑊𝑓[ 𝑒𝑡; 𝑐𝑡]) ∈ℝ𝐷,
+𝐷= 128.
+(7)
+Cross-attention treats the two embeddings as tokens carrying learned modality-type embeddings, refines them by four-
+head scaled dot-product attention so that each modality reads the other, and projects the result to 𝑧𝑡∈ℝ𝐷. With
+uniform class weights and the sleep-adapted encoder, cross-attention was selected on validation accuracy and is the
+fusion of the final MM-Net (Table 6).
+4.6. Temporal Decoder and Two Heads
+Sleep is sequential and respiratory events cluster, so the fused vectors of an 𝐿= 20 epoch window (10 minutes)
+are read by a two-layer bidirectional LSTM. Training draws windows at a stride of 𝐿∕2 with masked zero-padding at
+the ends of each night; inference uses disjoint windows, so every epoch is scored exactly once, and hidden states are
+not carried between windows. Each direction runs the standard recurrence
+𝑖𝑡= 𝜎(𝑊𝑖[𝑧𝑡, ℎ𝑡−1]),
+𝑓𝑡= 𝜎(𝑊𝑓[𝑧𝑡, ℎ𝑡−1]),
+𝑜𝑡= 𝜎(𝑊𝑜[𝑧𝑡, ℎ𝑡−1]),
+𝑔𝑡= tanh(𝑊𝑔[𝑧𝑡, ℎ𝑡−1]),
+(8)
+𝑠𝑡= 𝑓𝑡⊙𝑠𝑡−1 + 𝑖𝑡⊙𝑔𝑡,
+ℎ𝑡= 𝑜𝑡⊙tanh(𝑠𝑡),
+and the forward and backward states of the 256-unit layers are concatenated into ℎ𝑡∈ℝ512. The staging head is a linear
+map̂ 𝑦stg
+𝑡
+= softmax(𝑊𝑠ℎ𝑡). The respiratory head reads ℎ𝑡together with a direct copy of the per-epoch cardiorespiratory
+embedding 𝑐𝑡,̂
+𝑦apn
+𝑡
+= 𝜎(𝑊2 GELU(𝑊1[ℎ𝑡; 𝑐𝑡])).
+(9)
+MM-Net holds 2.85 million trainable parameters. The sleep-adapted encoder that supplies the 200-dimensional neural
+embedding (5.8 million parameters) is fine-tuned in a separate stage per fold (Section 4.3) and run once to cache the
+embeddings, so it is not part of this count.
+4.7. Training and Decoding
+The two tasks are trained together with equal weight, = stg + 𝜆apn with 𝜆= 1, combining a staging cross-
+entropy with class weights 𝑤𝑘and a positive-weighted respiratory cross-entropy,
+stg = −
+∑
+𝑡
+∑
+𝑘
+𝑤𝑘𝑦stg
+𝑡,𝑘loĝ 𝑦stg
+𝑡,𝑘,
+(10)
+apn = −
+∑
+𝑡
+[𝜋𝑎𝑡loĝ 𝑦apn
+𝑡
++ (1 −𝑎𝑡) log(1 −̂ 𝑦apn
+𝑡
+)].
+(11)
+The final MM-Net uses uniform staging weights (𝑤𝑘= 1), selected on validation patients together with the encoder
+(Table 6); the frozen-encoder configuration uses the square root of inverse class frequency, 𝑤𝑘∝
+√
+𝑁∕(𝐾𝑛𝑘) for 𝐾= 5
+classes with 𝑛𝑘examples, which corrects the scarce N1 and N3 stages. In both, the respiratory term is positive-weighted
+by 𝜋= 𝑛−∕𝑛+ to match the 16% event rate, which on this corpus is 𝜋≈5.3.
+Against a true conditional rate 𝑝, the weighted binary term attains its minimum at 𝑞⋆= 𝜋𝑝∕[𝜋𝑝+ (1 −𝑝)] > 𝑝, so
+the respiratory output is treated as a score; the displacement is monotone, so AUC and average precision are unaffected.
+At inference the staging posteriors are smoothed by a Viterbi pass whose transition matrix 𝐴H and prior are counted
+from the training labels [51],
+𝛿𝑡(𝑗) = max
+𝑖
+[𝛿𝑡−1(𝑖) + log 𝐴H
+𝑖𝑗
+] + loĝ 𝑦stg
+𝑡(𝑗),
+(12)
+recovered by back-tracking, which restores the natural persistence of sleep. Because the network score, and not a
+generative likelihood log 𝑃(𝐱𝑡∣𝑠𝑡= 𝑗), occupies the emission slot, the pass is a transition-regularized discriminative
+decoder that acts as a transition prior on the output sequence; the respiratory head is left unsmoothed. Optimization
+uses AdamW with cosine annealing and early stopping on a held-out set of patients.
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 9 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+4.8. AHI Estimation
+Becausê 𝑦apn
+𝑡
+scores event onsets, its sum over the epochs decoded as sleep estimates the number of events, and
+dividing by the decoded sleep time gives a rate,̂
+AHI = 𝑘⋅
+∑
+𝑡∶̂𝑠𝑡≠Ŵ 𝑦apn
+𝑡
+30
+3600 |{𝑡∶̂ 𝑠𝑡≠W}|
+.
+(13)
+The positive weighting of the respiratory loss inflates the scores (Section 4.7), so a single scale 𝑘is fitted in each fold
+as the median ratio of annotated to raw estimate over the fold’s validation patients and applied unchanged to its test
+patients. For transfer to another cohort, 𝑘is the median of the ten iSLEEPS fold values (0.459), and nothing is refitted
+on the external cohort. Severity follows the AASM bands (< 5, 5–15, 15–30 and ≥30 events/h).
+5. Experiments
+5.1. Protocol and Metrics
+All results use ten-fold, patient-independent cross-validation: no patient appears in both training and test, and
+within each training split a disjoint set of patients is held out for early stopping and model selection. Staging is scored
+by accuracy, macro-F1 1
+𝐾
+∑
+𝑘F1𝑘, and Cohen’s 𝜅. The respiratory task is scored by the area under the ROC curve
+(AUC) and average precision (AP), which suits the 16% event rate, and the AHI estimate by Spearman’s 𝜌, the mean
+absolute error (MAE), severity-band accuracy and linearly weighted 𝜅.
+MM-Net and its encoder configurations are trained with three seeds (42, 1, 7) on the same folds. The single-model
+figure is the mean over the thirty fold-values, ten folds by three seeds; the three-seed figure averages the softmax outputs
+of the three seeds before decoding. Every number is a mean over the ten folds with its standard deviation across folds.
+Paired comparisons use the two-sided Wilcoxon signed-rank test on the ten fold means, because the three seeds within
+a fold train and test on the same patients; with ten folds the smallest attainable 𝑝is 0.002, and Holm correction is
+applied within each family of comparisons.
+The frozen-encoder configuration, the initial configuration of the same architecture, serves as the reference for the
+encoder analyses. It shares the streams, decoder and heads of MM-Net but reads a frozen LaBraM embedding of the
+EEG, seven cardiorespiratory channels, concatenation fusion and square-root class weights. Its stream, decoder and
+regularization settings, which MM-Net inherits, were chosen among forty-nine candidates; repeating that selection
+inside a nested procedure, with five outer patient-independent folds whose test patients take no part in the choice,
+gives 0.734 ± 0.009 accuracy against 0.739, a selection optimism of 0.006, about a third of the fold-to-fold standard
+deviation. The encoder, fusion operator and class weighting of the final MM-Net were selected on validation patients
+only.
+5.2. Implementation and Hyperparameters
+The model is implemented in PyTorch and trained on NVIDIA RTX 2060 (6 GB) and RTX 3060 Ti (8 GB) GPUs.
+Table 3 lists the training configuration, which is identical across folds and cohorts. The reimplemented baselines
+are trained with the optimizer, batch size and schedule of their own papers, because imposing our settings could
+disadvantage architectures tuned for other settings.
+5.3. Compared Methods
+We compare the model against deep networks evaluated on the same folds: convolutional and recurrent networks
+trained from scratch (DeepSleepNet, AttnSleep, a four-channel CNN), six further published architectures we reimple-
+mented for this comparison (U-Time, a fully convolutional encoder–decoder; TinySleepNet, a compact convolutional–
+recurrent model; SleepTransformer, a purely attentional one; and 1D-ResNet-SE-LSTM, Micro SleepNet and AT-
+BiLSTM), the released SE-ResNet-18 implementation from [24], a StagingSeqNet pretrained on Sleep-EDF and fine-
+tuned on iSLEEPS, and a raw-signal convolutional network on all 14 channels, alongside the published single-channel
+baselines for the corpus [23]. For the respiratory task, a desaturation rule, logistic regression and gradient boosting
+read the 14 engineered cardiorespiratory descriptors, and two raw-signal detectors read the waveforms (Section 5.6).
+On ISRUC-I, the reimplemented staging baselines are retrained on MM-Net’s folds (Section 5.10). All numbers
+are patient-independent. All use ten folds except the Sleep-EDF-pretrained StagingSeqNet, which uses five; hidden-
+Markov decoding is applied where the corresponding model provides it.
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 10 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+Table 3
+Training configuration of the final MM-Net, shared across all folds and cohorts. The frozen-encoder configuration uses the
+same settings with a frozen encoder, concatenation and square-root class weights. Each reimplemented baseline is trained
+at its own published settings.
+Setting
+Value
+Framework / hardware
+PyTorch, NVIDIA RTX 2060 / 3060 Ti
+Sleep-adapted encoder (per fold)
+Encoder
+LaBraM-Base, 4 EEG + 2 EOG
+Encoder LR (head)
+3 × 10−5 (10−3), one-cycle
+Passes, batch, weight decay
+3, 64, 0.05
+Cross-fitting, alignment
+𝐾= 3, ridge 𝜆= 0.01
+MM-Net
+Optimizer
+AdamW
+Learning rate
+3 × 10−4
+Weight decay
+1 × 10−4
+LR schedule
+cosine annealing
+Sequence length 𝐿
+20 epochs (10 min)
+Batch size
+32
+Max epochs / patience
+45 / 8
+Gradient clipping
+5.0
+Fusion
+cross-attention, 4 heads
+Staging class weights
+uniform
+Respiratory pos. weight
+𝜋= 𝑛−∕𝑛+
+Loss balance 𝜆
+1.0
+Staging post-processing
+HMM Viterbi smoothing
+Cross-validation
+10-fold, patient-independent
+Random seeds
+42, 1, 7
+5.4. Staging Benchmark
+Table 4 compares MM-Net with deep staging architectures retrained on the same folds. These reach 0.60–0.72
+staging accuracy, whereas MM-Net reaches 0.756 as a single model and 0.763 as a three-seed average, with macro-F1
+0.664 and 𝜅0.656. As a single model, MM-Net is higher in accuracy by +0.036 (corpus LSTM) to +0.157 (Huttunen et
+al.) and is higher in nine or ten of the ten folds for every comparison; all thirteen differences remain significant after
+Holm correction (Holm 𝑝≤0.025). The three-seed MM-Net is ahead of each of the eight reimplemented and ported
+architectures in all ten folds (Holm 𝑝= 0.016, the minimum attainable for eight comparisons). Differences in macro-F1
+and 𝜅are larger than those in accuracy, consistent with their reduced dependence on the majority classes. The sleep-
+adapted encoder used on its own stages single epochs at 0.732, already above every retrained architecture; within
+MM-Net, together with the engineered descriptors, the cardiorespiratory stream and the temporal decoder, it yields
+0.756, a further 0.024 in eight folds of ten (𝑝= 0.014).
+The closest task-matched baseline is the joint model of Huttunen et al. [15], ported from the authors’ released
+implementation and evaluated on the same folds. It stages at 0.599, and MM-Net is ahead in all ten folds (Wilcoxon
+𝑝= 0.002). On ISRUC-I, where both models are trained and evaluated on the same respiratory labels, MM-Net is also
+ahead on respiratory detection (Section 5.10).
+SleepStageNet [25] is quoted under its own protocol, 95 iSLEEPS recordings with five channels and ten subject-
+independent folds. The CNN-ResNet18 result of [24] is quoted under that study’s 𝑁
+= 100 protocol, which
+includes the duplicate recording excluded here; the same study’s SE-ResNet-18 + BiLSTM, retrained from the released
+implementation on our folds, reaches 0.696 against the published 0.747, and Table 4 uses the same-fold rerun. The
+corpus LSTM appears as our reimplementation on the same folds. The Healthy column gives each model’s subject-
+independent accuracy on Sleep-EDF, where MM-Net reaches 0.864 (macro-F1 0.791, 𝜅0.810), the highest healthy-
+sleep accuracy in the table; Sleep-EDF carries none of the cardiorespiratory channels the model reads, so this figure
+exercises the neural stream alone. Dispersion is reported wherever it is defined: across five folds for the Sleep-EDF-
+pretrained StagingSeqNet, across the ten fold values of a single seed for the retrained and reimplemented architectures,
+and across the thirty fold values, ten folds by three seeds, for AttnSleep and MM-Net.
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 11 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+Table 4
+Patient-independent sleep-staging comparison on iSLEEPS. Values are mean ± SD where fold-level results are available. †
+denotes reimplemented models, ‡ a literature-reported result under its original protocol, and ∗models ported from released
+code. Bold indicates the best result among models evaluated under our protocol.
+Healthy
+iSLEEPS (stroke)
+Model
+Input
+Params ↓
+Acc
+Acc ↑
+Macro-F1 ↑
+𝜅↑
+Comparative models evaluated on iSLEEPS
+LSTM, our reimplementation†
+1 EEG + EOG
+1.16 M
+0.820 ± 0.062
+0.720 ± 0.032
+0.626 ± 0.028
+0.599 ± 0.043
+CNN-ResNet18 [24]‡
+1 EEG
+∼11 M
+—
+0.617
+0.544
+0.480
+SleepStageNet [25]‡
+2 EEG + 2 EOG + EMG
+1.08 M
+—
+0.739 ± 0.022
+0.673 ± 0.020
+0.634 ± 0.029
+SE-ResNet-18 + BiLSTM [24]∗
+1 EEG
+11.32 M
+0.829 ± 0.056
+0.696 ± 0.038
+0.606 ± 0.032
+0.572 ± 0.046
+DeepSleepNet [5]
+4 EEG
+3.72 M
+0.823 ± 0.050
+0.669 ± 0.031
+0.624 ± 0.026
+0.558 ± 0.035
+U-Time [27]†
+1 EEG
+1.07 M
+0.791 ± 0.062
+0.646 ± 0.064
+0.524 ± 0.057
+0.506 ± 0.082
+AttnSleep [7]
+1 EEG
+∼0.5 M
+0.833 ± 0.042
+0.716 ± 0.042
+0.600 ± 0.043
+0.593 ± 0.058
+TinySleepNet [8]†
+1 EEG
+1.45 M
+0.824 ± 0.045
+0.676 ± 0.050
+0.587 ± 0.034
+0.548 ± 0.062
+SleepTransformer [29]†
+1 EEG
+2.79 M
+0.823 ± 0.033
+0.683 ± 0.026
+0.602 ± 0.030
+0.555 ± 0.032
+1D-ResNet-SE-LSTM [52]†
+1 EEG
+0.65 M
+0.832 ± 0.036
+0.708 ± 0.038
+0.631 ± 0.033
+0.592 ± 0.050
+Micro SleepNet [53]†
+1 EEG
+0.03 M
+0.800 ± 0.041
+0.647 ± 0.049
+0.558 ± 0.028
+0.510 ± 0.055
+AT-BiLSTM [54]†
+1 EEG
+0.92 M
+0.835 ± 0.046
+0.692 ± 0.040
+0.612 ± 0.030
+0.570 ± 0.051
+CNN
+4 EEG
+0.42 M
+0.806 ± 0.041
+0.670 ± 0.052
+0.618 ± 0.044
+0.553 ± 0.062
+StagingSeqNet, Sleep-EDF pretrained
+2 EEG + EOG + EMG
+1.08 M
+—
+0.623 ± 0.020
+0.582
+0.488
+Raw multimodal CNN
+14 ch
+0.95 M
+—
+0.677 ± 0.035
+0.633 ± 0.025
+0.563 ± 0.041
+Huttunen et al. [15]∗
+4 ch
+3.80 M
+—
+0.599 ± 0.060
+0.495 ± 0.067
+0.440 ± 0.078
+Sleep-adapted encoder alone (one epoch, no temporal model)
+LaBraM, frozen + logistic regression
+4 EEG
+5.8 M
+—
+0.647
+—
+—
+LaBraM, sleep-adapted
+4 EEG + 2 EOG
+5.8 M
+—
+0.732
+—
+—
+Proposed multi-task model
+MM-Net, single model
+7 neural + 8 cardio
+2.85 M
+0.864 ± 0.030
+0.756 ± 0.013
+0.661 ± 0.019
+0.647 ± 0.015
+MM-Net, three-seed
+7 neural + 8 cardio
+2.85 M
+𝟎.𝟖𝟔𝟒± 𝟎.𝟎𝟑𝟎
+𝟎.𝟕𝟔𝟑± 𝟎.𝟎𝟏𝟒
+𝟎.𝟔𝟔𝟒± 𝟎.𝟎𝟐𝟎
+𝟎.𝟔𝟓𝟔± 𝟎.𝟎𝟏𝟔
+Errors concentrate on N1 (Table 5, Figure 4). MM-Net recovers Wake, N2 and REM at F1 0.79–0.82 and N3 at
+0.72, whereas N1, the transient stage between wake and sleep, reaches 0.20 and is absorbed mainly into Wake and
+N2; part of N3 is read as N2. N1 is the most difficult stage on this cohort for every evaluated model. A representative
+held-out night is shown in Figure 3.
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 12 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+N3
+N2
+N1
+R
+W
+Stage
+A
+Predicted
+N3
+N2
+N1
+R
+W
+Stage
+Reference
+0
+10
+20
+Frequency [Hz]
+B
+0
+1
+2
+3
+4
+5
+6
+7
+Time [hrs]
+0.00
+0.25
+0.50
+0.75
+1.00
+Probability
+C
+N1
+N2
+N3
+R
+W
+Figure 3: An illustrative held-out night (patient SN90, three-seed MM-Net, staging accuracy 0.83). (A) Predicted and
+reference hypnograms, REM highlighted. (B) EEG spectrogram, C4 derivation, 0–25 Hz. (C) Per-epoch stage-probability
+ribbon; the black line is the maximum posterior.
+W
+N1
+N2
+N3
+REM
+Predicted
+W
+N1
+N2
+N3
+REM
+Scored
+0.85
+0.04
+0.10
+0.00
+0.01
+0.43
+0.14
+0.37
+0.00
+0.06
+0.04
+0.02
+0.87
+0.04
+0.02
+0.00
+0.00
+0.31
+0.68
+0.00
+0.04
+0.02
+0.17
+0.00
+0.76
+Figure 4: Row-normalized confusion matrix for MM-Net (three-seed, pooled ten-fold test epochs, hidden-Markov operating
+point). Errors concentrate on N1, which is absorbed into Wake and N2.
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 13 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+Table 5
+Per-class staging F1 (Wake, N1, N2, N3, REM), ten-fold patient-independent, at the hidden-Markov operating point
+(MM-Net: three-seed, pooled test epochs).
+Model
+W ↑
+N1 ↑
+N2 ↑
+N3 ↑
+R ↑
+MM-Net
+0.81
+0.20
+0.82
+0.72
+0.79
+Table 6
+From the frozen-encoder configuration to MM-Net on iSLEEPS, one change per row (upper block), and the complete
+model (lower block); same ten folds and three seeds throughout. 𝑝: Wilcoxon on fold means against the row marked ref.
+Configuration
+Single 3-seed
+𝑝
+Frozen encoder, class weights, concatenation
+0.738
+0.749
++ uniform class weights
+0.744
+0.754
++ cross-attention fusion
+0.747
+0.755
+ref.
++ sleep-adapted encoder, cross-fitted, not aligned
+0.752
+0.757
+0.63
++ ridge alignment (7 channels)
+0.762
+0.769
+0.020
+MM-Net: EEG+EOG encoder, 8 channels, epoch-aligned 0.756
+0.763
+5.5. Integrating the Sleep-Adapted Encoder
+Table 6 builds MM-Net from the frozen-encoder configuration one change at a time, every row on the same folds
+and seeds. Uniform class weights and cross-attention fusion contribute +0.009 together for the single model. The
+largest change comes from the encoder. Adapting LaBraM to sleep raises its own single-epoch accuracy from 0.647 to
+0.709, in all ten folds, yet a sleep-adapted encoder whose training embeddings are cross-fitted but not aligned moves
+the three-seed accuracy of the downstream model by only +0.002 (𝑝= 0.63) and falls below the frozen encoder
+in five folds of ten, by up to 0.023. Aligning the embedding spaces turns the same encoder into a gain of +0.014
+(0.755 →0.769, 𝑝= 0.020), and of +0.015 for the single model in nine folds of ten (𝑝= 0.027). Figure 5 shows the
+effect fold by fold: without alignment the adapted encoder moves accuracy in either direction, whereas with alignment
+it raises accuracy in eight folds of ten, by up to 3.7 percentage points. The downstream benefit of adaptation therefore
+appears once the training embeddings share the coordinates of the encoder used at test time.
+The complete MM-Net adds three elements that serve REM and the respiratory head more than overall staging: the
+ocular channels in the encoder, which raise the encoder’s own accuracy from 0.709 to 0.732, nasal pressure, and the
+epoch alignment of Section 3. With all three, staging is 0.763, and MM-Net uses the EEG and EOG encoder in every
+cohort of this study. The same integration carries over to an independent cohort: on ISRUC-I the complete model is
+ahead of the frozen-encoder configuration in nine folds of ten (+0.018, 𝑝= 0.004; Section 5.10). Figure 6 shows what
+adaptation changes in the representation: held-out epochs that the frozen encoder spreads across one mixed cloud form
+stage-specific clusters after adaptation, with Wake, REM and N3 separated (silhouette by stage −0.045 →0.047).
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 14 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+Patient-independent fold
+−2
+0
+2
+4
+Accuracy vs frozen
+encoder (pp)
+Adapted, cross-fitted, not aligned: mean +0.2 pp, 5/10 folds above
+Adapted, cross-fitted, aligned: mean +1.4 pp, 8/10 folds above
+Figure 5: Per-fold staging accuracy of MM-Net with the sleep-adapted encoder, relative to the frozen-encoder reference
+(three-seed, ten patient-independent folds). The training embeddings are cross-fitted in both cases; aligning them to the
+deployed encoder turns an inconsistent effect into a gain in eight folds of ten.
+Frozen LaBraM
+silhouette by stage = -0.045
+Fine-tuned + aligned EEG/EOG encoder
+silhouette by stage = 0.047
+W
+N1
+N2
+N3
+REM
+Fold-0 held-out patients (10), 4000 random epochs, colour = scored stage
+Figure 6: t-SNE [55] of 4000 epochs from the ten held-out patients of one fold, colored by scored stage. Left: frozen
+LaBraM. Right: the sleep-adapted, aligned EEG/EOG encoder used in MM-Net.
+5.6. Respiratory-Event Detection
+Table 7 compares the respiratory output with established detectors on the same folds and epoch labels. A
+clinical desaturation rule reaches 0.595 AUC, and logistic regression and gradient boosting on the 14 engineered
+cardiorespiratory descriptors reach 0.603 and 0.673; a random classifier scores 0.160 AP, the event prevalence. Two
+raw-signal detectors, each a per-epoch convolutional encoder over the 25 Hz waveform followed by a bidirectional
+LSTM across 20-epoch windows and trained with the same labels, folds, early-stopping rule and positive-class
+weighting, read summed respiratory effort alone, matching the input of Nassi et al. [43] (0.602 AUC), or all seven
+raw cardiorespiratory channels (0.733; one seed each). MM-Net reaches 0.825 AUC and 0.487 AP, 0.152 AUC and
+0.197 AP above gradient boosting. Detection is strongest on the most severe events: 0.810 AUC on hypopneas, which
+form 82% of event epochs, 0.898 on obstructive and 0.946 on central apneas. Read at fixed sensitivity on the pooled
+held-out predictions (Figure 7), MM-Net holds 0.70 specificity at 0.80 sensitivity and 0.53 at 0.90.
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 15 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+Table 7
+Respiratory-event detection on iSLEEPS. (A) Comparison with classical and raw-signal baselines on the same folds (§single
+seed) and (B) MM-Net AUC by respiratory-event type. Bold denotes the best value in each comparison.
+(a) Detection method
+Method
+AUC ↑
+AP ↑
+Desaturation rule
+0.595
+0.207
+Logistic regression
+0.603
+0.211
+Gradient boosting
+0.673
+0.290
+Raw effort belt§ [43]
+0.602
+0.252
+Raw seven channels§
+0.733
+0.366
+MM-Net, single model
+0.815
+0.471
+MM-Net, three-seed
+0.825
+0.487
+(b) MM-Net AUC by event type
+Event type
+Positive epochs
+AUC ↑
+Hypopnea
+11,921
+0.810
+Obstructive
+1,722
+0.898
+Central
+832
+0.946
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+1 - specificity
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Sensitivity
+(a) ROC, AUC 0.828
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Recall
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Precision
+(b) Precision-recall, AP 0.498
+Figure 7: Respiratory-event detection by MM-Net (three-seed), pooled over the ten patient-independent test folds. (a)
+ROC curve. (b) Precision–recall; the dashed line is the 0.160 event prevalence, the no-skill floor.
+5.7. Joint Training and Stream Contributions
+The joint objective is compared with matched single-task models that share the architecture, folds, seeds, optimizer,
+training budget and decoding of the joint model and differ only in the surviving term of = stg + 𝜆apn (Table 8).
+Joint training improves staging where disordered breathing disrupts sleep. In epochs containing a respiratory-event
+onset, MM-Net stages at 0.721 against 0.705 for the staging-only model, in nine folds of ten (𝑝= 0.014), and the gain
+persists within two epochs of an event (0.710 against 0.701, 𝑝= 0.020). In patients with severe sleep apnea (AHI ≥30,
+𝑛= 38), accuracy rises from 0.758 to 0.768 (𝑝= 0.020), and the stages that respiratory events fragment improve: N3
+F1 from 0.695 to 0.707 (𝑝= 0.049) and N2 F1 from 0.811 to 0.816 (𝑝= 0.037). Across the cohort, per-patient accuracy
+rises from 0.756 to 0.762 (60 of 99 patients, 𝑝= 0.013). Joint training also improves respiratory-event detection: in
+the frozen-encoder configuration, respiratory AUC rises from 0.784 to 0.796 in nine folds of ten (𝑝= 0.006), and
+in MM-Net the respiratory AUC and AP are 0.815 and 0.471 against 0.814 and 0.466 for the respiratory-only model.
+Summing the joint model’s respiratory scores over its own decoded sleep gives an AHI estimate closer to the annotated
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 16 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+Table 8
+Joint multi-task training against matched single-task models with the same architecture, folds, seeds, training budget and
+decoding. MM-Net staging: three-seed ensemble; respiratory AUC and AP: mean over seeds. 𝑝: Wilcoxon on the ten fold
+means, or on patients for the severe-apnea group and the per-patient accuracy. The single-task AHI combines the stages
+of the staging-only model with the scores of the respiratory-only model.
+Measure
+Single-task
+Joint
+𝑝
+Staging
+Accuracy, epochs with an event onset
+0.705
+𝟎.𝟕𝟐𝟏
+0.014
+Accuracy, within two epochs of an event
+0.701
+𝟎.𝟕𝟏𝟎
+0.020
+Accuracy, severe sleep apnea (AHI ≥30)
+0.758
+𝟎.𝟕𝟔𝟖
+0.020
+N3 F1
+0.695
+𝟎.𝟕𝟎𝟕
+0.049
+N2 F1
+0.811
+𝟎.𝟖𝟏𝟔
+0.037
+Accuracy, per patient
+0.756
+𝟎.𝟕𝟔𝟐
+0.013
+Respiratory
+AUC, frozen-encoder configuration
+0.784
+𝟎.𝟕𝟗𝟔
+0.006
+AUC
+0.814
+𝟎.𝟖𝟏𝟓
+—
+AP
+0.466
+𝟎.𝟒𝟕𝟏
+—
+AHI
+Spearman 𝜌
+0.734
+𝟎.𝟕𝟔𝟓
+—
+Mean absolute error (events/h)
+11.1
+𝟏𝟎.𝟒
+—
+Table 9
+Modality removal and retraining (frozen-encoder configuration; ten folds, three seeds). Each row removes one modality and
+reports the change in the output that modality serves, relative to the full configuration (staging accuracy 0.736, respiratory
+AUC 0.796). Holm 𝑝: Wilcoxon on the ten fold means, Holm-corrected across the nine ablations of the grid.
+Modality removed
+Output
+Change
+Holm 𝑝
+EEG (neural)
+Staging accuracy
+−0.050
+0.018
+All cardiorespiratory
+Respiratory AUC
+−0.118
+0.018
+Respiratory effort
+Respiratory AUC
+−0.028
+0.031
+Airflow
+Respiratory AUC
+−0.004
+0.65
+index than combining the two single-task models (Spearman 𝜌0.765 against 0.734; mean absolute error 10.4 against
+11.1 events/h).
+Signal interventions in the frozen-encoder configuration show that each stream carries the output its physiology
+is closest to (Table 9). Removing the EEG and retraining lowers staging accuracy by 0.050, and removing the whole
+cardiorespiratory stream lowers respiratory AUC by 0.118, the largest effects of the modality-ablation grid. Within
+the cardiorespiratory stream, respiratory effort is the channel the detector relies on most (−0.028 AUC without it),
+consistent with the paradoxical thoraco-abdominal motion that marks an obstructive event as it happens. Removing
+airflow, the signal from which events are scored, leaves detection essentially unchanged (−0.004), so the respiratory
+output is supported by the physiological correlates of disordered breathing and not by the scoring channel alone.
+5.8. AHI Estimation
+Summed over decoded sleep, the respiratory scores estimate the AHI (Section 4.8) with Spearman 𝜌= 0.765
+against the annotated index over the 99 test patients, a mean absolute error of 10.4 events/h, and 54% of patients in the
+correct AASM severity band (weighted 𝜅0.45; Table 10, Figure 8). The clinical AHI recorded with the corpus agrees
+with the annotated index at 𝜌= 0.687, and against that clinical index MM-Net reaches 𝜌= 0.633. In the expected-
+count formulation, summing the onset scores over decoded sleep counts closely spaced events separately, whereas
+thresholding the scores into runs would merge them, and normalizing by decoded sleep time matches the denominator
+of the clinical index. Staging remains stable across sleep-disordered-breathing severity: accuracy is 0.784 in patients
+with a normal clinical AHI and 0.754, 0.764 and 0.758 in the mild, moderate and severe groups, with no significant
+ordered trend (Jonckheere–Terpstra 𝑝= 0.20; Table 11), so the model stages the most severely affected patients nearly
+as well as those without sleep-disordered breathing.
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 17 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+Table 10
+AHI estimation on iSLEEPS (99 test patients, stages decoded by MM-Net). Severity: AASM bands; 𝜅𝑤linearly weighted.
+Last column: Spearman 𝜌against the clinical AHI recorded with the corpus. The last row gives the agreement of the
+clinical AHI with the annotated AHI.
+Estimator
+𝜌↑
+MAE ↓Sev. acc ↑𝜅𝑤↑𝜌clin ↑
+MM-Net
+0.765
+10.4
+0.54
+0.45 0.633
+Clinical vs. annotated AHI 0.687
+Table 11
+Sleep-staging accuracy of MM-Net across AASM severity groups of the clinical AHI in iSLEEPS. Values are mean ± SD
+across patients; the ordered-group trend is not significant (Jonckheere–Terpstra 𝑝= 0.20).
+AHI band
+AHI (events/h)
+Patients
+Staging acc ↑
+Normal
+< 5
+15
+0.784 ± 0.057
+Mild
+5–15
+23
+0.754 ± 0.092
+Moderate
+15–30
+23
+0.764 ± 0.083
+Severe
+≥30
+38
+0.758 ± 0.078
+0
+20
+40
+60
+80
+Annotated AHI (events/h)
+0
+20
+40
+60
+80
+MM-Net AHI (events/h)
+normal
+mild
+moderatesevere
+iSLEEPS (stroke), 10-fold test, n=99
+Spearman rho = 0.76, MAE = 10.4
+0
+20
+40
+60
+Annotated AHI (events/h)
+0
+10
+20
+30
+40
+50
+60
+70
+MM-Net AHI (events/h)
+ISRUC-I, trained on iSLEEPS only, n=100
+Spearman rho = 0.63, MAE = 11.6
+Figure 8: MM-Net AHI estimate against the annotated AHI. Left: iSLEEPS, ten-fold test patients. Right: ISRUC-I, MM-
+Net trained on iSLEEPS only and applied without retraining (Section 5.10). Shading marks the AASM severity bands; the
+dashed line is identity.
+5.9. Staging Across Stroke Characteristics
+Staging accuracy is stable across the clinical characteristics of the stroke (Table 12). Per-patient accuracy is
+unrelated to neurological severity (NIHSS, Spearman 𝜌= 0.15, 𝑝= 0.15), disability (modified Rankin scale, 𝜌= 0.13,
+𝑝= 0.22), functional independence (Barthel index, 𝜌= 0.00, 𝑝= 0.98) and time since stroke onset (𝜌= −0.06,
+𝑝= 0.62), and patients with moderate-to-severe deficits (NIHSS ≥5) are staged at 0.778 against 0.758 for minor
+strokes. The sleep-adapted encoder contributes most in the most affected patients: +0.028 over the frozen encoder
+for NIHSS ≥5 and +0.024 for dependent patients (modified Rankin 3–5), against +0.004 and +0.005 in minor and
+independent patients.
+5.10. External Validation on Independent Cohorts
+Ten-fold cross-validation is patient-independent but remains within one corpus, one center and one acquisition
+protocol. MM-Net is therefore evaluated in two further settings: trained and tested on independent cohorts under
+subject-independent cross-validation, with the encoder adapted, cross-fitted and aligned inside each fold exactly as
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 18 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+Table 12
+Sleep-staging accuracy of MM-Net (three-seed, per patient) by stroke severity (NIHSS) and functional status (modified
+Rankin scale) in iSLEEPS. Encoder gain: accuracy difference from the frozen-encoder reference of Table 6 on the same
+patients.
+Characteristic
+Group
+Patients
+Staging acc ↑
+Encoder gain
+NIHSS
+0–4 (minor)
+86
+0.758
++0.004
+≥5 (moderate to severe)
+12
+0.778
++0.028
+Modified Rankin
+0–2 (independent)
+88
+0.757
++0.005
+3–5 (dependent)
+10
+0.794
++0.024
+Table 13
+Trained and tested on ISRUC-Sleep. ISRUC-I: ten subject-independent folds (80/10/10 subjects), three seeds; baselines
+retrained on the same folds with three seeds (accuracy mean ± SD over folds). MM-Net is ahead of every baseline in nine
+or ten folds of ten (Wilcoxon, Holm 𝑝= 0.018). ISRUC-II+III: six folds keeping both nights of a subject together. Encoder
+alone: sleep-adapted EEG/EOG LaBraM, one epoch, no temporal model. Frozen-encoder configuration: class weights,
+concatenation, seven cardiorespiratory channels. AHI is reported for ISRUC-I, whose 100 patients span the severity range.
+Model
+Acc ↑
+Macro-F1 ↑
+𝜅↑
+Resp. AUC ↑
+Resp. AP ↑
+AHI 𝜌↑
+AHI MAE ↓
+ISRUC-I (100 patients)
+Huttunen et al. [15]
+0.691 ± 0.044
+0.655
+0.603
+0.863
+0.417
+—
+—
+TinySleepNet [8]
+0.741 ± 0.057
+0.710
+0.666
+—
+—
+—
+—
+U-Time [27]
+0.743 ± 0.049
+0.711
+0.669
+—
+—
+—
+—
+SleepTransformer [29]
+0.751 ± 0.037
+0.723
+0.678
+—
+—
+—
+—
+AT-BiLSTM [54]
+0.755 ± 0.042
+0.728
+0.684
+—
+—
+—
+—
+1D-ResNet-SE-LSTM [52]
+0.758 ± 0.049
+0.732
+0.687
+—
+—
+—
+—
+AttnSleep [7]
+0.758 ± 0.047
+0.717
+0.685
+—
+—
+—
+—
+LSTM (corpus)
+0.778 ± 0.025
+0.744
+0.711
+—
+—
+—
+—
+Encoder alone
+0.792
+—
+—
+—
+—
+—
+—
+Frozen-encoder configuration
+0.786
+0.752
+0.722
+0.872
+0.447
+0.523
+6.8
+MM-Net
+𝟎.𝟖𝟎𝟑± 𝟎.𝟎𝟐𝟑
+𝟎.𝟕𝟔𝟓
+𝟎.𝟕𝟒𝟒
+𝟎.𝟖𝟖𝟗
+𝟎.𝟒𝟕𝟕
+𝟎.𝟓𝟗𝟎
+𝟔.𝟔
+ISRUC-II+III (18 subjects, 26 nights)
+Frozen-encoder configuration
+0.716
+0.689
+0.632
+0.757
+0.138
+—
+—
+MM-Net
+𝟎.𝟕𝟐𝟓
+𝟎.𝟔𝟗𝟐
+𝟎.𝟔𝟒𝟏
+𝟎.𝟕𝟗𝟒
+𝟎.𝟏𝟗𝟕
+—
+—
+of which ISRUC-III (healthy)
+0.779
+0.747
+0.714
+0.867
+0.260
+—
+—
+on iSLEEPS; and trained on all 99 iSLEEPS patients and applied unchanged to external cohorts, with no re-fitted
+parameter, threshold or transition matrix (per-recording standardization is applied, as in training).
+Trained and tested on ISRUC-Sleep ISRUC-I is evaluated with ten subject-independent folds of 80 training, 10
+validation and 10 test subjects, and ISRUC-II and III together with six folds that keep both nights of a subject on the
+same side. On ISRUC-I MM-Net reaches 0.803 accuracy, macro-F1 0.765 and 𝜅0.744 (Table 13). It is ahead of the
+frozen-encoder configuration in nine folds of ten (+0.018, 𝑝= 0.004), and the gain extends to respiratory detection
+(0.872 →0.889 AUC) and to the AHI (𝜌0.523 →0.590, mean absolute error 6.6 events/h). As on iSLEEPS, MM-Net
+is ahead of its sleep-adapted encoder used alone (0.792; +0.012 in eight folds of ten, 𝑝= 0.014). The reimplemented
+baselines, retrained on MM-Net’s ISRUC-I folds with three seeds, reach 0.691 to 0.778; MM-Net is ahead of each of
+them in nine or ten folds of ten, by +0.025 over the corpus LSTM to +0.112 over Huttunen et al. (Holm 𝑝= 0.018,
+the minimum for nine comparisons), and ahead of Huttunen et al., the only other joint model, on respiratory detection
+as well (0.889 against 0.863 AUC). On ISRUC-II and III MM-Net reaches 0.725 over 26 nights and 0.779 on the ten
+healthy subjects of ISRUC-III.
+Healthy sleep On Sleep-EDF, under ten subject-independent folds, MM-Net reaches 0.864 accuracy, above every
+single-channel architecture reimplemented on the same recordings (0.791–0.835, Table 4), so the same architecture
+performs consistently across healthy sleep, a sleep-disorder cohort and stroke sleep.
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 19 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+Table 14
+MM-Net trained on all 99 iSLEEPS patients and applied without retraining (three-seed, seven-channel variant without
+nasal pressure; AHI scale 𝑘from iSLEEPS). AHI is not reported for the healthy ISRUC-III subjects. The iSLEEPS reference
+row is the eight-channel MM-Net evaluated in-cohort.
+Cohort
+Nights Acc ↑
+𝜅↑
+Resp. AUC ↑AHI 𝜌↑
+ISRUC-I (sleep disorders)
+100
+0.730 0.641
+0.833
+0.631
+ISRUC-II (sleep disorders)
+16
+0.681 0.568
+0.783
+0.518
+ISRUC-III (healthy)
+10
+0.709 0.618
+0.776
+—
+UCD (suspected sleep apnea)
+25
+0.607 0.463
+0.841
+0.653
+iSLEEPS (in-cohort, reference)
+99
+0.763 0.656
+0.825
+0.765
+Table 15
+Model size and output capability of representative evaluated architectures.
+Model
+Input
+Params ↓
+Outputs
+CNN-ResNet18 [24]
+1 EEG
+∼11 M
+stage
+DeepSleepNet [5]
+4 EEG
+3.72 M
+stage
+Raw multimodal CNN
+14 ch
+0.95 M
+stage + apnea
+Huttunen et al. [15]
+4 ch
+3.80 M
+stage + events
+MM-Net (proposed)
+7 neural + 8 cardio
+2.85 M + 5.8 M
+stage + events + AHI
+Applied without retraining Table 14 applies MM-Net, trained only on iSLEEPS, to 151 external nights from 143
+subjects. On the 100 ISRUC-I patients it stages at 0.730 and detects respiratory events at 0.833 AUC, and its AHI
+estimate reaches 𝜌= 0.631 (Figure 8). On UCD, an apnea cohort recorded on a different system with central EEG
+only, respiratory detection reaches 0.841 AUC and the AHI estimate 𝜌= 0.653, with 60% of patients in the correct
+severity band (weighted 𝜅0.51); staging there (0.607) is limited by the absence of occipital EEG and by the unit-less
+recordings, neither of which affects the respiratory stream. Respiratory detection therefore transfers with little loss:
+0.83–0.84 AUC on the two apnea cohorts against 0.825 in-cohort.
+Because nasal pressure is acquisition-specific, MM-Net uses all eight channels when trained on a cohort and its
+seven-channel variant without nasal pressure, reported in Table 14, when applied to a new acquisition system.
+5.11. Model Complexity and Capability
+Table 15 sets the proposed model beside representative alternatives on size and capability. MM-Net holds 2.85 M
+trainable parameters, with a 5.8 M-parameter sleep-adapted encoder trained in a separate stage; together they remain
+below the corpus’s CNN-ResNet18 (∼11 M). MM-Net delivers the sleep stage, the respiratory-event score and the AHI
+from one pass over the recording, and none of the staging-only models, at any size, can supply the second and third
+outputs.
+6. Discussion
+The central finding of this study concerns how a pretrained EEG encoder, once adapted to the target cohort, enters
+a downstream model. Adapting LaBraM to sleep raises its own staging accuracy from 0.647 to 0.709, yet the adapted
+encoder adds nothing measurable to the downstream model until its training embeddings are cross-fitted and mapped
+into the space of the deployed encoder (Table 6). The failure mode, a downstream model trained on embeddings whose
+coordinates differ from those it receives at test time, may apply to any pipeline that fine-tunes a foundation model and
+then trains a second model on its outputs, and the remedy costs 𝐾additional fine-tuning runs and a ridge regression per
+part. The aligned encoder separates Wake, REM and N3 into distinct clusters (Figure 6), and with it MM-Net stages
+iSLEEPS at 0.763 (𝜅= 0.656), ahead of every architecture retrained on the same folds. The integration carries over
+to ISRUC-I, where the complete model is ahead of the frozen-encoder configuration in nine folds of ten.
+The same model delivers the respiratory output and the AHI, and the joint design is supported directly: joint training
+improves staging where disordered breathing disrupts sleep, improves respiratory-event detection and yields a closer
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 20 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+AHI estimate than two single-task models (Table 8), and each stream carries the output its physiology is closest to, with
+respiratory effort and not the scoring airflow channel as the strongest individual respiratory input (Table 9). Huttunen
+et al. [15] demonstrated simultaneous sleep staging and respiratory-event scoring in a large suspected-obstructive-
+sleep-apnea cohort. Under the common iSLEEPS evaluation their architecture reaches 0.599 staging accuracy against
+0.756 for MM-Net, and on ISRUC-I, trained and evaluated on the same labels, 0.691 staging accuracy and 0.863
+respiratory AUC against 0.803 and 0.889. This extends joint sleep analysis to a stroke-specific setting, where the
+available montage, cohort size, neural physiology, and respiratory annotation differ from those of conventional sleep-
+apnea studies, and indicates that joint PSG analysis in stroke benefits from representations and signal organization
+adapted to the characteristics of the target cohort. On iSLEEPS the respiratory output reaches 0.825 AUC, 0.152 above
+gradient boosting on engineered descriptors and 0.092 above a raw-signal network on seven cardiorespiratory channels,
+and it is strongest on obstructive and central apneas. Summed over decoded sleep, the same scores estimate the AHI
+with 𝜌= 0.765 against the annotated index, so a single model characterizes both sleep architecture and respiratory
+disturbance in stroke PSG.
+The respiratory output is trained at the 30-s temporal scale of staging, as a score for the onset of an event within each
+epoch, and the AHI follows from it without a separate counting rule. The expected-count formulation counts closely
+spaced events separately and normalizes by the decoded sleep time, as the clinical index does, and its agreement with
+the annotated index (𝜌= 0.765) exceeds the agreement of the clinical index recorded with the corpus (𝜌= 0.687).
+Staging accuracy is 0.784 in patients with a normal AHI and remains at 0.754–0.764 in the mild, moderate and severe
+groups, without a significant trend, so the model stages the patients with the greatest respiratory burden nearly as well
+as those without it. Sleep architecture and respiratory disturbance remain distinct prediction problems at the signal
+level while sharing clinically relevant structure at the level of the overnight recording, which supports their analysis
+within a common framework in a stroke population where both processes shape the physiological state of the patient
+during sleep.
+Performance depends strongly on the population in which a model is evaluated. Deep architectures retrained on
+iSLEEPS reach approximately 0.60–0.72 accuracy, against 0.79–0.84 for the same architectures on Sleep-EDF, a
+decrease of approximately 0.10 to 0.15 for each model; because population, montage, and acquisition conditions change
+together, this difference is most appropriately read as a substantial shift between conventional healthy-sleep data and
+subacute stroke PSG. MM-Net reaches 0.864 on Sleep-EDF, 0.803 on ISRUC-I and 0.763 within the stroke cohort.
+Trained on ISRUC-I, MM-Net reaches 0.803 accuracy and 0.889 respiratory AUC and is ahead of every retrained
+baseline on the same folds. Trained on iSLEEPS alone and applied without retraining, it detects respiratory events
+at 0.833 and 0.841 AUC on ISRUC-I and on UCD, an apnea cohort recorded on a different system, against 0.825
+in-cohort, and estimates the AHI with 𝜌= 0.631 and 0.653. The learned representations are therefore not confined
+to a single recording environment. Nasal pressure was the input whose contribution depended most on the acquisition
+system, and the seven-channel variant is the appropriate choice for transfer.
+The framework combines sleep-stage and respiratory-event information from the same PSG, preserves the
+specialization of the neural and cardiorespiratory streams, and exploits their shared temporal context. The encoder-
+integration experiments show how a pretrained EEG representation is brought into the model, the benchmark and
+respiratory comparisons show what the integrated model delivers, and external evaluation demonstrates that the
+resulting representations retain utility across distinct PSG datasets. For subacute ischemic-stroke PSG, MM-Net
+provides sleep staging, respiratory-event detection and AHI estimation from one pass over the recording, built on
+a sleep-adapted EEG encoder whose representations are brought into the downstream model through cross-fitting and
+alignment.
+6.1. Limitations
+The stroke-specific evaluation rests on iSLEEPS, recorded at a single center; the external cohorts establish transfer
+across acquisition systems and populations, and a second public stroke PSG cohort, once available, would allow a
+stroke-specific replication. Staging is decoded over the whole night by the hidden-Markov pass, so the system is
+designed for offline scoring of a completed recording. The respiratory output is scored per 30-s epoch and summarized
+as an AHI estimate; event-level scoring with onset and duration boundaries is a natural extension.
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 21 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+7. Conclusion
+This study addresses the joint characterization of sleep architecture and respiratory disturbances in subacute
+ischemic stroke, a setting in which altered neural physiology and heterogeneous cardiorespiratory information
+challenge conventional sleep-analysis approaches. MM-Net demonstrates that sleep-adapted EEG representations can
+be integrated into a multimodal temporal framework through cross-fitting and embedding alignment, improving sleep-
+stage discrimination while supporting concurrent respiratory-event detection.
+The findings establish two complementary aspects of the proposed approach. First, the integration of adapted
+neural representations provides a means of addressing the training–inference mismatch encountered when pretrained
+encoders are incorporated into downstream physiological models. Second, controlled interventions reveal distinct roles
+for neural and cardiorespiratory information within the joint framework, showing that shared temporal modeling can
+accommodate physiologically specialized prediction tasks.
+Patient-independent evaluation and experiments across independent sleep cohorts support the applicability of
+this approach beyond a single recording population. Together, these results establish a computational framework for
+joint analysis of neural and respiratory physiology after ischemic stroke, while providing a foundation for further
+investigation of representation consistency and multimodal generalization in clinical sleep analysis.
+Data and Code Availability
+The iSLEEPS corpus is publicly available (Zenodo, DOI 10.5281/zenodo.14873844; and the india-data.org portal)
+as described by Maiti et al. [23]. ISRUC-Sleep [47], the UCD database [48] and Sleep-EDF [45] are public. Our
+code, the per-fold configurations, engineered features, the corrections applied to the external cohorts, and reproduction
+notebooks are released at https://github.com/wshuv-o/MM-Net.
+Ethics
+The iSLEEPS data collection was approved by the NIMHANS Institutional Ethics Committee (No. NIMHANS/34th
+IEC (BS&NS DIV.)/2022, dated 05.02.2022) [23]. This work is a secondary analysis of the de-identified public release
+and required no additional enrollment.
+Declaration of Competing Interest
+The authors declare that they have no known competing financial interests or personal relationships that could have
+appeared to influence the work reported in this paper.
+CRediT Authorship Contribution Statement
+Md Wahiduzzaman Suva: Conceptualization, Methodology, Software, Formal analysis, Investigation, Writing –
+original draft. Esm E Moula Chowdhury Abha: Methodology, Software, Validation, Writing – original draft. Md
+Imtiaj Alam Sajin: Software, Investigation, Data curation, Visualization, Writing – original draft. Md Iftekharul
+Mobin: Conceptualization, Supervision, Project administration, Writing – review & editing. Jia Uddin: Conceptual-
+ization, Supervision, Writing – review & editing.
+Declaration of Generative AI and AI-Assisted Technologies in the Writing Process
+During the preparation of this work the authors used ChatGPT (OpenAI) and Claude (Anthropic) to improve the
+language and organization of the manuscript. After using these tools, the authors reviewed and edited the content as
+needed and take full responsibility for the content of the published article.
+Funding
+This research did not receive any specific grant from funding agencies in the public, commercial, or not-for-profit
+sectors.
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 22 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+Acknowledgment
+The authors thank the iSLEEPS, ISRUC-Sleep, UCD and Sleep-EDF investigators for releasing their data.
+References
+[1] C. L. Bassetti, M. S. Aldrich, Sleep electroencephalogram changes in acute hemispheric stroke, Sleep Medicine 2 (2001) 185–194.
+[2] C. Denis, I. Jaussent, L. Guiraud, C. Mestejanot, C. Arquizan, I. Mourand, S. Chenini, B. Abril, A. Wacongne, R. Tamisier, S. Baillieul,
+J. Pepin, L. Barateau, Y. Dauvilliers, Functional recovery after ischemic stroke: Impact of different sleep health parameters, Journal of Sleep
+Research 33 (2023).
+[3] N. Tellenbach, M. H. Schmidt, F. Alexiev, E. Blondiaux, F. Cavalloni, C. L. Bassetti, L. Heydrich, P. Bargiotas, Rem sleep and muscle atonia
+in brainstem stroke: A quantitative polysomnographic and lesion analysis study, Journal of Sleep Research 32 (2022).
+[4] K. G. Johnson, D. C. Johnson, Frequency of Sleep Apnea in Stroke and TIA Patients: A Meta-analysis, Journal of Clinical Sleep Medicine 6
+(2010) 131–137.
+[5] A. Supratak, H. Dong, C. Wu, Y. Guo, Deepsleepnet: A Model for Automatic Sleep Stage Scoring Based on Raw Single-Channel EEG, IEEE
+Transactions on Neural Systems and Rehabilitation Engineering 25 (2017) 1998–2008.
+[6] H. Phan, F. Andreotti, N. Cooray, O. Y. Chen, M. De Vos, Seqsleepnet: End-to-End Hierarchical Recurrent Neural Network for Sequence-to-
+Sequence Automatic Sleep Staging, IEEE Transactions on Neural Systems and Rehabilitation Engineering 27 (2019) 400–410.
+[7] E. Eldele, Z. Chen, C. Liu, M. Wu, C.-K. Kwoh, X. Li, C. Guan, An Attention-Based Deep Learning Approach for Sleep Stage Classification
+With Single-Channel EEG, IEEE Transactions on Neural Systems and Rehabilitation Engineering 29 (2021) 809–818.
+[8] A. Supratak, Y. Guo, Tinysleepnet: An Efficient Deep Learning Model for Sleep Stage Scoring based on Raw Single-Channel EEG, 2020
+42nd Annual International Conference of the IEEE Engineering in Medicine & Biology Society (EMBC) (2020) 641–644.
+[9] W.-B. Jiang, L. Zhao, B.-l. Lu,
+Large brain model for learning generic representations with tremendous eeg data in bci,
+in: B. Kim, Y. Yue, S. Chaudhuri, K. Fragkiadaki, M. Khan, Y. Sun (Eds.), International Conference on Learning Rep-
+resentations, volume 2024, 2024, pp. 16405–16426. URL: https://proceedings.iclr.cc/paper_files/paper/2024/file/
+47393e8594c82ce8fd83adc672cf9872-Paper-Conference.pdf.
+[10] J. Wang, S. Zhao, Z. Luo, Y. Zhou, H. Jiang, S. Li, T. Li, G. Pan, Cbramod: A Criss-Cross Brain Foundation Model for EEG Decoding, arXiv
+(Cornell University) (2024).
+[11] G. Wang, W. Liu, Y. He, C. Xu, L. Ma, H. Li, Eegpt: Pretrained Transformer for Universal and Reliable Representation of EEG Signals,
+Advances in Neural Information Processing Systems 37 (2024) 39249–39280.
+[12] C. Yang, M. B. Westover, J. Sun, BIOT: Biosignal transformer for cross-data learning in the wild, in: Thirty-seventh Conference on Neural
+Information Processing Systems, 2023. URL: https://openreview.net/forum?id=c2LZyTyddi.
+[13] L. Duan, B. Ma, Y. Yin, Z. Huang, Y. Qiao,
+Mms-sleepnet: A knowledge-based multimodal and multiscale network for sleep staging,
+Biomedical Signal Processing and Control 103 (2025) 107370.
+[14] Y. Cao, W. Xiang, J. Wei, S. Cao, X. Tian, J. Zhong, X. Fang, B. Luo, H. Lyu, X. Li, Crossfusionsleepnet: A multimodal deep learning model
+for automatic sleep stage classification, Biomedical Signal Processing and Control 112 (2026) 108538.
+[15] R. Huttunen, T. Leppänen, B. Duce, E. S. Arnardottir, S. Nikkonen, S. Myllymaa, J. Töyräs, H. Korkalainen, A Comparison of Signal
+Combinations for Deep Learning-Based Simultaneous Sleep Staging and Respiratory Event Detection, IEEE Transactions on Biomedical
+Engineering 70 (2023) 1704–1714.
+[16] L. Shi, R. Gui, L. Wang, P. Li, Q. Niu, A Multi-Task Deep Learning Approach for Simultaneous Sleep Staging and Apnea Detection for
+Elderly People, Interdisciplinary Sciences: Computational Life Sciences 18 (2025) 341–356.
+[17] J. M. Gottselig, C. L. Bassetti, P. Achermann, Power and coherence of sleep spindle frequency activity following hemispheric stroke, Brain
+125 (2002) 373–383.
+[18] L. M. J. Fernandez, A. Lüthi, Sleep Spindles: Mechanisms and Functions, Physiological Reviews 100 (2020) 805–868.
+[19] L. Facchin, C. Schöne, A. Mensen, M. Bandarabadi, F. Pilotto, S. Saxena, P. A. Libourel, C. L. Bassetti, A. R. Adamantidis, Slow Waves
+Promote Sleep-Dependent Plasticity and Functional Recovery after Stroke, The Journal of Neuroscience 40 (2020) 8637–8651.
+[20] B. K. Simpson, R. Rangwani, A. Abbasi, J. M. Chung, C. M. Reed, T. Gulati, Disturbed laterality of non-rapid eye movement sleep oscillations
+in post-stroke human sleep: a pilot study, Frontiers in Neurology 14 (2023).
+[21] Y. Zheng, T. Jing, L. Xu, S. Sun, W. Yu, R. Liu, G. Xu, C. Chu, Analysis of the correlation between sleep spindles and cognitive impairment
+in patients with ischemic stroke, Scientific Reports 15 (2025).
+[22] A. Agius Anastasi, O. Falzon, K. Camilleri, M. Vella, R. Muscat, Brain Symmetry Index in Healthy and Stroke Patients for Assessment and
+Prognosis, Stroke Research and Treatment 2017 (2017) 1–9.
+[23] S. Maiti, S. K. Sharma, S. Mythirayee, S. Rajendran, R. S. Bapi, Polysomnography Dataset for Sleep Analysis in Ischemic Stroke Patients,
+Scientific Data 13 (2026).
+[24] S. Bose, S. Maiti, S. K. Sharma, M. S, T. Chakraborti, S. Rajendran, R. S. Bapi, Ai Generalisation Gap in Comorbid Sleep Disorder Staging,
+2026 IEEE 23rd International Symposium on Biomedical Imaging (ISBI) (2026) 1–4.
+[25] A. Alhazmi, Sleepstagenet: A Lightweight and Explainable Deep Learning Architecture for Multi-Channel Sleep Staging, Brain Sciences 16
+(2026) 860.
+[26] V. Chernozhukov, D. Chetverikov, M. Demirer, E. Duflo, C. Hansen, W. Newey, J. Robins, Double/debiased machine learning for treatment
+and structural parameters, The Econometrics Journal 21 (2018) C1–C68.
+[27] M.
+Perslev,
+M.
+Jensen,
+S.
+Darkner,
+P.
+J.
+Jennum,
+C.
+Igel,
+U-time:
+A
+fully
+convolutional
+network
+for
+time
+series
+segmentation
+applied
+to
+sleep
+staging,
+in:
+Advances
+in
+Neural
+Information
+Process-
+ing
+Systems
+(NeurIPS
+2019),
+volume
+32,
+2019,
+pp.
+4415–4426.
+URL:
+https://papers.nips.cc/paper/
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 23 of 24
+
+
+MM-Net: sleep staging and sleep apnea assessment after ischemic stroke
+8692-u-time-a-fully-convolutional-network-for-time-series-segmentation-applied-to-sleep-staging.
+[28] H. Phan, O. Y. Chen, M. C. Tran, P. Koch, A. Mertins, M. De Vos, Xsleepnet: Multi-View Sequential Model for Automatic Sleep Staging,
+IEEE Transactions on Pattern Analysis and Machine Intelligence (2021) 1–1.
+[29] H. Phan, K. Mikkelsen, O. Y. Chen, P. Koch, A. Mertins, M. De Vos, Sleeptransformer: Automatic Sleep Staging With Interpretability and
+Uncertainty Quantification, IEEE Transactions on Biomedical Engineering 69 (2022) 2456–2467.
+[30] H. Phan, K. P. Lorenzen, E. Heremans, O. Y. Chén, M. C. Tran, P. Koch, A. Mertins, M. Baumert, K. B. Mikkelsen, M. De Vos, L-seqsleepnet:
+Whole-cycle Long Sequence Modeling for Automatic Sleep Staging, IEEE Journal of Biomedical and Health Informatics 27 (2023) 4748–
+4757.
+[31] N. Jirakittayakorn, Y. Wongsawat, S. Mitrirattanakul, Zleepanlystnet: a novel deep learning model for automatic sleep stage scoring based on
+single-channel raw EEG data using separating training, Scientific Reports 14 (2024).
+[32] Y. Guo, M. Nowakowski, W. Dai, Flexsleeptransformer: a transformer-based sleep staging model with flexible input channel configurations,
+Scientific Reports 14 (2024).
+[33] A. Gu, T. Dao, Mamba: Linear-time sequence modeling with selective state spaces, in: First Conference on Language Modeling, 2024. URL:
+https://openreview.net/forum?id=tEYskw1VY2.
+[34] X. Zhou, Y. Han, Z. Chen, C. Liu, Y. Ding, Z. Jia, Y. Liu, Bit-mamsleep: Bidirectional Temporal Mamba for EEG Sleep Staging, arXiv
+(Cornell University) (2024).
+[35] D. H. Wolpert, Stacked generalization, Neural Networks 5 (1992) 241–259.
+[36] A. Guillot, V. Thorey, Robustsleepnet: Transfer Learning for Automated Sleep Staging at Scale, IEEE Transactions on Neural Systems and
+Rehabilitation Engineering 29 (2021) 1441–1451.
+[37] M. Perslev, S. Darkner, L. Kempfner, M. Nikolic, P. J. Jennum, C. Igel, U-Sleep: resilient high-frequency sleep staging, npj Digital Medicine
+4 (2021) 72.
+[38] R. Thapa, M. R. Kjaer, B. He, I. Covert, H. Moore Iv, U. Hanif, G. Ganjoo, M. B. Westover, P. Jennum, A. Brink-Kjaer, E. Mignot, J. Zou, A
+multimodal sleep foundation model for disease prediction, Nature Medicine 32 (2026) 752–762.
+[39] Y. Zhou, J. Wu, Z. Ren, Z. Yao, W. Lu, K. Peng, Q. Zheng, C. Song, W. Ouyang, C. Gou, Csbrain: A Cross-scale Spatiotemporal Brain
+Foundation Model for EEG Decoding, Advances in Neural Information Processing Systems 38 (2025) 96859–96904.
+[40] A. D. Rossi, M. Metaldi, M. Bechny, I. Filchenko, J. v. d. Meer, M. H. Schmidt, C. L. A. Bassetti, A. Tzovara, F. D. Faraci, L. Fiorillo,
+Sleepyland: trust begins with fair evaluation of automatic sleep staging models, npj Digital Medicine 9 (2025).
+[41] E. Estevan, M. Sierra-Torralba, E. López-Larraz, L. Montesano, A systematic evaluation of self-supervised learning for label-efficient sleep
+staging with wearable EEG, arXiv preprint arXiv:2510.07960 (2025).
+[42] R. K. Malhotra, Aasm Scoring Manual 3: a step forward for advancing sleep care for patients with obstructive sleep apnea, Journal of Clinical
+Sleep Medicine 20 (2024) 835–836.
+[43] T. E. Nassi, W. Ganglberger, H. Sun, A. A. Bucklin, S. Biswal, M. J. A. M. van Putten, R. J. Thomas, M. B. Westover, Automated Scoring of
+Respiratory Events in Sleep With a Single Effort Belt and Deep Neural Networks, IEEE Transactions on Biomedical Engineering 69 (2022)
+2094–2104.
+[44] S. Biswal, H. Sun, B. Goparaju, M. B. Westover, J. Sun, M. T. Bianchi, Expert-level sleep scoring with deep neural networks, Journal of the
+American Medical Informatics Association 25 (2018) 1643–1650.
+[45] B. Kemp, A. Zwinderman, B. Tuk, H. Kamphuisen, J. Oberye,
+Analysis of a sleep-dependent neuronal feedback loop: the slow-wave
+microcontinuity of the EEG, IEEE Transactions on Biomedical Engineering 47 (2000) 1185–1194.
+[46] A. L. Goldberger, L. A. N. Amaral, L. Glass, J. M. Hausdorff, P. C. Ivanov, R. G. Mark, J. E. Mietus, G. B. Moody, C.-K. Peng, H. E. Stanley,
+Physiobank, PhysioToolkit, and PhysioNet, Circulation 101 (2000).
+[47] S. Khalighi, T. Sousa, J. M. Santos, U. Nunes, Isruc-sleep: A comprehensive public dataset for sleep researchers, Computer Methods and
+Programs in Biomedicine 124 (2016) 180–192.
+[48] T. Pollard, B. E. Moody, L.-w. H. Lehman, B. J. Gow, C. Fernandes, C. Xie, A. Johnson, R. G. Mark, T. Heldt, Physionet as a global platform
+for biomedical research, Nature Health 1 (2026) 792–795.
+[49] B. Hjorth, Eeg analysis based on time domain properties, Electroencephalography and Clinical Neurophysiology 29 (1970) 306–310.
+[50] A. E. Hoerl, R. W. Kennard, Ridge Regression: Biased Estimation for Nonorthogonal Problems, Technometrics 42 (2000) 80–86.
+[51] W. Chen, Y. Cai, A. Li, Y. Su, K. Jiang, Single-channel Sleep EEG Classification Method Based on LSTM and Hidden Markov Model, Brain
+Sciences 14 (2024) 1087.
+[52] W. Li, J. Gao, Automatic sleep staging by a hybrid model based on deep 1D-ResNet-SE and LSTM with single-channel raw EEG signals,
+PeerJ Computer Science 9 (2023) e1561.
+[53] G. Liu, G. Wei, S. Sun, D. Mao, J. Zhang, D. Zhao, X. Tian, X. Wang, N. Chen, Micro SleepNet: efficient deep learning model for mobile
+terminal real-time sleep staging, Frontiers in Neuroscience 17 (2023).
+[54] M. Fu, Y. Wang, Z. Chen, J. Li, F. Xu, X. Liu, F. Hou, Deep Learning in Automatic Sleep Staging With a Single Channel Electroencephalog-
+raphy, Frontiers in Physiology 12 (2021).
+[55] L. van der Maaten, G. Hinton, Visualizing data using t-sne, Journal of Machine Learning Research 9 (2008) 2579–2605.
+M. W. Suva et al.: Preprint submitted to Elsevier
+Page 24 of 24

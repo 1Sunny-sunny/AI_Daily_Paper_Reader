@@ -1,0 +1,6542 @@
+LUCID: Local Understanding of Covariate Importance with
+Conditional Density Estimation
+Yixiao Wang1, Srikar Katta1, Jon Donnelly1,2, Emanuele Borgonovo3, and Cynthia Rudin1
+1Duke University, Durham, USA
+2Johns Hopkins University, Baltimore, USA
+3Bocconi University, Milan, Italy
+yixiao.wang@duke.edu, srikar.katta@duke.edu, jdonnelly@jhu.edu,
+emanuele.borgonovo@unibocconi.it, cynthia@cs.duke.edu
+Abstract
+Computing local-level variable importance (VI) is critical for understanding machine learning
+models. Local permutation-based VI metrics offer a simple yet powerful approach, measuring
+how much a model’s output changes when perturbing its inputs. However, existing perturbation
+strategies often ignore feature dependence or account for it only through restricted approxima-
+tions. Perturbing a feature without fully respecting this dependence can generate unrealistic
+counterfactuals, thereby evaluating the model in regions unsupported by the observed data
+distribution. We address this gap by introducing a new model-agnostic local VI metric and
+estimator, Local Understanding of Covariate Importance with conditional Density
+estimation (LUCID). LUCID perturbs features of interest using plausible values drawn from the
+full conditional distribution given the remaining observed features. We establish theoretical con-
+nections between LUCID and existing VI measures, and provide an estimator with convergence
+guarantees and uncertainty quantification. Finally, we demonstrate LUCID’s stable performance
+and practical utility across simulated and real-world examples.
+1
+Introduction
+Variable importance (VI) is a fundamental tool
+for interpreting machine learning models, en-
+abling the characterization of features’ usage and
+their effects on the model’s predictions. VI is par-
+ticularly useful for probing the otherwise opaque
+behavior of black-box machine learning systems
+(Guidotti et al., 2018; Casalicchio et al., 2019;
+Fisher et al., 2019). Most established VI methods
+summarize each feature with a single population-
+level score or ranking (Breiman, 2001; Gregorutti
+et al., 2015). However, a feature may strongly
+influence the model in one region of the covariate
+space while being irrelevant in another, so averag-
+ing importance across the population can obscure
+when, where, and for which observations a feature
+matters. For example, in the Bike Sharing dataset
+(Fanaee-T and Gama, 2014), the importance of
+temperature and humidity changes substantially
+over the course of a day, while their global VI
+scores, shown as dashed lines, collapse this varia-
+tion into single values and obscure the underlying
+heterogeneity (Figure 1(a)). More fundamentally,
+distinct local importance patterns can share the
+same population average, meaning that global im-
+portance alone cannot identify how importance
+is distributed across observations.
+This moti-
+vates local VI and its accurate estimation, which
+makes observation-level feature usage accessible
+and characterizes heterogeneous feature usage
+across individual predictions.
+A central challenge for local VI is determin-
+ing how to perturb the feature.
+Existing lo-
+1
+arXiv:2610.35740v1  [cs.LG]  26 Oct 2026
+
+
+0
+6
+12
+18
+23
+Hour of day
+0
+1
+2
+3
+4
+5
+6
+7
+8
+Mean LUCID (×103)
+Winter
+Spring
+Summer
+Fall
+Season
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Temperature
+(a) Weather importance
+changes over the day
+(b) Conditional densities
+vary by season
+Figure 1: Two motivations for LUCID on
+the Bike Sharing dataset (Fanaee-T and
+Gama, 2014). (a) LUCID values for
+tempera-
+ture and
+humidity LUCID (solid lines) vary sub-
+stantially across hours, while their corresponding
+global VI values (dashed lines) obscure this het-
+erogeneity. (b) For temperature, each split violin
+compares the estimated
+conditional replace-
+ment distribution from DR-BART (left; Orlandi
+et al., 2021) with the
+marginal replacement
+distribution (right). Conditional densities adapt
+across seasons, whereas the marginal distribution
+does not.
+cal perturbation-based approaches typically sam-
+ple counterfactuals from the marginal distribu-
+tion of the feature of interest (Casalicchio et al.,
+2019; Bladen et al., 2026), which can break fea-
+ture dependence and generate implausible coun-
+terfactuals. For example, in the Bike Sharing
+data, plausible temperature values vary across
+seasons, whereas marginal permutation draws
+replacements from the same pool regardless of
+the remaining covariates (Fig. 1(b)). Although
+global conditional importance methods provide
+dependence-aware alternatives, their perturba-
+tion schemes often rely on restricted approxi-
+mations whose validity requires additional as-
+sumptions (Fisher et al., 2019; Chamma et al.,
+2023; Borgonovo et al., 2026; Strobl et al., 2008;
+Debeer and Strobl, 2020; Molnar et al., 2024;
+Blesch et al., 2025). Such schemes can recover
+population-average importance while producing
+systematically biased local scores, because er-
+rors across observations may cancel after averag-
+ing (Section 5.1 DGP 3). Accurate local estima-
+tion therefore requires capturing the observation-
+specific conditional structure. This motivates flex-
+ible estimation of the full conditional distribution,
+which existing perturbation schemes may struggle
+to capture, particularly under heteroskedasticity,
+multimodality, high dimensionality, or complex
+interactions.
+In this work, we introduce Local Under-
+standing of Covariate Importance with con-
+ditional Density estimation (LUCID), a model-
+agnostic framework for measuring feature impor-
+tance at the observation level. For a fixed predic-
+tive model, LUCID replaces a feature of interest
+with plausible values drawn from its conditional
+density given the remaining observed features,
+and measures the resulting change in model be-
+havior. Our main contributions are:
+• We establish an interpretable decomposition of
+LUCID that captures local leave-one-covariate-
+out (LOCO) importance without refitting the
+predictive model and additionally quantifies
+conditional prediction variability omitted by
+local LOCO.
+• We develop a flexible estimation framework
+for LUCID that accommodates modern con-
+ditional density estimators (CDEs), establish
+convergence guarantees, and provide a Bayesian
+implementation with posterior uncertainty quan-
+tification.
+• We extend LUCID to explain feature groups,
+enabling observation-level assessment of their
+joint importance conditional on the observed
+covariates outside the group.
+• Through extensive synthetic and real-data ex-
+periments, we demonstrate LUCID’s ability to
+capture heterogeneous local importance under
+complex covariate dependence, together with
+the high accuracy, robustness, and computa-
+tional scalability of our implementation.
+2
+Related Work
+Permutation-based variable importance measures
+feature relevance through changes in model behav-
+ior under feature perturbations, beginning with
+the Random Forest permutation importance of
+Breiman (2001). Subsequent work has developed
+a range of marginal and conditional variable im-
+portance methods at both global and local levels.
+We provide a detailed discussion of these meth-
+2
+
+
+ods in Section A. In contrast, LUCID defines
+observation-level importance with respect to the
+full conditional feature distribution. Accurate es-
+timation of this distribution yields replacements
+that preserve the dependence between the feature
+of interest and the remaining covariates
+Other notions of feature importance and lo-
+cal explanation target different estimands. We
+discuss connections to LOCO (Lei et al., 2018),
+SHAP (Lundberg and Lee, 2017; Aas et al., 2021),
+LIME (Ribeiro et al., 2016), grouped variable im-
+portance (Gregorutti et al., 2015; Au et al., 2022;
+Chamma et al., 2024; Little et al., 2026), and
+other explanation paradigms in Section A.
+3
+Our Method: LUCID
+3.1
+Notation and Background
+Let Z denote the feature of interest and X =
+(X1, . . . , Xk) denote the remaining covariates. We
+write W = (Z, X) for the complete feature vector
+and let g(W ) = g(Z, X) denote a given predic-
+tion model to be explained, with ℓdenoting a
+prediction loss. We assume the analyst observes
+a dataset of n independent and identically dis-
+tributed observations {Wi}n
+i=1 from some distri-
+bution P. For an observation wi = (zi, xi). We
+write PZ and P(· | x) to denote the marginal and
+conditional (on all other features) distributions
+of feature z, respectively. For distributions with
+densities p and q, we denote the total variation
+distance by TV(p, q) := 1
+2
+R |p(z) −q(z)| dz, and,
+for a measurable function h, the L2 norm by
+∥h∥L2(P) :=
+ EP [h2]
+1/2.
+Permutation feature importance (PFI) is
+the population-average discrepancy between the
+original prediction and the prediction obtained
+by replacing Z with an independent draw from
+its marginal distribution:
+PFI := EZ,X
+EZ′∼PZ
+ℓ
+ g(Z′, X), g(Z, X)
+	 .
+(1)
+Conditional permutation feature impor-
+tance (CPFI) instead draws the replacement
+from the conditional distribution of Z given the
+remaining features:
+CPFI := EZ,X
+n
+EZ′∼P(·|X)
+ℓ
+ g(Z′, X), g(Z, X)
+o
+.
+(2)
+Leave-one-covariate-out importance (LOCO)
+measures the expected prediction loss when the
+full model is replaced by a reduced model using
+only the remaining features (Lei et al., 2018):
+LOCO := EZ,X[ℓ(g−Z(X), g(Z, X))], where g−Z
+denotes a reduced model, typically obtained by
+refitting without feature Z.
+3.2
+LUCID Definition
+We now introduce the instance-level counterpart
+of conditional permutation feature importance.
+For an observation w, Local Understanding
+of Covariate Importance with conditional
+Density estimation (LUCID) of feature Z is
+defined as
+LUCID(w) := EZ′∼P(·|x)
+ℓ
+ g(Z′, x), g(z, x)
+ .
+(3)
+LUCID measures the expected prediction discrep-
+ancy when z is replaced by a draw from P(· | x)
+with the remaining covariates fixed at x. By the
+law of total expectation, integrating LUCID in
+Equation (3) over the population distribution of
+W recovers the CPFI in Equation (2).
+3.3
+Understanding LUCID
+Under squared loss, LUCID admits a simple de-
+composition into two terms, each asking a sepa-
+rate question: (i) how varied are the predictions
+from g across different counterfactual values of Z;
+(ii) how extreme was the prediction for the ob-
+served value of Z compared to the predictions for
+possible counterfactual values of Z? We first es-
+tablish this decomposition for squared-error loss,
+illustrating the theoretical connection to local
+LOCO. We then extend the decomposition to
+Bregman divergences generated by differentiable,
+strictly convex functions.
+Below, expectations and variances are over
+Z′ ∼P(· | x), and we assume the black box’s
+predictions admit a finite variance over different
+perturbations.
+3
+
+
+1
+2
+g
+0.0
+0.5
+1.0
+density
+High Dispersion
+Low Displacement
+g(z, x)
+1
+2
+g
+0
+10
+20
+density
+Low Dispersion
+High Displacement
+g(z, x)
+1
+2
+g
+0.0
+0.5
+1.0
+density
+High Dispersion
+High Displacement
+g(z, x)
+Figure 2: Three examples of conditional dis-
+tributions of perturbed outputs g(Z′, x).
+The
+purple
+dashed
+line
+marks
+the
+mean
+E[g(Z′, x)], the yellow arrow shows the square
+root of the displacement, while the purple arrow
+illustrates the conditional standard deviation, the
+square root of the dispersion term.
+Theorem 1 (Decomposition of LUCID). Under
+the prediction reference and squared loss, LUCID(w)
+admits the decomposition
+Var
+g(Z′, x)
+
+|
+{z
+}
+dispersion
++
+ g(z, x) −E
+g(Z′, x)
+2
+|
+{z
+}
+displacement
+,
+(4)
+We refer to the two components in (4) as the
+dispersion and displacement terms, respec-
+tively. The proof for Theorem 1 is in Section C.2.
+Globally, dispersion and displacement contribute
+equally on average over the data distribution
+(Corollary C.2). At the local level, however, they
+capture distinct mechanisms through which a
+feature can be important for a particular obser-
+vation. The dispersion term measures how much
+the model output varies across conditionally plau-
+sible replacements of Z.
+In contrast, the displacement term measures
+how far the original output lies from the average
+prediction across perturbations. So, if we observe
+a value of Z that leads to an extreme prediction
+far from the central tendency, displacement will
+be high. Both quantities measure how important
+the feature is for making the prediction, but in
+different ways. Dispersion asks if predictions vary
+wildly across possible values of Z | x while dis-
+placement asks if the prediction for the observed
+data point is itself an extreme/outlier compared
+to the average prediction. As illustrated in Fig-
+ure 2, LUCID can therefore be large because the
+perturbed outputs vary substantially (high dis-
+persion), because the observed output lies far
+from their mean (high displacement), or both.
+Conversely, since both terms are nonnegative, by
+Corollary C.3,
+LUCID(z, x) = 0
+⇐⇒
+g(Z′, x) = g(z, x) a.s.
+(5)
+This can occur (i) because the model does not
+use feature Z in predicting x’s outcome, (ii) be-
+cause Z is determined by the remaining features,
+or (iii) because its conditionally plausible values
+all produce the same model output.
+Relationship with LOCO.
+The decomposi-
+tion also clarifies the relationship between LUCID
+and LOCO, both of which assess a feature’s con-
+tribution beyond the remaining features. Under
+squared loss with Bayes-optimal full and reduced
+predictors, CPFI equals twice LOCO (Corol-
+lary C.2) (Reyero-Lobo et al., 2025). However,
+this proportionality does not generally hold at
+the local level.
+For a comparison LUCID, if the reduced model
+is the optimal reduced predictor of g(Z, X) un-
+der squared loss, then g−Z(x) = E[g(Z, x)]. The
+corresponding local LOCO score is LOCO(w) :=
+(g(z, x) −g−Z(x))2.
+Proposition 1 (Relationship between LUCID
+and local LOCO). Under squared loss and the
+prediction reference,
+LUCID(w) = Var
+g(Z′, x)
+
+|
+{z
+}
+dispersion
++ LOCO(w)
+|
+{z
+}
+displacement
+.
+The result follows directly from Theorem 1
+and the proof for Proposition 1 is in Section C.2.
+Under this comparison, local LOCO measures
+the discrepancy between the original output and
+the optimal reduced prediction, while LUCID
+additionally captures variation among condition-
+ally plausible outputs. This additional dispersion
+term can change local feature rankings even when
+the corresponding global importance measures
+differ only by a factor of 2 (see Section E.8).
+Beyond Squared Loss.
+The dispersion–displacement
+interpretation of LUCID extends to Bregman di-
+vergences (Bregman, 1967; Adlam et al., 2022).
+For a differentiable, strictly convex function ϕ,
+define Dϕ(a, b) = ϕ(a) −ϕ(b) −⟨∇ϕ(b), a −b⟩.
+4
+
+
+Proposition 2 (Bregman Decomposition of LU-
+CID). Under the prediction reference and Breg-
+man loss ℓ(a, b) = Dϕ(a, b), assuming the relevant
+expectations are finite, LUCID(w) admits the de-
+composition
+LUCID(w) = E
+Dϕ
+ g(Z′, x), E
+g(Z′, x)
+
+|
+{z
+}
+dispersion
++ Dϕ
+ E
+g(Z′, x)
+ , g(z, x)
+
+|
+{z
+}
+displacement
+.
+(6)
+For asymmetric Bregman divergences, the di-
+vergence direction matters. When averaging, the
+squared-loss factor-of-two identity between global
+CPFI and LOCO need not hold. We provide
+detailed proofs for Proposition 2 and more illus-
+trative examples in Section C.3.
+3.4
+LUCID for Feature Groups
+Individual features’ LUCID may fail to capture
+joint effects when features carry overlapping in-
+formation. For example, suppose a prediction
+model depends on both temperature and season,
+while these features are strongly predictable from
+one another. Conditioning on temperature can
+substantially restrict plausible replacements of
+season, and vice versa, yielding small individual
+LUCID scores. Such scores reflect limited unique
+information, however, and do not imply that the
+two features are jointly unimportant. We there-
+fore extend LUCID to feature groups (Gregorutti
+et al., 2015; Au et al., 2022; Chamma et al., 2024).
+For a group of features Z, let X denote the re-
+maining conditioning covariates. We define the
+group LUCID as
+LUCID(z, x) := EZ′∼P(·|x)
+ℓ
+ g(Z′, x), g(z, x)
+ .
+(7)
+The definition extends directly to a group of fea-
+tures by replacing the scalar Z with a vector Z.
+Let G denote a feature group with d = |G|. In
+general, group LUCID need not equal the sum
+of the corresponding individual LUCID scores,
+because individual replacements condition on the
+other group members, whereas group replacement
+allows all members to vary jointly. Examining
+individual and group LUCID together provides a
+fuller picture, as illustrated in Section 5.2.
+4
+Estimating LUCID
+Estimating LUCID requires sampling from an
+unknown conditional feature distribution. We
+first introduce a plug-in Monte Carlo estimator
+applicable to any conditional density estimator
+(CDE), and then introduce an implementation
+with DR-BART.
+4.1
+Conditional-Sampling Estimation
+Let Dn denote the sample used to estimate the
+conditional distribution of Z given X, and let
+wi = (zi, xi), i = 1, . . . , N, denote the observa-
+tions to be explained. We continue to treat g as
+fixed and use prediction-reference LUCID.
+Given an estimate bPZ|X(· | x), draw Z′
+m
+i.i.d.
+∼
+bPZ|X(· | x), m = 1, . . . , M, and define
+\
+LUCID(w) := 1
+M
+M
+X
+m=1
+ℓ
+ g(Z′
+m, x), g(z, x)
+ . (8)
+Estimation therefore requires only conditionally
+plausible draws and evaluations of the fixed model,
+making the procedure agnostic to the choice of
+CDE.
+4.2
+Stability and Convergence
+To study sensitivity to conditional-distribution
+estimation, write LUCID[p](w) for prediction-
+reference LUCID induced by conditional density
+p(· | x), and let p∗denote the truth.
+Let d
+be a distance between conditional distributions
+satisfying, for some constant A,
+∥TV{p(· | X), q(· | X)}∥L2(PX) ≤A d(p, q). (9)
+Theorem 2 (Stability of LUCID). Suppose that
+the loss ℓ(g(z′, x), g(z, x)) is uniformly bounded
+by some Cℓ< ∞, for PZ,X-almost every (z, x)
+and all replacement values z′ in the supports of the
+conditional distributions being compared. If the
+estimated conditional density satisfies d(bp, p∗) =
+OP (ϵn), then the induced LUCID function con-
+verges at the same rate in L2(PZ,X):
+∥LUCID[bp] −LUCID[p∗]∥L2(PZ,X) = OP (ϵn).
+5
+
+
+The theorem shows that conditional distribu-
+tion estimation error passes to LUCID without a
+loss in convergence rate under the stated bound.
+For squared loss, bounded model outputs are
+sufficient. Proof is given in Section C.4.
+4.3
+Implementing LUCID with DR-
+BART
+Our main implementation estimates each con-
+ditional distribution P(· | X) using Density Re-
+gression Bayesian Additive Regression Trees (DR-
+BART) (Orlandi et al., 2021). Posterior draws
+of this conditional distribution induce posterior
+draws of LUCID, allowing point estimation and
+uncertainty quantification.
+Posterior point estimates and credible in-
+tervals.
+For each retained posterior draw b =
+1, . . . , B, generate M replacements and compute
+\
+LUCID
+(b)(w) := 1
+M
+M
+X
+m=1
+ℓ
+
+g(Z′(b)
+m , x), g(z, x)
+
+.
+(10)
+We use the average of { \
+LUCID(w)(b)}B
+b=1 as the
+posterior point estimate and their empirical quan-
+tiles to construct posterior credible intervals.
+Convergence under DR-BART.
+Under the
+bounded-loss assumption in Theorem 2 and the
+regularity and prior conditions of Orlandi et al.
+(2021, Theorem 2), the DR-BART density pos-
+terior contracts in integrated Hellinger distance,
+which satisfies the required distance-control condi-
+tion in Theorem 2. The induced LUCID posterior
+therefore contracts at the same rate in L2(PZ,X).
+Under these conditions, Sections C.5–C.7 further
+establish OP (ϵ2
+n) posterior second-moment con-
+trol for LUCID (Corollary C.7) and an OP (ϵn)
+convergence rate for the posterior-mean condi-
+tional density and its induced LUCID function
+(Proposition C.8).
+Section D.1 also provides implementation de-
+tails, including direct conditional sampling from
+the DR-BART latent-variable representation, bi-
+nary and categorical features, and joint condi-
+tional sampling for feature groups.
+Table 1: Methods considered in our experiments.
+Category
+Method
+Attribution
+SHAP (Lundberg and Lee, 2017)
+LIME (Ribeiro et al., 2016)
+Cond. SHAP (Aas et al., 2021; Jullum et al., 2025)
+Removal
+local version of LOCO (Lei et al., 2018)
+Permutation ICI (Casalicchio et al., 2019)
+CMR (Fisher et al., 2019)
+GCMR (Borgonovo et al., 2026)
+CLIQUE (Bladen et al., 2026)
+local version of cs-PFI (Molnar et al., 2024)
+local version of cARFi (Blesch et al., 2025)
+Note: We refer to ICI as “Permutation” in this paper. ARF
+denotes the conditional replacement sampler used for our local
+adaptation of cARFi.
+Computational scalability with DR-BART.
+Although fitting DR-BART is computationally in-
+tensive, fitted conditional samplers can be reused
+across observations. Section D.2 provides theo-
+retical time and space complexity analyses, while
+Section F.6 reports empirical runtime and mem-
+ory scaling on higher-dimensional OpenXAI (Agar-
+wal et al., 2022) benchmark datasets, including
+datasets with more than 105 observations and
+more than 50 features.
+5
+Experiments
+We evaluate LUCID in controlled synthetic set-
+tings with known models and in a real-data bike-
+demand case study with learned prediction mod-
+els.
+For each dataset, we use five-fold cross-
+fitting: we train a conditional density estimator
+on four folds and estimate LUCID on the held-out
+fold (Chernozhukov et al., 2018). For simplicity,
+throughout the experiments we use Ij to denote
+the LUCID of feature j. We list baseline methods
+in Table 1 and provide complete experimental de-
+tails and additional results in Sections E and F.
+5.1
+Synthetic Experiments
+Because the synthetic experiments admit ana-
+lytical LUCID, we first compare estimated and
+analytical importance using mean squared er-
+ror (MSE) for feature of interest X1 in Table 2.
+Across these controlled settings, our DR-BART
+implementation is the most consistently accurate
+6
+
+
+Table 2: MSE between estimated and analytical
+LUCID, averaged over all evaluated instances of
+X1. The lowest MSE (from unrounded MSE val-
+ues) in each DGP is highlighted in purple bold.
+Mean rank averages within-DGP rankings; lower
+is better.
+DR-BART
+ARF cs-PFI CMR
+GCMR
+CLIQUE
+Permutation
+DGP 1
+0.022 0.144
+0.008
+0.590
+0.543
+0.001
+0.008
+DGP 2
+0.004 0.005
+0.015
+0.011
+0.011
+4.460
+4.431
+DGP 3
+0.449 0.454
+1.173
+2.685
+2.485
+2.060
+2.065
+DGP 4
+0.401 1.298
+83.329
+1.809
+4.315
+83.673
+83.135
+DGP 5
+0.066 0.185
+0.036
+0.849
+0.851
+0.251
+0.269
+Mean rank
+1.800 2.800
+3.400
+5.200
+5.400
+4.600
+4.800
+conditional estimator overall, attaining the best
+average MSE rank while remaining robust across
+discontinuity (DGP 1), correlation (DGP 2), het-
+eroskedasticity (DGP 3), interaction structure
+(DGP 4), and extreme tail (DGP 5). Competing
+methods can perform well when their structural
+assumptions align with the data-generating pro-
+cess, but their errors can increase sharply when
+those assumptions are violated. We further re-
+peat the synthetic experiments over 50 random
+seeds in Section E.3, confirming that these quali-
+tative conclusions are not driven by a particular
+realization.
+We organize subsequent contents around four
+questions motivating our framework: “why lo-
+cal importance?” (DGP 1); “why conditional
+perturbations?” (DGP 2); “why density estima-
+tion?”
+(DGP 3); and “why estimate the con-
+ditional density directly?”
+(irrelevant-feature
+robustness test).
+We also consider DGP 4 to
+show why subgroup-based methods can struggle
+to recover interaction structure, and DGP 5 to
+further explore the relationship between LUCID
+and local LOCO; we defer these two experiments,
+along with analytical LUCID calculations and
+additional experimental details and results, to
+Section E.
+DGP 1: Discontinuity.
+LUCID handles
+feature heterogeneity, unlike global VI mea-
+sures. This case study uses three independent
+standard Gaussian features, X1, X2, X3
+iid
+∼N(0, 1),
+and a simple tree predictor g(x) = x11x3>0 +
+x21x3≤0, so that X1 is active only when X3 > 0,
+whereas X2 is active only when X3 ≤0 (a setup
+−2
+0
+2
+0
+5
+10
+LUCID
+DR-BART
+−2
+0
+2
+0
+5
+10
+LUCID
+Permutation
+−2
+0
+2
+0.0
+0.5
+1.0
+Attribution
+LIME
+−2
+0
+2
+x1
+0
+1
+2
+Attribution
+SHAP
+−2
+0
+2
+x1
+0.0
+1.5
+3.0
+Attribution
+SHAPr
+−2
+0
+2
+x1
+0
+8
+16
+LOCO score
+Local LOCO
+DGP1
+Active (x3 > 0)
+Inactive (x3 ≤0)
+Analytical LUCID
+Analytical CPFI
+Figure 3: Discontinuity. Local importance for
+X1 across methods. Red boxes mark representa-
+tive nonzero importance in the inactive region.
+Solid and dashed curves denote analytical LUCID
+and CPFI, respectively.
+similar to the one considered in Bladen et al.,
+2026). As shown in the DR-BART panel in Fig-
+ure 3, because X1 and X2 play symmetric roles
+across the discontinuity, their global importance
+(dashed line) is identical, masking the fact that
+only one of them matters at any given observation.
+In contrast, LUCID captures this heterogeneity
+exactly, with the yellow and purple points rep-
+resenting observations on the two sides of the
+discontinuity.
+LUCID correctly identifies locally ir-
+relevant features. When a feature is locally
+inactive, perturbing it leaves the prediction un-
+changed, so LUCID is zero by Equation (5). In
+contrast, LIME, SHAP, conditional SHAP, and
+local LOCO assign nonzero scores to X1 at ev-
+ery inactive instance (x3 ≤0); a representative
+point is highlighted by the red box in Figure 3.
+This results in importance leakage for different
+reasons: LIME fits a locally linear model that
+does not recognize boundaries, while SHAP and
+conditional SHAP average over subsets that omit
+X3, mixing contributions across the discontinuity.
+Moreover, finite-sample errors in model refitting
+can lead to local LOCO producing nonzero scores.
+Section E.4 contains detailed comparisons and
+experiment results.
+7
+
+
+0%
+X2 = −3.747
+25%
+X2 = −0.701
+50%
+X2 = 0.018
+75%
+X2 = 0.676
+100%
+X2 = 3.621
+−10
+0
+10
+X1
+DGP3
+Analytical
+DR-BART
+ARF
+cs-PFI
+CMR
+GCMR
+Permutation
+Figure 4: Heteroskedastic. Resampling distri-
+butions of X1 at five X2 quantile points across
+samplers.
+DGP 2: Correlated.
+Conditioning in LU-
+CID accounts for correlated features. When
+features are dependent, marginal permutation
+breaks the observed dependence structure and
+may evaluate the fitted model on unrealistic fea-
+ture combinations (Strobl et al., 2008; Hooker
+et al., 2021). We isolate this effect using two
+jointly Gaussian features, (X1, X2)⊤∼N2(0, Σρ)
+with unit variances and correlation ρ, and the
+predictor g(x) = x1. In contrast to marginal
+permutation, conditional perturbations preserve
+features’ dependency and therefore measure the
+additional information in X1 beyond X2. Accord-
+ingly, in this DGP, the analytical-average LUCID
+equals 2(1 −ρ2) (where ρ denotes the correlation
+between features), whereas global marginal per-
+mutation importance remains equal to 2. Thus,
+as ρ →1 (i.e., as features become increasingly
+correlated), conditional importance reflects the in-
+creasing redundancy, whereas permutation-based
+methods fail to respect the feature dependence
+structure, leading to poor performance in the
+MSE comparison in Table 2; see Section E.5 for
+experiment results.
+DGP 3: Heteroskedastic.
+Residual-based
+conditional permutation importance fail to
+capture heteroskedasticity. We isolate het-
+eroskedastic dependence by letting X2 ∼N(0, 1)
+and X1 | X2 = x2 ∼N(0, x2
+2), with predic-
+tor g(x) = x1.
+Thus, the conditional mean
+E[X1 | X2] = 0 is constant, while the conditional
+variance Var(X1 | X2 = x2) = x2
+2 varies with x2.
+Even with the correct conditional mean, meth-
+ods based on globally permuted residuals (e.g.,
+Fisher et al., 2019; Borgonovo et al., 2026) draw
+0 5 10
+20
+10−1
+DGP1
+0 5 10
+20
+10−2
+10−1
+100
+DGP2
+0 5 10
+20
+100
+DGP3
+0 5 10
+20
+100
+101
+102
+DGP4
+0 5 10
+20
+10−1
+100
+DGP5
+X1 LUCID MSE
+Added irrelevant features
+Irrelevant feature sensitivity
+DR-BART
+ARF
+Figure 5: LUCID estimation MSE as independent
+irrelevant features are added across five DGPs.
+perturbations with the pooled residual variance
+E[X2
+2] = 1, failing to preserve this heteroskedas-
+ticity. As a result, while the analytical LUCID is
+x2
+1+x2
+2, these methods asymptotically yield x2
+1+1.
+Importantly, this local misspecification is invisi-
+ble after global averaging because E[X2
+2] = 1: the
+incorrect local scores recover the correct global
+average importance despite systematically misrep-
+resenting where the feature matters. Moreover,
+Section E.6 shows that any common replacement
+distribution incurs a population local MSE of at
+least 2 in this DGP, further demonstrating why
+accurate conditional density estimation is essen-
+tial for local variable importance. In Figure 4,
+we show the resampling distributions induced
+by each method. Only CDE-based approaches
+capture the changing conditional spread, with
+DR-BART most closely matching the analytical
+CDE.
+Conditional density estimation is more
+robust to high-dimensional covariate spaces
+than joint density estimation. Similar to our
+DR-BART estimator of LUCID, cARFi also gen-
+erates perturbations by sampling from a learned
+density (Blesch et al., 2025). cARFi obtains con-
+ditional replacements from the joint distribution
+using Adversarial Random Forest (ARF; Watson
+et al., 2023), whereas we instead fit the condi-
+tional density directly. Because joint distribution
+estimation generally becomes more difficult as
+the ambient dimension grows (Izbicki and Lee,
+2016), we consider a naive stress test: we aug-
+ment each of the five DGPs with 0, 5, 10, or
+20 independent standard Gaussian noise features
+and compare ARF with DR-BART. These ad-
+ditions increase the ambient dimension without
+changing the true conditional distribution of X1
+8
+
+
+Table 3: Empirical coverage (C) and width (W)
+of LUCID posterior credible intervals for active
+X1 observations across five DGPs.
+DGP 1
+DGP 2
+DGP 3
+DGP 4
+DGP 5
+90% C
+98.43%
+91.70%
+91.34%
+93.20%
+97.12%
+90% W
+0.766
+0.155
+0.944
+0.969
+0.956
+95% C
+99.37%
+95.76%
+92.94%
+95.64%
+98.52%
+95% W
+0.910
+0.184
+1.123
+1.152
+1.138
+or its analytical LUCID. As shown in Figure 5,
+the LUCID estimation MSE increases sharply for
+ARF as irrelevant features are added, whereas
+DR-BART’s estimated conditional density is far
+more stable. In Section E.12, we further con-
+sider more challenging high-dimensional settings
+with additional relevant features, where the degra-
+dation of joint-density-based estimation is even
+more pronounced.
+Posterior credible intervals.
+A major ad-
+vantage of LUCID is that its estimation admits
+posterior credible intervals. Table 3 evaluates
+the uncertainty quantification provided by the
+DR-BART posterior for LUCID over observations
+where X1 is active in the model. Across the five
+DGPs, empirical coverage is generally close to
+the nominal 90% and 95% levels, with DGP 1
+somewhat conservative, consistent with its par-
+ticularly simple structure, and DGP 3 slightly
+below nominal at 95%, mainly because of the
+sparse, highly dispersed observations in the tails.
+As expected, interval widths increase with the
+credible level. We exclude inactive observations,
+whose LUCIDs are identically zero and recovered
+exactly.
+5.2
+Real-Dataset Experiments
+We next examine individual and group LUCID
+for a learned prediction model using the 2011 sub-
+set of the UCI Bike Sharing dataset (n = 8,645
+hourly records), which combines Capital Bike-
+share rental counts with calendar and weather
+measurements (Fanaee-T and Gama, 2014). Fol-
+lowing Blesch et al. (2025), we retain hour, working-
+day status, normalized temperature, normalized
+humidity, and season. For additional experimen-
+tal details and results, see Section F.
+LUCID reveals local heterogeneity across
+real covariate contexts.
+Figure 1(a) shows
+that temperature LUCID varies substantially over
+the day, so its global importance masks when
+temperature matters most.
+As shown in Fig-
+ure 1(b), its conditional replacement distribution
+also shifts across seasons, whereas marginal per-
+mutation fails to capture this heterogeneity by
+drawing replacements from the same marginal
+distribution throughout. Figure 6 shows a com-
+plementary pattern for hour: on working days,
+importance peaks sharply during the morning
+and evening commuting periods, whereas this
+structure is largely absent on non-working days.
+Unlike temperature, however, hour is only weakly
+predictable from the remaining features, so its
+local importance is less constrained by informa-
+tion already captured by those covariates. The
+observed heterogeneity therefore mainly reflects
+changes in the model’s sensitivity to hour. To-
+gether, these results show that LUCID identifies
+when a learned model relies on a feature and how
+its plausible perturbations vary given the remain-
+ing covariates. In the next paragraph, we show
+how group LUCID complements this individual-
+level view by capturing shared information among
+related features, as motivated in Section 3.4.
+Group LUCID complements individual lo-
+cal importance.
+Figure 7(a) compares the
+joint LUCID of the weather group (tempera-
+ture, humidity, and season) with the sum of their
+individual LUCIDs. Both are small overnight,
+whereas the group LUCID substantially exceeds
+the individual sum during the day, particularly
+during evening rush hours. Thus, assessing the
+weather features individually does not fully cap-
+ture their joint local predictive importance in
+these periods.
+Figure 7(b) shows that the temperature–season
+pair exhibits a gap similar to that of the full
+weather group. Its pattern closely tracks that of
+the full weather group, while the temperature–
+humidity and humidity–season pairs contribute
+9
+
+
+0
+6
+12
+18
+23
+Hour of day
+20
+40
+60
+Mean LUCID
+(×103)
+(a) LUCID over the day
+Winter
+Spring
+Summer
+Fall
+0
+6
+12
+18
+23
+Hour
+(b) Replacements
+across season
+Non-working
+Working
+0
+6
+12
+18
+23
+(c) Replacements
+across working day
+00–05
+06–11
+12–17
+18–23
+0
+6
+12
+18
+23
+(d) Replacements
+across hour periods
+Non-working day (mean: dashed)
+Working day (mean: dashed)
+DR-BART conditional
+Permutation marginal
+Figure 6: Local importance and conditional replacements for hour. (a) LUCID for hour
+varies substantially over the day and between
+working and
+non-working days (solid lines). (b–d)
+Split violins compare the estimated
+conditional distribution of replacement hour values using
+DR-BART (left) with the
+marginal permutation distribution (right).
+0
+6
+12
+18
+23
+Hour of day
+0
+5
+10
+15
+20
+25
+30
+35
+40
+Mean LUCID
+(×103)
+Gap
+(a) Individual
+vs. joint
+0
+6
+12
+18
+23
+Hour of day
+0
+5
+10
+15
+20
+Mean gap
+(×103)
+(b) Which feature
+groups?
+Figure 7: weather-group LUCID (a) The pur-
+ple line shows the joint LUCID of temperature,
+humidity, and season, while the orange dashed
+line shows the sum of their individual LUCIDs;
+the shaded region highlights their gap. (b) Group
+gaps are shown for the (T, H, S), (T, S), (T, H),
+and (H, S) groups.
+much smaller gaps. This might be because, for
+the other two pairs, season or temperature re-
+mains in the conditioning set, respectively, and
+can constrain the joint replacements through its
+dependence on the selected features. Thus, eval-
+uating these features separately can understate
+their collective local importance when they share
+information.
+6
+Conclusion
+We present LUCID, a model-agnostic framework
+for local variable importance based on the full
+conditional feature distribution. LUCID charac-
+terizes where and how strongly a fixed model re-
+sponds to conditionally plausible feature changes,
+with an interpretable decomposition, convergence
+guarantees, and Bayesian uncertainty quantifica-
+tion. Its flexible estimation framework accommo-
+dates modern conditional density estimators and
+feature groups. Future work could extend LU-
+CID to outcome-reference importance and model
+class reliance (Fisher et al., 2019), moving from
+explaining a fixed model toward assessing impor-
+tance for the prediction problem.
+Also, since
+global conditional permutation importance is the
+expectation of LUCID, accurate local estimation
+also supports accurate global conditional impor-
+tance.
+References
+Aas, K., Jullum, M., and Løland, A. (2021).
+Explaining individual predictions when fea-
+tures are dependent: More accurate approxima-
+tions to Shapley values. Artificial Intelligence,
+298:103502.
+Adlam, B., Gupta, N., Mariet, Z., and Smith, J.
+(2022). Understanding the bias-variance trade-
+off of Bregman divergences.
+arXiv preprint
+arXiv:2202.04167.
+Agarwal, C., Krishna, S., Saxena, E., Pawel-
+czyk, M., Johnson, N., Puri, I., Zitnik, M.,
+and Lakkaraju, H. (2022). OpenXAI: Towards
+a transparent evaluation of model explanations.
+In Advances in Neural Information Processing
+Systems, volume 35, pages 15784–15799.
+10
+
+
+Au, Q., Herbinger, J., Stachl, C., Bischl, B., and
+Casalicchio, G. (2022). Grouped feature impor-
+tance and combined features effect plot. Data
+Mining and Knowledge Discovery, 36(4):1401–
+1450.
+Bladen, K. K., Cutler, A., Cutler, D. R., and
+Moon, K. R. (2026). Conditional local impor-
+tance by quantile expectations. Transactions
+on Machine Learning Research.
+Blesch, K., Koenen, N., Kapar, J., Golchian,
+P., Burk, L., Loecher, M., and Wright, M. N.
+(2025). Conditional feature importance with
+generative modeling using adversarial random
+forests. In Proceedings of the AAAI Confer-
+ence on Artificial Intelligence, volume 39, pages
+15596–15604.
+Borgonovo, E., Cappelli, F., Lu, X., Plischke, E.,
+and Rudin, C. (2026). Trustworthy feature
+importance avoids unrestricted permutations.
+arXiv preprint arXiv:2604.11253.
+Bregman, L. M. (1967). The relaxation method
+of finding the common point of convex sets
+and its application to the solution of prob-
+lems in convex programming. USSR Computa-
+tional Mathematics and Mathematical Physics,
+7(3):200–217.
+Breiman, L. (2001). Random forests. Machine
+Learning, 45(1):5–32.
+Casalicchio, G., Molnar, C., and Bischl, B. (2019).
+Visualizing the feature importance for black
+box models. In Machine Learning and Knowl-
+edge Discovery in Databases, volume 11051 of
+Lecture Notes in Computer Science, pages 655–
+670.
+Chamma, A., Engemann, D. A., and Thirion, B.
+(2023). Statistically valid variable importance
+assessment through conditional permutations.
+In Advances in Neural Information Processing
+Systems, volume 36, pages 67662–67685.
+Chamma, A., Thirion, B., and Engemann,
+D. (2024).
+Variable importance in high-
+dimensional settings requires grouping. In Pro-
+ceedings of the AAAI Conference on Artificial
+Intelligence, volume 38, pages 11195–11203.
+Chernozhukov, V., Chetverikov, D., Demirer, M.,
+Duflo, E., Hansen, C., Newey, W., and Robins,
+J. (2018). Double/debiased machine learning
+for treatment and structural parameters. The
+Econometrics Journal, 21(1):C1–C68.
+Chipman, H. A., George, E. I., and McCulloch,
+R. E. (2010). BART: Bayesian additive regres-
+sion trees. The Annals of Applied Statistics,
+4(1):266–298.
+Debeer, D. and Strobl, C. (2020). Conditional
+permutation importance revisited. BMC Bioin-
+formatics, 21(1):307.
+Fanaee-T, H. and Gama, J. (2014). Event labeling
+combining ensemble detectors and background
+knowledge. Progress in Artificial Intelligence,
+2(2–3):113–127.
+Fisher, A., Rudin, C., and Dominici, F. (2019).
+All models are wrong, but many are useful:
+Learning a variable’s importance by studying
+an entire class of prediction models simultane-
+ously. Journal of Machine Learning Research,
+20(177):1–81.
+Ghosal, S., Ghosh, J. K., and van der Vaart, A. W.
+(2000). Convergence rates of posterior distribu-
+tions. The Annals of Statistics, 28(2):500–531.
+Gregorutti, B., Michel, B., and Saint-Pierre, P.
+(2015). Grouped variable importance with ran-
+dom forests and application to multiple func-
+tional data analysis. Computational Statistics
+& Data Analysis, 90:15–35.
+Guidotti, R., Monreale, A., Ruggieri, S., Turini,
+F., Giannotti, F., and Pedreschi, D. (2018).
+A survey of methods for explaining black box
+models. ACM Computing Surveys, 51(5):93:1–
+93:42.
+Hooker, G., Mentch, L., and Zhou, S. (2021).
+Unrestricted permutation forces extrapolation:
+variable importance requires at least one more
+model, or there is no free variable importance.
+Statistics and Computing, 31(6). Article 82.
+11
+
+
+Hornung, R. and Boulesteix, A.-L. (2022). In-
+teraction forests: Identifying and exploiting
+interpretable quantitative and qualitative in-
+teraction effects. Computational Statistics &
+Data Analysis, 171:107460.
+Izbicki, R. and Lee, A. B. (2016). Nonparamet-
+ric conditional density estimation in a high-
+dimensional regression setting. Journal of Com-
+putational and Graphical Statistics, 25(4):1297–
+1316.
+Jullum, M., Olsen, L. H. B., Lachmann, J., and
+Redelmeier, A. (2025). shapr: Explaining ma-
+chine learning models with conditional Shap-
+ley values in R and Python. arXiv preprint
+arXiv:2504.01842.
+Lei, J., G’Sell, M., Rinaldo, A., Tibshirani,
+R. J., and Wasserman, L. (2018). Distribution-
+free predictive inference for regression. Jour-
+nal of the American Statistical Association,
+113(523):1094–1111.
+Little, C. O., Zheng, L., and Allen, G. I. (2026).
+iLOCO: Distribution-free inference for feature
+interactions. Transactions on Machine Learn-
+ing Research.
+Lundberg, S. M. and Lee, S.-I. (2017). A uni-
+fied approach to interpreting model predictions.
+In Advances in Neural Information Processing
+Systems, volume 30, pages 4768–4777.
+Molnar, C., König, G., Bischl, B., and Casalic-
+chio, G. (2024). Model-agnostic feature impor-
+tance and effects with dependent features: a
+conditional subgroup approach. Data Mining
+and Knowledge Discovery, 38(5):2903–2941.
+Orlandi, V., Murray, J., Linero, A., and Vol-
+fovsky, A. (2021).
+Density regression with
+Bayesian additive regression trees.
+arXiv
+preprint arXiv:2112.12259.
+Quiroga, M., Garay, P. G., Alonso, J. M., Loyola,
+J. M., and Martin, O. A. (2022). Bayesian
+additive regression trees for probabilistic pro-
+gramming. arXiv preprint arXiv:2206.03619.
+Reyero-Lobo, A., Neuvial, P., and Thirion, B.
+(2025). Conditional feature importance revis-
+ited: Double robustness, efficiency and infer-
+ence. arXiv preprint arXiv:2501.17520.
+Ribeiro, M. T., Singh, S., and Guestrin, C. (2016).
+“why should i trust you?”: Explaining the pre-
+dictions of any classifier.
+In Proceedings of
+the 22nd ACM SIGKDD International Confer-
+ence on Knowledge Discovery and Data Mining,
+pages 1135–1144.
+Strobl, C., Boulesteix, A.-L., Kneib, T., Augustin,
+T., and Zeileis, A. (2008). Conditional variable
+importance for random forests. BMC Bioinfor-
+matics, 9(1).
+Watson, D. S., Blesch, K., Kapar, J., and Wright,
+M. N. (2023). Adversarial random forests for
+density estimation and generative modeling.
+In Proceedings of the 26th International Con-
+ference on Artificial Intelligence and Statistics,
+volume 206 of Proceedings of Machine Learning
+Research, pages 5357–5375. PMLR.
+12
+
+
+Road map.
+Section A summarizes the related work. Section B summarizes the notation used
+throughout the paper. Section C provides the complete theoretical results, proofs, and convergence
+guarantees. Section D presents implementation details, computational complexity, experimental
+setup, software, and data information. Section E provides complete synthetic-experiment definitions,
+calculations, and additional results. Section F provides additional Bike Sharing analyses and results.
+Section F.6 reports runtime and memory scalability results on OpenXAI benchmark datasets.
+A
+Related Work
+Perturbation-based variable importance.
+Breiman (2001) introduced permutation-based VI
+in his seminal work on Random Forests, recognizing that if predictions change when shuffling the
+inputs to the forest (i.e., resampling them from their respective marginal distributions), then the
+forest likely depends on the feature. This core principle has inspired subsequent approaches to
+global perturbation-based variable importance that go beyond sampling from marginal distributions,
+but the sampling distribution in these methods is often restricted and its validity requires additional
+assumptions. Residual-based approaches (Fisher et al., 2019; Chamma et al., 2023; Borgonovo et al.,
+2026) estimate the conditional mean of the feature of interest and use the residual distribution to
+generate counterfactuals, which can yield biased importance estimates when the residual distribution
+varies with the conditioning covariates, such as under heteroskedasticity or other changes in the
+conditional residual distribution. Tree- or subgroup-based approaches (Strobl et al., 2008; Debeer
+and Strobl, 2020; Molnar et al., 2024; Chamma et al., 2023) permute or resample feature values
+within regions defined by tree-based partitions, which may overlook local variation in the conditional
+distribution, while overly fine partitions leave too few observations for resampling. Approaches
+based on joint-distribution estimation (Blesch et al., 2025) instead require modeling the full joint
+distribution, which can become increasingly challenging as the ambient dimension grows (Izbicki and
+Lee, 2016). There are several recent methods that extend permutation-based importance to the local
+level, including Individual Conditional Importance (ICI; Casalicchio et al., 2019) and Conditional
+Local Importance by Quantile Expectations (CLIQUE; Bladen et al., 2026).
+However, these
+existing local perturbation-based methods ignore dependence between the perturbed feature and
+the remaining covariates. In contrast, LUCID defines observation-level importance with respect to
+the full conditional feature distribution. Accurate estimation of this distribution yields replacements
+that preserve dependence between the feature of interest and the remaining covariates.
+Other explanation and importance paradigms.
+Several related methods target different
+notions of feature importance. (i) Local explanation methods also explain individual predictions
+by assigning contributions to features. SHapley Additive exPlanations (SHAP)-based methods
+(Lundberg and Lee, 2017; Aas et al., 2021) evaluate changes in model outputs as features are added
+or marginalized over, with conditional SHAP using conditional feature densities to account for
+dependencies between features (Aas et al., 2021; Jullum et al., 2025). However, their estimand
+differs from LUCID, as SHAP allocates the deviation of an individual prediction from a baseline
+across feature coalitions, whereas LUCID measures the change in model behavior induced by
+conditionally plausible replacements of a specified feature while holding the remaining context fixed.
+LIME (Ribeiro et al., 2016), by contrast, constructs a locally linear surrogate approximation of
+the prediction function, using the local linear regression’s parameters as explanations for the black
+box. Both of these methods can unfaithfully capture nonzero variable attribution to features that
+are inactive at the observation being explained, especially when the data exhibits discontinuities.
+As we show in Figure 3, LIME, SHAP, and SHAPr (a SHAP variant) all yield non-zero feature
+13
+
+
+attribution even when the feature is completely unused by some specific regions of the known
+outcome generating function. (ii) Feature-removal methods such as leave-one-covariate-out (LOCO;
+Lei et al., 2018) importance measure how much predictive information is lost by retraining the
+predictive model with all-but-one of the original features. In practice, this change can arise from
+both information loss due to feature removal and errors introduced by model refitting, making it
+difficult to disentangle these effects. Moreover, because LOCO compares two different models, it
+does not directly quantify how the original fitted model relies on the omitted feature. Instead, it
+describes how much the algorithm that discovered the model relies on the feature (Fisher et al., 2019).
+At the population level and under squared loss, however, LOCO with optimal reduced predictor is
+proportional to and closely related to conditional permutation feature importance (Reyero-Lobo
+et al., 2025). We further explore this relationship at the observation level in Section 3.3. (iii)
+Grouped VI methods measure the importance of sets of related features jointly to account for shared
+or redundant information (Gregorutti et al., 2015; Au et al., 2022; Chamma et al., 2024; Little et al.,
+2026). Our framework naturally extends this idea but to the local level, quantifying conditional
+importance for feature groups at the observation level.
+B
+Notation
+Table 4 summarizes the notation used in the main theory and this appendix. Throughout, g is a
+fixed prediction model. The scalar feature of interest is denoted by Z, and the vector X contains
+the remaining covariates. For group importance, the feature group and its replacement are written
+Z and Z′. All population expectations refer to the true covariate distribution.
+Vector symbols use X, x, W , w, whereas individual coordinates, such as Xj, xj, and the scalar
+replacements Z′, z′ remain unbold. The model g is scalar-valued in the squared-loss subsection and
+may have vector-valued outputs in the Bregman subsection. We use dispersion and displacement
+with the same colors as the main paper.
+Table 4: Notation for LUCID and its theoretical guarantees.
+Notation
+Definition
+Z, z
+feature of interest and its observed value.
+X = (X1, . . . , Xk), x
+Remaining covariates and their observed values; k is the number of
+conditioning covariates.
+W = (Z, X), w = (z, x)
+Complete feature vector and one observation.
+Z′, z′
+conditional replacement and its integration variable.
+Z, z, Z′, z′
+Feature group, its observed vector, its joint conditional replacement, and the
+vector integration variable.
+PZ,X, PX, PZ
+True joint covariate distribution and its marginals.
+P(· | x)
+True conditional distribution of Z given X = x.
+p∗(z | x)
+True conditional density, with respect to the stated dominating measure.
+p, q, bp
+Candidate conditional densities and a fitted conditional density.
+g(z, x)
+Fixed prediction model being explained.
+ℓ(a, b)
+Scalar-valued loss comparing alternative and reference predictions; for vector
+arguments, write ℓ(a, b).
+LUCID(w)
+Local importance under the true conditional distribution.
+LUCID[p](w)
+Local importance induced by a candidate conditional density p.
+Continued on next page
+14
+
+
+Table 4 (continued)
+Notation
+Definition
+g−Z(x)
+Conditional mean of the fixed model output given X = x; the optimal
+squared-loss reduced predictor.
+LOCO(w)
+Squared discrepancy between g(z, x) and g−Z(x).
+LOCOϕ(w)
+Dϕ(g−Z(x), g(z, x)), using the same conditional-mean reduced predictor.
+Ij(w)
+Experimental shorthand for LUCID when the jth original feature is selected
+as Z.
+ϕ, Dϕ
+Scalar-valued strictly convex differentiable generator and its Bregman
+divergence; vector arguments are written a, b, with scalar coordinates ac, bc.
+TV(p, q)
+Total variation distance, with the convention 1
+2
+R
+|p −q|.
+d(p, q)
+Conditional-distribution distance satisfying the main paper distance-control
+condition.
+h(p, q)
+Integrated Hellinger distance defined in Equation (C.26); h(p(· | x), q(· | x))
+denotes its fixed-context version.
+∥· ∥2
+L2(PZ,X) norm for importance functions; L2(PX) is written explicitly when
+used.
+Cℓ, A
+Uniform loss bound and constant in the distance-control condition.
+ϵn
+Conditional-density contraction rate, transferred to LUCID.
+Dn, n
+I.i.d. covariate sample used to fit the conditional density, and its size.
+wi, N
+Observations to be explained, and their number.
+Π, Π(· | Dn)
+Prior and posterior on conditional densities.
+p(b), B
+Retained posterior density draw and number of retained draws.
+p
+Complete posterior mean density.
+bm, M
+Random posterior index for replacement m, and number of replacements in
+an estimate.
+Z′
+m, Z′(b)
+m
+Replacement from a specified sampler, and replacement generated with
+posterior draw b held fixed.
+\
+LUCIDM[p]
+Monte Carlo approximation of LUCID[p] using M replacements.
+KL(p∗∥p), V (p∗, p)
+Integrated log-density ratio and its second moment under the truth.
+Gn, N(ϵ, Gn, h)
+Density sieve and its Hellinger covering number.
+Ln(p), ψn
+Likelihood ratio and binary test used only in the posterior-tail proof.
+α, β, d0
+DR-BART smoothness, β = min{α, 1}, and effective dimension, including the
+response coordinate.
+γ, bQw
+Tail probability for a (1 −γ) credible interval, and empirical posterior
+quantile function at w.
+C
+Theoretical Results and Proofs
+We first prove the structural results for the true conditional distribution. We then establish stability
+under conditional-distribution error and distinguish posterior contraction from the moment control
+needed for posterior averaging.
+C.1
+Setup and Global–Local Identity
+Let W = (Z, X) ∼PZ,X. A conditional replacement is constructed so that
+Z′ | X ∼P(· | X),
+Z′ ⊥Z | X.
+(C.1)
+15
+
+
+For a candidate conditional density p, write
+LUCID[p](w) :=
+Z
+ℓ(g(z′, x), g(z, x)) p(z′ | x) dz′,
+LUCID(w) := LUCID[p∗](w).
+(C.2)
+At fixed w = (z, x), expectations over Z′ use P(· | x) unless another distribution is specified. All
+conditional densities are defined with respect to a common dominating measure µ; for discrete
+features, the corresponding integrals are sums.
+Proposition C.1 (Global–local identity). If E|ℓ(g(Z′, X), g(Z, X))| < ∞, then
+CPFI = E[LUCID(W )].
+(C.3)
+Proof. By Equation (C.1), the conditional distribution of Z′ given (Z, X) is P(· | X). Thus
+E[ℓ(g(Z′, X), g(Z, X)) | Z, X] = LUCID(Z, X).
+Taking expectations yields the stated identity and the prediction-based definition of global CPFI in
+the main paper, Equation 2.
+C.2
+Squared-Loss Decomposition and the Relationship with LOCO
+Assume first that g is real-valued and the relevant second moments are finite. Define the conditional-
+mean reduced predictor by
+g−Z(x) := E[g(Z′, x)] = E[g(Z, X) | X = x].
+(C.4)
+This definition refers to the given model g.
+Proof of Theorem 1. Under squared loss, adding and subtracting the conditional mean gives
+LUCID(w) = E[(g(Z′, x) −g(z, x))2]
+= E[(g(Z′, x) −E[g(Z′, x)])2] + (E[g(Z′, x)] −g(z, x))2
++ 2(E[g(Z′, x)] −g(z, x))E[g(Z′, x) −E[g(Z′, x)]]
+= Var(g(Z′, x))
+|
+{z
+}
+dispersion
++ (g(z, x) −E[g(Z′, x)])2
+|
+{z
+}
+displacement
+.
+(C.5)
+The cross term vanishes by Equation (C.4).
+The conditional mean is the optimal squared-loss reduced predictor: for every real number a,
+E[(g(Z′, x) −a)2] = Var(g(Z′, x)) + (g−Z(x) −a)2.
+(C.6)
+Consequently, g−Z(x) uniquely minimizes this conditional risk. Recall the local LOCO comparison
+in the main paper,
+LOCO(w) := (g(z, x) −g−Z(x))2.
+(C.7)
+A reduced model obtained by finite-sample refitting need not equal this projection, so the following
+identity does not assert equality for a refitted model.
+Proof of Proposition 1. Substituting Equation (C.7) into Equation (C.5) gives
+LUCID(w) = Var(g(Z′, x)) + LOCO(w).
+(C.8)
+16
+
+
+Corollary C.2 (Conditional and global averages). Following Reyero-Lobo et al. (2025), if E[g(Z, X)2] <
+∞, then
+E[LOCO(W ) | X] = Var(g(Z, X) | X),
+(C.9)
+E[LUCID(W ) | X] = 2 Var(g(Z, X) | X).
+(C.10)
+In particular, dispersion and displacement have the same population mean, and
+CPFI = 2E[LOCO(W )] = 2E[Var(g(Z, X) | X)].
+(C.11)
+Proof. Equation (C.9) is the definition of conditional variance. At W = (Z, X), the dispersion
+in Equation (C.8) equals Var(g(Z, X) | X) because Z′ and Z have the same conditional distri-
+bution. Taking conditional expectations proves Equation (C.10). Averaging again and applying
+Proposition C.1 proves Equation (C.11).
+C.3
+Bregman Decomposition and Global Identities
+Let the model outputs lie in a convex domain in a finite-dimensional Euclidean space, and let ϕ
+be strictly convex and continuously differentiable on its relative interior. Its Bregman divergence
+(Bregman, 1967) is
+Dϕ(a, b) := ϕ(a) −ϕ(b) −⟨∇ϕ(b), a −b⟩.
+(C.12)
+For each fixed x, assume that g(Z′, x) has a finite mean and that both g(z, x) and this mean,
+g−Z(x), lie in the relative interior of the domain of ϕ. Assume also that the expected Bregman
+divergences appearing below are finite. For vector-valued outputs, g−Z(x) is obtained by taking the
+conditional expectation of each output component in Equation (C.4). If the output domain lies in a
+lower-dimensional affine space, gradients are taken within that space; for example, for probability
+vectors, derivatives are taken along directions that preserve the constraint that the components sum
+to one.
+Proof of Proposition 2. Expanding Equation (C.12) gives the three-point identity
+Dϕ(g(Z′, x), g(z, x)) = ϕ(g(Z′, x)) −ϕ(g(z, x)) −
+
+∇ϕ(g(z, x)), g(Z′, x) −g(z, x)
+
+= ϕ(g(Z′, x)) −ϕ(E[g(Z′, x)]) + ϕ(E[g(Z′, x)]) −ϕ(g(z, x))
+−
+
+∇ϕ(g(z, x)), g(Z′, x) −E[g(Z′, x)]
+
+−
+
+∇ϕ(g(z, x)), E[g(Z′, x)] −g(z, x)
+
+=
+h
+ϕ(g(Z′, x)) −ϕ(E[g(Z′, x)])
+−
+
+∇ϕ(E[g(Z′, x)]), g(Z′, x) −E[g(Z′, x)]
+i
++
+h
+ϕ(E[g(Z′, x)]) −ϕ(g(z, x))
+−
+
+∇ϕ(g(z, x)), E[g(Z′, x)] −g(z, x)
+i
++
+
+∇ϕ(E[g(Z′, x)]) −∇ϕ(g(z, x)), g(Z′, x) −E[g(Z′, x)]
+
+= Dϕ(g(Z′, x), E[g(Z′, x)]) + Dϕ(E[g(Z′, x)], g(z, x))
++
+
+∇ϕ(E[g(Z′, x)]) −∇ϕ(g(z, x)), g(Z′, x) −E[g(Z′, x)]
+ .
+The last term has mean zero. Hence, for ℓ= Dϕ,
+LUCID(w) = E[Dϕ(g(Z′, x), E[g(Z′, x)])]
+|
+{z
+}
+dispersion
++ Dϕ(E[g(Z′, x)], g(z, x))
+|
+{z
+}
+displacement
+.
+(C.13)
+17
+
+
+For ϕ(a) = ∥a∥2, the Bregman divergence reduces to squared Euclidean distance, so Equa-
+tion (C.13) becomes
+LUCID(w) = E[∥g(Z′, x) −g−Z(x)∥2]
+|
+{z
+}
+dispersion
++ ∥g−Z(x) −g(z, x)∥2
+|
+{z
+}
+displacement
+.
+(C.14)
+For scalar outputs, the dispersion term is Var(g(Z′, x)), recovering the squared-loss decomposition.
+For strictly positive probability-vector outputs and negative entropy ϕ(a) = P
+c ac log ac, the
+Bregman divergence is KL(a∥b). Thus, whenever the expectations are finite,
+LUCID(w) = E[KL(g(Z′, x)∥g−Z(x))]
+|
+{z
+}
+dispersion
++ KL(g−Z(x)∥g(z, x))
+|
+{z
+}
+displacement
+.
+(C.15)
+The direction of the LOCO comparison.
+The main paper places the alternative prediction
+first and the reference prediction second in ℓto show that we measure the alternative prediction
+using the original model output as the reference. Keeping this order, the Bregman comparison with
+the conditional-mean reduced predictor is
+LOCOϕ(w) := Dϕ(g−Z(x), g(z, x)).
+(C.16)
+It is exactly the displacement term in Equation (C.13). Here, we retain the conditional-mean reduced
+predictor, which need not minimize the Bregman loss when placed in its first argument. Reversing
+the comparison leads to an analogous formulation in dual coordinates, with a corresponding dual-
+mean predictor. As this extension is beyond the main scope of our paper, we omit its details and
+refer readers to Adlam et al. (2022) for further discussion about Bregman divergence.
+Corollary C.3 (Zero importance). For squared loss or a well-defined Bregman divergence with a
+strictly convex generator,
+LUCID(w) = 0
+⇐⇒
+g(Z′, x) = g(z, x)
+P(· | x)-almost surely.
+(C.17)
+Proof. By the definition of LUCID,
+LUCID(w) = E
+ℓ(g(Z′, x), g(z, x))
+ ,
+Z′ ∼P(· | x).
+For squared loss, ℓ(a, b) = ∥a−b∥2 is nonnegative and equals zero if and only if a = b. For Bregman
+divergence, strict convexity of ϕ implies
+ϕ(a) > ϕ(b) + ⟨∇ϕ(b), a −b⟩
+whenever a̸ = b.
+Together with Equation (C.12), this gives Dϕ(a, b) ≥0, with equality if and only if a = b. Thus,
+if LUCID(w) = 0, the nonnegative loss inside the expectation must vanish P(· | x)-almost surely,
+implying g(Z′, x) = g(z, x) almost surely. Conversely, this almost-sure equality makes the loss zero
+almost surely and hence gives LUCID(w) = 0.
+Proposition C.4 (Global Bregman identity). Under the preceding conditions and population
+integrability of the displayed terms,
+CPFI = E[Dϕ(g(Z, X), g−Z(X))] + E[Dϕ(g−Z(X), g(Z, X))].
+(C.18)
+18
+
+
+Proof. Average Equation (C.13) over (Z, X). Conditional on X, the outputs g(Z′, X) and g(Z, X)
+have the same distribution and conditional mean g−Z(X). Therefore, the average dispersion equals
+E[Dϕ(g(Z, X), g−Z(X))]. The average displacement is the second term in Equation (C.18).
+When the relevant generator expectations are finite, the first term also satisfies
+E[Dϕ(g(Z, X), g−Z(X))] = E[ϕ(g(Z, X))] −E[ϕ(g−Z(X))],
+(C.19)
+since the conditional mean of g(Z, X) −g−Z(X) given X is zero. For ϕ(a) = ∥a∥2, the two
+divergences in Equation (C.18) coincide, recovering the factor-of-two identity. For a strictly positive
+probability-vector output and negative entropy ϕ(a) = P
+c ac log ac, direct substitution gives
+CPFI = E[KL(g(Z, X)∥g−Z(X))] + E[KL(g−Z(X)∥g(Z, X))].
+(C.20)
+These two expectations need not agree.
+Consequently, even though local displacement is the
+comparison in Equation (C.16), global CPFI need not be twice its population mean.
+Feature groups.
+All results above also hold for a feature group Z, with Z′ drawn jointly
+conditional on the remaining covariates X. In the corresponding formulas, replace Z, z, Z′, z′ by
+Z, z, Z′, z′, respectively. The proofs use the conditional distribution of the model output and do
+not require scalar feature replacements.
+C.4
+Stability Under Conditional-Distribution Error
+Throughout this subsection, suppose
+|ℓ(g(z′, x), g(z, x))| ≤Cℓ< ∞
+(C.21)
+for PZ,X-almost every (z, x) and replacement values in the supports of the candidate distributions.
+Bounded outputs of a fixed model suffice for squared loss. Write ∥· ∥2 = ∥· ∥L2(PZ,X).
+Proof of Theorem 2. For every pair p, q satisfying Equation (C.21),
+| LUCID[p](w) −LUCID[q](w)| ≤Cℓ
+Z
+|p(z′ | x) −q(z′ | x)| dz′
+= 2CℓTV{p(· | x), q(· | x)}.
+(C.22)
+The right-hand side depends only on x. Squaring and integrating with respect to PZ,X, and applying
+the main paper distance-control assumption, yields
+∥LUCID[p] −LUCID[q]∥2 ≤2Cℓ∥TV{p(· | X), q(· | X)}∥L2(PX)
+≤2CℓA d(p, q).
+(C.23)
+Taking p = bp and q = p∗proves the stated OP (ϵn) rate whenever d(bp, p∗) = OP (ϵn).
+Local estimation accuracy also controls the error in population-average importance. Since
+CPFI = E[LUCID[p∗](W )], Cauchy–Schwarz gives
+|E[LUCID[p](W )] −CPFI| = |E[LUCID[p](W ) −LUCID[p∗](W )]|
+≤
+
+E
+h
+|LUCID[p](W ) −LUCID[p∗](W )|2i1/2
+= ∥LUCID[p] −LUCID[p∗]∥2.
+(C.24)
+19
+
+
+Here, expectations are taken over the true covariate distribution of W . Thus, the root mean squared
+error of the local importance function bounds the absolute error of its population average.
+When the population average is approximated using N evaluation observations, the total error
+decomposes as
+1
+N
+N
+X
+i=1
+LUCID[p](wi) −CPFI = 1
+N
+N
+X
+i=1
+LUCID[p](wi) −E[LUCID[p](W )]
+|
+{z
+}
+evaluation-sample error
++ E[LUCID[p](W )] −CPFI
+|
+{z
+}
+conditional-density estimation error
+.
+(C.25)
+Equation (C.24) controls the second term. The first is a separate sampling error arising from the
+finite evaluation sample.
+Hellinger distance.
+Define
+h2(p, q) :=
+Z Z
+{
+q
+p(z′ | x) −
+q
+q(z′ | x)}2 dz′ PX(dx).
+(C.26)
+The corresponding fixed-context distance omits the integral over PX. Factoring p −q = (√p −
+√q)(√p + √q) and applying Cauchy–Schwarz gives
+Z
+|p(z′ | x) −q(z′ | x)| dz′ ≤2h(p(· | x), q(· | x)),
+because
+R (√p + √q)2 ≤4. Thus the distance-control condition holds with d = h and A = 1, and
+∥LUCID[p] −LUCID[q]∥2 ≤2Cℓh(p, q).
+(C.27)
+The normalization in Equation (C.26) also gives h2(p, q) ≤2.
+C.5
+Posterior Contraction and Posterior Moment Control
+We now establish convergence guarantees for DR-BART-based (Orlandi et al., 2021) LUCID under
+the regularity, prior, and bounded-loss conditions stated below. Readers interested only in
+posterior contraction for LUCID may proceed directly to Corollary C.5 and then
+Section C.6, where we verify the conditions needed to apply Equation (C.28). The
+remainder of this subsection addresses a further question relevant to our implementation: does the
+posterior mean conditional density
+¯p(z | x) := EΠ[p(z | x) | Dn]
+inherit the same convergence rate? Posterior contraction alone does not automatically guarantee this
+rate, because the posterior mean also includes contributions from the posterior tails. We therefore
+establish quantitative tail bounds and posterior second-moment control, which allow us to retain
+the rate when passing from posterior draws to the posterior mean density and its induced LUCID.
+Let Dn = {(Zi, Xi)}n
+i=1 be i.i.d. from PZ,X, and let Π(· | Dn) be the posterior on conditional
+densities. All OP statements are with respect to the randomness of the data under the true sampling
+distribution, together with any posterior or Monte Carlo sampling used to compute the estimator.
+20
+
+
+Corollary C.5 (Posterior contraction transfer). Suppose Equation (C.21) holds over the posterior
+support. If, for some K > 0,
+Π{d(p, p∗) > Kϵn | Dn} −→0
+in probability,
+and d satisfies the distance-control condition with constant A, then
+Π{∥LUCID[p] −LUCID[p∗]∥2 > 2CℓAKϵn | Dn} −→0
+(C.28)
+in probability.
+Proof. By Equation (C.23) and the distance-control condition,
+∥LUCID[p] −LUCID[p∗]∥2 ≤2CℓA d(p, p∗)
+over the posterior support. Hence, an importance error exceeding 2CℓAKϵn requires d(p, p∗) > Kϵn,
+so
+Π{∥LUCID[p] −LUCID[p∗]∥2 > 2CℓAKϵn | Dn} ≤Π{d(p, p∗) > Kϵn | Dn}.
+The right-hand side converges to zero in probability by assumption, proving the claim.
+This conclusion describes concentration of the posterior distribution. To establish the same rate
+for posterior averages, we next control a posterior second moment. The following lemma makes
+explicit the additional consequence of the standard sieve-and-testing conditions used in density
+contraction proofs. Its argument follows the testing framework of Ghosal et al. (2000); Orlandi et al.
+(2021) .
+Define the integrated log-likelihood moments by
+KL(p∗∥p) := EPZ,X
+
+log p∗(Z | X)
+p(Z | X)
+
+,
+V (p∗, p) := EPZ,X
+"
+log p∗(Z | X)
+p(Z | X)
+2#
+.
+(C.29)
+Lemma C.6 (Posterior tail and second-moment control). Let ϵn →0 and nϵ2
+n →∞. Suppose there
+are constants C1, . . . , C5 > 0 and deterministic density sieves Gn such that, for all sufficiently large
+n,
+G1 : Π{p : KL(p∗∥p) ≤C2
+1ϵ2
+n, V (p∗, p) ≤C2
+1ϵ2
+n} ≥e−C2nϵ2
+n,
+(C.30)
+G2 : Π(Gc
+n) ≤C3e−(C2+C2
+1+4)nϵ2
+n,
+(C.31)
+G3 : log N(C5ϵn, Gn, h) ≤C4nϵ2
+n.
+(C.32)
+Then, for a sufficiently large fixed K,
+P ⊗n
+Z,X
+h
+Π{h(p, p∗) > Kϵn | Dn} > 2e−nϵ2
+n
+i
+≤C2
+1
+nϵ2n
++ 3e−nϵ2
+n
+(C.33)
+for all sufficiently large n. If also log(1/ϵn) = o(nϵ2
+n), then
+EΠ[h2(p, p∗) | Dn] = OP (ϵ2
+n).
+(C.34)
+Under Equation (C.21), it follows that
+EΠ[∥LUCID[p] −LUCID[p∗]∥2
+2 | Dn] = OP (ϵ2
+n).
+(C.35)
+Proof. Write
+Ln(p) :=
+n
+Y
+i=1
+p(Zi | Xi)
+p∗(Zi | Xi).
+21
+
+
+Proof of Equation C.33
+By Bayes’ theorem, the posterior tail probability Π{h(p, p∗) > Kϵn |
+Dn} can be written as
+Π{h(p, p∗) > Kϵn | Dn} =
+R
+h(p,p∗)>Kϵn
+Qn
+i=1 p(Zi | Xi) dΠ(p)
+R Qn
+i=1 p(Zi | Xi) dΠ(p)
+=
+R
+h(p,p∗)>Kϵn
+Qn
+i=1 p(Zi|Xi)
+Qn
+i=1 p∗(Zi|Xi) dΠ(p)
+R Qn
+i=1 p(Zi|Xi)
+Qn
+i=1 p∗(Zi|Xi) dΠ(p)
+=
+R
+h(p,p∗)>Kϵn Ln(p) dΠ(p)
+R Ln(p) dΠ(p)
+Our goal is to show that this posterior tail probability Π{h(p, p∗) > Kϵn | Dn} is large only on
+an event of small sampling probability.
+(i) The denominator
+R Ln(p) dΠ(p) is large with high probability
+We consider the denominator
+R Ln(p) dΠ(p). Let Bn be the KL neighborhood in Equation (C.30),
+and let ΠBn denote the prior normalized on Bn, defined by
+d ΠBn(p) := 1{p∈Bn}d Π(p)
+Π(Bn)
+.
+By G1 (Equation C.30), every p ∈Bn satisfies KL(p∗∥p) ≤C2
+1ϵ2
+n, V (p∗, p) ≤C2
+1ϵ2
+n and Bn satisfies
+Π(Bn) ≥e−C2nϵ2
+n.
+Since the prior mass Π(Bn) is bounded below, we restrict the integral to Bn and express it in
+terms of the normalized prior ΠBn:
+Z
+Ln(p) dΠ(p) ≥
+Z
+Bn
+Ln(p) dΠ(p) = Π(Bn)
+Z
+Ln(p) dΠBn(p).
+Taking logarithms and applying Jensen’s inequality gives
+log
+Z
+Ln(p) dΠ(p) ≥log Π(Bn) +
+Z
+log Ln(p) dΠBn(p).
+For the first term: log Π(Bn) ≥−C2nϵ2
+n.
+For the second term: We first compute the mean and variance of the second term and then use
+Chebyshev’s inequality to show that the denominator is not too small with high probability.
+Z
+log Ln(p) dΠBn(p) =
+Z
+log
+n
+Y
+i=1
+p(Zi | Xi)
+p∗(Zi | Xi) dΠBn(p)
+=
+Z
+n
+X
+i=1
+log p(Zi | Xi)
+p∗(Zi | Xi) dΠBn(p)
+=
+n
+X
+i=1
+Z
+log p(Zi | Xi)
+p∗(Zi | Xi) dΠBn(p)
+Let’s denote
+Ai =
+Z
+log p(Zi | Xi)
+p∗(Zi | Xi) dΠBn(p)
+22
+
+
+Since each Ai is a measurable function of (Zi, Xi), the variables A1, . . . , An are independent
+under the true sampling distribution P ⊗n
+Z,X. We have
+EP ⊗n
+Z,X
+Z
+log Ln(p) dΠBn(p)
+
+= EP ⊗n
+Z,X
+" n
+X
+i=1
+Ai
+#
+= nEPZ,X[A1]
+= nEPZ,X
+Z
+log p(Z1 | X1)
+p∗(Z1 | X1) dΠBn(p)
+
+= n
+Z
+EPZ,X
+
+log p(Z1 | X1)
+p∗(Z1 | X1)
+
+dΠBn(p)
+= −n
+Z
+KL(p∗∥p) dΠBn(p)
+≥−nC2
+1ϵ2
+n
+Z
+dΠBn(p)
+= −nC2
+1ϵ2
+n
+VarP ⊗n
+Z,X
+Z
+log Ln(p) dΠBn(p)
+
+= VarP ⊗n
+Z,X
+" n
+X
+i=1
+Ai
+#
+= n VarPZ,X[A1]
+= n VarPZ,X
+Z
+log p(Z1 | X1)
+p∗(Z1 | X1) dΠBn(p)
+
+= nEPZ,X
+"Z
+log p(Z1 | X1)
+p∗(Z1 | X1) dΠBn(p) −EPZ,X
+Z
+log p(Z1 | X1)
+p∗(Z1 | X1) dΠBn(p)
+2#
+= nEPZ,X
+"Z
+log p(Z1 | X1)
+p∗(Z1 | X1) dΠBn(p) −
+Z
+EPZ,X
+
+log p(Z1 | X1)
+p∗(Z1 | X1)
+
+dΠBn(p)
+2#
+= nEPZ,X
+"Z
+log p(Z1 | X1)
+p∗(Z1 | X1) −EPZ,X
+
+log p(Z1 | X1)
+p∗(Z1 | X1)
+
+dΠBn(p)
+2#
+≤nEPZ,X
+"Z 
+log p(Z1 | X1)
+p∗(Z1 | X1) −EPZ,X
+
+log p(Z1 | X1)
+p∗(Z1 | X1)
+2
+dΠBn(p)
+#
+= n
+Z
+EPZ,X
+"
+log p(Z1 | X1)
+p∗(Z1 | X1) −EPZ,X
+
+log p(Z1 | X1)
+p∗(Z1 | X1)
+2#
+dΠBn(p)
+≤n
+Z
+EPZ,X
+"
+log p(Z1 | X1)
+p∗(Z1 | X1)
+2#
+dΠBn(p)
+= n
+Z
+V (p∗, p) dΠBn(p)
+≤nC2
+1ϵ2
+n
+Z
+dΠBn(p)
+= nC2
+1ϵ2
+n
+Thus, the expectation is at least −C2
+1nϵ2
+n and the variance is at most C2
+1nϵ2
+n.
+On the event that
+R log Ln(p) dΠBn(p) ≥−(C2
+1+1)nϵ2
+n, the preceding bounds imply log
+R Ln(p) dΠ(p) ≥
+23
+
+
+−(C2
+1 + 1 + C2)nϵ2
+n. Chebyshev’s inequality therefore yields
+P ⊗n
+Z,X
+Z
+Ln(p) dΠ(p) < e−(C2+C2
+1+1)nϵ2
+n
+
+= P ⊗n
+Z,X
+
+log
+Z
+Ln(p) dΠ(p) < −(C2 + C2
+1 + 1)nϵ2
+n
+
+≤P ⊗n
+Z,X
+Z
+log Ln(p) dΠBn(p) < −(C2
+1 + 1)nϵ2
+n
+
+= P ⊗n
+Z,X
+Z
+log Ln(p) dΠBn(p) + C2
+1nϵ2
+n < −nϵ2
+n
+
+≤P ⊗n
+Z,X
+Z
+log Ln(p) dΠBn(p) −EP ⊗n
+Z,X
+Z
+log Ln(p) dΠBn(p)
+
+< −nϵ2
+n
+
+≤P ⊗n
+Z,X
+
+|
+Z
+log Ln(p) dΠBn(p) −EP ⊗n
+Z,X
+Z
+log Ln(p) dΠBn(p)
+
+| > nϵ2
+n
+
+≤
+VarP ⊗n
+Z,X[
+R log Ln(p) dΠBn(p)]
+(nϵ2n)2
+≤C2
+1
+nϵ2n
+.
+Combining the above bounds, with probability at least
+1 −C2
+1
+nϵ2n
+,
+the denominator is bounded below by
+e−(C2+C2
+1+1)nϵ2
+n.
+(ii) The numerator
+R
+h(p,p∗)>Kϵn Ln(p) dΠ(p) is large only with low probability
+We use deterministic density sieves Gn satisfying G2 (Equation C.31) to control Π(Gc
+n) ≤
+C3e−(C2+C2
+1+4)nϵ2
+n.
+The main difficulty is to control the contribution from An := {h(p, p∗) >
+Kϵn} ∩Gn. More precisely,
+Z
+h(p,p∗)>Kϵn
+Ln(p) dΠ(p) ≤
+Z
+An
+Ln(p) dΠ(p) +
+Z
+Gcn
+Ln(p) dΠ(p)
+For the second term, the argument is simpler.
+Since we will ultimately apply Markov
+inequality to bound the probability, we first bound EP ⊗n
+Z,X
+hR
+Gcn Ln(p) dΠ(p)
+i
+. For later use, we
+establish the following more general bound. Let Sn := (Z × X)n denote the sample space for Dn.
+S∗
+n :=
+(
+Dn ∈Sn :
+n
+Y
+i=1
+p∗(zi | xi) > 0
+)
+.
+For any nonnegative measurable function F of Dn,
+EP ⊗n
+Z,X
+"Z
+Gcn
+F(Dn)Ln(p) dΠ(p)
+#
+=
+Z
+Gcn
+EP ⊗n
+Z,X[F(Dn)Ln(p)] dΠ(p)
+(C.36)
+=
+Z
+Gcn
+"Z
+S∗n
+F(Dn)
+n
+Y
+i=1
+p(zi | xi)
+p∗(zi | xi) dP ⊗n
+Z,X(Dn)
+#
+dΠ(p)
+(C.37)
+24
+
+
+=
+Z
+Gcn
+"Z
+S∗n
+F(Dn)
+n
+Y
+i=1
+p(zi | xi) d(µ ⊗PX)⊗n(Dn)
+#
+dΠ(p)
+(C.38)
+≤
+Z
+Gcn
+"Z
+Sn
+F(Dn)
+n
+Y
+i=1
+p(zi | xi) d(µ ⊗PX)⊗n(Dn)
+#
+dΠ(p)
+(C.39)
+=
+Z
+Gcn
+EP ⊗n
+p [F(Dn)] dΠ(p),
+(C.40)
+where P ⊗n
+p
+is the joint law of n independent observations from Pp, defined by
+dPp(z, x) := p(z | x) dµ(z) dPX(x),
+with µ the dominating measure for Z and PX the fixed true marginal distribution of X.
+Taking F ≡1, we obtain
+EP ⊗n
+Z,X
+"Z
+Gcn
+Ln(p) dΠ(p)
+#
+≤
+Z
+Gcn
+EP ⊗n
+p [1] dΠ(p) = Π(Gc
+n)
+Thus, by Markov’s inequality, we have
+P ⊗n
+Z,X
+"Z
+Gcn
+Ln(p) dΠ(p) > e−(C2+C2
+1+2)nϵ2
+n
+#
+≤C3e−(C2+C2
+1+4)nϵ2
+n
+e−(C2+C2
+1+2)nϵ2n
+= C3e−2nϵ2
+n ≤e−nϵ2
+n
+The last inequality holds for all sufficiently large n, since nϵ2
+n →∞.
+For the first term, we use the standard Hellinger testing construction of Ghosal et al. (2000).
+We construct a test that distinguishes the true distribution from all candidate distributions indexed
+by An. More specifically, we test
+H0 : Dn ∼P ⊗n
+Z,X
+against
+H1 : Dn ∼P ⊗n
+p
+for some p ∈An.
+We seek a test that equals 1 when H0 is rejected and 0 otherwise.
+By Equation (C.32), there exists a cover of Gn by Nn Hellinger balls of radius C5ϵn, with centers
+q1, . . . , qNn, such that
+Nn ≤eC4nϵ2
+n.
+Retain only the balls that intersect An, and denote their index set by Jn. For each j ∈Jn, choose
+pj ∈An in the corresponding ball. The triangle inequality gives
+h(qj, p∗) ≥h(pj, p∗) −h(pj, qj) > (K −C5)ϵn.
+In particular, if K > 3C5, then
+C5ϵn < 1
+2h(qj, p∗).
+The robust Hellinger testing result in Ghosal et al. (2000, Section 7, Equations (7.1)–(7.2))
+therefore provides, for each j ∈Jn, a binary test ϕn,j and a universal constant c > 0 such that
+EP ⊗n
+Z,X[ϕn,j] ≤e−cnh2(qj,p∗) ≤e−c(K−C5)2nϵ2
+n,
+sup
+p: h(p,qj)≤C5ϵn
+EP ⊗n
+p [1 −ϕn,j] ≤e−cnh2(qj,p∗) ≤e−c(K−C5)2nϵ2
+n.
+25
+
+
+Define ψn := maxj∈Jn ϕn,j, with ψn := 0 if Jn is empty. By the union bound,
+EP ⊗n
+Z,X[ψn] ≤
+X
+j∈Jn
+EP ⊗n
+Z,X[ϕn,j]
+≤Nne−c(K−C5)2nϵ2
+n
+≤e−{c(K−C5)2−C4}nϵ2
+n.
+Moreover, every p ∈An belongs to at least one retained ball, say the ball indexed by j. Since
+ψn ≥ϕn,j,
+EP ⊗n
+p [1 −ψn] ≤EP ⊗n
+p [1 −ϕn,j] ≤e−c(K−C5)2nϵ2
+n.
+Choose a fixed K > 3C5 sufficiently large that
+c(K −C5)2 ≥max{C4 + 1, C2 + C2
+1 + 4}.
+Then
+EP ⊗n
+Z,X[ψn] ≤e−nϵ2
+n,
+sup
+p∈An
+EP ⊗n
+p [1 −ψn] ≤e−(C2+C2
+1+4)nϵ2
+n.
+(C.41)
+We now apply the same change-of-measure argument in Equation (C.40), replacing the integration
+set Gc
+n by An and taking F(Dn) = 1 −ψn(Dn) ≥0. Together with Equation (C.41), this yields
+EP ⊗n
+Z,X
+
+(1 −ψn)
+Z
+An
+Ln(p) dΠ(p)
+
+≤
+Z
+An
+EP ⊗n
+p [1 −ψn] dΠ(p)
+≤e−(C2+C2
+1+4)nϵ2
+nΠ(An)
+≤e−(C2+C2
+1+4)nϵ2
+n.
+Consequently, Markov’s inequality gives
+P ⊗n
+Z,X
+
+(1 −ψn)
+Z
+An
+Ln(p) dΠ(p) > e−(C2+C2
+1+2)nϵ2
+n
+
+≤e−2nϵ2
+n.
+(C.42)
+Since ψn is binary, Equation (C.41) also gives P ⊗n
+Z,X(ψn = 1) ≤e−nϵ2
+n. Thus, with probability at
+least 1 −e−nϵ2
+n −e−2nϵ2
+n, we have ψn = 0 and
+Z
+An
+Ln(p) dΠ(p) ≤e−(C2+C2
+1+2)nϵ2
+n.
+(iii) Combining the preceding bounds. Recall that
+Z
+{p:h(p,p∗)>Kϵn}
+Ln(p) dΠ(p) ≤
+Z
+An
+Ln(p) dΠ(p) +
+Z
+Gcn
+Ln(p) dΠ(p).
+By the union bound, the denominator lower bound and both numerator upper bounds hold
+simultaneously with probability at least
+1 −
+(
+C2
+1
+nϵ2n
++ 2e−nϵ2
+n + e−2nϵ2
+n
+)
+under P ⊗n
+Z,X, for all sufficiently large n. On this event,
+Π{h(p, p∗) > Kϵn | Dn} =
+R
+{p:h(p,p∗)>Kϵn} Ln(p) dΠ(p)
+R Ln(p) dΠ(p)
+26
+
+
+≤
+R
+An Ln(p) dΠ(p) +
+R
+Gcn Ln(p) dΠ(p)
+R Ln(p) dΠ(p)
+≤2e−(C2+C2
+1+2)nϵ2
+n
+e−(C2+C2
+1+1)nϵ2n
+= 2e−nϵ2
+n.
+Since e−2nϵ2
+n ≤e−nϵ2
+n, we conclude that
+P ⊗n
+Z,X
+n
+Π{h(p, p∗) > Kϵn | Dn} > 2e−nϵ2
+n
+o
+≤C2
+1
+nϵ2n
++ 3e−nϵ2
+n.
+Proof of Equation C.34
+Since h2 ≤2, we have the deterministic posterior bound
+EΠ[h2(p, p∗) | Dn] ≤K2ϵ2
+n + 2Π{h(p, p∗) > Kϵn | Dn}.
+On the high-probability event established above,
+EΠ[h2(p, p∗) | Dn] ≤K2ϵ2
+n + 4e−nϵ2
+n.
+The additional condition log(1/ϵn) = o(nϵ2
+n) implies
+2 log(1/ϵn)
+nϵ2n
+−→0.
+Thus,
+−nϵ2
+n + 2 log(1/ϵn) = −nϵ2
+n
+
+1 −2 log(1/ϵn)
+nϵ2n
+
+−→−∞,
+Therefore, we get
+e−nϵ2
+n
+ϵ2n
+= exp{−nϵ2
+n + 2 log(1/ϵn)} −→0.
+Thus, for all sufficiently large n, we have
+4e−nϵ2
+n ≤ϵ2
+n.
+Hence, we can build
+P ⊗n
+Z,X
+n
+EΠ[h2(p, p∗) | Dn] > (K2 + 1)ϵ2
+n
+o
+≤C2
+1
+nϵ2n
++ 3e−nϵ2
+n −→0.
+Consequently,
+EΠ[h2(p, p∗) | Dn] = OP (ϵ2
+n),
+where OP is with respect to the true sampling law P ⊗n
+Z,X.
+Proof of Equation C.35
+EΠ[∥LUCID[p] −LUCID[p∗]∥2
+2 | Dn] ≤4C2
+ℓEΠ[h2(p, p∗) | Dn] = OP (ϵ2
+n).
+Note: mere convergence of a posterior tail probability to zero, without a quantitative bound
+such as Equation (C.33), is insufficient to infer the same rate for a posterior mean.
+27
+
+
+C.6
+DR-BART Specialization
+We apply Conditions F and P1–P6 of Orlandi et al. (2021, Section 4) to response Z and conditioning
+covariates X. These conditions are adopted in full. They impose smoothness and sparsity of
+the log conditional density, restrictions on the true conditional quantile function, and specified
+support-selection, tree, leaf, scale, and split-point priors, including an approximation condition.
+They are stronger than choosing the default tuning parameters of a density estimator.
+Corollary C.7 (DR-BART contraction and posterior moments). Under these conditions, with k
+conditioning coordinates, let
+ϵn =
+
+n
+log n
+−
+α
+α+1
+β
+2β+d0 +
+s
+d0 log(k + 1)
+n
+,
+β = min{α, 1}.
+(C.43)
+Here 0 < α ≤2 is the smoothness index and d0 counts active coordinates including the response. The
+density posterior contracts at this rate in integrated Hellinger distance. Its proof conditions also yield
+Equation (C.34). If Equation (C.21) holds, the LUCID posterior satisfies both Equations (C.28)
+and (C.35).
+Proof. The density contraction statement follows from Orlandi et al. (2021, Theorem 2). We verify
+that the bounds in its proof satisfy the assumptions of Lemma C.6.
+First, condition G1, verified in Section 8.3 of the cited paper, gives constants C1, C2 > 0 such
+that
+Π{p : KL(p∗∥p) ≤C2
+1ϵ2
+n, V (p∗, p) ≤C2
+1ϵ2
+n} ≥e−C2nϵ2
+n.
+This is Equation (C.30).
+Second, the proof of G2 constructs sieves Gn,κ indexed by a sufficiently large fixed constant κ
+and establishes
+Π(Gc
+n,κ) ≤exp(−CGκnϵ2
+n),
+where CG > 0 depends only on the prior. Choose
+κ > C2 + C2
+1 + 4
+CG
+and fix Gn = Gn,κ. Then
+Π(Gc
+n) ≤e−(C2+C2
+1+4)nϵ2
+n,
+which verifies Equation (C.31) with C3 = 1. This choice changes only the sieve used in the proof,
+not the prior.
+Third, the covering construction establishing G3 remains valid for this fixed κ. It gives finite
+constants C4, C5 > 0, which may depend on κ, such that
+log N(C5ϵn, Gn, h) ≤C4nϵ2
+n.
+This is Equation (C.32).
+It remains to check the growth conditions. Assume ϵn →0, as stipulated in the corollary, and
+write
+a =
+α
+α + 1
+β
+2β + d0
+,
+β = min{α, 1}.
+Since 0 < α ≤2 and d0 ≥1,
+0 < a ≤2
+3 · 1
+3 = 2
+9.
+28
+
+
+For all sufficiently large n,
+ϵn ≥(n/ log n)−a ≥(n/ log n)−2/9,
+and hence
+nϵ2
+n ≥n5/9(log n)4/9 −→∞.
+Moreover, once ϵn < 1,
+0 ≤log(1/ϵn) ≤2
+9 log(n/ log n) ≤2
+9 log n = o(nϵ2
+n).
+Lemma C.6 therefore yields Equation (C.34). Under Equation (C.21), it also gives Equation (C.35).
+Finally, the density contraction result, together with Corollary C.5 and Equation (C.27), establishes
+the stated contraction of the LUCID posterior.
+C.7
+Convergence Rate of Posterior Averaging
+The linear dependence of LUCID on the replacement distribution allows posterior averaging without
+explicitly constructing an average density. For analysis, define
+p(z′ | x) := EΠ[p(z′ | x) | Dn].
+(C.44)
+This is a conceptual replacement distribution used for the analysis; it need not be fitted or evaluated
+explicitly.
+Proposition C.8 (Posterior averaging and its rate). Let p(z | x) := EΠ[p(z | x) | Dn] denote the
+posterior mean conditional density.
+If Equation (C.34) holds, then
+h(p, p∗) = OP (ϵn).
+(C.45)
+Under Equation (C.21),
+LUCID[p](w) = EΠ[LUCID[p](w) | Dn].
+(C.46)
+If Equation (C.35) also holds, then
+∥LUCID[p] −LUCID[p∗]∥2 = OP (ϵn).
+(C.47)
+Proof. Tonelli’s theorem ensures that p(· | x) integrates to one. Convexity of squared Hellinger
+distance in its first argument gives
+h2(p, p∗) ≤EΠ[h2(p, p∗) | Dn] = OP (ϵ2
+n),
+where the last equality follows from Equation (C.34). Taking square roots proves Equation (C.45).
+Under Equation (C.21), Fubini’s theorem and Equation (C.2) yield
+LUCID[p](w) =
+Z
+ℓ(g(z′, x), g(z, x)) p(z′ | x) dz′
+= EΠ
+Z
+ℓ(g(z′, x), g(z, x)) p(z′ | x) dz′
+ Dn
+
+= EΠ[LUCID[p](w) | Dn],
+proving Equation (C.46). Jensen’s inequality in L2(PZ,X) then gives
+∥LUCID[p] −LUCID[p∗]∥2
+2 ≤EΠ[∥LUCID[p] −LUCID[p∗]∥2
+2 | Dn] = OP (ϵ2
+n),
+where the last equality follows from Equation (C.35). Taking square roots proves Equation (C.47).
+29
+
+
+These results establish the convergence rate of the exact posterior mean. Approximating it with
+finitely many retained posterior draws and conditional replacements introduces additional Monte
+Carlo error, which must be controlled separately.
+30
+
+
+D
+Implementation Details and Experimental Setup
+D.1
+Implementation Details
+This section describes conditional replacement sampling, posterior summaries, and the experimental
+settings used to evaluate LUCID.
+Pseudocode.
+We first present the pseudocode for LUCID estimation without batching in Algo-
+rithm 1.
+Algorithm 1 Estimating LUCID by conditional sampling
+Require: Fixed model g; evaluation observations {wi
+= (zi, xi)}N
+i=1; conditional sampler
+bPZ|X=xi(· | xi); loss ℓ; number of replacements M
+1: for i = 1, . . . , N do
+2:
+Draw z′
+i,1, . . . , z′
+i,M independently from bPZ|X=xi(· | xi)
+3:
+Form perturbed observations w′
+i,m = (z′
+i,m, xi), m = 1, . . . , M
+4:
+Compute \
+LUCIDi using Equation (8)
+5: end for
+6: return { \
+LUCIDi}N
+i=1
+Direct conditional sampling.
+For a continuous feature, a posterior draw b of DR-BART has
+the latent-variable representation
+Z′ = f(b)(x, U) + σ(b)(x, U)ε,
+U ∼Unif(0, 1),
+ε ∼N(0, 1),
+(D.1)
+where U and ε are independent, and f(b) and σ(b) are the location and standard-deviation functions
+from that posterior draw. Here U is a continuous latent variable; b indexes a draw from the posterior
+over the model parameters.
+We use this representation to generate conditional replacements directly, without first evaluating
+the fitted conditional density on a grid. Conditional on a posterior draw, this procedure samples
+exactly from the corresponding fitted conditional distribution, avoiding grid discretization and
+numerical inversion of the cumulative distribution function. It also eliminates the need to construct
+and store a density-evaluation matrix for sampling. More specifically, first draw U, evaluate the
+location and standard deviation at (x, U), and then draw Z′ from the resulting normal distribution.
+Algorithm 2 gives the sampling procedure.
+Algorithm 2 Direct posterior-predictive sampling with DR-BART
+Require: Conditioning vector x; retained posterior functions {(f(b), σ(b))}B
+b=1; number of replace-
+ments M
+1: for m = 1, . . . , M do
+2:
+Draw bm ∼Unif{1, . . . , B}
+3:
+Draw um ∼Unif(0, 1)
+4:
+Set µm ←f(bm)(x, um) and sm ←σ(bm)(x, um)
+5:
+Draw Z′
+m ∼N(µm, s2
+m)
+6: end for
+7: return Z′
+1, . . . , Z′
+M
+31
+
+
+Binary and categorical features.
+For binary and categorical features, the conditional distribu-
+tion is fully determined by the conditional category probabilities. We therefore use classification
+BART (Chipman et al., 2010; Quiroga et al., 2022) to estimate these probabilities directly. For
+a binary feature, we estimate P(Z = 1 | X = x) and draw replacements from the corresponding
+Bernoulli distribution. For a feature with multiple categories, we estimate a vector of conditional
+category probabilities that sum to one and draw replacements from the resulting categorical dis-
+tribution. Each posterior draw of these probabilities specifies a complete conditional distribution,
+which can be used in the same LUCID estimation and posterior summarization procedures described
+below.
+Posterior point estimates and credible intervals.
+For each retained posterior draw b =
+1, . . . , B, generate M replacements using Algorithm 2, however, keeping b fixed across all replace-
+ments, and compute
+\
+LUCID
+(b)(w) := 1
+M
+M
+X
+m=1
+ℓ
+
+g(Z′(b)
+m , x), g(z, x)
+
+.
+(D.2)
+The posterior mean is approximated by
+\
+LUCID
+post(w) := 1
+B
+B
+X
+b=1
+\
+LUCID
+(b)(w),
+(D.3)
+When only a posterior point estimate is required, we can alternatively sample from the posterior
+predictive distribution. For each replacement, we select an index b uniformly from {1, . . . , B} and
+generate a conditional replacement using Equation (D.1). Because LUCID is linear in the conditional
+replacement distribution, averaging the resulting loss contrasts estimates the same posterior mean,
+conditional on the retained draws, without requiring a separate LUCID estimate for every draw.
+To construct posterior credible intervals, we instead compute a separate LUCID estimate for each
+posterior draw using Equation (D.2). The empirical quantiles of these estimates { \
+LUCID
+(b)(w)}B
+b=1
+describe posterior uncertainty in LUCID induced by the conditional density estimator. Writing
+bQw(γ) for the empirical γ-quantile of { \
+LUCID
+(b)(w)}B
+b=1, an approximate (1 −γ) posterior credible
+interval is
+h
+bQw(γ/2), bQw(1 −γ/2)
+i
+.
+(D.4)
+These empirical quantiles approximate posterior uncertainty in LUCID when the Monte Carlo error
+within each posterior draw is negligible; otherwise, they also reflect finite-M sampling variability.
+Sampling feature groups.
+Let Z = (Z1, . . . , Zd) denote a feature group with a fixed ordering,
+and let X denote the remaining covariates. We construct a joint conditional sampler through the
+factorization
+p(z | x) =
+d
+Y
+r=1
+p(zr | x, z1, . . . , zr−1) .
+(D.5)
+We fit each factor using the remaining covariates and the preceding group members as predictors.
+For continuous group members, we fit these factors with DR-BART.
+To generate one replacement vector, first sample Z′
+1 given x, then sample Z′
+2 given (x, Z′
+1), and
+continue through the group. Each step conditions on the values already sampled, allowing the
+sampler to represent dependence within the group. Substitute the resulting joint draw Z′ into
+Equation (7), and average the resulting losses as in Equation (8).
+32
+
+
+To quantify posterior uncertainty in group LUCID, we additionally draw the factor models from
+their joint posterior. With independent priors for the factor models, a posterior draw of the joint
+sampler is formed by selecting a posterior draw from each factor independently. We then hold these
+selected functions fixed across the M joint replacements used to compute one group LUCID draw.
+Repeating this procedure yields posterior point estimates and credible intervals for LUCID(w) for
+the feature group, in the same way as for individual features.
+Feature bounds.
+The experimental implementation optionally restricts continuous features to
+bounds [Lj, Hj]. These bounds may be specified by the user; when they are not provided, we
+set them to the observed dataset range padded by 10% on each side. Candidates outside this
+interval are rejected while holding the posterior index fixed and redrawing only Uim and εim. Thus,
+each posterior-specific replacement follows the corresponding conditional distribution truncated to
+[Lj, Hj].
+After at most 10,000 rejection rounds, any remaining replacements are generated using a
+bounded-mixture fallback based on latent-variable tree cutpoints, which samples from the fitted
+conditional distribution further restricted to Xj ∈[Lj, Hj].
+D.2
+Additional Implementation Details for Direct Conditional Sampling and
+Batched LUCID Computation
+This section provides implementation-level details for our LUCID computation, including direct
+conditional sampling, batching, and the corresponding time and space complexity analysis.
+Notation and computational scope.
+Since the analysis is carried out feature by feature
+and we aim to make the full update procedure explicit, we introduce a separate notation system
+with additional subscripts to indicate precisely which observation, feature, posterior draw, and
+replacement each quantity corresponds to.
+Consider a fixed feature j and N evaluation observations {xi}N
+i=1, with xi ∈Rp. Here, xi denotes
+the full observation previously written as wi. The predictive model g is held fixed throughout the
+calculation. This notation system will continue to be used in Section E and Section F.6.
+Let {(f(b)
+j , σ(b)
+j )}B
+b=1 denote the retained conditional-density posterior functions. We use M
+replacements per observation, an evaluation batch size Abatch, and a replacement-prediction batch
+size Cbatch.
+The following complexity statements concern evaluation after fitting. They exclude the input
+dataset and the storage of the fitted predictive model and posterior tree ensembles. In particular,
+direct sampling does not eliminate the storage required for the B retained posterior
+functions themselves. Let τf denote the cost of evaluating both f(b)
+j
+and σ(b)
+j
+at one conditioning–
+latent pair.
+Batched implementation.
+In our implementation, feature-specific calculations are submitted as
+independent parallel jobs. Within each job, conditional replacements are generated in evaluation
+batches of size Abatch. The implementation then processes each observation separately, evaluating
+its perturbed inputs in replacement batches of size Cbatch and accumulating their losses. Thus,
+sampling is batched across observations, whereas predictive-model evaluation is batched across
+replacements of a single observation.
+An independent job executes Algorithm 3 for each feature. These jobs can run concurrently
+subject to available resources; each job writes its feature-specific result separately.
+33
+
+
+Algorithm 3 Batched prediction-reference LUCID estimation per feature
+Require: Fixed model g; evaluation observations {xi}N
+i=1 ⊂Rp; feature j; fitted direct conditional
+sampler for feature j; number of replacements M; evaluation batch size Abatch; replacement-
+prediction batch size Cbatch
+1: Evaluate the fixed model on all original observations: g(xi), i = 1, . . . , N
+2: for each consecutive observation batch I ⊆{1, . . . , N} of size at most Abatch do
+3:
+Use direct posterior-predictive (in Algorithm 2) sampling to generate R ∈R|I|×M, where
+Rim replaces feature j conditional on xi,−j
+4:
+for each observation i ∈I do
+5:
+Set accumulated loss Ti ←0
+6:
+for each consecutive replacement batch C ⊆{1, . . . , M} of size at most Cbatch do
+7:
+Form x′
+im by replacing coordinate j of xi with Rim, for m ∈C
+8:
+Evaluate {g(x′
+im)}m∈C in one model call
+9:
+Accumulate Ti ←Ti + P
+m∈C ℓ(g(x′
+im), g(xi))
+10:
+end for
+11:
+Compute
+\
+LUCID(xi) ←Ti/M
+12:
+end for
+13: end for
+14: Save and return
+\
+LUCID for feature j
+Direct sampling and posterior conditioning.
+For a continuous feature, the unbounded
+conditional sampler uses
+Uim ∼Unif(0, 1),
+εim ∼N(0, 1),
+X′
+i,j,m = f(bim)
+j
+(xi,−j, Uim) + σ(bim)
+j
+(xi,−j, Uim)εim.
+(D.6)
+For a posterior-predictive point estimate, the implementation draws bim ∼Unif{1, . . . , B} indepen-
+dently for every observation–replacement pair. For a posterior-specific LUCID estimate, it instead
+fixes bim = b for all observations and all M replacements.
+The conditional standard deviation follows the fitted variance mode:
+σ(b)
+j (x−j, u) =
+
+
+
+
+
+
+
+
+
+
+
+h
+ϕ∗
+j,bτ (b)
+j (x−j, u)
+i−1/2 ,
+ux,
+h
+ϕ∗
+j,bτ (b)
+j (x−j)
+i−1/2 ,
+x,
+σj,b,
+const.
+(D.7)
+Here, τ (b)
+j
+is the fitted precision-tree function, and ϕ∗
+j,b > 0 is the global precision scale retained
+in posterior draw b for the conditional model of feature j. Their product gives the conditional
+precision. For the constant-variance model, σj,b is the retained posterior standard deviation. This is
+the parameterization used by the default DR-BART implementation; we make the conversion from
+the retained precision-tree representation to the corresponding conditional variance explicit only
+because the latter is not directly exposed by the default API.
+Complexity of direct sampling.
+The following bounds concern unbounded fixed-posterior sam-
+pling and exclude fitted-model storage, model loading, and subsequent predictive-model evaluation.
+34
+
+
+Proposition 3 (Complexity of direct sampling per feature). For one feature and one fixed posterior
+draw, generating M replacements for each of N evaluation observations takes
+Tsample = O(NM(p + τf))
+time and
+Ssample = O(AbatchMp)
+peak sampling storage.
+Proof. For a batch of a ≤Abatch observations (the final batch may contain fewer than Abatch
+observations), the implementation materializes an aM × (p −1) conditioning array and evaluates
+the conditional mean and standard deviation once per replacement. Thus, processing all NM
+replacements takes O(NM(p+τf)) time, while the current batch requires O(AbatchMp) storage.
+Materializing each batch enables vectorized tree evaluation and reduces per-call overhead. Using
+Abatch ≪N reduces peak sampling storage from O(NMp) to O(AbatchMp). Subsequent predictive-
+model evaluation uses replacement batches of size Cbatch, requiring an additional O(Cbatchp)
+perturbed-input workspace; it does not reduce the replacements already generated by the sampler.
+Feature-specific calculations can be distributed across independent parallel jobs, subject to available
+computational resources. The storage bound above is per job; concurrent jobs increase aggregate
+memory usage.
+Note: Direct sampling does not require storing a conditional-density evaluation matrix. By
+generating one replacement per observation at a time and immediately accumulating its loss
+contribution, the sampling workspace can, in principle, be reduced to O(Abatchp) while still using M
+replacements per observation. The current implementation instead materializes all M replacements
+within each evaluation batch, using O(AbatchMp) sampling workspace to enable vectorized tree
+evaluation and reduce per-call overhead. This creates a trade-off between memory usage and
+computational efficiency when processing very large datasets.
+D.3
+Experimental Setup
+Real-world datasets.
+Our primary real-data case study uses the 2011 hourly subset of the UCI
+Bike Sharing dataset (Fanaee-T and Gama, 2014), containing 8,645 observations and distributed as
+Bikeshare in the ISLR2 R package.1 The UCI dataset is released under the Creative Commons
+Attribution 4.0 International (CC BY 4.0) license.2
+To further evaluate scalability and robustness on higher-dimensional tabular data, we additionally
+use four datasets from the OpenXAI (Agarwal et al., 2022) benchmark: Framingham Heart Study
+(Heart), German Credit, HELOC, and Give Me Some Credit (GMSC). We obtain the benchmark
+versions of these datasets from the OpenXAI Harvard Dataverse archive, where the deposited dataset
+is listed under the CC0 1.0 Universal Public Domain Dedication.3
+Experiment Platform.
+Experiments were submitted as Slurm jobs on a shared high-performance
+computing cluster. The nodes used included Intel Xeon Gold 6226 and AMD EPYC 9554 processors,
+with node memory ranging from 768 GB to approximately 1 TB. Standard feature-specific worker
+tasks requested one CPU core and 32 GB RAM, with no GPU resources requested. Independent
+feature and fold tasks were scheduled concurrently. The software environment used Python 3.14.4
+and R 4.5.2.
+1https://search.r-project.org/CRAN/refmans/ISLR2/html/Bikeshare.html
+2https://archive.ics.uci.edu/dataset/275/bike+sharing+dataset
+3https://doi.org/10.7910/DVN/HIBCFL
+35
+
+
+Software Packages.
+We used the following upstream packages together with the feature-specific
+sampling and importance calculations implemented in our repository.
+DR-BART: Continuous conditional models were fitted using the R package drbart (devel-
+opment version 0.0.0.9000), available at https://github.com/vittorioorlandi/drbart. Direct
+latent-variable sampling, batching, and posterior LUCID calculations were implemented in our
+repository. Binary and categorical conditional models used pymc-bart 0.13.1 and pymc 6.3.2, avail-
+able at https://github.com/pymc-devs/pymc-bart and https://github.com/pymc-devs/pymc,
+respectively.
+ARF: We used the R package arf 0.2.5, available at https://github.com/bips-hb/arf, for
+adversarial random-forest fitting, density estimation, and conditional generation. Its random-forest
+backend was ranger 0.18.0.
+cs-PFI: Our conditional-subgroup sampler used trtf 0.4-3, mlt 1.8-2, and partykit 1.3-
+0. These packages are available at https://CRAN.R-project.org/package=trtf, https://CRAN.
+R-project.org/package=mlt, and https://CRAN.R-project.org/package=partykit. The conditional-
+subgroup method’s original code is available at https://github.com/christophM/paper_conditional_
+subgroups. Our repository implements the sampler and its integration with the common LUCID
+evaluation routine.
+LIME: We used lime 0.2.0.1 and its LimeTabularExplainer, available at https://github.
+com/marcotcr/lime.
+SHAP: We used shap 0.52.0 through shap.Explainer, available at https://github.com/
+shap/shap.
+Conditional SHAP: We used pyshapr 0.6.0 with the R package shapr 1.1.0, available at
+https://github.com/NorskRegnesentral/shapr. Conditional expectations were estimated using
+its arf approach. In some experimental figures and tables, conditional SHAP is labeled “SHAPr”.
+Other baselines and predictive models: CMR, GCMR, CLIQUE, ICI, local LOCO, and the
+analytical LUCID/LOCO benchmarks were implemented in our repository. CMR, GCMR, and local
+LOCO used xgboost 3.4.1, available at https://github.com/dmlc/xgboost. The same package
+supplied predictive models for the real-data experiments; synthetic experiments used the known
+DGP prediction functions. The CLIQUE baseline used our quantile-replacement implementation,
+rather than the upstream CLIQUE R package.
+Numerical and data-processing tools: We used NumPy 2.5.3, SciPy 1.18.1, pandas 3.0.6,
+and scikit-learn 1.9.1. Figures were generated using Matplotlib 3.11.2. The Python interface to the
+R SHAPr implementation used rpy2 3.6.8, and resource measurements used psutil 7.2.2.
+Parameters.
+We did not perform hyperparameter tuning.
+Unless specified below, package
+hyperparameters were left at their defaults.
+For continuous-feature DR-BART models, we used 2,000 burn-in iterations and retained 2,000
+posterior draws without thinning (nburn=2,000, nsim=2,000, nthin=1). The conditional mean and
+precision ensembles contained 200 and 100 trees, respectively (m_mean=200, m_var=100). We used
+variance mode ux, allowing the conditional variance to depend on both the conditioning features
+and the latent variable. Group conditional models used the same settings.
+For binary and categorical features, the conditional BART models used 50 trees, 1,000 tuning
+iterations, and 1,000 posterior draws from one chain.
+Point-estimation experiments used M = 1, 000 replacements per observation, with evaluation
+and replacement-prediction batch sizes Abatch = Cbatch = 100. The default experiment seed was
+2026.
+For real-data experiments, we used five-fold cross-fitting. For each held-out fold, we trained an
+36
+
+
+XGBoost predictive model g on the other four folds using default hyperparameters, without tuning,
+and held it fixed when computing LUCID on the held-out observations. This yielded five separately
+fitted predictive models, each shared across the compared methods within its corresponding fold.
+37
+
+
+E
+Additional DGP Results
+In this section, we provide the full experimental results, analytical calculations, and additional
+analyses for the synthetic DGPs considered in the main text. Because this section focuses on
+concrete simulation settings, we slightly simplify the notation used in the main paper. We use Xj to
+denote the feature of interest and X−j to denote the remaining features, with lowercase xj and x−j
+denoting their observed values. We use n (from now on) for the number of observations and p for
+the number of features. For the DGPs in the main paper, we set n = 5000. Unless otherwise stated,
+all LUCID quantities are defined with respect to the fixed prediction function used in each DGP.
+E.1
+Synthetic Data-Generating Processes
+We consider five synthetic DGPs in the main paper designed to isolate different aspects of local
+conditional variable importance. Again, for each DGP, Table 5 reports the data-generating process,
+the analytical LUCID for each relevant feature, and the corresponding global conditional permutation
+feature importance (CPFI).
+Table 5: Synthetic DGPs and analytical LUCID and analytical CPFI under squared loss.
+DGP
+Data-generating process
+Analytical LUCID
+CPFI
+Discontinuity
+X1, X2, X3
+iid
+∼N(0, 1),
+g(x) = x11x3>0 + x21x3≤0.
+I1 = (x2
+1 + 1)1x3>0;
+I2 = (x2
+2 + 1)1x3≤0;
+I3 = 1
+2(x1 −x2)2.
+CPFI1 = 1;
+CPFI2 = 1;
+CPFI3 = 1.
+Correlated
+(X1, X2)⊤∼N2(0, Σρ),
+Σρ,11 = Σρ,22 = 1, Σρ,12 = ρ,
+ρ = 0.9; g(x) = x1.
+I1 = 1 −ρ2 + (x1 −ρx2)2;
+I2 = 0.
+CPFI1 =
+2(1 −ρ2);
+CPFI2 = 0.
+HeteroskedasticX2 ∼N(0, 1),
+X1 | X2 = x2 ∼N(0, x2
+2);
+g(x) = x1.
+I1 = x2
+1 + x2
+2; I2 = 0.
+CPFI1 = 2;
+CPFI2 = 0.
+Interacted
+discontinuity
+X2, X3
+iid
+∼N(0, 1),
+µ = 4(1X2>0 ⊕1X3>0) −2;
+X1 | X2, X3 ∼N(µ, 1); g(x) = x1.
+I1 = 1 + (x1 −µ)2;
+I2 = I3 = 0.
+CPFI1 = 2;
+CPFI2 =
+CPFI3 = 0.
+Extreme tail
+X2 ∼N(0, 1),
+X1 | X2 = x2 ∼N(0, v(x2));
+v(x2) = 1 + 1x2>0,
+H(x2) = 1|x2|>Φ−1(.99);
+g(x) = x1 + 20H(x2).
+I1 = x2
+1 + v(x2);
+I2 = 8 + 384H(x2).
+CPFI1 = 3;
+CPFI2 = 15.68.
+E.2
+Analytical LUCID Calculations
+We derive the expressions in Table 5. Under squared loss and using the prediction itself as the
+reference, the LUCID of feature j at observation x reduces to
+Ij(x) = E
+n
+g(X′
+j, x−j) −g(x)
+o2 | X−j = x−j
+
+,
+(E.1)
+38
+
+
+where X′
+j ∼P(· | X−j = x−j). The corresponding global conditional permutation feature importance
+is
+CPFIj = E [Ij(X)] .
+(E.2)
+DGP 1: Discontinuity.
+Since the features are mutually independent, the conditional replacement
+distributions equal their marginals. For X1, replacing x1 affects the prediction only when x3 > 0,
+giving
+I1(x) = 1x3>0E[(X′
+1 −x1)2]
+= 1x3>0
+n
+Var(X′
+1) + (E[X′
+1] −x1)2o
+= (1 + x2
+1)1x3>0.
+(E.3)
+Similarly,
+I2(x) = (1 + x2
+2)1x3≤0.
+(E.4)
+For X3, a replacement changes the prediction only when X′
+3 falls on the opposite side of zero from
+the observed x3. Since Pr(X′
+3 > 0) = Pr(X′
+3 ≤0) = 1/2,
+I3(x) = 1
+2(x1 −x2)2.
+(E.5)
+Averaging over the data distribution gives
+CPFI1 = E[(1 + X2
+1)1X3>0] = 2 × 1
+2 = 1,
+(E.6)
+CPFI2 = E[(1 + X2
+2)1X3≤0] = 2 × 1
+2 = 1,
+(E.7)
+CPFI3 = 1
+2E[(X1 −X2)2] = 1
+2(1 + 1) = 1.
+(E.8)
+DGP 2: Correlated.
+For the bivariate Gaussian distribution,
+X1 | X2 = x2 ∼N(ρx2, 1 −ρ2).
+(E.9)
+Because g(x) = x1, only perturbations of X1 affect the prediction. Hence
+I1(x) = E[(X′
+1 −x1)2 | X2 = x2]
+= Var(X′
+1 | X2 = x2) + {E[X′
+1 | X2 = x2] −x1}2
+= 1 −ρ2 + (x1 −ρx2)2.
+(E.10)
+Since g does not depend on x2 directly,
+I2(x) = 0.
+(E.11)
+Moreover, X1 −ρX2 has variance 1 −ρ2, so
+CPFI1 = 1 −ρ2 + E[(X1 −ρX2)2]
+= 2(1 −ρ2),
+(E.12)
+while CPFI2 = 0.
+39
+
+
+DGP 3: Heteroskedastic.
+Here
+X1 | X2 = x2 ∼N(0, x2
+2),
+(E.13)
+so the conditional variance of X1 depends on the local value of X2. Since g(x) = x1,
+I1(x) = E[(X′
+1 −x1)2 | X2 = x2]
+= Var(X′
+1 | X2 = x2) + {E[X′
+1 | X2 = x2] −x1}2
+= x2
+2 + x2
+1.
+(E.14)
+Again, g does not depend directly on X2, so I2(x) = 0. Since
+E[X2
+1] = E[Var(X1 | X2)] = E[X2
+2] = 1,
+(E.15)
+we obtain
+CPFI1 = E[X2
+1 + X2
+2] = 2,
+CPFI2 = 0.
+(E.16)
+DGP 4: Interacted discontinuity.
+Define
+µ(X2, X3) = 4 {1X2>0 ⊕1X3>0} −2.
+(E.17)
+Conditional on (X2, X3),
+X1 | X2, X3 ∼N(µ, 1).
+(E.18)
+Since g(x) = x1, the LUCID of X1 is
+I1(x) = E[(X′
+1 −x1)2 | X2 = x2, X3 = x3]
+= 1 + (x1 −µ)2.
+(E.19)
+Although X2 and X3 determine the conditional distribution of X1, neither enters the prediction
+function once x1 is held fixed. Therefore,
+I2(x) = I3(x) = 0.
+(E.20)
+Finally, because X1 −µ | X2, X3 ∼N(0, 1),
+CPFI1 = 1 + E[(X1 −µ)2] = 2,
+CPFI2 = CPFI3 = 0.
+(E.21)
+DGP 5: Extreme tail.
+Let
+v(x2) = 1 + 1x2>0,
+H(x2) = 1|x2|>c,
+c = Φ−1(0.99).
+(E.22)
+For X1, conditional on X2 = x2 we have X′
+1 ∼N(0, v(x2)). Since changing X1 leaves the tail
+indicator fixed,
+I1(x) = E[(X′
+1 −x1)2 | X2 = x2]
+= v(x2) + x2
+1.
+(E.23)
+Averaging gives
+CPFI1 = E[v(X2)] + E[X2
+1]
+40
+
+
+= 2E[v(X2)]
+= 2
+
+1 + 1
+2
+
+= 3.
+(E.24)
+For X2, the value of X1 remains fixed under perturbation, and therefore
+g(x1, X′
+2) −g(x1, x2) = 20{H(X′
+2) −H(x2)}.
+(E.25)
+Although X1 and X2 are dependent through v(X2), the conditional probability that a replacement
+lies in the extreme tail remains 0.02. To see this, note that
+p(x2 | x1) ∝ϕ(x2)ϕ{x1; 0, v(x2)},
+(E.26)
+where ϕ is a Gaussian density4, and v(x2) is constant within each of the two regions x2 > 0 and
+x2 ≤0. Thus, conditional on either sign of X2, its distribution remains a standard Gaussian
+truncated to that half-line. Consequently,
+Pr(X′
+2 > c | X1, X′
+2 > 0) = Pr(X2 > c)
+Pr(X2 > 0) = 0.01
+0.5 = 0.02,
+(E.27)
+Pr(X′
+2 < −c | X1, X′
+2 ≤0) = Pr(X2 < −c)
+Pr(X2 ≤0) = 0.01
+0.5 = 0.02,
+(E.28)
+and hence
+Pr{H(X′
+2) = 1 | X1} = 0.02.
+(E.29)
+Therefore, when H(x2) = 0, a perturbation changes the indicator with probability 0.02, while when
+H(x2) = 1, it changes the indicator with probability 0.98. It follows that
+I2(x) = 400 [0.02{1 −H(x2)} + 0.98H(x2)]
+= 8 + 384H(x2).
+(E.30)
+Finally, since Pr{H(X2) = 1} = 0.02,
+CPFI2 = E[8 + 384H(X2)]
+= 8 + 384(0.02)
+= 15.68.
+(E.31)
+E.3
+Stress Test Across Random Seeds
+To assess the robustness of our synthetic experiments to random variation, we repeat all five DGP
+experiments over 50 independent random seeds. For each method and DGP, we compute the MSE
+between the estimated and analytical LUCID for X1. Table 6 reports the mean MSE together with
+its standard deviation across the 50 repetitions, thereby showing both average estimation accuracy
+and its variation across random realizations. We additionally rank the seven LUCID estimators
+within each paired DGP–seed experiment and report the resulting mean rank across all 5× 50 = 250
+settings in Table 7.
+The repeated experiments confirm that the qualitative conclusions of the main experiments are
+stable across random seeds. DR-BART achieves the lowest mean MSE in DGPs 2–4 and remains
+4Here, ϕ(·) denotes the standard Gaussian density, and ϕ(·; 0, v) denotes the Gaussian density with mean zero and
+variance v.
+41
+
+
+Table 6: MSE of estimated LUCID for X1 across 50 independent random seeds. Each entry reports
+mean ± standard deviation across seeds. Lower values indicate more accurate and more stable
+estimation.
+Method
+DGP 1
+DGP 2
+DGP 3
+DGP 4
+DGP 5
+DR-BART
+0.0225 ± 0.0036
+0.0029 ± 0.0006 0.3668 ± 0.1095 0.5092 ± 0.1293
+0.0865 ± 0.0122
+ARF
+0.1187 ± 0.0147
+0.0041 ± 0.0006
+0.6582 ± 0.2888
+1.2859 ± 0.1738
+0.2063 ± 0.0194
+cs-PFI
+0.0064 ± 0.0019
+0.0116 ± 0.0016
+1.0804 ± 0.2386
+78.0902 ± 5.7078 0.0510 ± 0.0125
+CLIQUE
+0.0008 ± 0.0007
+4.5720 ± 0.2497
+1.9922 ± 0.1122
+80.3271 ± 1.7660
+0.2536 ± 0.0027
+CMR
+0.5556 ± 0.0586
+0.0106 ± 0.0010
+2.5597 ± 0.2128
+1.5994 ± 0.2780
+0.8806 ± 0.0583
+GCMR
+0.5447 ± 0.0603
+0.0108 ± 0.0010
+2.4399 ± 0.1563
+3.9210 ± 0.3313
+0.8883 ± 0.0590
+Permutation
+0.0063 ± 0.0017
+4.5381 ± 0.2462
+2.0145 ± 0.1150
+80.0110 ± 1.7766
+0.2787 ± 0.0073
+Table 7: Mean MSE rank for X1 across the five DGPs and 50 independent random seeds, giving
+250 paired DGP–seed comparisons. Lower is better.
+Method
+Mean rank
+DR-BART
+1.80
+ARF
+2.84
+cs-PFI
+3.29
+CLIQUE
+4.60
+Permutation
+4.80
+CMR
+5.16
+GCMR
+5.51
+highly competitive in DGP 5. In DGP 1, where the relevant features are independent and no
+conditional density estimation is required, simpler permutation-based approaches attain smaller
+errors. DGP 5 is similarly favorable to cs-PFI, although DR-BART remains close and exhibits
+low variability across repetitions. Most importantly, DR-BART does not rely on a single favorable
+dependence structure: its MSE remains consistently low across linear dependence, heteroskedasticity,
+discontinuous interactions, and extreme-tail behavior. The relatively small standard deviations
+further indicate that this performance is not driven by a small number of favorable random
+realizations.
+DR-BART also obtains the best overall mean rank of 1.80 across the 250 paired settings, followed
+by ARF (2.84) and cs-PFI (3.29). Together, the MSE distributions and ranking results show that
+the relative performance observed in the main experiments persists across repeated data realizations
+rather than being driven by a particular random seed.
+E.4
+DGP 1: Discontinuity.
+Additional results are provided in Figures 9 and 14.
+E.5
+DGP 2: Correlated Features
+We show the results for ρ = 0.9 in Figure 15. The first row contains the conditional permutation-
+based methods, which accurately capture the correlation-induced restriction on the replacement
+42
+
+
+distribution in this relatively simple setting. In contrast, marginal permutation does not account for
+this dependence structure and therefore fail to recover the corresponding local importance pattern.
+Additional results are provided in Figures 10.
+E.6
+DGP 3: Heteroskedastic Conditional Dependence
+Recall that X2 ∼N(0, 1), X1 | X2 = x2 ∼N(0, x2
+2), and g(x) = x1. Under squared loss, the
+analytical importance of X1 is
+I1(x) = E[(X′
+1 −x1)2 | X2 = x2] = x2
+1 + x2
+2.
+Now consider any replacement scheme that uses the same distribution Q for every observation, with
+EQ[(X′
+1)2] < ∞. Its population local score is
+IQ
+1 (x) := EQ[(X′
+1 −x1)2] = x2
+1 −2x1EQ[X′
+1] + EQ[(X′
+1)2].
+Consequently,
+IQ
+1 (x) −I1(x) = EQ[(X′
+1)2] −x2
+2 −2x1EQ[X′
+1].
+Since E[X1 | X2] = 0, the cross term vanishes:
+E
+h
+X1
+n
+EQ[(X′
+1)2] −X2
+2
+oi
+= E
+h
+E[X1 | X2]
+n
+EQ[(X′
+1)2] −X2
+2
+oi
+= 0.
+Using E[X2
+1] = E[X2
+2] = 1 and E[X4
+2] = 3, we obtain
+E[(IQ
+1 (X) −I1(X))2] = E
+n
+EQ[(X′
+1)2] −X2
+2
+o2
++ 4{EQ[X′
+1]}2E[X2
+1]
+= {EQ[(X′
+1)2]}2 −2EQ[(X′
+1)2] + 3 + 4{EQ[X′
+1]}2
+=
+n
+EQ[(X′
+1)2] −1
+o2 + 2 + 4{EQ[X′
+1]}2
+≥2.
+Thus, every common replacement distribution incurs a population local MSE of at least 2 in this
+DGP, even when its induced score is computed exactly.
+Nevertheless, the global averages satisfy
+E[I1(X)] = 2,
+E[IQ
+1 (X)] = 1 + EQ[(X′
+1)2].
+In particular, the marginal distribution of X1, which is also the pooled residual distribution under
+the correct conditional mean, satisfies EQ[X′
+1] = 0 and EQ[(X′
+1)2] = 1. It therefore yields
+IQ
+1 (x) = x2
+1 + 1,
+E[IQ
+1 (X)] = E[I1(X)] = 2,
+E[(IQ
+1 (X) −I1(X))2] = 2.
+Hence, exact recovery of global-average importance does not imply accurate local importance. The
+local error arises from replacing the context-dependent conditional variance x2
+2 with a common
+variance and persists even with the correct conditional mean and arbitrarily many Monte Carlo
+replacements.
+Additional results are provided in Figures 11 and 16.
+43
+
+
+−3
+0
+3
+x2
+Analytic: mismatch 68.6%
+−4
+0
+4
+x1
+−3
+0
+3
+x2
+Fitted: mismatch 69.6%
+DGP5
+Match
+Mismatch
+Figure 8: Extreme tail. Match and mismatch regions for the analytical and fitted LUCID structures
+in DGP 5. Match and mismatch regions between LUCID and local LOCO feature rankings in DGP
+5, using analytical and estimated importance measures.
+E.7
+DGP 4: Interacted Discontinuity.
+What happens to local VI when the covariate dependence involves interactions? This
+case examines dependence driven by an XOR-type interaction between X2 and X3 in the conditional
+distribution of X1. Such interactions can be difficult for recursive tree methods based on univariate
+split selection, because their joint signal is not apparent from individual univariate splits (Hornung
+and Boulesteix, 2022). We use this setting to assess how this difficulty affects local importance
+estimation. As shown in the results for DGP 4 in Table 2, DR-BART (which explores ensembles of tree
+structures through Markov Chain Monte Carlo simulations (Orlandi et al., 2021)) yields estimates
+closest to the analytical LUCID. The cs-PFI estimates closely resemble marginal permutation,
+consistent with its transformation-tree partition failing to recover the pure interaction.
+ARF
+substantially improves on marginal permutation, but its MSE is still approximately 3× higher than
+our DR-BART implementation. These results highlight the importance of recovering interaction
+structure in the conditional distribution when estimating LUCID. Additional results are provided in
+Figures 12 and 17.
+E.8
+DGP 5: Extreme Tail.
+How does LUCID differ from local LOCO? LOCO provides a natural comparison for LUCID
+because both assess a feature’s contribution given the information available in the remaining features.
+Although global LOCO and global conditional permutation importance differ only by a factor of two
+under squared loss and an oracle regression predictor (Reyero-Lobo et al., 2025), this proportionality
+44
+
+
+does not generally hold locally, as established in Section 3.3. Compared to local LOCO, LUCID
+additionally accounts for prediction variability under conditional feature replacement, reflecting how
+important it is to know the exact feature value; omitting this component can substantially alter
+local feature rankings. We construct a heteroskedastic DGP with an extreme-tail component in the
+prediction function to examine the consequences of this distinction. Analytical local LOCO and
+analytical LUCID yield different feature rankings with an analytical probability of 67.4% (Analytical
+local LOCO and LUCID assign different feature rankings to 68.6% of the evaluated observations.).
+Consistent with this theoretical discrepancy, estimated local LOCO disagrees with estimated LUCID
+on 69.6% of the evaluated instances, as shown in Figure 8. The disagreement between the analytical
+rankings demonstrates that this discrepancy is intrinsic to the two importance measures and cannot
+be eliminated by improving LOCO estimation alone. This example shows that LUCID provides
+fuller local feature information about dispersion, leading to substantially different feature rankings
+from local LOCO despite their proportionality at the global level. Additional results are provided
+in Figures 13 and 18.
+E.9
+Complete Conditional Replacement Distributions
+We further show complete results of conditional replacement distributions produced by each sampling
+method across representative covariates. For each DGP, we evaluate the conditional distribution of
+X1 at five empirical quantiles of X2 and compare the estimated replacement distributions with the
+analytical conditional distribution. Across the five settings, DR-BART is the most stable method
+overall: it consistently tracks changes in the location, scale, and shape of the true conditional
+distribution. The remaining methods can perform well when their structural assumptions align with
+the DGP, but their performance is less uniform across the different conditional structures.
+DGP 1:
+Discontinuity.
+Figure 9 shows the conditional replacement distributions for the
+discontinuity DGP. Because X1 is independent of the remaining features, its true conditional
+distribution does not vary with X2. DR-BART closely preserves this invariant distribution across
+all five conditioning points. Most methods also perform reasonably well in this simple setting, as no
+conditional dependence needs to be learned, although ARF exhibits noticeable shifts in location or
+scale at the more extreme conditioning points.
+DGP 2: Correlated features.
+Figure 10 illustrates the effect of strong linear dependence. As X2
+moves from its lower to upper quantiles, the true conditional distribution of X1 shifts correspondingly
+while remaining substantially narrower than its marginal distribution. DR-BART closely follows
+both the changing conditional location and the restricted conditional spread across the full range
+of X2. In contrast, marginal permutation remains centered around the marginal distribution and
+therefore entirely misses the correlation-induced restriction, while several other conditional methods
+capture the trend but exhibit larger errors in location or scale at the extremes.
+DGP 3: Heteroskedastic conditional dependence.
+Figure 11 isolates changes in conditional
+variance while keeping the conditional mean fixed at zero. The analytical distribution becomes
+increasingly concentrated as X2 approaches zero and substantially more dispersed in the tails.
+DR-BART reproduces this local scale variation particularly closely, including the near-degenerate
+distribution around the median of X2 and the much wider distributions at the extreme quantiles.
+Methods that rely on permuting residual distributions cannot preserve this heteroskedastic structure,
+while subgroup-based methods recover some scale variation but less uniformly across conditioning
+points.
+45
+
+
+0%
+x2 = −3.587
+25%
+x2 = −0.695
+50%
+x2 = 0.010
+75%
+x2 = 0.701
+100%
+x2 = 3.668
+Conditioning X2: empirical quantile point
+−4
+−2
+0
+2
+4
+6
+X1
+Discontinuity: X1 CDE at five X2 quantile points; X3 = 1
+Optimal
+DR-BART
+ARF
+cs-PFI
+CMR
+GCMR
+Permutation
+Figure 9: Estimated conditional replacement distributions for X1 in the discontinuity DGP at five
+empirical quantiles of X2, with X3 = 1. The analytical conditional distribution is shown as Optimal.
+0%
+x2 = −3.503
+25%
+x2 = −0.688
+50%
+x2 = −0.008
+75%
+x2 = 0.678
+100%
+x2 = 3.777
+Conditioning X2: empirical quantile point
+−4
+−2
+0
+2
+4
+6
+X1
+Correlated: X1 CDE at five X2 quantile points
+Optimal
+DR-BART
+ARF
+cs-PFI
+CMR
+GCMR
+Permutation
+Figure 10: Estimated conditional replacement distributions for X1 in the correlated-features DGP
+at five empirical quantiles of X2.
+0%
+x2 = −3.747
+25%
+x2 = −0.701
+50%
+x2 = 0.018
+75%
+x2 = 0.676
+100%
+x2 = 3.621
+Conditioning X2: empirical quantile point
+−15
+−10
+−5
+0
+5
+10
+15
+X1
+Heteroskedastic: X1 CDE at five X2 quantile points
+Optimal
+DR-BART
+ARF
+cs-PFI
+CMR
+GCMR
+Permutation
+Figure 11: Estimated conditional replacement distributions for X1 in the heteroskedastic DGP at
+five empirical quantiles of X2.
+46
+
+
+DGP 4:
+Interacted discontinuity.
+Figure 12 presents the most structurally challenging
+conditional mean in our five DGPs. With X3 = 1, the conditional distribution of X1 undergoes
+an abrupt location shift as X2 crosses zero while maintaining approximately constant conditional
+variance. DR-BART accurately captures both sides of this discontinuity and transitions sharply at
+the relevant boundary. ARF, CMR, and GCMR also capture much of the location shift, whereas
+cs-PFI and marginal permutation fail to reproduce the correct regime-specific conditional location
+in this configuration. This example highlights the importance of representing interactions in the
+conditioning variables rather than only marginal or coarse subgroup structure.
+DGP 5: Extreme tail.
+Figure 13 shows the conditional distributions in the extreme-tail setting.
+Although the conditional mean remains zero, the conditional variance changes across the sign of
+X2, producing a moderate but important change in distributional spread. DR-BART again closely
+follows the analytical distribution across all five conditioning points and preserves the increase
+in conditional dispersion for positive X2. Several alternative methods introduce noticeable local
+shifts in the conditional mean or fail to reproduce the change in scale, while marginal permutation
+necessarily uses essentially the same unconditional replacement distribution throughout.
+Taken together, these results show that the advantage of DR-BART is not tied to a single
+type of conditional dependence. It remains stable across independence, smooth location shifts,
+heteroskedasticity, discontinuous interactions, and sign-dependent changes in scale. This flexibility is
+particularly relevant for LUCID, since errors in the local replacement distribution directly propagate
+to errors in observation-level importance.
+E.10
+Complete Pointwise Results
+We provide the complete observation-level local variable importance for all methods and all five
+DGPs in Figures 14–18. Each panel compares the estimated LUCID with its analytical value across
+evaluation observations, with the corresponding mean squared error (MSE) reported above each
+feature. These figures complement the aggregate MSE comparisons in the main text by showing
+where estimation errors arise across the covariate space.
+Note: MSE is reported uniformly across all methods for completeness; however, the
+values for SHAP, conditional SHAP, and LIME should not be interpreted as directly
+comparable estimation errors because these methods target different estimands from
+LUCID.
+E.11
+Additional Posterior Credible Interval Results
+We further evaluate the calibration of the DR-BART posterior LUCID intervals across multiple
+nominal coverage levels for observations where X1 is active in the prediction function. Table 8
+reports the empirical coverage (C) and average interval width (W) for nominal levels of 50%, 80%,
+90%, and 95%. Across the five DGPs, empirical coverage generally increases with the nominal level
+as expected, while interval widths increase accordingly. Coverage is close to or above nominal in
+most settings, except that DGP 3 shows mild undercoverage at the 95% nominal level, where the
+more extreme heteroskedastic observations remain challenging in finite samples. Figures 19–22 show
+the corresponding pointwise posterior credible intervals for X1 across all five DGPs. Observations
+are ordered by the observed value of X1, and we randomly select only 1000 points to avoid a crowded
+plot. Each figure compares the posterior mean and credible interval with the analytical LUCID,
+highlighting observations for which the analytical value is covered or missed.
+47
+
+
+Table 8: Empirical coverage (C) and average width (W) of posterior LUCID credible intervals for
+observations where X1 is active in the prediction function across nominal levels.
+50%
+80%
+90%
+95%
+DGP
+C
+W
+C
+W
+C
+W
+C
+W
+DGP 1 0.686 0.311 0.948 0.596 0.984 0.766 0.994 0.910
+DGP 2 0.519 0.063 0.828 0.121 0.917 0.155 0.958 0.184
+DGP 3 0.640 0.382 0.871 0.734 0.913 0.944 0.929 1.123
+DGP 4 0.606 0.393 0.872 0.753 0.932 0.969 0.956 1.152
+DGP 5 0.676 0.387 0.929 0.742 0.971 0.956 0.985 1.138
+0%
+x2 = −3.747
+25%
+x2 = −0.701
+50%
+x2 = 0.018
+75%
+x2 = 0.676
+100%
+x2 = 3.621
+Conditioning X2: empirical quantile point
+−7.5
+−5.0
+−2.5
+0.0
+2.5
+5.0
+7.5
+X1
+Interacted discontinuity: X1 CDE at five X2 quantile points; X3 = 1
+Optimal
+DR-BART
+ARF
+cs-PFI
+CMR
+GCMR
+Permutation
+Figure 12: Estimated conditional replacement distributions for X1 in the interacted-discontinuity
+DGP at five empirical quantiles of X2, with X3 = 1.
+0%
+x2 = −3.747
+25%
+x2 = −0.701
+50%
+x2 = 0.018
+75%
+x2 = 0.676
+100%
+x2 = 3.621
+Conditioning X2: empirical quantile point
+−6
+−4
+−2
+0
+2
+4
+6
+X1
+Extreme tail: X1 CDE at five X2 quantile points
+Optimal
+DR-BART
+ARF
+cs-PFI
+CMR
+GCMR
+Permutation
+Figure 13: Estimated conditional replacement distributions for X1 in the extreme-tail DGP at five
+empirical quantiles of X2.
+48
+
+
+−2.5 0.0
+2.5
+X1
+0
+4
+8
+LUCID
+DR-BART — X1
+MSE=0.0223
+−2.5 0.0
+2.5
+X1
+0
+5
+10
+LUCID
+ARF — X1
+MSE=0.144
+−2.5 0.0
+2.5
+X1
+0
+4
+8
+LUCID
+cs-PFI — X1
+MSE=0.00782
+−2.5 0.0
+2.5
+X1
+0
+5
+10
+LUCID
+CMR — X1
+MSE=0.59
+−2.5 0.0
+2.5
+X1
+0
+5
+10
+LUCID
+GCMR — X1
+MSE=0.543
+−2.5 0.0
+2.5
+X1
+0
+4
+8
+LUCID
+CLIQUE — X1
+MSE=0.001
+−2.5 0.0
+2.5
+X1
+0
+4
+8
+LUCID
+Permutation — X1
+MSE=0.00821
+−2.5 0.0
+2.5
+X1
+0
+5
+10
+Attribution
+SHAP — X1
+MSE=3.36
+−2.5 0.0
+2.5
+X1
+0
+5
+10
+Attribution
+SHAPr — X1
+MSE=3.38
+−2.5 0.0
+2.5
+X1
+0
+5
+10
+Attribution
+LIME — X1
+MSE=3.54
+−2.5 0.0
+2.5
+X2
+0
+4
+8
+LUCID
+DR-BART — X2
+MSE=0.0198
+−2.5 0.0
+2.5
+X2
+0
+4
+8
+LUCID
+ARF — X2
+MSE=0.137
+−2.5 0.0
+2.5
+X2
+0
+4
+8
+LUCID
+cs-PFI — X2
+MSE=0.00703
+−2.5 0.0
+2.5
+X2
+0
+4
+8
+LUCID
+CMR — X2
+MSE=0.578
+−2.5 0.0
+2.5
+X2
+0
+4
+8
+LUCID
+GCMR — X2
+MSE=0.504
+−2.5 0.0
+2.5
+X2
+0
+4
+8
+LUCID
+CLIQUE — X2
+MSE=0.000918
+−2.5 0.0
+2.5
+X2
+0
+4
+8
+LUCID
+Permutation — X2
+MSE=0.00722
+−2.5 0.0
+2.5
+X2
+0
+5
+Attribution
+SHAP — X2
+MSE=3.35
+−2.5 0.0
+2.5
+X2
+0
+5
+Attribution
+SHAPr — X2
+MSE=3.25
+−2.5 0.0
+2.5
+X2
+0
+4
+8
+Attribution
+LIME — X2
+MSE=3.29
+−3
+0
+3
+X3
+0
+5
+10
+LUCID
+DR-BART — X3
+MSE=0.0505
+−3
+0
+3
+X3
+0
+8
+16
+LUCID
+ARF — X3
+MSE=0.247
+−3
+0
+3
+X3
+0
+5
+10
+LUCID
+cs-PFI — X3
+MSE=0.00757
+−3
+0
+3
+X3
+0
+6
+12
+LUCID
+CMR — X3
+MSE=0.426
+−3
+0
+3
+X3
+0
+8
+16
+LUCID
+GCMR — X3
+MSE=0.453
+−3
+0
+3
+X3
+0
+5
+10
+LUCID
+CLIQUE — X3
+MSE=0.00137
+−3
+0
+3
+X3
+0
+5
+10
+LUCID
+Permutation — X3
+MSE=0.00874
+−3
+0
+3
+X3
+0
+5
+10
+Attribution
+SHAP — X3
+MSE=3.25
+−3
+0
+3
+X3
+0
+6
+12
+Attribution
+SHAPr — X3
+MSE=3.25
+−3
+0
+3
+X3
+0
+5
+10
+Attribution
+LIME — X3
+MSE=3.11
+Discontinuity
+Estimated: X3 > 0
+Estimated: X3 ≤0
+Analytical LUCID
+Figure 14: Complete pointwise LUCID results for the regime-dependent DGP. Estimated
+local variable importance values from all conditional sampling methods are compared with the
+corresponding analytical LUCID across evaluation observations.
+49
+
+
+−3
+0
+3
+X1
+1
+2
+LUCID
+DR-BART — X1
+MSE=0.0035
+−3
+0
+3
+X1
+1
+2
+LUCID
+ARF — X1
+MSE=0.00463
+−3
+0
+3
+X1
+0
+2
+4
+LUCID
+cs-PFI — X1
+MSE=0.0148
+−3
+0
+3
+X1
+1.5
+3.0
+LUCID
+CMR — X1
+MSE=0.0109
+−3
+0
+3
+X1
+0.0
+1.5
+3.0
+LUCID
+GCMR — X1
+MSE=0.0113
+−3
+0
+3
+X1
+0
+8
+16
+LUCID
+CLIQUE — X1
+MSE=4.46
+−3
+0
+3
+X1
+0
+8
+16
+LUCID
+Permutation — X1
+MSE=4.43
+−3
+0
+3
+X1
+−3
+0
+3
+Attribution
+SHAP — X1
+MSE=1.23
+−3
+0
+3
+X1
+0.0
+2.5
+Attribution
+SHAPr — X1
+MSE=0.633
+−3
+0
+3
+X1
+−2
+0
+2
+Attribution
+LIME — X1
+MSE=1.95
+−2.50.0 2.5
+X2
+−0.04
+0.00
+0.04
+LUCID
+DR-BART — X2
+MSE=0
+−2.50.0 2.5
+X2
+−0.04
+0.00
+0.04
+LUCID
+ARF — X2
+MSE=0
+−2.50.0 2.5
+X2
+−0.04
+0.00
+0.04
+LUCID
+cs-PFI — X2
+MSE=0
+−2.50.0 2.5
+X2
+−0.04
+0.00
+0.04
+LUCID
+CMR — X2
+MSE=0
+−2.50.0 2.5
+X2
+−0.04
+0.00
+0.04
+LUCID
+GCMR — X2
+MSE=0
+−2.50.0 2.5
+X2
+−0.04
+0.00
+0.04
+LUCID
+CLIQUE — X2
+MSE=0
+−2.50.0 2.5
+X2
+−0.04
+0.00
+0.04
+LUCID
+Permutation — X2
+MSE=0
+−2.50.0 2.5
+X2
+−0.04
+0.00
+0.04
+Attribution
+SHAP — X2
+MSE=0
+−2.50.0 2.5
+X2
+−1.5
+0.0
+1.5
+Attribution
+SHAPr — X2
+MSE=0.2
+−2.50.0 2.5
+X2
+−0.2
+0.0
+0.2
+Attribution
+LIME — X2
+MSE=0.0032
+Correlated
+Estimated LUCID / attribution
+Analytical LUCID
+Figure 15: Complete pointwise LUCID results for the strong conditional dependence DGP.
+Estimated local variable importance values from all conditional sampling methods are compared
+with the corresponding analytical LUCID across evaluation observations.
+50
+
+
+−4
+0
+4
+X1
+0
+15
+30
+LUCID
+DR-BART — X1
+MSE=0.449
+−4
+0
+4
+X1
+0
+15
+30
+LUCID
+ARF — X1
+MSE=0.454
+−4
+0
+4
+X1
+0
+15
+30
+LUCID
+cs-PFI — X1
+MSE=1.17
+−4
+0
+4
+X1
+0
+15
+30
+LUCID
+CMR — X1
+MSE=2.68
+−4
+0
+4
+X1
+0
+15
+30
+LUCID
+GCMR — X1
+MSE=2.49
+−4
+0
+4
+X1
+0
+15
+30
+LUCID
+CLIQUE — X1
+MSE=2.06
+−4
+0
+4
+X1
+0
+15
+30
+LUCID
+Permutation — X1
+MSE=2.07
+−4
+0
+4
+X1
+0
+15
+30
+Attribution
+SHAP — X1
+MSE=18.7
+−4
+0
+4
+X1
+0
+15
+30
+Attribution
+SHAPr — X1
+MSE=18.9
+−4
+0
+4
+X1
+0
+15
+30
+Attribution
+LIME — X1
+MSE=20.3
+−3
+0
+3
+X2
+−0.04
+0.00
+0.04
+LUCID
+DR-BART — X2
+MSE=0
+−3
+0
+3
+X2
+−0.04
+0.00
+0.04
+LUCID
+ARF — X2
+MSE=0
+−3
+0
+3
+X2
+−0.04
+0.00
+0.04
+LUCID
+cs-PFI — X2
+MSE=0
+−3
+0
+3
+X2
+−0.04
+0.00
+0.04
+LUCID
+CMR — X2
+MSE=0
+−3
+0
+3
+X2
+−0.04
+0.00
+0.04
+LUCID
+GCMR — X2
+MSE=0
+−3
+0
+3
+X2
+−0.04
+0.00
+0.04
+LUCID
+CLIQUE — X2
+MSE=0
+−3
+0
+3
+X2
+−0.04
+0.00
+0.04
+LUCID
+Permutation — X2
+MSE=0
+−3
+0
+3
+X2
+−0.04
+0.00
+0.04
+Attribution
+SHAP — X2
+MSE=2.5e-22
+−3
+0
+3
+X2
+0.0
+0.8
+1.6
+Attribution
+SHAPr — X2
+MSE=0.00632
+−3
+0
+3
+X2
+−0.2
+0.0
+0.2
+Attribution
+LIME — X2
+MSE=0.00376
+Heteroskedastic
+Estimated LUCID / attribution
+Analytical LUCID
+Figure 16: Complete pointwise LUCID results for the heteroskedastic conditional dependence
+DGP. Estimated local variable importance values from all conditional sampling methods are compared
+with the corresponding analytical LUCID across evaluation observations.
+51
+
+
+−4
+0
+4
+X1
+6
+12
+LUCID
+DR-BART — X1
+MSE=0.401
+−4
+0
+4
+X1
+0
+10
+20
+LUCID
+ARF — X1
+MSE=1.3
+−4
+0
+4
+X1
+0
+10
+20
+LUCID
+cs-PFI — X1
+MSE=83.3
+−4
+0
+4
+X1
+0
+15
+30
+LUCID
+CMR — X1
+MSE=1.81
+−4
+0
+4
+X1
+0
+15
+30
+LUCID
+GCMR — X1
+MSE=4.31
+−4
+0
+4
+X1
+0
+10
+20
+LUCID
+CLIQUE — X1
+MSE=83.7
+−4
+0
+4
+X1
+0
+10
+20
+LUCID
+Permutation — X1
+MSE=83.1
+−4
+0
+4
+X1
+0
+6
+Attribution
+SHAP — X1
+MSE=10.6
+−4
+0
+4
+X1
+0
+6
+Attribution
+SHAPr — X1
+MSE=8.73
+−4
+0
+4
+X1
+0
+6
+Attribution
+LIME — X1
+MSE=14.6
+−3
+0
+3
+X2
+−0.04
+0.00
+0.04
+LUCID
+DR-BART — X2
+MSE=0
+−3
+0
+3
+X2
+−0.04
+0.00
+0.04
+LUCID
+ARF — X2
+MSE=0
+−3
+0
+3
+X2
+−0.04
+0.00
+0.04
+LUCID
+cs-PFI — X2
+MSE=0
+−3
+0
+3
+X2
+−0.04
+0.00
+0.04
+LUCID
+CMR — X2
+MSE=0
+−3
+0
+3
+X2
+−0.04
+0.00
+0.04
+LUCID
+GCMR — X2
+MSE=0
+−3
+0
+3
+X2
+−0.04
+0.00
+0.04
+LUCID
+CLIQUE — X2
+MSE=0
+−3
+0
+3
+X2
+−0.04
+0.00
+0.04
+LUCID
+Permutation — X2
+MSE=0
+−3
+0
+3
+X2
+−3
+0
+3
+Attribution
+1e−8
+SHAP — X2
+MSE=6.42e-19
+−3
+0
+3
+X2
+−0.6
+0.0
+0.6
+Attribution
+SHAPr — X2
+MSE=0.111
+−3
+0
+3
+X2
+−0.4
+0.0
+0.4
+Attribution
+LIME — X2
+MSE=0.0162
+−2.50.0 2.5
+X3
+−0.04
+0.00
+0.04
+LUCID
+DR-BART — X3
+MSE=0
+−2.50.0 2.5
+X3
+−0.04
+0.00
+0.04
+LUCID
+ARF — X3
+MSE=0
+−2.50.0 2.5
+X3
+−0.04
+0.00
+0.04
+LUCID
+cs-PFI — X3
+MSE=0
+−2.50.0 2.5
+X3
+−0.04
+0.00
+0.04
+LUCID
+CMR — X3
+MSE=0
+−2.50.0 2.5
+X3
+−0.04
+0.00
+0.04
+LUCID
+GCMR — X3
+MSE=0
+−2.50.0 2.5
+X3
+−0.04
+0.00
+0.04
+LUCID
+CLIQUE — X3
+MSE=0
+−2.50.0 2.5
+X3
+−0.04
+0.00
+0.04
+LUCID
+Permutation — X3
+MSE=0
+−2.50.0 2.5
+X3
+−6
+0
+6
+Attribution
+1e−8
+SHAP — X3
+MSE=2.57e-18
+−2.50.0 2.5
+X3
+−0.5
+0.0
+0.5
+Attribution
+SHAPr — X3
+MSE=0.114
+−2.50.0 2.5
+X3
+−0.4
+0.0
+0.4
+Attribution
+LIME — X3
+MSE=0.0165
+Interacted Discontinuity
+Estimated LUCID / attribution
+Analytical LUCID
+Figure 17: Complete pointwise LUCID results for the interaction conditional dependence DGP.
+Estimated local variable importance values from all conditional sampling methods are compared
+with the corresponding analytical LUCID across evaluation observations.
+52
+
+
+−4
+0
+4
+X1
+0
+10
+20
+LUCID
+DR-BART — X1
+MSE=0.0663
+−4
+0
+4
+X1
+0
+10
+20
+LUCID
+ARF — X1
+MSE=0.185
+−4
+0
+4
+X1
+0
+10
+20
+LUCID
+cs-PFI — X1
+MSE=0.0361
+−4
+0
+4
+X1
+0
+10
+20
+LUCID
+CMR — X1
+MSE=0.849
+−4
+0
+4
+X1
+0
+10
+20
+LUCID
+GCMR — X1
+MSE=0.851
+−4
+0
+4
+X1
+0
+10
+20
+LUCID
+CLIQUE — X1
+MSE=0.251
+−4
+0
+4
+X1
+0
+10
+20
+LUCID
+Permutation — X1
+MSE=0.269
+−4
+0
+4
+X1
+0
+15
+Attribution
+SHAP — X1
+MSE=15.8
+−4
+0
+4
+X1
+0
+15
+Attribution
+SHAPr — X1
+MSE=16.3
+−4
+0
+4
+X1
+0
+10
+20
+Attribution
+LIME — X1
+MSE=17.1
+−3
+0
+3
+X2
+0
+150
+300
+LUCID
+DR-BART — X2
+MSE=6.51
+−3
+0
+3
+X2
+0
+150
+300
+LUCID
+ARF — X2
+MSE=25
+−3
+0
+3
+X2
+0
+150
+300
+LUCID
+cs-PFI — X2
+MSE=5.72
+−3
+0
+3
+X2
+0
+150
+300
+LUCID
+CMR — X2
+MSE=35
+−3
+0
+3
+X2
+0
+150
+300
+LUCID
+GCMR — X2
+MSE=43.2
+−3
+0
+3
+X2
+0
+150
+300
+LUCID
+CLIQUE — X2
+MSE=1.25
+−3
+0
+3
+X2
+0
+150
+300
+LUCID
+Permutation — X2
+MSE=5.81
+−3
+0
+3
+X2
+0
+150
+300
+Attribution
+SHAP — X2
+MSE=3.13e3
+−3
+0
+3
+X2
+0
+150
+300
+Attribution
+SHAPr — X2
+MSE=3.12e3
+−3
+0
+3
+X2
+0
+150
+300
+Attribution
+LIME — X2
+MSE=3.45e3
+Extreme Tail
+Estimated LUCID / attribution
+Analytical LUCID
+Figure 18: Complete pointwise LUCID results for the extreme-tail DGP. Estimated local variable
+importance values from all conditional sampling methods are compared with the corresponding
+analytical LUCID across evaluation observations.
+1
+500
+1000
+0
+4
+8
+12
+LUCID
+DGP1
+Coverage: 0.840
+1
+500
+1000
+1
+2
+3
+DGP2
+Coverage: 0.519
+1
+500
+1000
+0
+10
+20
+30
+DGP3
+Coverage: 0.640
+1
+500
+1000
+4
+8
+12
+DGP4
+Coverage: 0.606
+1
+500
+1000
+0
+8
+16
+24
+DGP5
+Coverage: 0.676
+Observation (ordered by observed X1)
+X1: 50% posterior credible intervals and analytical LUCID
+50% interval
+Posterior mean
+Analytical: covered
+Analytical: missed
+Figure 19: 50% posterior credible intervals. Pointwise posterior LUCID credible intervals for
+X1 across the five DGPs at the 50% nominal level. Posterior means are compared with analytical
+LUCID values, with covered and missed analytical values indicated separately.
+53
+
+
+1
+500
+1000
+0
+4
+8
+12
+LUCID
+DGP1
+Coverage: 0.973
+1
+500
+1000
+0
+1
+2
+3
+DGP2
+Coverage: 0.828
+1
+500
+1000
+0
+10
+20
+30
+DGP3
+Coverage: 0.871
+1
+500
+1000
+0
+5
+10
+15
+DGP4
+Coverage: 0.872
+1
+500
+1000
+0
+8
+16
+24
+DGP5
+Coverage: 0.929
+Observation (ordered by observed X1)
+X1: 80% posterior credible intervals and analytical LUCID
+80% interval
+Posterior mean
+Analytical: covered
+Analytical: missed
+Figure 20: 80% posterior credible intervals. Pointwise posterior LUCID credible intervals for
+X1 across the five DGPs at the 80% nominal level. Posterior means are compared with analytical
+LUCID values, with covered and missed analytical values indicated separately.
+1
+500
+1000
+0
+4
+8
+12
+LUCID
+DGP1
+Coverage: 0.992
+1
+500
+1000
+0.0
+1.5
+3.0
+DGP2
+Coverage: 0.917
+1
+500
+1000
+0
+15
+30
+DGP3
+Coverage: 0.913
+1
+500
+1000
+0
+5
+10
+15
+DGP4
+Coverage: 0.932
+1
+500
+1000
+0
+8
+16
+24
+DGP5
+Coverage: 0.971
+Observation (ordered by observed X1)
+X1: 90% posterior credible intervals and analytical LUCID
+90% interval
+Posterior mean
+Analytical: covered
+Analytical: missed
+Figure 21: 90% posterior credible intervals. Pointwise posterior LUCID credible intervals for
+X1 across the five DGPs at the 90% nominal level. Posterior means are compared with analytical
+LUCID values, with covered and missed analytical values indicated separately.
+1
+500
+1000
+0
+4
+8
+12
+LUCID
+DGP1
+Coverage: 0.997
+1
+500
+1000
+0.0
+1.5
+3.0
+DGP2
+Coverage: 0.958
+1
+500
+1000
+0
+15
+30
+DGP3
+Coverage: 0.929
+1
+500
+1000
+0
+6
+12
+18
+DGP4
+Coverage: 0.956
+1
+500
+1000
+0
+8
+16
+24
+DGP5
+Coverage: 0.985
+Observation (ordered by observed X1)
+X1: 95% posterior credible intervals and analytical LUCID
+95% interval
+Posterior mean
+Analytical: covered
+Analytical: missed
+Figure 22: 95% posterior credible intervals. Pointwise posterior LUCID credible intervals for
+X1 across the five DGPs at the 95% nominal level. Posterior means are compared with analytical
+LUCID values, with covered and missed analytical values indicated separately.
+54
+
+
+E.12
+Additional Results on the cs-PFI Simulation
+To further evaluate LUCID estimation in higher-dimensional settings, we consider the ground-
+truth simulation introduced by Molnar et al. (2024) for evaluating conditional permutation feature
+importance. We retain the original scenario names—independent, linear, multiple linear dependencies,
+and non-linear—and vary the sample size and ambient dimension as in their experiment. Following
+their setting (I), we evaluate the true prediction function directly. Outcome noise is omitted because
+the LUCID calculation does not use the outcome. We only care about the given model.
+The prediction function is
+g(x) = x1x2 +
+10
+X
+j=1
+xj,
+(E.32)
+where all features except X1 are independently distributed as Xj ∼N(0, 1). Feature X1 is generated
+according to
+X1 = h(X−1) + ϵx,
+(E.33)
+with h and the distribution of ϵx varying across the four scenarios. The original simulation was
+designed to range from independence to increasingly complex conditional dependence structures,
+including dependence on many covariates and discontinuous changes in both the conditional mean
+and variance (Molnar et al., 2024). In the first three scenarios, ϵx is independent of X−1 and
+σx(X−1) in the last scenario denotes the conditional variance, rather than the conditional standard
+deviation.
+Table 9: Data-generating processes from the cs-PFI simulation and the corresponding analytical
+LUCID and CPFI for X1 under squared loss.
+Setting
+Conditional distribution of X1
+Analytical LUCID
+CPFI
+Independent
+h(X−1) = 0, ϵx ∼N(0, 1)
+(x2 + 1)2(1 + x2
+1)
+4
+Linear
+h(X−1) = X2, ϵx ∼N(0, 1)
+(x2 + 1)2{1 + (x1 −x2)2}
+4
+Multiple linear
+dependencies
+h(X−1) = P10
+j=2 Xj, ϵx ∼N(0, 5)
+(x2 +
+1)2
+
+5 +
+
+x1 −P10
+j=2 xj
+2
+20
+Non-linear
+h(X−1) = 31(X2 > 0) −31(X2 ≤0)1(X3 > 0),
+ϵx | X−1 ∼N(0, σx(X)),
+σx(X) = 1(X2 > 0)
++ 21(X2 ≤0)1(X3 > 0)
++ 51(X2 ≤0)1(X3 ≤0)
+(x2 +
+1)2 σx(x) + {x1 −h(x−1)}2 5.011
+55
+
+
+Analytical calculation.
+For all four scenarios, the dependence of the prediction function on X1
+can be isolated as
+g(x′
+1, x−1) −g(x1, x−1) = (x2 + 1)(x′
+1 −x1).
+(E.34)
+Let
+m(x−1) = E[X1 | X−1 = x−1],
+v(x−1) = Var(X1 | X−1 = x−1).
+Under squared loss, the observation-level LUCID for X1 is therefore
+LUCIDi,1 = E
+h
+{g(X′
+1, xi,−1) −g(xi,1, xi,−1)}2 | xi,−1
+i
+= (xi,2 + 1)2E
+h
+(X′
+1 −xi,1)2 | xi,−1
+i
+= (xi,2 + 1)2 h
+v(xi,−1) + {xi,1 −m(xi,−1)}2i
+.
+(E.35)
+Averaging over observations gives the corresponding conditional permutation feature importance,
+CPFI1 = E[LUCID1]
+= 2 E
+h
+(X2 + 1)2v(X−1)
+i
+,
+(E.36)
+where the second equality follows because, conditional on X−1,
+E
+h
+{X1 −m(X−1)}2 | X−1
+i
+= v(X−1).
+For the independent setting, m(X−1) = 0 and v(X−1) = 1, giving
+LUCID1 = (X2 + 1)2(1 + X2
+1),
+CPFI1 = 2E[(X2 + 1)2] = 4.
+For the linear setting, m(X−1) = X2 and v(X−1) = 1, so
+LUCID1 = (X2 + 1)2{1 + (X1 −X2)2},
+CPFI1 = 4.
+For the multiple linear dependencies setting,
+m(X−1) =
+10
+X
+j=2
+Xj,
+v(X−1) = 5,
+and hence
+LUCID1 = (X2 + 1)2
+
+5 +
+
+X1 −
+10
+X
+j=2
+Xj
+
+
+2
+,
+CPFI1 = 20.
+Finally, in the non-linear setting,
+m(X−1) = h(X−1),
+v(X−1) = σx(X),
+which yields
+LUCID1 = (X2 + 1)2 h
+σx(X) + {X1 −h(X−1)}2i
+.
+Since X2 and X3 are independent standard Gaussian variables,
+CPFI1 = 2E[(X2 + 1)2σx(X)]
+= 2
+
+E{(X2 + 1)21(X2 > 0)} + 2 + 5
+2
+E{(X2 + 1)21(X2 ≤0)}
+
+= 2
+"
+1 +
+r 2
+π + 7
+2
+ 
+1 −
+r 2
+π
+!#
+≈5.011.
+(E.37)
+56
+
+
+Table 10: MSE between estimated and analytical LUCID for X1 in the cs-PFI simulation settings.
+Lower values indicate more accurate estimation. The lowest MSE in each setting is shown in bold.
+Setting
+DR-BART
+ARF cs-PFI
+CMR GCMR CLIQUE
+Perm.
+Independent
+n = 300, p = 10
+3.30
+13.23
+1.29
+21.94
+15.68
+0.13
+0.95
+n = 300, p = 90
+5.03
+4.04
+0.31
+17.31
+10.32
+0.26
+0.25
+n = 3000, p = 10
+1.21
+15.65
+0.22
+10.89
+16.05
+0.014
+0.21
+n = 3000, p = 90
+1.21
+7.44
+0.10
+9.53
+8.23
+0.004
+0.10
+Linear
+n = 300, p = 10
+26.52
+170.37
+73.22
+60.85
+45.93
+302.60
+367.92
+n = 300, p = 90
+30.00
+206.58
+24.65
+21.86
+30.50
+201.73
+197.66
+n = 3000, p = 10
+5.59
+31.87
+7.19
+18.80
+16.46
+304.57
+312.82
+n = 3000, p = 90
+2.51
+437.41
+5.66
+12.80
+16.21
+437.32
+443.73
+Multiple linear dependencies
+n = 300, p = 10
+239.59 2336.59 8575.39 1629.81
+3037.15
+7386.04 8688.08
+n = 300, p = 90
+848.80 4147.11 2562.16 1668.91
+1712.87
+3351.69 2931.48
+n = 3000, p = 10
+125.38 1028.88 2742.75
+639.26
+741.14
+6823.13 6856.28
+n = 3000, p = 90
+139.18 8502.58 4116.04 1146.00
+837.31
+7948.26 7991.29
+Non-linear
+n = 300, p = 10
+41.87 1118.96
+6.71
+122.98
+246.57
+1832.60 1989.33
+n = 300, p = 90
+101.58 1619.07
+6.26
+66.22
+71.33
+1418.45 1429.19
+n = 3000, p = 10
+3.86
+196.79
+0.74
+59.03
+80.88
+1572.78 1588.26
+n = 3000, p = 90
+3.97 1654.96
+0.26
+50.32
+51.35
+1897.84 1899.32
+Mean rank
+2.31
+5.38
+2.81
+3.56
+4.06
+4.56
+5.31
+Results.
+Table 10 reports the MSE between estimated and analytical LUCID for X1.
+We
+additionally report the mean rank across all combinations of sample size (n), dimension (p), and
+dependence structure. 5
+Across all 16 settings, DR-BART achieves the best overall mean rank of 2.31, followed by cs-PFI
+with a mean rank of 2.81. The relative performance varies substantially with the structure of the
+conditional distribution. In the linear setting, DR-BART is highly competitive and attains the lowest
+MSE in three of the four configurations. Its advantage is particularly pronounced in the multiple
+linear dependencies setting, where X1 depends jointly on nine covariates and DR-BART attains the
+lowest MSE in all four configurations. This setting is challenging for subgroup-based permutation
+methods because a tree must approximate several simultaneous linear dependencies through repeated
+partitioning; indeed, Molnar et al. (2024) similarly identify this setting as particularly difficult for
+cs-PFI.
+The independent setting represents a different edge case. Because X1 ⊥X−1, the correct
+conditional distribution is simply the marginal distribution of X1, so no conditional density estimation
+is required. Methods that estimate a conditional distribution can therefore incur additional finite-
+sample estimation error without gaining information, whereas marginal or near-marginal perturbation
+schemes can perform particularly well. This explains why the simplest methods obtain very small
+errors in this setting and why the independent case should not be interpreted as favoring a more
+5Ranks are computed from unrounded MSE values.
+57
+
+
+flexible conditional estimator.
+In the non-linear setting, cs-PFI performs best in all four configurations, while DR-BART ranks
+second in three of the four configurations. This DGP is particularly favorable to the subgroup
+construction used by cs-PFI: both the conditional mean and variance of X1 change across only a
+small number of axis-aligned regions defined by the signs of X2 and X3. A transformation tree
+can therefore represent the relevant conditional structure using only a few splits. In contrast,
+DR-BART estimates the full conditional density through a flexible mixture representation, which
+is substantially more general than is required for this piecewise structure and consequently pays
+a larger finite-sample estimation cost. Nevertheless, its error decreases sharply as the sample size
+increases. For example, when p = 10, the MSE decreases from 41.87 at n = 300 to 3.86 at n = 3000,
+while for p = 90 it decreases from 101.58 to 3.97. Thus, although the finite-sample problem is
+substantially harder for DR-BART in this setting, the improvement with increasing sample size
+indicates that it is able to recover the underlying conditional structure with sufficient data.
+Another notable result is the poor performance of ARF in these higher-dimensional settings,
+where it is consistently among the worst-performing methods and often deteriorates markedly as the
+ambient dimension increases. This provides further empirical support for our motivation to estimate
+the conditional density directly: approaches such as ARF recover the conditional distribution
+through an estimated joint distribution of all covariates, a task that becomes increasingly challenging
+as the feature dimension grows (Izbicki and Lee, 2016).
+Overall, these experiments emphasize that no conditional sampler uniformly dominates across all
+dependence structures. Subgroup permutation is particularly effective when the conditional distri-
+bution admits a simple tree partition, whereas direct conditional density estimation is substantially
+more competitive when dependence is smooth or distributed across many covariates. Importantly,
+LUCID itself is agnostic to this choice of conditional density estimator; these results therefore
+characterize the statistical trade-offs of the sampling mechanism rather than a restriction of the
+LUCID framework.
+58
+
+
+0
+2
+4
+6
+8
+Mean LUCID (×103)
+(a) LUCID over the day
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Temperature
+(b) Replacements across season
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+(c) Replacements across working day
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+(d) Replacements across hour periods
+20
+40
+60
+Mean LUCID (×103)
+0
+6
+12
+18
+23
+Hour
+0
+6
+12
+18
+23
+0
+6
+12
+18
+23
+0
+20
+40
+Mean LUCID (×103)
+0
+1
+Working day
+0
+1
+0
+1
+0
+2
+4
+6
+8
+Mean LUCID (×103)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Humidity
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+0
+6
+12
+18
+23
+Hour of day
+0
+1
+2
+3
+4
+Mean LUCID (×103)
+Winter
+Spring
+Summer
+Fall
+Season
+1
+2
+3
+4
+Season
+Non-working
+Working
+Working day
+1
+2
+3
+4
+00–05
+06–11
+12–17
+18–23
+Hour period
+1
+2
+3
+4
+Temperature
+Hour
+Working day
+Humidity
+Season
+Non-working day (mean: dashed)
+Working day (mean: dashed)
+DR-BART conditional
+Permutation marginal
+Figure 23: Complete individual LUCID results for the Bike Sharing data. For temperature,
+hour, working day, humidity, and season, panel (a) shows mean LUCID across hour of day separately
+for working and non-working days. Panels (b)–(d) compare the DR-BART conditional replacement
+distributions across season, working-day status, and hour periods with the corresponding marginal
+permutation distributions.
+F
+Additional Bike Sharing Results
+F.1
+Complete Individual LUCID Results
+We provide the complete individual LUCID results for all five features in Figure 23 as a complement
+to the main paper’s results. For each feature, the first column shows how its mean LUCID varies over
+hour of day on working and non-working days, while the remaining columns show the corresponding
+DR-BART conditional replacement distributions across season, working-day status, and hour
+periods, together with the marginal permutation distribution for comparison. The results reveal
+substantial heterogeneity for temperature, humidity, and season: their plausible replacement values
+shift across different covariate contexts, and their local importance varies accordingly. In contrast,
+the conditional replacement distributions of hour and working day are comparatively stable across
+the displayed contexts.
+59
+
+
+F.2
+Feature Dependence and the Interpretation of Individual LUCID
+How do feature dependencies inform the interpretation of individual LUCID?
+Figure 24
+summarizes feature dependencies alongside the estimated individual LUCIDs. We report pairwise
+correlations to describe linear associations and quantify each feature’s predictability from the
+remaining features as
+R2
+j := 1 −E[Var(Xj | X−j)]
+Var(Xj)
+.
+High predictability indicates that conditional resampling permits less variation on average relative
+to marginal resampling because information in this feature is already captured by the remaining
+features. Consequently, a small individual LUCID may reflect either limited model sensitivity to
+the feature or limited variation under conditional replacement. If the remaining features completely
+determine the feature of interest, then conditional replacement introduces no variation and LUCID
+is zero. Conversely, low predictability alone does not imply large LUCID, because the effect of
+replacement also depends on the model’s response: if the model does not use the feature of interest,
+its LUCID remains zero. Moreover, R2
+j = 0 does not imply independence, since conditional variance
+or other distributional properties may still depend on the remaining features, as illustrated by the
+heteroskedastic synthetic example.
+Pairwise correlations provide a complementary but weaker diagnostic. By the law of total
+variance,
+R2
+j = Var{E(Xj | X−j)}
+Var(Xj)
+,
+which is the squared correlation ratio of Xj with respect to X−j. Therefore, for any k̸ = j,
+Corr(Xj, Xk)2 ≤sup
+a Corr(Xj, a⊤X−j)2 ≤R2
+j.
+Thus, pairwise correlation does not capture all forms of predictability, but a strong pairwise correla-
+tion is sufficient evidence that the feature of interest may be highly predictable from the remaining
+covariates and that conditional importance should be interpreted accordingly. In Figure 24, tempera-
+ture has particularly high predictability, while humidity and season are also meaningfully predictable
+from the remaining features. In contrast, hour and working day have very low predictability. These
+patterns help distinguish whether a small or large LUCID is primarily associated with restrictions
+in the conditional replacement distribution or with the model’s response to the feature.
+Note: For binary and categorical features, we replace variance by Gini impurity, G(p) = 1−P
+c p2
+c,
+and compute predictability as 1 −E{G(p(· | X−j))}/G(p). This avoids dependence on arbitrary
+category codes and agrees with the variance-based measure for binary features. We estimate
+conditional uncertainty using 200 DR-BART draws per observation, with a finite-sample correction
+for Gini impurity. DR-BART samples continuous values from its posterior predictive density and
+discrete values from BART-based class probabilities; ARF samples from its conditional forest
+distribution; cs-PFI resamples within fitted tree leaves; CMR and GCMR resample residuals in the
+original and Gaussianized spaces, respectively, without enforcing categorical support. Permutation
+samples from the empirical marginal, while CLIQUE uses marginal quantiles or category-frequency
+grids.
+F.3
+Predictability Diagnostics for Feature Groups
+The main paper shows that group LUCID can complement individual importance when several
+features contain overlapping or shared information. Here, we provide two additional predictability
+60
+
+
+−1
+0
+1
+Feature correlation
+0
+80
+160
+LUCID value  (×103)
+Low
+High
+Feature value
+0.0
+0.5
+1.0
+Predictability R2
+hr
+workingday
+temp
+hum
+season
+0.01
+0.01
+0.76
+0.36
+0.31
+LUCID points and feature relationships
+Figure 24: Feature relationships and individual LUCID in the Bike Sharing data. The
+left panel summarizes pairwise correlations and each feature’s predictability R2
+j from the remaining
+covariates. The right panel shows observation-level LUCID values, colored by the observed feature
+value. Temperature is highly predictable from the remaining features, while hour and working day
+have very low predictability, providing additional context for interpreting their individual LUCID
+values.
+diagnostics to help interpret a candidate feature group and assess whether its members meaningfully
+cover one another’s information. As defined above, let G denote a group of d = |G| features, and let
+X−G denote all features outside the group. The first metric is the group outside predictability,
+R2
+G = 1 −1
+d
+X
+j∈G
+E[Var(Xj | X−G)]
+Var(Xj)
+,
+(F.1)
+which measures, under equal weighting, how well the features outside the group can explain the
+features within the group.
+The second metric, denoted by R2
+G,within, measures how much the other features within the
+group further improve the prediction of each group member relative to using only features outside
+the group:
+R2
+G,within = 1 −1
+d
+X
+j∈G
+E[Var(Xj | X−j)]
+E[Var(Xj | X−G)].
+(F.2)
+At the population level, both metrics lie in [0, 1] when their denominators are positive. Finite-
+sample estimates need not satisfy these bounds exactly. A large R2
+G indicates that the group can
+already be predicted well from features outside the group, suggesting that the group may contribute
+limited information beyond the remaining covariates. In contrast, a small R2
+G indicates that the
+group retains substantial information that outside features cannot easily reconstruct. A large
+R2
+G,within indicates that on average across group members, the other members substantially reduce
+residual prediction variance, making joint perturbation particularly informative relative to separate
+individual perturbations. If R2
+G,within is very small, adding the other group members contributes
+little additional predictive information, which may suggest reconsidering whether those variables
+form a substantively meaningful group.
+Table 11 shows substantial differences among the candidate groups. The three-feature group
+consisting of season, humidity, and temperature has the lowest outside predictability (R2
+G = 0.095)
+while maintaining relatively high within-group predictability (R2
+G,within = 0.410). This makes it
+61
+
+
+Table 11: Group outside predictability R2
+G and within-group predictability R2
+G,within for candidate
+weather-related feature groups in the Bike Sharing data.
+Group
+R2
+G
+R2
+G,within
+Season + temperature
+0.198
+0.450
+Temperature + humidity
+0.482
+0.190
+Humidity + season
+0.298
+0.054
+Season + humidity + temperature
+0.095
+0.410
+a particularly natural candidate for group LUCID: the group is difficult to reconstruct from the
+remaining covariates, yet its members contain substantial overlapping information that can be
+revealed by joint perturbation. The season–temperature group shows a similar pattern, with low
+outside predictability (0.198) and the highest within-group predictability (0.450), also supporting a
+meaningful grouping interpretation.
+In contrast, the temperature–humidity group has substantially higher outside predictability
+(R2
+G = 0.482), indicating that much of the group’s information can already be recovered from the
+remaining covariates, while its within-group predictability is more modest (0.190). The humidity–
+season group has moderate outside predictability (0.298) but very low within-group predictability
+(0.054), suggesting that these two features provide little additional predictive information about one
+another once the remaining covariates are known. Thus, among the groups considered here, the
+three-feature weather group and the season–temperature pair provide the strongest evidence for
+complementary group analysis, whereas the humidity–season pair is less naturally motivated by
+shared conditional information.
+These metrics are intended as diagnostics rather than a unique grouping rule; substantive
+knowledge and the scientific question remain important when choosing feature groups. For broader
+discussions of feature grouping strategies, we refer readers to the literature on grouped variable
+importance (Gregorutti et al., 2015; Au et al., 2022; Chamma et al., 2024).
+Together with Figure 7, these results show that a group’s LUCID is not fully reflected by the sum
+of its members’ individual LUCIDs, and that group importance itself varies across the remaining
+covariate context. Individual and group LUCID therefore provide complementary views of the
+learned model’s local predictive reliance. As shown throughout this section, the LUCID formulation
+and estimator accommodate both perspectives and support richer exploration of the fitted black-box
+model than marginal feature importance measures alone.
+F.4
+Dispersion–Displacement Decomposition
+We further examine the squared-loss decomposition of LUCID into its dispersion and displacement
+components in practice. In Figure 25, V denotes the dispersion term and D denotes the displacement
+term; observations with similar contributions from the two components appear near the balanced
+region. Averaged over all observations, the decomposition is nearly even, with V = 51.3% and
+D = 48.7%, consistent with Corollary C.2. Importantly, this near equality in the global average
+masks substantial observation-level heterogeneity in the mechanism driving local importance.
+We use the hour feature as an example to show how to interpret the decomposition locally.
+For hour, which is only weakly predictable from the remaining features, conditional replacement
+leaves a relatively broad range of plausible hour values. The labeled examples in Figure 25 illustrate
+several qualitatively different regimes. At late-night observations such as example (1), the observed
+prediction can be far below the conditional replacement mean, producing a substantial displacement
+62
+
+
+0
+3
+6
+8
+12
+17 18
+21
+23
+Observed hour
+0
+20
+40
+60
+80
+100
+120
+140
+Hour LUCID (×103)
+Mean LUCID composition: V = 51.3%, D = 48.7%
+1
+2
+3
+Full hourly profile, individual detail only where it matters
+Working day
+Non-working day
+V-driven
+Balanced
+D-driven
+Figure 25: Dispersion–displacement decomposition of hour LUCID. Observation-level hour
+LUCID is decomposed into the dispersion term V and the displacement term D, the percentages
+indicate their respective shares of the mean LUCID across observations. Mean LUCID composition:
+V = 51.3%, D = 48.7% of the mean LUCID. Color indicates which component contributes more
+strongly, while the solid and dashed curves summarize working and non-working days, respectively.
+contribution. During the morning and evening commuting peaks on working days, as in example (2),
+the original model prediction is substantially higher than the conditional mean of the replacement
+predictions, so local importance is strongly displacement-driven. At similar hours on non-working
+days, the observed prediction is often closer to the conditional replacement mean, consistent with the
+less pronounced commuting pattern on non-working days and the remaining importance is driven
+more by dispersion across plausible replacements. Around midday, as illustrated by example (3),
+displacement is smaller, and variation across replacements contributes a larger share of the total
+LUCID. Thus, even for the same feature, a large LUCID can arise through different local mechanisms.
+F.5
+Conditional Replacement Distributions Across Methods
+Finally, Figures 26–30 compare the conditional replacement distributions produced by the different
+sampling methods across season, working-day status, and hour periods. The goal here is not
+to identify a ground-truth conditional distribution, which is unavailable in the real data, but to
+illustrate how the different estimators behave under the same observed covariate contexts. DR-
+BART, ARF, cs-PFI, and GCMR generally preserve the support and qualitative structure of the
+observed features, whereas CMR can generate values outside the natural feature range because its
+residual-based construction is not intrinsically support-preserving; GCMR was designed in part
+to address this limitation for continuous features. Marginal permutation, by construction, does
+not adapt its replacement distribution to the conditioning context and therefore misses context-
+dependent distributional shifts. Differences among the conditional methods are most visible for
+features such as temperature and humidity, whose replacement distributions vary appreciably across
+63
+
+
+Winter
+Spring
+Summer
+Fall
+0
+25
+Hour
+(a) Hour CDE across season
+Non-working
+Working
+0
+25
+Hour
+(b) Hour CDE across working day
+00–05
+06–11
+12–17
+18–23
+0
+25
+Hour
+(c) Hour CDE across hour period
+DR-BART
+ARF
+cs-PFI
+CMR
+GCMR
+Permutation
+Figure 26: Conditional replacement distributions for hour.
+Replacement distributions
+produced by DR-BART, ARF, cs-PFI, CMR, GCMR, and marginal permutation across season,
+working-day status, and hour periods. Hour is weakly predictable from the remaining features, and
+its conditional replacement distribution is correspondingly broad and relatively stable across most
+contexts.
+season or hour period.
+Note on visualization. For binary and categorical features, the violin shapes use smoothing
+only for display: the underlying samples from permutation, cs-PFI, DR-BART, and ARF remain
+on the valid categorical support. Each violin is normalized independently to the same maximum
+width, so violin widths are comparable only within a distribution and should not be interpreted
+as categorical probabilities across methods. Methods that generate small off-support continuous
+values, such as CMR and GCMR, are displayed without the discrete smoothing used for purely
+categorical samples. As a result, each local mode can appear visually narrower, so do not interpret
+the apparent width of individual bumps as lower categorical probability mass.
+64
+
+
+Winter
+Spring
+Summer
+Fall
+0
+1
+Humidity
+(a) Humidity CDE across season
+Non-working
+Working
+0
+1
+Humidity
+(b) Humidity CDE across working day
+00–05
+06–11
+12–17
+18–23
+0
+1
+Humidity
+(c) Humidity CDE across hour period
+DR-BART
+ARF
+cs-PFI
+CMR
+GCMR
+Permutation
+Figure 27: Conditional replacement distributions for humidity. Replacement distributions
+across season, working-day status, and hour periods. Several conditional methods capture systematic
+changes in humidity across covariate contexts, particularly across hour periods, whereas marginal
+permutation uses the same unconditional distribution throughout. CMR also exhibits broader
+support than the naturally bounded humidity feature.
+65
+
+
+Winter
+Spring
+Summer
+Fall
+0
+1
+Temperature
+(a) Temperature CDE across season
+Non-working
+Working
+0
+1
+Temperature
+(b) Temperature CDE across working day
+00–05
+06–11
+12–17
+18–23
+0
+1
+Temperature
+(c) Temperature CDE across hour period
+DR-BART
+ARF
+cs-PFI
+CMR
+GCMR
+Permutation
+Figure 28: Conditional replacement distributions for temperature. Replacement distribu-
+tions across season, working-day status, and hour periods. The strongest distributional shifts occur
+across seasons, where conditional samplers adapt to the changing temperature distribution while
+marginal permutation remains fixed across contexts.
+66
+
+
+Winter
+Spring
+Summer
+Fall
+0.0
+2.5
+Working day
+(a) Working day CDE across season
+Non-working
+Working
+0.0
+2.5
+Working day
+(b) Working day CDE across working day
+00–05
+06–11
+12–17
+18–23
+0.0
+2.5
+Working day
+(c) Working day CDE across hour period
+DR-BART
+ARF
+cs-PFI
+CMR
+GCMR
+Permutation
+Figure 29: Conditional replacement distributions for working day. Replacement distributions
+across season, working-day status, and hour periods. Most conditional methods preserve the binary
+structure of the feature, while CMR can place mass outside the natural {0, 1} support.
+The
+conditional distribution varies relatively little across the displayed contexts.
+67
+
+
+Winter
+Spring
+Summer
+Fall
+0
+5
+Season
+(a) Season CDE across season
+Non-working
+Working
+0
+5
+Season
+(b) Season CDE across working day
+00–05
+06–11
+12–17
+18–23
+0
+5
+Season
+(c) Season CDE across hour period
+DR-BART
+ARF
+cs-PFI
+CMR
+GCMR
+Permutation
+Figure 30: Conditional replacement distributions for season. Replacement distributions
+across observed season, working-day status, and hour periods.
+Conditional methods preserve
+differing degrees of context dependence in the categorical replacement distribution, whereas marginal
+permutation does not condition on the observed context. CMR again produces values outside the
+natural categorical support.
+68
+
+
+F.6
+Runtime and Memory Scaling on OpenXAI Datasets
+To further assess the computational feasibility of our DR-BART-based LUCID estimator beyond
+the five-feature Bike Sharing example, we benchmark runtime and peak memory usage on four
+tabular datasets from the OpenXAI (Agarwal et al., 2022) benchmark. These datasets provide
+complementary stress tests in both sample size and feature dimension: German contains the largest
+number of features with p = 60, while GMSC contains more than 105 observations. Table 12
+summarizes the datasets used in this experiment.
+Table 12: OpenXAI benchmark datasets used in the scalability experiments.
+Dataset
+Samples (n)
+Features (p)
+Heart
+3,658
+15
+German
+1,000
+60
+HELOC
+9,871
+23
+GMSC
+102,209
+10
+Because LUCID computation is performed separately for each feature, we report runtime in two
+complementary ways. First, Table 13 reports the average runtime of one complete feature-specific
+task, obtained within each fold by dividing the total runtime across all features by the number of
+features. This normalizes for different feature dimensions and facilitates comparison across datasets.
+Second, Table 14 reports the total runtime per fold when all feature-specific jobs are executed serially.
+Each task includes any method-specific fitting and the computation of that method’s importance
+scores. For DR-BART, this includes conditional-sampler fitting and LUCID computation. All
+reported values are the mean and standard deviation across five folds. Feature-specific jobs are
+independent and can be executed concurrently, so the serial totals represent the computational cost
+in the absence of parallel resources, while actual wall-clock time can be substantially lower when
+multiple workers are available.
+Table 13: Average runtime per feature-specific task in seconds (mean ± standard deviation across
+five folds). Each task includes conditional-sampler fitting and LUCID computation.
+Method
+Heart
+German
+HELOC
+GMSC
+Permutation
+8.81 ± 1.16
+6.47 ± 0.64
+15.67 ± 2.21
+87.18 ± 21.91
+CMR
+5.89 ± 0.03
+5.35 ± 0.28
+14.99 ± 3.37
+92.92 ± 23.30
+GCMR
+7.37 ± 1.85
+6.84 ± 0.14
+16.33 ± 2.77
+106.18 ± 24.79
+local LOCO
+5.41 ± 0.88
+4.97 ± 0.15
+5.60 ± 1.29
+4.70 ± 0.18
+CLIQUE
+7.65 ± 1.68
+5.50 ± 0.34
+14.61 ± 2.87
+117.08 ± 3.76
+ARF
+43.84 ± 5.88 30.10 ± 3.69 287.20 ± 25.11
+2451.36 ± 816.10
+cs-PFI
+30.61 ± 5.61
+9.70 ± 0.12 224.23 ± 10.35 10036.02 ± 530.45
+DR-BART
+184.94 ± 21.31 36.96 ± 0.29 838.26 ± 64.25 9015.14 ± 1419.16
+Table 15 reports peak memory usage. For each fold, we take the largest peak memory among all
+feature-specific jobs, measured at 0.1-second intervals. Unlike runtime, peak memory is already a
+per-job quantity and therefore is not normalized by the number of features.
+As expected, DR-BART is substantially more computationally demanding than simpler re-
+placement schemes because it fits a flexible conditional density model separately for each feature.
+69
+
+
+Table 14: Serial-equivalent runtime per fold in minutes (mean ± standard deviation across five
+folds), obtained by summing all feature-specific jobs. This represents the runtime required when
+feature computations are not parallelized.
+Method
+Heart
+German
+HELOC
+GMSC
+Permutation
+2.20 ± 0.29
+6.47 ± 0.64
+6.01 ± 0.85
+14.53 ± 3.65
+CMR
+1.47 ± 0.01
+5.35 ± 0.28
+5.75 ± 1.29
+15.49 ± 3.88
+GCMR
+1.84 ± 0.46
+6.84 ± 0.14
+6.26 ± 1.06
+17.70 ± 4.13
+local LOCO
+1.35 ± 0.22
+4.97 ± 0.15
+2.15 ± 0.50
+0.78 ± 0.03
+CLIQUE
+1.91 ± 0.42
+5.50 ± 0.34
+5.60 ± 1.10
+19.51 ± 0.63
+ARF
+10.96 ± 1.47 30.10 ± 3.69
+110.09 ± 9.63
+408.56 ± 136.02
+cs-PFI
+7.65 ± 1.40
+9.70 ± 0.12
+85.95 ± 3.97
+1672.67 ± 88.41
+DR-BART
+46.23 ± 5.33 36.96 ± 0.29 321.33 ± 24.63 1502.52 ± 236.53
+Table 15: Peak memory usage in GiB (mean ± standard deviation across five folds). For each fold,
+the maximum peak memory among feature-specific jobs is reported.
+Method
+Heart
+German
+HELOC
+GMSC
+Permutation 0.338 ± 0.001 0.329 ± 0.000 0.352 ± 0.000
+0.365 ± 0.004
+CMR
+0.335 ± 0.000 0.327 ± 0.002 0.354 ± 0.003
+0.371 ± 0.002
+GCMR
+0.339 ± 0.003 0.332 ± 0.001 0.358 ± 0.001
+0.375 ± 0.005
+local LOCO
+0.320 ± 0.003 0.320 ± 0.002 0.325 ± 0.003
+0.341 ± 0.000
+CLIQUE
+0.336 ± 0.003 0.325 ± 0.002 0.351 ± 0.004
+0.367 ± 0.001
+ARF
+0.996 ± 0.006 2.072 ± 0.030 1.705 ± 0.004
+0.985 ± 0.010
+cs-PFI
+0.758 ± 0.021 0.562 ± 0.003 2.226 ± 0.094 40.548 ± 0.620
+DR-BART
+1.245 ± 0.001 1.353 ± 0.001 0.808 ± 0.013 41.854 ± 0.031
+Nevertheless, the complete LUCID pipeline remains computationally feasible across all four bench-
+mark datasets. In particular, we successfully run DR-BART on GMSC with 102,209 observations.
+The average feature-specific task requires approximately 9,015 seconds and the largest feature-specific
+job uses approximately 41.9 GiB of memory. If all ten feature-specific jobs are executed serially, one
+fold requires approximately 1,503 minutes, or about 25 hours of aggregate computation.
+Remark 1. Local explanations are often required at prediction time. While training DR-BART
+itself requires expensive Markov Chain Monte Carlo (MCMC) iterations, the DR-BART model is
+fixed at prediction time and runtime for explanations depends only on time to sample posterior
+draws, counterfactuals for each posterior, and fitting/comparing the fixed predictive models. In
+contrast, other local explanation methods like LIME can require refitting new surrogate models for
+each new test observation, increasing explanation-inference time.
+70

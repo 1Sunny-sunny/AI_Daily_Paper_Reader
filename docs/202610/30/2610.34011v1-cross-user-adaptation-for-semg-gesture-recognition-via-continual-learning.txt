@@ -1,0 +1,653 @@
+Cross-User Adaptation for sEMG Gesture
+Recognition via Continual Learning
+Aran Ramakrishnan, Shubhi Mishra, Tyler Ham, Assel Kembay, and Jason Eshraghian
+Department of Electrical and Computer Engineering
+University of California, Santa Cruz, CA 95064, USA
+Email: {aramakr4, smishr21, tham, akembay, jsn}@ucsc.edu
+Abstract—Prosthetic and assistive interfaces increasingly de-
+pend on decoding hand gestures from surface electromyogra-
+phy (sEMG). Because the signal is shaped by person-specific
+factors, the recurrent neural networks (RNNs) commonly used
+to model these temporal streams must adapt to new wearers
+and new gesture classes after deployment. Continual learning
+(CL) enables this adaptation without retraining from scratch, yet
+applying it to recurrent sEMG models is not straightforward.
+Standard recurrent training practices can destabilize learning,
+and which CL strategy holds up under realistic cross-user drift
+is unestablished. We evaluate three representative CL strategies
+under domain- and class-incremental drift on NinaPro DB1, and
+find experience replay to outperform elastic weight consolidation
+(EWC) and naive fine-tuning. It reaches 83.3% final accuracy
+for class-incremental drift while limiting forgetting to 1.8-5.8%
+accuracy drop, as against 16.2-28.5% for EWC and naive
+training. We further show these models must be trained on
+shuffled, independently-windowed segments. Streaming windows
+in temporal order collapses the network into predicting a single
+dominant gesture, while a shuffled, stateless regime trains stably.
+Finally, hand-crafted time-domain features raise per-task accu-
+racy by up to ∼40% over raw signals, but only replay preserves
+that gain under class-incremental drift.
+Index Terms—Electromyography, Continual learning, Gesture
+recognition, Catastrophic forgetting
+I. INTRODUCTION
+Gesture recognition from surface electromyography (sEMG)
+has gained particular significance with the growing demand
+for precise and reliable control interfaces in prosthetic and
+assistive technologies. Recognition is person-specific. Muscle
+anatomy, electrode placement, and movement style all influ-
+ence the signal, so a model narrowed to a single wearer
+typically outperforms a general-purpose decoder. However,
+personalization requires regimes that adapt to new wearers
+and expanding gesture vocabularies. Continual Learning (CL)
+provides exactly this capability, updating a deployed model
+on new subjects and gestures without retraining from scratch.
+The primary challenge in CL is catastrophic forgetting, where
+learning new tasks causes accuracy to decline on past ones [1].
+CL methods to counter forgetting are maturing rapidly, but
+they are developed and benchmarked almost entirely outside
+the recurrent models that dominate sEMG processing, leaving
+limited insight on which CL strategies survive realistic cross-
+user drift, or whether standard recurrent training practices even
+hold up under it.
+We evaluate naive, EWC, and experience-replay strate-
+gies across domain-incremental (DIL) and class-incremental
+(CIL) formulations, using both classic recurrent networks and
+modern state-space models [2] on NinaPro DB1 [3], [4].
+Our analysis yields three findings that build on one another.
+First, comparing CL strategies across both scenarios and both
+backbones, we find experience replay the most robust, and
+the choice of CL method outweighs the choice of recurrent
+architecture. This prompted us to focus on memory retention
+strategies, leading to the second finding. Carrying hidden state
+across tasks is ill-posed, and naively training in temporal order
+collapses the network to a majority-class predictor. This is
+an effect we trace primarily to batch ordering rather than to
+recurrent memory. We demonstrate a solution by purging the
+statefulness between tasks, and also shuffling data samples.
+This corrected regime is what makes our third finding hold.
+Time-domain features improve how well each task is learned,
+but only rehearsal preserves that improvement under class-
+incremental drift.
+II. PRIOR WORK
+Most prior work on CL for sEMG generates empirical
+insight into how forgetting-mitigation strategies behave on
+this signal [5]–[7]. Chen et al. [5] establish the feasibility
+of cross-subject adaptation, though by aggregating subjects
+into a few grouped sets rather than treating each as an
+independent sequential task. Others examine the choice of
+memory mechanism or model families: Kanoga et al. [7]
+apply deep generative replay under class-incremental drift, and
+Yoneda et al. [6] compare generative against discriminative
+model families under the same settings. These studies, how-
+ever, evaluate predominantly within a single CL scenario and
+over feedforward or generative decoders, leaving the recurrent
+models standard for sEMG largely untested.
+We build on this body of work by testing more systemat-
+ically across both domain- and class-incremental drift, and
+across two recurrent families: the classic LSTM [8] and
+HGRN [9], a modern state-space model (SSM) representative
+of current state-of-the-art sequence architectures. This sys-
+tematic comparison is what leads us to improve retention by
+altering how recurrent state is handled across windows.
+III. METHODOLOGY
+A. Dataset and Task Formulation
+We evaluated on NinaPro Database 1 [3], [4], which con-
+tains sEMG data from 27 subjects, which contains three dis-
+arXiv:2610.34011v1  [cs.LG]  25 Oct 2026
+
+
+tinct exercises, each containing a set of isotonic and isometric
+hand and wrist gestures. Exercise 1 includes 12 gestures,
+Exercise 2 has 17, and Exercise 3 has 23. We split the task
+into two continual learning scenarios as outlined in van de Ven
+& Tolias [10]:
+Domain-Incremental Learning (DIL): In this setup, the
+gesture set is statically fixed to the gestures from Exercise 1.
+The model is trained sequentially across the 27 subjects, where
+each subject is treated as an independent continual learning
+task. This tests generalization across anatomical variances and
+sensor placement discrepancies between individuals without
+forgetting the core temporal patterns.
+Class-Incremental Learning (CIL): In this setup, the
+model is trained sequentially across an expanding stream of
+data (Exercise 1 →Exercise 2 →Exercise 3). The ground truth
+labels for the new gestures in subsequent exercises must be
+offset sequentially in order to allow for CIL. For the HGRN [9]
+outlined in §III-C1, the classification head is sized statically
+at initialization to accommodate all classes, with the “rest”
+state (class 0) remaining shared throughout all tasks. The
+expansion of the class set makes this task more difficult than
+DIL, since the model must generalize to new labels, while
+retaining performance on past samples.
+B. Signal Preprocessing and Feature Extraction
+Data was partitioned at the repetition level to ensure that
+no samples from the same gesture execution appeared in
+both sets, with a 70/30 train/test split. Following this split,
+the signals were normalised to achieve zero mean and unit
+variance, with the scaler fitted on training data and applied to
+both sets. Signals were then segmented using a sliding window
+approach [11]. The ground truth label for each window was
+determined by the active stimulus at the final sample. Time-
+Domain Feature Extraction: Each 200-sample window was
+divided into K = 10 equal sub-windows of 20 samples (10
+ms) each and transformed into a time-domain (TD) feature
+sequence following the Hudgins feature set [12] (MAV, RMS,
+WL, ZC, SSC) with a noise-rejection threshold ϵ = 0.01σ
+applied to ZC and SSC to suppress spurious crossings [13].
+A second standardisation pass was applied to the TD feature
+matrix, using per-feature mean and variance fitted on training
+windows only.
+C. Base Network Architectures
+We evaluate two recurrent baseline architectures with a
+common configuration: L = 4 layers, hidden dimension
+D = 128, and a shared classification head.
+1) Long Short-Term Memory: The LSTM [8] mitigates the
+vanishing gradient problem through explicit memory cells,
+making it a standard sequential baseline for this experiment.
+2) Hierarchical Gated Recurrent Network: The HGRN [9]
+is a gated linear recurrence model that extends the standard
+forget-gate formulation with a hierarchical lower bound (γ ∈
+(0, 1)D), initialized proportionally to layer depth (γinit = l/L).
+This biases shallow layers to hold short-term relations and
+deep layers to have long-range retention. The recurrence is
+executed using a hardware-aware chunked linear-recurrence
+kernel (FLA/Triton [14], [15]).
+Shared Classification Head. For both architectures, the
+hidden state at the final timestep is passed to a linear head
+mapping to the active class set. Under the TD feature regime,
+the input shape is [N, K, 50] (K = 10); under the raw regime,
+it is [N, T, C] (T = 200, C = 10).
+D. Continual Learning Methods
+1) Naive Stateless and Stateful Baselines: We evaluated
+two naive training regimes that serve as lower bounds before
+any memory retention mechanism is applied. In the Stateless
+baseline, the recurrent hidden state is reset to zero (h0 = 0)
+at the start of every batch. This is the intuitive choice for
+independently-windowed EMG data. Consecutive windows
+are extracted with overlap from a fixed-length recording and
+carry no causal dependency across gesture boundaries. In the
+Stateful baseline, the hidden state is carried across batches
+within and across tasks, simulating an unbroken temporal
+stream.
+2) Standard
+Experience
+Replay:
+We
+implemented
+a
+rehearsal-based experience replay mechanism [16] with a
+global reservoir-sampling memory buffer [17] (capped 10,000
+windows). At each training step, a mini-batch of Nr = 16
+sequences is uniformly sampled from the buffer and concate-
+nated with the current live batch into a single joint mini-batch.
+Replay sequences are augmented with additive Gaussian noise:
+˜Xreplay = Xreplay + N(0, 0.012)
+The replay loss contribution is scaled by a weighting factor
+λreplay = 0.5:
+L = Llive
+CE + λreplayLreplay
+CE
+3) Online Elastic Weight Consolidation (EWC):
+As a
+regularisation-based alternative to rehearsal, we implemented
+online EWC [1], [18] for both architectures. At the boundary
+of each task, the empirical Fisher information ˆFi is estimated
+from the predicted class probabilities over the completed task’s
+training data and accumulated across all prior tasks. The
+objective adds a quadratic penalty on deviations from the most
+recently completed task’s weights θ∗:
+L = LCE + λewc
+X
+i
+ˆFi (θi −θ∗
+i )2
+The Fisher is computed in stateless mode to remain con-
+sistent with the inference regime. We set λewc = 30, the
+largest value preserving plasticity across the full sequence
+(see §IV-D).
+E. Evaluation Metrics
+All metrics are computed from R ∈RT ×T , where Ri,j is
+accuracy on Task j after training on Task i.
+
+
+a) Final Accuracy (FA): Accuracy on all tasks after the
+final task :
+FA = 1
+T
+T
+X
+i=1
+RT,i.
+(1)
+b) Forgetting (Frgt): Average drop in accuracy per task
+after all subsequent tasks have been trained:
+Fi = max(0, Ri,i −RT,i),
+(2)
+Frgt =
+1
+T −1
+T −1
+X
+i=1
+Fi.
+(3)
+c) Plasticity: We measure plasticity as the mean final-
+epoch training accuracy over the last min(10, T) tasks to
+distinguish genuine learning from weight freezing:
+Plast = 1
+|S|
+X
+t∈S
+atrain
+t
+S = { T −min(10, T) + 1, . . . , T }
+(4)
+IV. RESULTS
+A. CL Method Comparison
+Across all evaluated configurations, replay-based methods
+consistently demonstrated the strongest resistance to catas-
+trophic forgetting (Table I), as reflected by their lower forget-
+ting values. This trend held regardless of the continual-learning
+scenario (DIL or CIL) or the underlying model architecture
+(HGRN or LSTM), indicating that rehearsal is a robust strategy
+for stabilizing EMG-based learning. Stateless replay yielded
+the highest final accuracy, with CIL-LSTM reaching 83.3%
+accuracy and CIL-HGRN reaching 81.6% accuracy, while
+maintaining forgetting values as low as 1.8%–5.8% accuracy
+drop. EWC exhibited substantially lower final accuracies and
+larger forgetting (16.2%–28.5%) accuracy drop, and naive
+models also had similar forgetting measures.
+TABLE I
+CONTINUAL-LEARNING METHOD COMPARISON (TD FEATURES,
+STATELESS).
+DIL
+CIL
+Arch
+Method
+F-Acc ↑
+Frgt ↓
+F-Acc ↑
+Frgt ↓
+HGRN
+naive
+0.644±.03
+0.176
+0.659±.09
+0.239
+replay
+0.763±.01
+0.043
+0.816±.06
+0.018
+EWC
+0.641±.05
+0.168
+0.682±.08
+0.220
+LSTM
+naive
+0.627±.02
+0.212
+0.679±.05
+0.245
+replay
+0.757±.01
+0.058
+0.833±.07
+0.023
+EWC
+0.681±.01
+0.162
+0.679±.07
+0.285
+Note: Mean ± std over n runs (n=3 seeds for DIL; n=10 subjects for
+CIL); architecture is fixed per configuration. Best per architecture in bold.
+All stateless configurations remain plastic.
+Despite CIL being the harder task, replay under CIL
+achieves lower forgetting (1.8%–2.3% accuracy drop) than
+under DIL (4.3%–5.8% accuracy drop). This can likely be
+attributed to the size of task streams. The CIL stream com-
+prises only three tasks, against the 27 tasks of the DIL stream.
+Therefore, forgetting, which is averaged over transitions and
+accumulates with sequence length, is expected to be smaller
+under CIL on this basis alone.
+Fig. 1.
+Task-level accuracy for replay under the DIL HGRN (a) and CIL
+LSTM (b) settings. Immediate (blue) and Final (red) accuracies remain closely
+aligned, indicating reduced forgetting. Shaded regions denote ±1 standard
+deviation over multiple runs (seeds or subjects).
+B. Feature Representation
+We evaluated both raw sEMG signals and time-domain (TD)
+Hudgins features as input representations, reflected in Table II.
+In the DIL setting, TD features consistently produced higher
+accuracies, by ∼40%. They also remove the training instability
+seen with raw windows. Whereas raw features yield high
+seed variance for the weaker configurations (e.g. LSTM naive,
+±0.093; LSTM EWC, ±0.067), every TD DIL configuration
+converges to a tight range (std ≤0.03).
+However, this benefit was scenario-dependent, as in the
+class-incremental settings, TD features only help replay, while
+for naive and EWC the change was negligible. Although
+TD raises immediate accuracy, it also causes an increase
+in forgetting in non-rehearsal methods (e.g. LSTM EWC,
+12.3% →28.5% drop in accuracy on old tasks), causing the
+initial gain to be undone. Ultimately, TD features improve
+learning, and rehearsal is able to convert that improvement
+into retention.
+TABLE II
+RAW VS. TD FEATURES (STATELESS, PLASTIC EWC λ=30).
+DIL
+CIL
+Arch
+Method
+Raw
+∆TD
+Raw
+∆TD
+Final accuracy (↑)
+HGRN
+naive
+0.544
++0.101
+0.659
+−0.000
+HGRN
+EWC
+0.570
++0.072
+0.689
+−0.007
+LSTM
+naive
+0.487
++0.140
+0.688
+−0.009
+LSTM
+replay
+0.718
++0.039
+0.772
++0.061
+LSTM
+EWC
+0.485
++0.196
+0.676
++0.003
+Forgetting (↓; ∆TD>0 = less forgetting)
+HGRN
+naive
+0.235
++0.059
+0.222
+−0.017
+HGRN
+replay
+0.106
++0.063
+0.048
++0.030
+HGRN
+EWC
+0.204
++0.036
+0.170
+−0.050
+LSTM
+naive
+0.301
++0.089
+0.165
+−0.080
+LSTM
+replay
+0.053
+−0.005
+0.019
+−0.003
+LSTM
+EWC
+0.305
++0.143
+0.123
+−0.162
+
+
+C. Carrying State
+The windowing in §III-B considers each segment to be
+independent samples, so recurrent models should read each
+window with a zero state. Therefore, we see failures in two
+ways depending on batch ordering when trying to use this data
+as a continuous stream.
+Considering the case where windows are presented in a
+temporal order, although carried state is logical, training
+collapses. This is because in rest-dominated sets of sEMG data
+the gradient is consumed by the rest class causing the network
+to fall into a constant predictor. If the models are shuffled, then
+holding the state results in irrelevant noise being injected to a
+batch’s initial state. This is no different from a stateless regime
+with a random start state.
+Fig. 2.
+Plasticity (late-train accuracy) across the state×shuffle conditions,
+DIL. Everything below the red line at 60% denotes a frozen model. Both
+shuffle-off conditions collapse below the frozen threshold; with shuffling,
+stateful sits below stateless by the cost of its now-irrelevant carried state.
+This is confirmed by a 2 × 2 ablation over {stateful,
+stateless} × {shuffle on, off} (Fig. 2). Both shuffle-off
+conditions result in a plasticity collapse (27%–45%, below
+60% threshold) into the frozen region. We even see that
+stateless+shuffle-off freezes, which shows that ordering drives
+the heavy collapse. With shuffling restored, stateful recovers
+to 68%–76% but remains below stateless at 94%–95%, for
+reasons discussed above.
+D. EWC Regularization Quality
+EWC’s limited effectiveness in our setting stems from two
+compounding factors. First, calibrating λewc is non-trivial at
+scale: values tuned on a 6-subject proxy do not transfer
+to the full 27-subject sweep, consistent with the theoretical
+finding that a fixed λ becomes increasingly rigid as task
+count grows [19]. For the TD feature regime, λewc = 30
+was the largest value preserving plasticity across the full
+sequence. Second, and more fundamentally, an excessively
+large λ freezes the network, producing high apparent ac-
+curacy through weight immobilization rather than genuine
+consolidation [20]. We identify frozen networks via the late-
+train plasticity metric (plasticity < 0.60 on final tasks). EWC
+configurations that avoid freezing still exhibit forgetting in the
+range of 0.162–0.285 accuracy drop, confirming that Fisher-
+based regularization is insufficient to constrain parameter drift
+under the strong distributional shifts present in both DIL and
+CIL.
+E. Effect of Recurrent Architecture
+LSTM and HGRN perform comparably across CL methods
+and scenarios, with no configuration showing a consistent
+architectural advantage. The top-ranked configuration uses
+LSTM-CIL replay (83.3% accuracy), while the second uses
+HGRN-CIL replay (81.6% accuracy), a difference within one
+standard deviation.
+We
+measured
+architecture-dependent
+but
+hardware-
+independent statistics(Params and FLOPs) to gauge model
+performance (Table III). The fixed buffer size for replay was
+about 20.18 MB, the same across all replay configurations.
+TABLE III
+MODEL COST AND MEMORY FOOTPRINT (TD FEATURES).
+DIL
+CIL
+Arch
+Params
+FLOPs/win
+Params
+FLOPs/win
+HGRN
+339K
+6.68M
+345K
+6.70M
+LSTM
+538K
+10.62M
+543K
+10.63M
+The HGRN model yielded about the same accuracy at 1.6x
+lower cost.
+V. CONCLUSION
+We evaluated continual-learning strategies for sEMG-based
+gesture classification across 27 subjects and three exercises
+under DIL and CIL formulations. Experience replay out-
+performed EWC and naive baselines, achieving 83.3% final
+accuracy with forgetting as low as 1.8% drop in accuracy. It
+is clear that the dominant factor in long-term retention was the
+CL method rather than the recurrent architecture. Concerning
+stateful collapse, a 2×2 ablation attributes the collapse to
+batch ordering rather than recurrent state. We attribute this
+to windowing creating independent segments of sEMG data.
+Finally, time-domain features improved per-task learning but
+required rehearsal to retain that gain under class-incremental
+drift. Although we observed lower forgetting under CIL than
+DIL using replay, this could be attributed to the CIL stream
+being much smaller than the DIL stream (3 vs 27).
+These results offer a practical foundation for prosthetic
+control systems that must adapt to new users and gestures
+over time. While this paper explores the effects of different
+CL methods and recurrent architectures, the experiments were
+conducted offline, only using NinaPro DB1. Future work
+should examine whether results for the aforementioned CL
+methods and architectures transfer to other datasets in different
+experimental settings.
+
+
+REFERENCES
+[1] J. Kirkpatrick, R. Pascanu, N. Rabinowitz, J. Veness, G. Desjardins,
+A. A. Rusu, K. Milan, J. Quan, T. Ramalho, A. Grabska-Barwinska,
+D. Hassabis, C. Clopath, D. Kumaran, and R. Hadsell, “Overcoming
+catastrophic forgetting in neural networks,” Proceedings of the National
+Academy of Sciences, vol. 114, no. 13, p. 3521–3526, Mar. 2017.
+[Online]. Available: http://dx.doi.org/10.1073/pnas.1611835114
+[2] A.
+Gu
+and
+T.
+Dao,
+“Mamba:
+Linear-time
+sequence
+modeling
+with
+selective
+state
+spaces,”
+2024.
+[Online].
+Available:
+https://arxiv.org/abs/2312.00752
+[3] M. Atzori, A. Gijsberts, C. Castellini, B. Caputo, A.-G. Mittaz Hager,
+S. Elsig, G. Giatsidis, F. Bassetto, and H. M¨uller, “Electromyography
+data for non-invasive naturally-controlled robotic hand prostheses,”
+Scientific Data, vol. 1, p. 140053, Dec. 2014.
+[4] M. Atzori, A. Gijsberts, I. Kuzborskij, S. Elsig, A.-G. Mittaz Hager,
+O. Deriaz, C. Castellini, H. M¨uller, and B. Caputo, “Characterization of
+a benchmark database for myoelectric movement classification,” IEEE
+Transactions on Neural Systems and Rehabilitation Engineering, vol. 23,
+no. 1, pp. 73–83, Jan. 2015.
+[5] X. Chen, W. Guo, C. Lin, N. Jiang, and J. Su, “Cross-subject life-
+long learning for continuous estimation from surface electromyographic
+signal,” IEEE Transactions on Neural Systems and Rehabilitation Engi-
+neering, vol. 32, pp. 1965–1973, 2024.
+[6] S.
+Yoneda,
+S.
+Kanoga,
+and
+A.
+Furui,
+“Generative
+versus
+discriminative
+approaches
+for
+class-incremental
+learning
+of
+emg
+signals: Effectiveness of scale mixture modeling,” 2026. [Online].
+Available: https://arxiv.org/abs/2606.21310
+[7] S. Kanoga, R. Karakida, T. Hoshino, Y. Okawa, and M. Tada, “Deep gen-
+erative replay-based class-incremental continual learning in semg-based
+pattern recognition,” in 2024 46th Annual International Conference of
+the IEEE Engineering in Medicine and Biology Society (EMBC), 2024,
+pp. 1–4.
+[8] S. Hochreiter and J. Schmidhuber, “Long short-term memory,” Neural
+Computation, vol. 9, no. 8, pp. 1735–1780, Nov. 1997.
+[9] Z. Qin, S. Yang, and Y. Zhong, “Hierarchically gated recurrent
+neural network for sequence modeling,” 2023. [Online]. Available:
+https://arxiv.org/abs/2311.04823
+[10] G. M. van de Ven and A. S. Tolias, “Three scenarios for continual
+learning,” 2019. [Online]. Available: https://arxiv.org/abs/1904.07734
+[11] K. Englehart and B. Hudgins, “A robust, real-time control scheme for
+multifunction myoelectric control,” IEEE Transactions on Biomedical
+Engineering, vol. 50, no. 7, pp. 848–854, Jul. 2003.
+[12] B. Hudgins, P. Parker, and R. Scott, “A new strategy for multifunction
+myoelectric control,” IEEE Transactions on Biomedical Engineering,
+vol. 40, no. 1, pp. 82–94, 1993.
+[13] A. Phinyomark, P. Phukpattaranont, and C. Limsakul, “Feature reduction
+and selection for emg signal classification,” Expert Systems with
+Applications, vol. 39, no. 8, pp. 7420–7431, 2012. [Online]. Available:
+https://www.sciencedirect.com/science/article/pii/S0957417412001200
+[14] S. Yang and Y. Zhang, “Fla: A triton-based library for hardware-efficient
+implementations of linear attention mechanism,” Jan. 2024. [Online].
+Available: https://github.com/fla-org/flash-linear-attention
+[15] S. Yang, B. Wang, Y. Shen, R. Panda, and Y. Kim, “Gated linear attention
+transformers with hardware-efficient training,” in Proceedings of ICML,
+2024.
+[16] D. Rolnick, A. Ahuja, J. Schwarz, T. P. Lillicrap, and G. Wayne,
+“Experience replay for continual learning,” 2019. [Online]. Available:
+https://arxiv.org/abs/1811.11682
+[17] J. S. Vitter, “Random sampling with a reservoir,” ACM Trans. Math.
+Softw., vol. 11, no. 1, p. 37–57, Mar. 1985. [Online]. Available:
+https://doi.org/10.1145/3147.3165
+[18] J. Schwarz, J. Luketina, W. M. Czarnecki, A. Grabska-Barwinska,
+Y. W. Teh, R. Pascanu, and R. Hadsell, “Progress & Compress: A
+scalable framework for continual learning,” 2018. [Online]. Available:
+https://arxiv.org/abs/1805.06370
+[19] G.
+Kim,
+“Non-equilibrium
+stochastic
+dynamics
+as
+a
+unified
+framework
+for
+insight
+and
+repetitive
+learning:
+A
+kramers
+escape approach to continual learning,” 2026. [Online]. Available:
+https://arxiv.org/abs/2604.04154
+[20] A.
+Kutalev
+and
+A.
+Lapina,
+“Stabilizing
+elastic
+weight
+consolidation
+method
+in
+practical
+ml
+tasks
+and
+using
+weight
+importances for neural network pruning,” 2021. [Online]. Available:
+https://arxiv.org/abs/2109.10021
