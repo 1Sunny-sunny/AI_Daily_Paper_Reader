@@ -1,0 +1,2230 @@
+Beyond Low-Pass Dynamics: Frequency-Selective
+Spiking Reservoirs with Resonant Neurons
+Aurora Micheli
+Delft University of Technology
+a.micheli@tudelft.nl
+Claudio Gallicchio
+University of Pisa
+claudio.gallicchio@unipi.it
+Nergis Tomen
+Delft University of Technology
+n.tomen@tudelft.nl
+Abstract
+Spiking reservoir computing combines the training efficiency of fixed recurrent
+reservoirs with the energy efficiency of event-driven inference, where computa-
+tion is triggered by sparse spikes rather than executed densely at every timestep.
+However, existing spiking reservoirs almost exclusively rely on Leaky Integrate-
+and-Fire (LIF) neurons, whose low-pass dynamics limit their ability to distinguish
+information encoded at different temporal frequencies. We introduce HRF-Res,
+a liquid state machine in which LIF neurons are replaced by a heterogeneous
+population of Harmonic Resonate-and-Fire (HRF) neurons. These neurons exhibit
+intrinsic oscillatory dynamics and selectively respond to input frequencies, enabling
+the reservoir to capture frequency-specific temporal patterns. The result is more
+discriminative representations and higher classification accuracy than LIF-based
+reservoirs, achieved without sacrificing the energy efficiency of spiking computa-
+tion, with up to 19× lower energy consumption than an equivalent non-spiking
+oscillatory reservoir. Evaluated on ten benchmarks spanning time series, sequential
+images, audio spike trains, and neuromorphic vision, HRF-Res achieves state-of-
+the-art accuracy among spiking reservoir methods. These results demonstrate that
+introducing frequency-selective dynamics into spiking reservoirs improves repre-
+sentational quality and classification performance while preserving their inherent
+energy efficiency.
+1
+Introduction
+Processing temporal sensor streams at the edge, from industrial vibration monitoring to event-based
+vision and neuromorphic audio, requires models that are both computationally efficient and capable
+of operating under strict power constraints. Modern sequence models such as LSTMs [1], GRUs [2],
+and Transformers [3] achieve strong performance but were not designed for this regime: they require
+backpropagation through time (BPTT) to train, and perform dense computation at every timestep
+during inference. As a result, their energy consumption scales with model size rather than input
+activity, making them inefficient for low-power, event-driven settings where signals are sparse and
+computation should ideally be triggered only when new information arrives.
+Reservoir Computing (RC) addresses the training cost: a fixed, randomly initialised recurrent network
+projects inputs into a rich dynamical state and only a linear readout is trained [4, 5], eliminating
+BPTT entirely. The inference cost, however, remains: RC reservoirs perform dense computation at
+every timestep, so energy still scales with network size rather than input activity. Spiking Neural
+Networks (SNNs) offer a complementary solution. By encoding information as discrete spike events,
+40th Conference on Neural Information Processing Systems (NeurIPS 2026).
+arXiv:2610.37906v1  [cs.AI]  27 Oct 2026
+
+
+computation is triggered only by activity, making energy consumption proportional to firing rate rather
+than network size [6, 7]. This event-driven paradigm maps naturally onto neuromorphic hardware
+such as Intel Loihi [8], IBM TrueNorth [9], and SpiNNaker [10], and is particularly well suited
+to event-based sensing modalities [11]. Combining SNNs with RC yields Liquid State Machines
+(LSMs) [5], which inherit both training efficiency and activity-driven inference. Recent work has
+shown competitive LSM performance on temporal benchmarks [12, 13, 14].
+Despite this promise, existing spiking reservoirs almost exclusively rely on leaky integrate-and-fire
+(LIF) neurons. A LIF neuron acts as a temporal integrator [15]: inputs that vary rapidly over time
+are increasingly attenuated, resulting in an effectively low-pass response. A reservoir composed of
+such units therefore encodes how much input arrives, but not at which frequencies. For signals with
+multiple temporal scales, this constitutes a fundamental representational limitation [16].
+Oscillatory dynamics provide a natural mechanism to overcome this lack of sensitivity to temporal
+frequency structure. Subthreshold membrane oscillations have been widely observed in biological
+neurons [17, 18] and are believed to play a key role in temporal coding [19, 20]. In artificial systems,
+networks of oscillators form a powerful computational substrate for temporal processing [21], and
+non-spiking oscillatory reservoirs such as RON [22] show that heterogeneous resonance frequencies
+can improve performance and stability. Whether these benefits can be realised within a spiking
+reservoir remains an open question.
+In this work, we instantiate oscillatory dynamics in a spiking setting using Resonate-and-Fire neurons,
+which incorporate subthreshold oscillatory behaviour within a spike-generating mechanism [23,
+24]. Specifically, we employ Harmonic Resonate-and-Fire (HRF) neurons, which exhibit damped
+oscillatory dynamics and intrinsic resonance frequencies. Unlike LIF neurons, HRF neurons respond
+preferentially to inputs matching their resonance, effectively acting as band-pass filters. Intuitively,
+a heterogeneous population of HRF neurons behaves like a bank of tuning forks, each responding
+to its own frequency band, so that the reservoir state reflects not only how much input arrives but
+also at which temporal frequencies. By replacing LIF units with a heterogeneous population of HRF
+neurons, we introduce HRF-Res, a Liquid State Machine that combines the efficiency of spiking
+computation with frequency-selective representations.
+Our aim is not the neuron substitution per se, but to establish frequency selectivity as a computational
+principle for spiking reservoirs. Through a controlled comparison in which neuron dynamics are the
+only difference between models, we test whether band-pass behaviour survives in a full recurrent
+spiking network, whether it makes reservoir representations more class-discriminative, and whether
+this translates into higher accuracy at low energy cost. Our contributions are as follows:
+• We show that HRF neurons act as distributed band-pass filters, producing intrinsically more
+class-discriminative representations than an equivalent LIF reservoir before any readout is
+trained. A controlled ablation confirms that this representational advantage translates into
+improved classification accuracy across multiple datasets and modalities.
+• HRF-Res achieves up to 19× lower energy consumption compared to the non-spiking RON
+baseline [22], with only modest accuracy loss.
+• We evaluate the proposed model on ten benchmarks spanning univariate time series, se-
+quential images, audio spike trains, and neuromorphic vision, achieving state-of-the-art
+performance among spiking reservoir methods.
+Code to reproduce all experiments and results reported in this paper is available at https://github.
+com/AuroraMicheli/HRF-Res.
+2
+Related Work
+Reservoir computing and oscillatory dynamics. Reservoir Computing (RC) [4, 5] provides an
+efficient framework for temporal processing by decoupling representation learning from training. Its
+dynamical properties and practical usage have been extensively studied [25, 26]. A key factor in
+RC performance is the choice of reservoir dynamics. Early work on Liquid State Machines already
+suggested that neuron models with resonant or oscillatory subthreshold dynamics can yield more
+separable representations than standard integrator neurons [16]. More recently, oscillatory systems
+have been revisited as a powerful computational substrate, both from a theoretical perspective [21]
+2
+
+
+and in practice: Ceni et al. [22] showed that reservoirs composed of heterogeneous damped oscillators
+significantly outperform standard RC models. However, this approach relies on continuous-valued
+units, performing dense computation at every timestep, and therefore does not benefit from the energy
+savings of event-driven inference. Beyond reservoir computing, oscillatory dynamics have recently
+been explored as a general inductive bias in gradient-trained deep networks, from coupled-oscillator
+RNNs and GNNs [27, 28, 29] to Kuramoto-oscillator units in modern architectures [30], building on
+earlier work on neural synchrony via complex-valued units [31].
+Spiking reservoir computing. Liquid State Machines (LSMs) [5] extend RC to spiking neural
+networks, enabling event-driven computation and compatibility with neuromorphic hardware. A large
+body of work has explored architectural and parametrisation improvements, including heterogeneous
+time constants [12], efficient implementations and scaling strategies [13, 32], and ensemble or
+receptive-field approaches [14]. Some recent works also consider hybrid models that depart from the
+strict RC paradigm, such as Gaurav et al. [33], which combine non-spiking feature extractors with
+trainable spiking components. Despite these advances, existing spiking reservoirs predominantly rely
+on leaky integrate-and-fire (LIF) neurons, which lack intrinsic frequency selectivity.
+Resonate-and-fire neurons. Resonate-and-fire (RF) neurons [23] introduce oscillatory membrane
+dynamics into spiking models, enabling selective responses to input frequency. Their computational
+properties have been explored in a variety of contexts, including short-time Fourier transform compu-
+tation on neuromorphic hardware [34], and for converting analog signals into spike representations
+for downstream SNNs [35, 36]. RF neurons have also been used as harmonic oscillators in feed-
+forward SNNs for image, audio, and time-series classification, as well as related signal processing
+tasks [24, 37, 34, 38]. Adaptation-based mechanisms in spiking networks offer a related, though
+distinct, route to temporally structured dynamics beyond standard LIF [39]. These works highlight
+the potential of RF dynamics for efficient temporal representation and frequency analysis. However,
+their integration into fixed-weight reservoir computing frameworks remains largely unexplored. This
+work addresses this gap by investigating oscillatory spiking neurons within the reservoir computing
+paradigm.
+3
+Methods
+3.1
+Neuron Models
+The LIF neuron is the standard building block of spiking reservoir computing. Its membrane potential
+v decays towards rest at a rate controlled by the time constant τm, while integrating incoming input
+I(t):
+˙v = −v
+τm
++ I(t),
+(1)
+where ˙v denotes the time derivative of v. When v crosses a threshold θLIF, the neuron emits a spike
+sLIF = 1 and v resets. The decay term −v/τm acts as a leaky integrator: it smooths out rapid
+fluctuations in the input, so the membrane potential reflects a low-pass-filtered version of I(t). As
+a consequence, the LIF neuron responds most strongly to low-frequency inputs, regardless of the
+frequency content of the signal.
+The Harmonic Resonate-and-Fire (HRF) neuron [24, 23] replaces this LIF integration with the
+dynamics of a damped harmonic oscillator. Its state is described by two coupled variables, a velocity
+x and a position y:
+˙x = I(t) −γ y −ε x,
+(2)
+˙y = x.
+(3)
+Here γ > 0 is the stiffness, which sets the natural oscillation frequency ω = √γ of the neuron, and
+ε > 0 is the damping, which controls how quickly oscillations decay. The neuron emits a spike
+sHRF = 1 when y > θRF. The key difference from the LIF neuron is that the restoring force −γy in
+Eq. (2) causes the membrane to oscillate rather than simply decay: the neuron accumulates energy
+from inputs that arrive in phase with its natural frequency ω and attenuates inputs at other frequencies.
+This gives the HRF neuron band-pass rather than low-pass characteristics: it is selectively sensitive to
+a specific frequency band determined by γ and ε, rather than responding indiscriminately to all slow
+input.
+3
+
+
+LIF
+HRF
+⋮
+⋮
+⋮
+⋮
+Input
+Spikes s
+Position y
+Untrained Spiking Reservoir
+𝑾𝒔𝑡
+𝑯𝑹𝑭 
+𝒚𝑇
+ 
+𝑽𝒔𝑡
+𝑳𝑰𝑭
+𝑼𝒖𝑡
+ 
+𝒓 
+Trained linear readout
+Output
+⋮
+𝒓= 𝑾𝟎
+ 𝒚𝑇
+ + 𝒃0
+Figure 1: Architecture of our proposed HRF-Res. The external input ut is projected into a
+LIF encoder population (left, pink) via the fixed matrix U. LIF spikes sLIF
+t
+are passed to the HRF
+oscillatory reservoir (right, blue) via V; each HRF neuron oscillates at its own resonance frequency
+and feeds spikes sHRF
+t
+back to the LIF layer via W. All weights are fixed; only the linear readout
+r = WoyT + bo is trained.
+3.2
+The HRF-Res Model
+Our proposed model, HRF-Res, organises N neurons into two interacting populations, a LIF encoder
+layer and an HRF oscillatory reservoir, all with fixed, randomly initialised weights, as illustrated
+in Figure 1. Only a linear readout is optimised, following the RC paradigm [4, 5]. Both neuron
+models are simulated in discrete time via the Euler method [40] with timestep ∆t. The complete
+discrete-time update at each timestep t is
+vt+1 = vt + ∆t
+
+−vt
+τm
++ Uut + WsHRF
+t
++ b
+
+,
+(4)
+xt+1 = xt + ∆t (VsLIF
+t
+−γ ⊙yt −ε ⊙xt) ,
+(5)
+yt+1 = yt + ∆t xt,
+(6)
+where ut ∈RNinp is the external input, vt, xt, yt ∈RN are the LIF membrane potentials and the
+HRF velocity and position states respectively. sLIF
+t , sHRF
+t
+∈{0, 1}N are the LIF and HRF spike vectors,
+γ, ε ∈RN collect the per-neuron stiffness and damping coefficients, and ⊙denotes element-wise
+multiplication. U ∈RN×Ninp is the input matrix, V ∈RN×N the LIF-to-HRF synaptic matrix,
+W ∈RN×N the HRF-to-LIF feedback matrix, and b ∈RN a bias vector.
+All weight matrices are randomly initialised and kept fixed throughout training. The input matrix U
+and bias b are scaled by a global input gain ν, while the recurrent matrix W is rescaled to a target
+spectral radius ρ following standard reservoir practice [4, 26] (see Appendix A.1 for full initialisation
+details). HRF neuron parameters (γi, εi) are drawn independently across neurons, inducing a
+diversity of intrinsic time constants. This heterogeneity allows the reservoir to simultaneously
+represent temporal structure at multiple timescales, improving the expressivity of the fixed dynamics
+(see Appendix A.1). The timestep ∆t is treated as a hyperparameter rather than a fixed integration
+step [22]. HRF-Res is implemented in Python using standard machine learning libraries, and all
+hyperparameters are selected via random search on a held-out validation set (see Appendix A.4 for
+the evaluation protocol and Appendix A for full parameter ranges and selected configurations).
+HRF-Res supports two families of readout strategies: membrane-based readouts, which operate on
+the continuous HRF position state yt, and spike-based readouts, which operate directly on sHRF
+t
+. This
+flexibility reflects the practical deployment context: membrane-based readouts extract richer temporal
+information from the oscillatory dynamics and are well-suited to software or hybrid implementations,
+while spike-based readouts yield a fully event-driven pipeline compatible with neuromorphic hardware
+end-to-end. By default we use the final HRF state yT as the readout feature, mapped to the output
+via r = WoyT + bo, where Wo ∈RNout×N and bo ∈RNout are the weights and biases of the
+output layer, optimised with regularisation strength C treated as a hyperparameter. These are the
+4
+
+
+only trainable parameters of HRF-Res. We conduct a systematic ablation over membrane-based and
+spike-based readout strategies in Section 4.3, showing that the choice can be adapted to the target
+deployment scenario without significant accuracy loss.
+3.3
+Energy Cost Model
+A central motivation for spiking reservoir computing is energy-efficient inference. To enable a
+consistent comparison between spiking and non-spiking models, we quantify computational cost
+using multiply-accumulate operations (MACs) for non-spiking networks and accumulate operations
+(ACs) for spiking networks [41, 42]. MACs correspond to dense multiplication-and-accumulation
+operations performed at every timestep over all connections, independent of neural activity. In
+contrast, ACs occur only when presynaptic spikes arrive and consist of adding synaptic contributions
+to the postsynaptic state, without runtime multiplication. We measure spiking computation using
+synaptic operations (SOPs), defined as the number of spike-triggered synaptic transmissions, with
+each SOP corresponding directly to one AC event. This enables a unified comparison of spiking
+and non-spiking models under a common hardware energy model. We convert MACs and ACs into
+energy using standard CMOS estimates (EMAC and EAC). Following standard practice in the SNN
+literature, energy figures count synaptic operations, which scale as O(N 2) and dominate the cost
+of recurrent computation; the activity-independent O(N) neuron state updates, together with full
+details, are reported in Appendix A.2.
+3.4
+Reservoir Characterisation
+A key hypothesis of this work is that oscillatory neuron dynamics in a spiking reservoir produce
+frequency-selective temporal representations that are more aligned with class structure than those of
+integrative dynamics, leading to improved classification. We test this through two complementary
+analyses on frozen reservoirs, using a controlled baseline that isolates the effect of neuron dynamics.
+As a controlled baseline we introduce LIF-Res: a model identical to HRF-Res in every respect except
+that the HRF population (blue in Figure 1) is replaced by LIF neurons with heterogeneous membrane
+time constants τm,i and thresholds θi, drawn per neuron from log-uniform distributions. This mirrors
+the γi/εi heterogeneity of the HRF reservoir, following prior work showing that heterogeneous
+time constants improve performance [12, 43]. An independent hyperparameter search is conducted
+for LIF-Res on each dataset using the same protocol as for HRF-Res, ensuring the comparison
+reflects the peak performance of each neuron model rather than an arbitrary parameter transfer
+(see Appendix A.5). Any observed difference therefore has a single cause: the oscillatory versus
+integrative nature of the reservoir dynamics. The first analysis tests whether HRF neurons behave
+as band-pass filters in a full spiking reservoir, beyond the continuous-time, single-neuron regime
+of Eqs. (2)–(3). This property is not guaranteed to persist under discrete-time integration, recurrent
+coupling, and heterogeneous random connectivity. The second analysis evaluates whether such
+frequency selectivity yields representations that are intrinsically more discriminative than those of
+LIF-Res, even without readout training. This is a stricter criterion: frequency-selective responses do
+not necessarily translate into features that improve classification. Together, these analyses provide
+both an empirical characterisation of the HRF reservoir and evidence that this property is relevant for
+downstream tasks.
+Frequency tuning and Q-factor.
+We measure the preferred input frequency f ∗of each reservoir
+neuron by sweeping 30 log-spaced sinusoidal inputs through the full network and identifying the
+frequency maximising steady-state response power via the Discrete Fourier Transform (DFT). Filter
+sharpness is quantified by the Q-factor Q = f ∗/∆f−3 dB, where ∆f−3 dB is the half-power band-
+width around the peak. A neuron is band-pass resonant (Q > 0) if both a lower and upper −3 dB
+crossing exist, and integrative (Q = 0) otherwise. Being dimensionless and independent of ∆t, Q is
+directly comparable across models and datasets. Full sweep parameters are provided in Appendix B,
+where we also verify that applying a Hann window before the DFT, which reduces spectral leakage
+that could broaden the measured peaks, leaves all results unchanged.
+Class discriminability without readout training (CKA).
+We measure how well reservoir states
+are intrinsically aligned with the structure of the data using Centred Kernel Alignment (CKA) [44, 45],
+without training any readout. Since CKA compares fixed-length representations, we summarise
+5
+
+
+sMNIST
+FordA
+SHD
+DVS
+Gesture
+0
+25
+50
+75
+100
+Band-pass neurons (%)
+A
+Fraction of resonant neurons
+HRF-Res
+LIF-Res
+sMNIST
+FordA
+SHD
+DVS
+Gesture
+0
+2
+4
+Mean Q-factor
+B
+Band-pass sharpness
+HRF-Res
+LIF-Res
+Figure 2: Band-pass properties of HRF-Res vs. LIF-Res. (A) Fraction of resonant neurons (Q > 0)
+per dataset. HRF-Res has 4–20× more resonant neurons than LIF-Res, confirming that band-pass
+dynamics survive in a full spiking reservoir setting. (B) Mean Q-factor among resonant neurons.
+HRF neurons form sharper band-pass filters on all datasets, with the largest gaps on FordA (4.6 vs.
+2.0), DVS Gesture (3.4 vs. 1.4) and SHD (2.5 vs. 0.6). Bars show mean ± std over three seeds.
+each trajectory by its temporal mean reservoir state: for each test sample i we extract the temporal
+mean reservoir state ¯yi =
+1
+T
+PT
+t=1 y(i)
+t
+∈RN, normalise each row to unit norm and stack these
+into H ∈Rn×N. Because the HRF position oscillates around an equilibrium, averaging partially
+cancels the very oscillatory component that distinguishes HRF from LIF dynamics, making this
+a conservative choice for HRF-Res. The feature kernel is KH = HH⊤and the label kernel is
+(KY )ij = 1[yi = yj]. Both are centred with ˜K = HcKHc where Hc = In −1
+n11⊤, and CKA is
+computed as
+CKA(KH, KY ) =
+⟨˜KH, ˜KY ⟩F
+q
+⟨˜KH, ˜KH⟩F ⟨˜KY , ˜KY ⟩F
+,
+(7)
+where ⟨·, ·⟩F is the Frobenius inner product. A score of 1 indicates perfect class clustering; 0 indicates
+none. Further implementation details, and controls showing that the results are robust to the number
+of samples n and to discarding an initial transient of the trajectory, are provided in Appendix B.2.
+4
+Results
+4.1
+HRF Reservoirs Function as Distributed Band-Pass Filters
+We apply the analyses of Section 3.4 to compare frequency tuning and representational discrim-
+inability in HRF-Res and LIF-Res across four datasets chosen to span diverse input modalities and
+temporal regimes: sMNIST [46] (sequential images, T = 784, N = 800), FordA [47] (univariate
+time series, T = 500, N = 800), SHD [48] (audio spike trains, T = 250, 700 channels, N = 3,000),
+and DVS Gesture [49] (event-based vision, T = 200, 2,048 channels, N = 3,000).
+Frequency tuning and Q-factor (Figures 2 and 3B).
+The difference between the two reservoirs
+is immediate. The fraction of resonant neurons (Q > 0) is 98%, 100%, 62%, and 83% for HRF-
+Res (sMNIST, FordA, SHD, DVS Gesture), compared to 23%, 9%, 15%, and 4% for LIF-Res (mean
+over three seeds; standard deviations at most 2 percentage points). Beyond this expected gap, a
+key result is that many HRF neurons retain sharp, well-defined resonance within the full recurrent
+network. Among resonant units, Q-factors are consistently higher for HRF (4.2 vs. 3.6, 4.6 vs. 2.0,
+2.5 vs. 0.6, 3.4 vs. 1.4). Preferred-frequency distributions further highlight this contrast: HRF neurons
+span a broad range of tuned frequencies (standard deviation of f ∗: 0.049, 0.041, 0.021, 0.016 Hz),
+whereas LIF neurons always collapse to the lowest frequency (standard deviation: 0.002–0.008 Hz),
+consistent with pure integrative behaviour. On FordA, HRF responses concentrate around 0.42 Hz,
+suggesting tuning to a dominant temporal scale in the signal.
+Class discriminability (Figure 3A).
+HRF-Res achieves higher mean CKA than LIF-Res on all
+four datasets. The gap is largest on FordA (+322%), followed by DVS Gesture (+13%) and SHD
+(+9%); on sMNIST (+9%) the difference lies within the seed-to-seed variability. Absolute scores
+are low by design, as untrained reservoirs are not optimised for class discrimination. Notably, the
+6
+
+
+sMNIST
+FordA
+SHD
+DVS
+Gesture
+0.0
+0.1
+0.2
+0.3
+0.4
+CKA score
+A
+Class-label alignment
+HRF-Res
+LIF-Res
+10−2
+10−1
+100
+Fraction of neurons
+B
+sMNIST
+10−2
+10−1
+100
+FordA
+10−2
+10−1
+100
+SHD
+10−2
+10−1
+100
+DVS Gesture
+HRF-Res
+LIF-Res
+Preferred frequency (Hz)
+Figure 3: HRF-Res produces more class-discriminative representations. (A) CKA between
+temporal mean reservoir states and category labels (mean ± std over three seeds). HRF-Res achieves
+higher CKA than LIF-Res on all four datasets. (B) Distribution of per-neuron preferred frequencies
+(log scale). HRF neurons show distributed tuning across a range of frequencies, consistent with
+a heterogeneous bank of band-pass filters; LIF neurons collapse to the lowest sweep frequency,
+consistent with pure integration.
+ranking by CKA gap matches the ranking by absolute Q-factor gap (FordA > DVS Gesture ≈SHD
+> sMNIST), consistent with frequency selectivity driving representational discriminability.
+Taken together, these analyses confirm that HRF-Res functions as a distributed bank of band-pass
+filters that project temporal inputs onto frequency-structured, class-discriminative trajectories, a
+property that LIF-Res cannot produce despite being given equally heterogeneous parameters and
+an independent hyperparameter search. Section 4.2 tests whether this representational advantage
+translates to a classification improvement.
+4.2
+HRF Neurons Improve Classification Across Modalities
+We test whether the representational advantage of Section 4.1 translates to classification accuracy,
+using the same four datasets and reservoir sizes, and the final reservoir state at time T as the readout
+feature. HRF-Res outperforms LIF-Res on three of four datasets, with accuracy gains consistent
+with the predictions of Section 4.1 (Table 1). The largest gap is on sMNIST (+26.6%, 93.64%
+vs. 67.00%), where HRF resonance is highest (98% vs. 23%). SHD follows with +10.5 (83.48%
+vs. 72.95%) and FordA with +2.6 (69.72% vs. 67.15%). DVS Gesture is the exception, where the
+two models perform comparably (71.81 ± 1.59% vs. 73.48 ± 1.12%) and the overlapping standard
+deviations indicate no significant difference; we discuss this case in Section 5. HRF-Res is also
+more energy-efficient than LIF-Res on most datasets despite achieving higher accuracy (energy
+estimated via the framework of Section 3.3), as LIF neurons appear to require higher firing rates
+to encode temporal information. DVS Gesture is again the exception. These results confirm the
+hypothesis put forward in Section 4.1: equipping a spiking reservoir with oscillatory HRF neurons
+produces measurably richer representations than an equivalent LIF reservoir, and this representational
+advantage translates directly to classification accuracy across diverse temporal data modalities.
+4.3
+Readout Strategy Ablation
+The choice of readout strategy is known to significantly affect performance in reservoir comput-
+ing [26], and carries practical implications for deployment: membrane-based readouts operating on yt
+suit software or hybrid implementations, while spike-based readouts on sHRF
+t
+yield a fully event-driven
+neuromorphic pipeline. Even within membrane-based readouts, it is not clear which summary statistic
+of yt best captures class-relevant information. We therefore compare six strategies (Figure 4): five
+membrane-based operating on yt (the final state yT , the temporal mean, the temporal root mean
+square, the temporal standard deviation, and a combined 3N-dimensional vector concatenating the
+RMS, the standard deviation and the final state), and one spike-based readout using the mean firing
+rate of sHRF
+t
+. Here N is the number of reservoir neurons (Section 3.2). The first four membrane-based
+modes and the spike-based mode all produce N-dimensional features, enabling a fair comparison. On
+every dataset, the best membrane-based readout outperforms the spike-based alternative, indicating
+that the continuous oscillatory dynamics of yt carry richer temporal information than mean spike
+rates. Among membrane-based modes, performance is stable across statistics on sMNIST and SHD,
+7
+
+
+Table 1: HRF-Res vs. LIF-Res. Both architectures are otherwise identical; hyperparameters for
+LIF-Res are independently re-tuned per dataset. Results are mean ± std over 5 seeds with final
+reservoir state readout. HRF-Res outperforms or matches LIF-Res on all four datasets, with accuracy
+gains up to +26.6% and lower energy consumption on most datasets. See Appendix A.5 for LIF-
+Res architecture details and Appendix A.4 for the evaluation protocol.
+Dataset
+Model
+Acc (%)
+Energy (J)
+sMNIST
+HRF-Res
+93.64 ± 0.25
+(1.676 ± 0.034) × 10−4
+LIF-Res
+67.00 ± 1.04
+(2.352 ± 0.048) × 10−4
+FordA
+HRF-Res
+69.72 ± 0.68
+(0.790 ± 0.015) × 10−4
+LIF-Res
+67.15 ± 0.66
+(1.478 ± 0.038) × 10−4
+SHD
+HRF-Res
+83.48 ± 0.44
+(1.044 ± 0.021) × 10−3
+LIF-Res
+72.95 ± 0.53
+(1.280 ± 0.210) × 10−3
+DVS Gesture
+HRF-Res
+71.81 ± 1.59
+(1.265 ± 0.025) × 10−3
+LIF-Res
+73.48 ± 1.12
+(0.953 ± 0.074) × 10−3
+90
+92
+94
+Test Accuracy (%)
+sMNIST
+67.5
+70.0
+72.5
+75.0
+77.5
+FordA
+80
+85
+90
+SHD
+70
+75
+80
+DVS Gesture
+Final
+Mean
+RMS
+Std
+Combined (RMS+Std+Final)
+Spikes (mean rate)
+Figure 4: Readout strategy ablation. Test accuracy (%, mean ± std over 5 trials) for six readout
+strategies across four datasets. Blue bars: membrane-based readouts operating on the HRF position
+state yt, using the final state (yT ), temporal mean, root mean square (RMS), or standard deviation
+(Std). Green bar: combined membrane-based readout concatenating RMS, Std, and final state
+(3N-dimensional). Orange bar: spike-based readout using the mean HRF spike rate. Bold outline
+marks the best accuracy per dataset. The best membrane-based readout outperforms the spike-based
+alternative on every dataset, and the combined readout achieves the best or near-best accuracy on all
+datasets.
+while temporal averaging outperforms the final state by ∼4% on FordA, suggesting that aggregating
+over time reduces noise in univariate vibration signals. The combined readout achieves the best or
+near-best accuracy on all four datasets, at the cost of tripling the parameter count.
+4.4
+Energy Efficiency of the Spiking Formulation
+Having established that oscillatory spiking dynamics outperform integrative ones, we ask whether
+the spiking formulation itself is justified relative to a non-spiking oscillatory reservoir, which is
+the relevant tradeoff when targeting deployment on neuromorphic hardware. We compare HRF-
+Res against RON [22], which shares the same core design but replaces LIF neurons with tanh-activated
+units and HRF neurons with continuous harmonic oscillators. For RON we use the hyperparameters
+reported in the original paper; for HRF-Res we use the configurations selected via the random search
+described in Appendix A. Some accuracy cost is expected, as continuous activations carry more
+information per timestep than binary spikes; the question is whether the energy saving, quantified
+using the framework of Section 3.3, is large enough to justify the spiking formulation. Both models
+are evaluated at matched reservoir size (N = 800) and readout (final reservoir state yT ) on four
+of the benchmarks from the original RON evaluation [22]: sequential images (sMNIST, psMNIST,
+npCIFAR-10) and univariate time series (FordA).
+As shown in Table 2, HRF-Res achieves 9–19× energy reduction over RON across all four bench-
+marks, with accuracy losses of only 1.8–4.9 percentage points. The saving is structural: the dominant
+O(N 2) recurrent cost is gated by spiking activity rather than executed densely at every timestep, so it
+is expected to hold broadly across tasks and deployment scenarios. Including the activity-independent
+O(N) neuron state updates of both models, which add less than 10% to the energy of HRF-Res, the
+reduction remains 9–17× (Appendix A.2). These results demonstrate that the spiking formulation
+8
+
+
+Table 2: Energy efficiency: HRF-Res vs. RON. All experiments with N = 800 and final readout.
+RON energy is computed from MAC counts (grey); HRF-Res energy from SOPs (green), which
+cost ∼5× less per operation than MACs in 45 nm CMOS [41]. HRF-Res achieves 9–19× energy
+reduction over RON with accuracy losses of only 1.8–4.9 percentage points.
+RON [22]
+HRF-Res (ours)
+Dataset
+Acc (%)
+MACs (×108)
+Energy (×10−4 J)
+Acc (%)
+SOPs (×108)
+Energy (×10−4 J)
+Reduction
+sMNIST
+95.44 ± 0.16
+5.024
+23.11 ± 0.69
+93.64 ± 0.25
+1.862 ± 0.037
+1.676 ± 0.042
+13.8×
+psMNIST
+91.33 ± 0.47
+4.921
+22.64 ± 0.68
+87.96 ± 0.33
+2.093 ± 0.042
+1.884 ± 0.046
+12.0×
+FordA
+73.15 ± 7.67
+3.204
+14.74 ± 0.44
+69.72 ± 0.68
+0.878 ± 0.025
+0.790 ± 0.015
+18.7×
+npCIFAR-10
+38.50 ± 0.32
+7.168
+32.97 ± 0.99
+33.57 ± 0.27
+3.830 ± 1.200
+3.450 ± 1.080
+9.6×
+of HRF-Res achieves the energy efficiency required for edge deployment without sacrificing the
+representational power of oscillatory reservoir dynamics, offering a practical path to neuromorphic
+time series classification at a fraction of the inference cost of non-spiking alternatives.
+4.5
+Comparison to Spiking Reservoir Baselines
+We evaluate HRF-Res against prior spiking reservoir methods on seven benchmarks chosen to
+match those reported by each baseline [12, 13, 32, 14], enabling direct comparison: univariate time
+series (FordA, FordB, Wafer, Earthquakes [47]), audio spike trains (SHD [48]), and neuromorphic
+vision (DVS Gesture [49], N-MNIST [50]). Reservoir sizes are matched to each baseline where a
+direct comparison exists; smaller reservoirs are used elsewhere to demonstrate efficiency. We use
+the combined readout for SHD, DVS Gesture, N-MNIST, and larger-reservoir FordA; for FordB,
+Wafer, and Earthquakes we use the final-state readout, which achieves competitive results with fewer
+parameters.
+HRF-Res achieves competitive or state-of-the-art accuracy across all modalities (Table 3). On SHD,
+HRF-Res with 6,000 neurons (89.78%) surpasses the 16,000-neuron ELSM [12] at nearly 3× fewer
+neurons. On FordB, Wafer, and Earthquakes, HRF-Res with only 800 neurons outperforms all Dey
+et al. [13] baselines using up to 6× more neurons. On FordA, HRF-Res (large, 2,500 neurons,
+82.05%) outperforms the Dey et al. baseline at matched size, while even the small 800-neuron variant
+(73.91%) remains competitive. On N-MNIST, HRF-Res (97.13%) outperforms Patiño-Saucedo et
+al. [32] (94.43%) and approaches Biswas et al. [14] (98.10%), who use a more complex ensemble
+architecture. On DVS Gesture, HRF-Res achieves 81.06% versus 85.2% for Biswas et al. at matched
+neuron count; the gap is attributable to their spatial and temporal ensemble architecture combining
+multiple reservoirs, rather than neuron count alone. All HRF-Res results are averaged over 5 seeds
+with standard deviation, confirming consistent performance across a simple fixed random reservoir
+with no task-specific adaptations. Together, these results establish HRF-Res as a competitive spiking
+reservoir model that generalises across diverse temporal modalities and input dimensionalities,
+whereas individual baselines typically cover only a subset of these settings.
+5
+Conclusion
+We introduced HRF-Res, a spiking reservoir computing model based on Harmonic Resonate-and-Fire
+neurons, replacing conventional LIF dynamics with a heterogeneous population of oscillatory units.
+We showed that HRF neurons act as distributed band-pass filters within the reservoir, producing
+intrinsically more class-discriminative representations prior to readout training. This translates
+into consistent accuracy gains across diverse temporal benchmarks (up to +26.6% over LIF-Res),
+while achieving up to 19× lower inference energy than a non-spiking oscillatory baseline. Together,
+these results highlight frequency-selective dynamics as a powerful and underexplored computational
+principle for spiking reservoirs, enabling richer temporal representations without sacrificing efficiency.
+Several limitations remain: energy estimates are model-based and not yet validated on neuromorphic
+hardware, the readout is trained offline, and a rigorous theoretical characterisation of HRF reservoir
+dynamics in terms of memory capacity, separation properties, and stability remains an open question.
+Additionally, the representational advantage of HRF neurons is expected to be most pronounced
+for signals with identifiable frequency structure; performance gains may be smaller for tasks where
+class-relevant information is not encoded in temporal frequency content. This is consistent with
+9
+
+
+Table 3: Comparison with spiking reservoir baselines. Neurons: number of reservoir units. HRF-
+Res results: mean ± std over 5 seeds. HRF-Res achieves competitive or state-of-the-art accuracy
+across all modalities, in most cases with fewer neurons than prior methods.
+Dataset
+Method
+Neurons
+Acc (%)
+SHD
+HRF-Res
+6,000
+89.78 ± 0.35
+Deckers et al. [12]
+16,000
+89.30
+Biswas et al. [14]
+3,000
+77.80
+FordA
+HRF-Res
+800
+73.91 ± 0.74
+HRF-Res (large)
+2,500
+82.05 ± 0.55
+Dey et al. [13]
+2,500
+80.37
+FordB
+HRF-Res
+800
+70.55 ± 0.14
+Dey et al. [13]
+2,500
+64.32
+Wafer
+HRF-Res
+800
+99.33 ± 0.04
+Dey et al. [13]
+5,000
+98.85
+Earthquakes
+HRF-Res
+800
+77.22 ± 1.10
+Dey et al. [13]
+4,500
+71.94
+N-MNIST
+HRF-Res
+3,600
+97.13 ± 0.12
+Patiño-Saucedo et al. [32]
+4,096
+94.43
+Biswas et al. [14]
+3,600
+98.10
+DVS Gesture
+HRF-Res
+4,000
+81.06 ± 0.55
+Biswas et al. [14]
+4,000
+85.20
+DVS Gesture, where HRF-Res does not improve over LIF-Res, and where class identity plausibly
+depends more on spatial trajectories than on stable temporal frequency content. Frequency selectivity
+also cuts both ways under distribution shift: HRF-Res degrades more gracefully than LIF-Res under
+additive noise, but is more sensitive to changes in the input sampling rate, which move the input
+spectrum away from the neurons’ preferred bands (Appendix C). All results are based on classification
+benchmarks and generalisation to other settings remains to be explored. Two natural extensions are
+to learn the resonance parameters (γi, εi), for instance with surrogate gradients, trading part of the
+training efficiency of reservoir computing for task-adapted frequency tuning, and to reintroduce the
+dynamic synapses of the original LSM formulation [5], which we omitted, as is common in recent
+spiking reservoirs, to isolate the effect of neuron dynamics. Since short-term synaptic plasticity filters
+inputs at the synapse while HRF neurons filter them at the membrane, the two mechanisms may well
+be complementary.
+Acknowledgments and Disclosure of Funding
+This research received no specific external funding. The authors declare no competing interests.
+10
+
+
+References
+[1] Sepp Hochreiter and Jürgen Schmidhuber. Long short-term memory. Neural computation,
+9(8):1735–1780, 1997.
+[2] Kyunghyun Cho, Bart van Merriënboer, Caglar Gulcehre, Dzmitry Bahdanau, Fethi Bougares,
+Holger Schwenk, and Yoshua Bengio. Learning phrase representations using RNN encoder–
+decoder for statistical machine translation. In Alessandro Moschitti, Bo Pang, and Walter
+Daelemans, editors, Proceedings of the 2014 Conference on Empirical Methods in Natural
+Language Processing (EMNLP), pages 1724–1734, Doha, Qatar, October 2014. Association for
+Computational Linguistics.
+[3] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez,
+Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. In Advances in Neural Informa-
+tion Processing Systems, volume 30, 2017.
+[4] Herbert Jaeger. The “echo state” approach to analysing and training recurrent neural net-
+works. Technical Report GMD Report 148, German National Research Center for Information
+Technology, 2001.
+[5] Wolfgang Maass, Thomas Natschläger, and Henry Markram. Real-time computing without sta-
+ble states: a new framework for neural computation based on perturbations. Neural computation,
+14(11):2531–2560, 2002.
+[6] Wolfgang Maass. Networks of spiking neurons: the third generation of neural network models.
+Neural networks, 10(9):1659–1671, 1997.
+[7] Hélène Paugam-Moisy and Sander Bohte. Computing with spiking neuron networks. In
+Grzegorz Rozenberg, Thomas Bäck, and Joost N. Kok, editors, Handbook of Natural Computing,
+pages 335–376. Springer, 2012.
+[8] Mike Davies, Narayan Srinivasa, Tsung-Han Lin, Gautham Chinya, Yongqiang Cao, Sri Harsha
+Choday, Georgios Dimou, Prasad Joshi, Phil Knag, Raghavan Kulandaiswamy, et al. Loihi: A
+neuromorphic manycore processor with on-chip learning. IEEE Micro, 38(1):82–99, 2018.
+[9] Paul A Merolla, John V Arthur, Rodrigo Alvarez-Icaza, Andrew S Cassidy, Jun Sawada, Filipp
+Akopyan, Bryan L Jackson, Nabil Imam, Chen Guo, Yutaka Nakamura, et al. A million
+spiking-neuron integrated circuit with a scalable communication network and interface. Science,
+345(6197):668–673, 2014.
+[10] Steve B Furber, Francesco Galluppi, Steve Temple, and Luis A Plana. The SpiNNaker project.
+Proceedings of the IEEE, 102(5):652–665, 2014.
+[11] Guillermo Gallego, Tobi Delbrück, Garrick Orchard, Chiara Bartolozzi, Brian Taba, Andrea
+Censi, Stefan Leutenegger, Andrew J Davison, Jörg Conradt, Kostas Daniilidis, et al. Event-
+based vision: A survey. IEEE Transactions on Pattern Analysis and Machine Intelligence,
+44(1):154–180, 2022.
+[12] Lucas Deckers, Ing Jyh Tsang, Werner Van Leekwijck, and Steven Latré. Extended liquid state
+machines for speech recognition. Frontiers in Neuroscience, 16:1023470, 2022.
+[13] Sounak Dey, Dighanchal Banerjee, Arun M George, Arijit Mukherjee, and Arnab Pal. Efficient
+time series classification using spiking reservoir. In 2022 International Joint Conference on
+Neural Networks (IJCNN), pages 1–8. IEEE, 2022.
+[14] Anmol Biswas, Sharvari Ashok Medhe, Raghav Singhal, and Udayan Ganguly. Temporal
+and spatial reservoir ensembling techniques for liquid state machines. In Proceedings of the
+International Conference on Neuromorphic Systems, ICONS ’24, page 78–81. IEEE Press,
+2025.
+[15] Anthony N Burkitt. A review of the integrate-and-fire neuron model: I. homogeneous synaptic
+input. Biological cybernetics, 95(1):1–19, 2006.
+11
+
+
+[16] Beata J. Grzyb, Eris Chinellato, Grzegorz M. Wojcik, and Wieslaw A. Kaminski. Which model
+to use for the liquid state machine? In 2009 International Joint Conference on Neural Networks,
+pages 1018–1024, 2009.
+[17] Rodolfo R Llinás. The intrinsic electrophysiological properties of mammalian neurons: insights
+into central nervous system function. Science, 242(4886):1654–1664, 1988.
+[18] Angel Alonso and Rodolfo R Llinás. Subthreshold Na+-dependent theta-like rhythmicity in
+stellate cells of entorhinal cortex layer II. Nature, 342(6246):175–177, 1989.
+[19] György Buzsáki and Andreas Draguhn. Neuronal oscillations in cortical networks. Science,
+304(5679):1926–1929, 2004.
+[20] Felix Effenberger, Pedro Carvalho, Igor Dubinin, and Wolf Singer. The functional role of
+oscillatory dynamics in neocortical circuits: A computational perspective. Proceedings of the
+National Academy of Sciences, 122(4):e2412830122, 2025.
+[21] Samuel Lanthaler, T. Konstantin Rusch, and Siddhartha Mishra. Neural oscillators are universal.
+In Advances in Neural Information Processing Systems, volume 36, 2023.
+[22] Andrea Ceni, Andrea Cossu, Maximilian W Stölzle, Jingyue Liu, Cosimo Della Santina, Davide
+Bacciu, and Claudio Gallicchio. Random oscillators network for time series processing. In
+Proceedings of The 27th International Conference on Artificial Intelligence and Statistics,
+volume 238 of Proceedings of Machine Learning Research, pages 4807–4815. PMLR, 2024.
+[23] Eugene M Izhikevich. Resonate-and-fire neurons. Neural Networks, 14(6-7):883–894, 2001.
+[24] Badr AlKhamissi, Muhammad ElNokrashy, and David Bernal-Casas. Deep spiking neural
+networks with resonate-and-fire neurons. arXiv preprint arXiv:2109.08234, 2021.
+[25] Mantas Lukoševiˇcius and Herbert Jaeger. Reservoir computing approaches to recurrent neural
+network training. Computer Science Review, 3(3):127–149, 2009.
+[26] Mantas Lukoševiˇcius. A practical guide to applying echo state networks. In Neural Networks:
+Tricks of the Trade, pages 659–686. Springer, 2012.
+[27] T. Konstantin Rusch and Siddhartha Mishra. Coupled oscillatory recurrent neural network
+(coRNN): An accurate and (gradient) stable architecture for learning long time dependencies.
+In International Conference on Learning Representations, 2021.
+[28] T. Konstantin Rusch and Siddhartha Mishra. UnICORNN: A recurrent model for learning very
+long time dependencies. In International Conference on Machine Learning, pages 9168–9178.
+PMLR, 2021.
+[29] T. Konstantin Rusch, Benjamin P. Chamberlain, James Rowbottom, Siddhartha Mishra, and
+Michael M. Bronstein. Graph-coupled oscillator networks. In International Conference on
+Machine Learning, pages 18888–18909. PMLR, 2022.
+[30] Takeru Miyato, Sindy Löwe, Andreas Geiger, and Max Welling. Artificial Kuramoto oscillatory
+neurons. In International Conference on Learning Representations, 2025.
+[31] David P. Reichert and Thomas Serre. Neuronal synchrony in complex-valued deep networks. In
+International Conference on Learning Representations, 2014.
+[32] Alberto Patiño Saucedo, Horacio Rostro-González, Teresa Serrano-Gotarredona, and Bernabé
+Linares-Barranco. Liquid state machine on SpiNNaker for spatio-temporal classification tasks.
+Frontiers in Neuroscience, 16:819063, 2022.
+[33] Ramashish Gaurav, Terrence C Stewart, and Yang Yi. Reservoir based spiking models for
+univariate time series classification. Frontiers in Computational Neuroscience, 17:1148284,
+2023.
+[34] E. Paxon Frady, Sophia Sanborn, Sumit Bam Shrestha, Daniel Ben Dayan Rubin, Garrick
+Orchard, Friedrich T. Sommer, and Mike Davies. Efficient neuromorphic signal processing with
+resonator neurons. Journal of Signal Processing Systems, 94(10):917–927, 2022.
+12
+
+
+[35] Julian Hille, Daniel Auge, Cyprian Grassmann, and Alois Knoll. Resonate-and-fire neurons for
+radar interference detection. In Proceedings of the International Conference on Neuromorphic
+Systems 2022, ICONS ’22, New York, NY, USA, 2022. Association for Computing Machinery.
+[36] Ahmed Shaaban, Zeineb Chaabouni, Maximilian Strobel, Wolfgang Furtner, Robert Weigel,
+and Fabian Lurz. Resonate-and-fire spiking neurons for target detection and hand gesture
+recognition: A hybrid approach. In 2024 Smart Systems Integration Conference and Exhibition
+(SSI), pages 1–6, 2024.
+[37] Saya Higuchi, Sebastian Kairat, Sander M. Bohté, and Sebastian Otte. Balanced resonate-
+and-fire neurons. In Proceedings of the 41st International Conference on Machine Learning,
+ICML’24. JMLR.org, 2024.
+[38] Dehao Zhang, Malu Zhang, Shuai Wang, Jingya Wang, Wenjie Wei, Zeyu Ma, Guoqing Wang,
+Yang Yang, and Haizhou Li. Dendritic resonate-and-fire neuron for effective and efficient long
+sequence modeling. In Advances in Neural Information Processing Systems, volume 38, 2025.
+[39] Michael Baronig, Romain Ferrand, Silvester Sabathiel, and Robert Legenstein. Advancing
+spatio-temporal processing through adaptation in spiking neural networks. Nature Communica-
+tions, 16:5776, 2025.
+[40] Kendall E. Atkinson. An Introduction to Numerical Analysis. John Wiley & Sons, New York,
+2nd edition, 1989.
+[41] Mark Horowitz. 1.1 computing’s energy problem (and what we can do about it). In 2014 IEEE
+International Solid-State Circuits Conference Digest of Technical Papers (ISSCC), pages 10–14.
+IEEE, 2014.
+[42] Man Yao, Jiakui Hu, Zhaokun Zhou, Li Yuan, Yonghong Tian, Bo Xu, and Guoqi Li. Spike-
+driven transformer. In Advances in Neural Information Processing Systems, volume 36, 2023.
+[43] Nicolas Perez-Nieves, Vincent C. H. Leung, Pier Luigi Dragotti, and Dan F. M. Goodman.
+Neural heterogeneity promotes robust learning. Nature Communications, 12(1):5791, 2021.
+[44] Nello Cristianini, John Shawe-Taylor, André Elisseeff, and Jaz Kandola. On kernel-target
+alignment. In Advances in Neural Information Processing Systems, volume 14. MIT Press,
+2002.
+[45] Simon Kornblith, Mohammad Norouzi, Honglak Lee, and Geoffrey Hinton. Similarity of neural
+network representations revisited. In Proceedings of the 36th International Conference on
+Machine Learning, volume 97 of Proceedings of Machine Learning Research, pages 3519–3529.
+PMLR, 2019.
+[46] Yann LeCun, Léon Bottou, Yoshua Bengio, and Patrick Haffner. Gradient-based learning
+applied to document recognition. Proceedings of the IEEE, 86(11):2278–2324, 1998.
+[47] Hoang Anh Dau, Anthony Bagnall, Kaveh Kamgar, Chin-Chia Michael Yeh, Yan Zhu,
+Shaghayegh Gharghabi, Chotirat Ann Ratanamahatana, and Eamonn Keogh. The UCR time
+series archive. IEEE/CAA Journal of Automatica Sinica, 6(6):1293–1305, 2019.
+[48] Benjamin Cramer, Yannik Stradmann, Johannes Schemmel, and Friedemann Zenke. The
+Heidelberg spiking data sets for the systematic evaluation of spiking neural networks. IEEE
+Transactions on Neural Networks and Learning Systems, 33(7):2744–2757, 2022.
+[49] Arnon Amir, Brian Taba, David Berg, Timothy Melano, Jeffrey McKinstry, Carmelo Di Nolfo,
+Tapan Nayak, Alexander Andreopoulos, Guillaume Garreau, Marcela Mendoza, et al. A low
+power, fully event-based gesture recognition system. In Proceedings of the IEEE Conference on
+Computer Vision and Pattern Recognition, pages 7243–7252, 2017.
+[50] Garrick Orchard, Ajinkya Jayawant, Gregory K Cohen, and Nitish Thakor. Converting static
+image datasets to spiking neuromorphic datasets using saccades. Frontiers in Neuroscience,
+9:437, 2015.
+13
+
+
+A
+Experimental Details and Hyperparameter Search
+This appendix is self-contained: it provides all implementation details, data preprocessing steps,
+training and evaluation procedures, and hyperparameter configurations needed to reproduce the
+results in the paper.
+A.1
+Architecture Details
+Weight initialisation.
+The input matrix U ∈RN×Ninp is sampled entry-wise from U(0, 1) and
+scaled by the input scaling hyperparameter ν > 0; the bias b ∈RN is sampled from U(−1, 1) and
+scaled by the same ν. The HRF-to-LIF feedback matrix W ∈RN×N is sampled from U(−2, 2)
+and rescaled to a target spectral radius ρ > 0 [4, 26]. The LIF-to-HRF synaptic matrix V ∈RN×N
+is sampled from U(−2, 2) without spectral normalisation. All matrices are fixed after initialisation
+and never updated. HRF-Res is implemented in PyTorch with a logistic regression readout from
+scikit-learn. Each input sequence is processed starting from a zero-initialised reservoir state.
+Heterogeneous HRF parameters.
+Per-neuron stiffness and damping are drawn as γi ∼U(γ −
+∆γ/2, γ + ∆γ/2) and εi ∼U(ε −∆ε/2, ε + ∆ε/2), with values clamped to be strictly positive.
+The natural resonance frequency of neuron i is ωi = √γi. The centres (γ, ε) and widths (∆γ, ∆ε)
+reported in Tables 6–7 are treated as hyperparameters, inducing a diversity of intrinsic oscillation
+frequencies across the reservoir. The timestep ∆t is treated as a hyperparameter rather than a fixed
+integration step, as we are interested in the computational properties of the discrete-time system in its
+own right [22].
+Spike generation.
+The position y is not reset after a spike, so that the subthreshold oscillation
+continues undisturbed. To prevent a neuron from firing at every consecutive timestep while y remains
+above threshold, the HRF threshold is made refractory: neuron i spikes when yi > θRF + ri, where ri
+is incremented by one at each spike and decays as ri ←ri e−∆t/τref with τref = 0.25.
+Sparse connectivity.
+When the LIF→HRF connectivity pV < 1, a binary mask is sampled i.i.d.
+with Pr(entry = 1) = pV and applied entry-wise to V. The HRF→LIF connectivity is kept fully
+dense (pW = 1.0) in all experiments.
+Sparse input projection.
+For high-dimensional inputs (SHD: 700 channels; DVS Gesture: 2 048
+channels; N-MNIST: 578 channels), a sparse random projection is applied to U: a binary mask is
+sampled with each entry set to 1 with probability ρinp (the input density hyperparameter), and the
+masked weights are rescaled by 1/√ρinp to preserve the expected norm of the input drive. At least
+one active connection per neuron and per input channel is ensured by rejection sampling.
+A.2
+Energy Estimation Details
+To quantify inference-time efficiency, we estimate computational cost using synaptic operations
+(SOPs) [41, 42]. SOPs measure the number of spike-driven synaptic events and provide a hardware-
+relevant proxy for energy consumption in spiking systems.
+On neuromorphic hardware, each presynaptic spike crossing a synapse corresponds to a single
+accumulate (AC) operation with energy cost EAC = 0.9 pJ (45 nm CMOS). In contrast, non-
+spiking neural networks require multiply-accumulate (MAC) operations at every timestep, with cost
+EMAC = 4.6 pJ [41].
+For a two-population reservoir, the total number of synaptic operations per input sequence is given
+by:
+SOPs = rHRF · N · T · Ch→l + rLIF · N · T · Cl→h,
+(8)
+where rHRF and rLIF denote the mean firing rates of HRF and LIF populations, N is the number of
+reservoir neurons, T is the sequence length, and Ch→l and Cl→h denote the number of active synaptic
+connections in each direction.
+This formulation reflects the event-driven nature of spiking computation: synaptic cost scales with
+spike activity rather than with full connectivity. In contrast, non-spiking models perform dense matrix
+14
+
+
+multiplications at every timestep, leading to computation that scales with network size and sequence
+length regardless of input sparsity.
+The internal HRF state dynamics require O(N) operations per timestep independent of spike activity,
+while recurrent synaptic communication is gated by sparse spiking events. As a result, the dominant
+recurrent cost scales with effective firing activity rather than full N 2 connectivity, which is the
+primary source of energy savings in spiking reservoir models.
+All energy comparisons in the main paper are derived from SOP counts using the above formulation
+and the hardware constants defined above.
+Neuron state updates.
+The SOP count above covers the event-driven synaptic cost. Neuron state
+updates are instead paid at every timestep, regardless of spiking activity. With the constant factors
+(1 −∆t εi), ∆t γi and (1 −∆t/τm,i) precomputed, each HRF neuron requires 3 MACs per timestep
+(Eqs. (5)–(6)), as it updates two coupled state variables, while each LIF neuron requires 1 MAC
+(Eq. (4)); bias additions and threshold comparisons are neglected. Per timestep, this amounts to 4N
+MACs for HRF-Res (HRF reservoir and LIF encoder), 2N MACs for LIF-Res, and 3N MACs for
+RON, whose oscillators follow the same update (the tanh evaluation is not counted). These costs
+scale as O(N), whereas the synaptic cost scales as O(N 2).
+Table 4 reports the resulting estimates for the comparison of Table 2. State updates add less than
+10% to the energy of HRF-Res on all four datasets, and the reduction over RON remains 9–17×.
+For the comparison of Table 1, including state updates increases the energy of HRF-Res by at most
+0.12 × 10−4 J (sMNIST) and does not change the ranking between HRF-Res and LIF-Res on any
+dataset.
+Table 4: Energy including neuron state updates (×10−4 J per sequence, N = 800). “Synaptic” is
+the energy reported in Table 2; “State” is the cost of the O(N) neuron state updates, computed as
+MACs.
+RON
+HRF-Res
+Dataset
+Synaptic
+State
+Total
+Synaptic
+State
+Total
+Reduction
+sMNIST
+23.11
+0.09
+23.20
+1.676
+0.115
+1.791
+13.0×
+psMNIST
+22.64
+0.09
+22.73
+1.884
+0.115
+1.999
+11.4×
+FordA
+14.74
+0.06
+14.80
+0.790
+0.074
+0.864
+17.1×
+npCIFAR-10
+32.97
+0.11
+33.08
+3.450
+0.147
+3.597
+9.2×
+A.3
+Data Preprocessing
+sMNIST / psMNIST. MNIST images (28 × 28 pixels) are read pixel-by-pixel to form sequences of
+length T = 784. For psMNIST, a fixed random permutation (seed 0, independent of model seed) is
+applied to the pixel order before each forward pass.
+npCIFAR-10. Each 32 × 32 RGB image is read row-by-row, producing T = 32 steps of 96-
+dimensional input (32 × 3 channels). Following [22], 968 steps of fixed random Gaussian noise
+(drawn once, shared across all trials) are appended, giving T = 1000 total steps.
+FordA / FordB / Wafer / Earthquakes. Raw univariate sequences from the UCR archive [47] are
+used without modification. Sequence lengths are: FordA and FordB: T = 500; Wafer: T = 152;
+Earthquakes: T = 512.
+SHD. Event streams are binned into T = 250 frames over a 1.4 s window using tonic, yielding
+sparse binary tensors of shape (250 × 700).
+DVS Gesture. Events are binned into T = 200 frames; spatial downsampling by factor 4 reduces
+128 × 128 to 32 × 32 per polarity, giving 2 048 input channels per step.
+N-MNIST. Events are binned into T = 30 frames; spatial downsampling by factor 2 reduces 34 × 34
+to 17 × 17 per polarity, giving 578 input channels.
+15
+
+
+A.4
+Training and Evaluation Protocol
+Readout.
+The only trained component is the linear readout: a logistic regression classifier (scikit-
+learn) fitted with the L-BFGS solver (max. 2 000 iterations) and ℓ2 regularisation strength C. For
+SHD (20 classes) the multinomial objective is used; all other datasets use one-vs-rest.
+Data splits.
+For UCR datasets (FordA, FordB, Wafer, Earthquakes), the full provided training
+partition is used for readout training. For all other datasets the standard train/test splits are used.
+Hyperparameter search uses a held-out validation split of 10% of the training set (stratified); the test
+set is never accessed during search.
+Evaluation.
+All results are mean ± std over five independent trials. Each trial uses a different
+random seed controlling all fixed weight matrices (U, V, W, b) and, for neuromorphic datasets, the
+sparse input projection mask. The readout is re-fitted from scratch in each trial. The same five seeds
+are used for HRF-Res and LIF-Res to ensure a controlled comparison.
+Hyperparameter search.
+Each configuration is evaluated on the validation split with a single seed;
+the best configuration is then re-evaluated with five seeds on the full train/test split. Parameters
+spanning multiple orders of magnitude (∆t, γ, ε, sinp, θenc, θres, ρinp) are sampled log-uniformly;
+all others uniformly. The regularisation C is sampled from a small discrete set. The number of search
+trials per dataset is reported in the corresponding table caption.
+Compute.
+All experiments were run on a single NVIDIA A100 GPU (40 GB). Feature extraction
+per trial ranges from ∼10 s (sMNIST, N = 800) to ∼15 min (N-MNIST, N = 3600). Total compute
+across all experiments (search and final evaluation) is approximately 500 GPU-hours.
+A.5
+LIF-Res Baseline
+LIF-Res is architecturally identical to HRF-Res except that the HRF reservoir is replaced by a second
+LIF population. It consists of a LIF encoder and a LIF reservoir, both of size N, connected by the
+same weight matrices U, V, W with the same initialisation and sparsity conventions as HRF-Res.
+The reservoir LIF neurons have heterogeneous membrane time constants τm,i and thresholds θres,i,
+drawn per neuron from log-uniform distributions centred on hyperparameters τm ± ∆τm/2 and
+θres ± ∆θres/2 respectively, mirroring the γi/εi heterogeneity of HRF-Res. Soft reset is used: upon
+spiking, the membrane potential is decremented by the threshold rather than reset to zero. The
+encoder time constant is fixed to τenc = 20 for all datasets, identical to HRF-Res. An independent
+hyperparameter search is conducted for LIF-Res on each dataset using the same protocol as for
+HRF-Res, with 80 trials for SHD and 100 trials for all other datasets, all using the final reservoir state
+for the readout. Full search ranges and selected configurations are in Table 5.
+A.6
+HRF-Res: Hyperparameter Configurations
+Tables 6 and 7 report full search ranges and selected configurations for HRF-Res. Table 6 covers the
+six datasets used in the ablation studies (Sections 4.2 and 4.4): sMNIST, FordA, SHD, DVS Gesture,
+psMNIST, and npCIFAR-10. Table 7 covers the datasets used in the comparison against spiking
+reservoir baselines (Section 4.5): FordB, Wafer, Earthquakes, and N-MNIST, together with the
+larger-reservoir configurations of FordA, SHD, and DVS Gesture.
+For all datasets, hyperparameters were selected by random search on a held-out validation set (log-
+uniform sampling for parameters spanning orders of magnitude, uniform otherwise). The LIF→HRF
+connectivity (fraction of non-zero entries in V) and, for high-dimensional-input datasets, the input
+density (ρinp) were included as searched parameters. The HRF→LIF connectivity was kept fully
+dense (1.0) throughout, and the encoder membrane time constant fixed to τenc = 20.
+For datasets with two reservoir sizes, oscillator parameters (∆t, γ, ε, ∆γ, ∆ε, θres) are transferred
+from the smaller-N search without modification (marked †); only size-sensitive parameters (sinp,
+ρ, θenc, pV , C) are re-searched. FordB, Wafer, and Earthquakes share the search space of FordA
+(N = 800), differing only in θenc (FordB, Wafer: 1.0; Earthquakes: 0.2). The Combined readout
+(3N-dimensional concatenation of RMS, standard deviation, and final state of yt; Section 4.3) is
+used for larger-reservoir configurations and N-MNIST; the Final readout for all ablation datasets. For
+16
+
+
+Table 5: Hyperparameter search ranges and selected configurations for the LIF-Res baseline. All datasets use readout_mode = final and the same logistic-
+regression readout as HRF-Res (Appendix A.4). For each searched parameter, the search range is shown in italics above the selected value (bold). Fixed parameters
+are reported without a range. Ranges are log-uniform for parameters spanning orders of magnitude, and uniform otherwise. The encoder membrane time constant is
+fixed to τenc = 20 for all datasets. The search comprised 80 random trials for SHD and 100 trials for all other datasets.
+Dataset
+Fixed parameters
+Searched parameters (range / selected)
+N
+Steps
+ρinp
+LIF→HRF
+conn.
+HRF→LIF
+conn.
+∆t
+ρ
+sinp
+θenc
+τm
+∆τm
+θres
+∆θres
+C
+sMNIST
+800
+784
+1.0
+0.2
+1.0
+[0.03, 0.15]
+0.034
+[0.85, 1.05]
+0.976
+[0.5, 5.0]
+0.847
+[0.01, 0.20]
+0.151
+[5, 50]
+36.19
+[3, 40]
+3.60
+[10−3, 0.05]
+0.00254
+[10−3, 0.04]
+0.01180
+{10−3, 10−2, 10−1, 1, 10}
+0.01
+FordA
+800
+500
+1.0
+0.2
+1.0
+[0.02, 0.30]
+0.068
+[0.60, 1.00]
+0.875
+[0.3, 5.0]
+4.036
+[0.01, 0.30]
+0.146
+[10, 80]
+36.68
+[5, 60]
+25.85
+[0.005, 0.20]
+0.157
+[0.002, 0.15]
+0.01254
+{10−3, 10−2, 10−1, 1, 10}
+0.1
+SHD
+3000
+250
+0.036
+0.2
+1.0
+[0.05, 1.0]
+0.084
+[0.70, 1.30]
+1.172
+[0.02, 1.0]
+0.196
+[0.03, 0.50]
+0.419
+[5, 60]
+13.01
+[3, 50]
+2.38
+[10−3, 0.10]
+0.09598
+[10−3, 0.04]
+0.00375
+{10−3, 10−2, 10−1, 1}
+0.01
+DVS Gesture
+3000
+200
+0.031
+1.0
+1.0
+[0.05, 0.40]
+0.056
+[0.85, 1.30]
+0.866
+[0.01, 0.15]
+0.031
+[0.10, 3.0]
+0.533
+[2, 100]
+58.59
+[1, 80]
+23.17
+[10−3, 0.10]
+0.02224
+[10−3, 0.08]
+0.00194
+{10−4, 3×10−4, 10−3, 3×10−3, 10−2}
+0.01
+Notation. N: reservoir size. Steps: sequence length (timesteps). ρinp: input spike density (fraction of active input channels per step). LIF→HRF / HRF→LIF conn.: connection density of V and W
+respectively (see text above). ∆t: simulation timestep. ρ: spectral radius of W. sinp: input scaling factor ν. θenc: encoder LIF firing threshold. τm: centre of the log-uniform distribution of reservoir
+membrane time constants. ∆τm: width of that distribution (heterogeneity). θres: centre of the log-uniform distribution of reservoir firing thresholds. ∆θres: width of that distribution (heterogeneity).
+C: inverse ℓ2 regularisation strength of the readout (selected from the discrete candidate set shown).
+17
+
+
+each searched parameter we report the search range in square brackets (continuous range, sampled
+log-uniformly or uniformly as described in Appendix A.4) or curly braces (discrete set), followed by
+the selected value in bold.
+18
+
+
+Table 6: HRF-Res hyperparameter search ranges and selected configurations for the ablation datasets. Each searched parameter is shown as range / selected. Fixed
+parameters have no range.
+Dataset
+Fixed
+Searched (range / selected)
+N Steps
+ρinp
+HRF→LIF
+conn.
+Readout
+LIF→HRF
+conn.
+∆t
+γ
+ε
+∆γ
+∆ε
+sinp
+ρ
+θenc
+θres
+C
+sMNIST
+800
+784
+1.0
+1.0
+Final
+{.1,.2,.5,1} / .2
+[.03,.15] / .042
+[1,5] / 2.7
+[.02,.3] / .08
+[.5,3.5] / 2.0
+[.1,1.5] / 1.0
+[.5,5] / 2.0
+[.85,1.05] / .99
+[.01,.2] / .05
+[10−3,.05] / .005 {.001,.01,.1,1,10} / 1.0
+FordA (N=800)
+800
+500
+1.0
+1.0
+Final
+{.1,.2,.5,1} / 1.0 [.005,.5] / .051 [.01,10] / 7.01 [10−3,1] / .153
+[.1,5] / 3.01
+[0,.5] / .419
+[.01,10] / .625
+[.3,1.1] / .749
+[.005,1] / .082
+[5e−4,.5] / .001
+{.001,.01,.1,1,10} / .1
+SHD (N=3000) 3000
+250
+[.02,.3]/.036
+1.0
+Final
+{.1,.2,.5,1} / .2
+[.2,.8] / .223
+[.01,.5] / .036
+[.02,.12] / .060
+[.02,.5] / .268
+[0,.08] / .063
+[.02,1.8] / .230
+[.7,1.5] / 1.16
+[.03,1] / 1.00
+[10−3,.02] / .013
+{.001,.01,.1,1} / .01
+DVS (N=3000)
+3000
+200 [.01,.15]/.031
+1.0
+Final
+{.1,.2,.5,1} / 1.0
+[.15,.4] / .259
+[.01,.15] / .046
+[.003,.08] / .035
+[.01,.15] / .130 [.01,.10] / .099
+[.01,.12] / .113
+[1,1.6] / 1.58
+[.3,3] / 2.97
+[.005,.05] / .036
+{10−4,. . . ,.01} / .01
+psMNIST
+800
+784
+1.0
+1.0
+Final
+{.1,.2,.5,1} / .2
+[.03,.15] / .047
+[1,6] / 2.62
+[.05,.8] / .240
+[1,5] / 3.84
+[.5,3] / 1.86
+[1,8] / 3.67
+[1,2] / 1.55
+[.01,.2] / .050 [10−3,.05] / .005 {.001,.01,.1,1,10} / 1.0
+npCIFAR-10
+800
+1000
+1.0
+1.0
+Final
+{.1,.2,.5,1} / .2
+[.01,.2] / .055
+[.01,2] / .115
+[.01,2] / .178
+[.1,2] / 1.42
+[0,1] / .963
+[10−3,.5] / .058
+[.5,1.5] / 1.47
+[.01,1] / .124
+[10−3,.5] / .154
+{.001,.01,.1,1,10} / 1.0
+Notation. N: reservoir size. Steps: sequence length. ρinp: input density (fraction of input channels per neuron; 1.0 = dense; shown as range/selected when searched). LIF→HRF / HRF→LIF: connection density of V and W. ∆t: timestep. γ/ε: centre of HRF
+stiffness/damping distributions (ω =√γ). ∆γ/∆ε: widths (heterogeneity). sinp: input scaling. ρ: spectral radius of W. θenc/θres: LIF encoder / HRF reservoir thresholds. C: inverse ℓ2 regularisation strength of the readout.
+19
+
+
+Table 7: HRF-Res hyperparameter search ranges and selected configurations for the baseline comparison datasets (Section 4.5). Larger-reservoir variants of FordA,
+SHD, and DVS Gesture reuse oscillator parameters from Table 6 (marked †) and re-search only size-sensitive parameters. FordB, Wafer, and Earthquakes share the
+same search space as FordA (N=800). Each searched parameter is shown as range / selected. Fixed parameters have no range. †Transferred from smaller-N search.
+Combined: 3N-dimensional readout (RMS + Std + Final of yt; Section 4.3).
+Dataset
+Fixed
+Searched (range / selected)
+N Steps
+ρinp
+HRF→LIF
+conn.
+Readout
+LIF→HRF
+conn.
+∆t
+γ
+ε
+∆γ
+∆ε
+sinp
+ρ
+θenc
+θres
+C
+FordA (N=2500) 2500
+500
+1.0
+1.0
+Combined [.001,.5] / .001
+.051†
+7.01†
+.153†
+3.01†
+.419†
+[.2,4] / 2.13
+[.6,1.05] / .985 [.5,2.5] / 1.21
+.001†
+[5e−4,.05] / .0005
+SHD (N=6000)
+6000
+250
+.036†
+1.0
+Combined
+1.0†
+.223†
+.036†
+.060†
+.268†
+.063†
+.230†
+1.16†
+1.00†
+.013†
+.01†
+DVS (N=4000)
+4000
+200 [.01,.10]/.011
+1.0
+Combined {.1,.2,.5,1} / .2
+.259†
+.046†
+.035†
+.130†
+.099†
+[.02,.3] / .112 [.85,1.6] / 1.38
+[.5,5] / 4.44
+[.02,.2] / .093
+{10−4,3e-4,10−3,3e-3,.01,.03} / .01
+FordB
+800
+500
+1.0
+1.0
+Final
+{.1,.2,.5,1} / .2 [.005,.5] / .2 [.01,10] / 1.88 [10−3,1] / .022 [.1,5] / 2.64 [0,.5] / .068 [.01,10] / 1.76
+[.3,1.1] / .95
+[.005,1] / 1.0 [5e−4,.5] / .005
+{.001,.01,.1,1,10} / 1.0
+Wafer
+800
+152
+1.0
+1.0
+Final
+{.1,.2,.5,1} / .2 [.005,.5] / .2 [.01,10] / 1.88 [10−3,1] / .022 [.1,5] / 2.64 [0,.5] / .068 [.01,10] / 1.76
+[.3,1.1] / .95
+[.005,1] / 1.0 [5e−4,.5] / .005
+{.001,.01,.1,1,10} / 1.0
+Earthquakes
+800
+512
+1.0
+1.0
+Final
+{.1,.2,.5,1} / .2 [.005,.5] / .2 [.01,10] / 1.88 [10−3,1] / .022 [.1,5] / 2.64 [0,.5] / .068 [.01,10] / 1.76
+[.3,1.1] / .95
+[.005,1] / .2
+[5e−4,.5] / .005
+{.001,.01,.1,1,10} / 1.0
+N-MNIST
+3600
+30 [.01,.20]/.018
+1.0
+Combined {.1,.2,.5,1} / .2
+.109
+.109
+.021
+.362
+.083
+[.02,.5] / .210
+[.8,1.6] / 1.05
+[.05,.5] / .494
+[.01,.15] / .058
+{.001,.005,.01,.05,.1,.5} / .05
+Notation as in Table 6. For SHD (N=6000), all parameters are transferred from the N=3000 search; only reservoir size and readout mode changed. FordB, Wafer, and Earthquakes share the same search space as FordA (N=800); θenc differs: 1.0 for FordB and Wafer,
+0.2 for Earthquakes. For DVS (N=4000) and N-MNIST, ρinp was also searched (shown in the fixed column as range/selected). N-MNIST uses spatial downsampling factor 2 (17×17×2 = 578 input channels).
+20
+
+
+B
+Reservoir Characterisation: Supplementary Details
+B.1
+Frequency Sweep Parameters
+The frequency sweep analysis sweeps 30 log-spaced frequencies per dataset. For each frequency f, a
+sinusoidal input x(t) = sin(2πf · t · ∆t) is broadcast identically across all Ninp input channels and
+the network is run for Tsweep timesteps. The first half of the trajectory is discarded as transient; each
+neuron’s preferred frequency f ∗is identified as the frequency maximising its steady-state response
+power, estimated via the Discrete Fourier Transform (DFT) of the second half. The same sweep
+range [fmin, fmax] is applied to both HRF-Res and LIF-Res for each dataset; each model uses its own
+independently tuned ∆t.
+Table 8: Frequency sweep parameters and model ∆t values per dataset.
+Dataset
+fmin (Hz)
+fmax (Hz)
+Tsweep
+∆t [HRF-Res]
+∆t [LIF-Res]
+sMNIST
+0.01
+2.0
+6,000
+0.042
+0.034
+FordA
+0.01
+2.0
+6,000
+0.051
+0.068
+SHD
+0.001
+2.0
+50,000
+0.223
+0.084
+DVS Gesture
+0.001
+2.0
+50,000
+0.259
+0.056
+The larger Tsweep and smaller fmin for SHD and DVS Gesture reflect the slower intrinsic timescales
+of these datasets: the hyperparameter search selects larger ∆t values to match the longer temporal
+dependencies present in audio spike trains and event-camera streams. Using a shorter sweep or
+higher fmin for these datasets would fail to resolve the low-frequency resonances of the HRF neurons,
+underestimating their Q-factors.
+The Q-factor is computed per neuron from the response power matrix R ∈RNfreqs×N as follows.
+For each neuron j, the peak response Ppeak is identified at its preferred frequency f ∗. The half-
+power bandwidth ∆f−3 dB is estimated by finding the lower and upper frequency crossings where
+Rfj = Ppeak/2, using linear interpolation on the log-frequency axis. Q = f ∗/∆f−3 dB is set to
+zero if either crossing does not exist, indicating purely integrative (low-pass) behaviour with no
+well-defined resonance peak. We emphasise that the sweep provides a mechanistic characterisation
+of each reservoir’s dynamical repertoire and does not constitute a direct model-to-model comparison
+of absolute frequency scales, since the two models have independently tuned ∆t values.
+Effect of spectral windowing.
+The results in Section 4.1 compute the DFT on the steady-state
+trajectory without an explicit window. To verify that spectral leakage does not affect our conclusions,
+we repeated the analysis applying a Hann window before the DFT (Table 9). Windowing shifts
+the estimates slightly but leaves every qualitative conclusion unchanged: on all four datasets, HRF-
+Res has a far larger fraction of resonant neurons, higher Q-factors, and a broader distribution of
+preferred frequencies than LIF-Res.
+Table 9: Frequency-selectivity analysis with a Hann window applied before the DFT (mean ± std
+over three seeds).
+Dataset
+Model
+Resonant (%)
+Mean Q
+Std of f ∗(Hz)
+sMNIST
+HRF-Res
+89.0 ± 1.1
+4.38 ± 0.04
+0.0829 ± 0.0029
+LIF-Res
+16.7 ± 2.8
+3.67 ± 0.14
+0.0018 ± 0.0001
+FordA
+HRF-Res
+100.0 ± 0.1
+4.62 ± 0.03
+0.0395 ± 0.0012
+LIF-Res
+3.8 ± 0.6
+1.02 ± 0.03
+0.0030 ± 0.0005
+SHD
+HRF-Res
+60.5 ± 0.7
+2.49 ± 0.02
+0.0238 ± 0.0001
+LIF-Res
+5.7 ± 0.1
+0.63 ± 0.01
+0.0075 ± 0.0005
+DVS Gesture
+HRF-Res
+80.3 ± 1.0
+3.41 ± 0.01
+0.0157 ± 0.0001
+LIF-Res
+1.6 ± 0.2
+1.49 ± 0.07
+0.0036 ± 0.0004
+21
+
+
+B.2
+CKA: Implementation Details
+We use the linear kernel throughout, following [45]. For each test sample i, the temporal mean
+reservoir state ¯yi = 1
+T
+PT
+t=1 y(i)
+t
+∈RN is computed over the full sequence, starting from a zero-
+initialised reservoir state. Each row is then normalised to unit norm before kernel computation,
+removing differences in overall activation magnitude between the two models and ensuring the
+comparison reflects representational geometry rather than scale. The feature kernel is KH = HH⊤
+where H ∈Rn×N stacks the normalised mean states, and the label kernel is (KY )ij = 1[yi = yj].
+Both kernels are centred with the centering matrix Hc = In −1
+n11⊤and CKA is computed as in
+Eq. (7). If either ⟨˜KH, ˜KH⟩F or ⟨˜KY , ˜KY ⟩F is smaller than 10−10, CKA is set to zero to avoid
+numerical instability.
+We use n = 500 randomly sampled test examples for all datasets except DVS Gesture, for which
+we use the full test set (n = 264). The choice of n = 500 is a practical constraint: computing
+the full n × n kernel matrix becomes memory-intensive for larger n. Both models are evaluated at
+their respective best hyperparameter configurations as determined by the random search described in
+Appendix A, ensuring the comparison reflects the best achievable representational quality for each
+neuron model.
+Choice of summary statistic.
+CKA [45] compares fixed-length representations, so applying it to
+reservoir trajectories requires a summary statistic. We use the temporal mean as a conservative choice:
+since the HRF position yt oscillates around an equilibrium, averaging partially cancels the oscillatory
+component that distinguishes HRF from LIF dynamics. Statistics that retain more of this component,
+such as the RMS or the combined statistic of Section 4.3, would be expected to accentuate rather
+than diminish the differences reported in Section 4.1.
+Sensitivity to sample size.
+Linear CKA estimates can be noisy for small n. For a fixed reservoir
+per model, we recomputed CKA over repeated random subsamples of the test set of increasing size,
+up to the full test set (Table 10). The variability decreases markedly with n, the estimate at our
+reported sample sizes is close to the full-test-set value, and the HRF-Res–LIF-Res gap is positive and
+of comparable magnitude at every sample size, including the smallest.
+Table 10: CKA as a function of the number of test samples n (mean ± std over repeated random
+subsamples; one fixed reservoir per model). “Full”: entire test set (1,320 / 10,000 / 2,264 / 264 samples
+for FordA / sMNIST / SHD / DVS Gesture), for which only one sample is possible. DVS Gesture has
+fewer than 500 test samples.
+FordA
+sMNIST
+SHD
+DVS Gesture
+n
+HRF-Res
+LIF-Res
+HRF-Res
+LIF-Res
+HRF-Res
+LIF-Res
+HRF-Res
+LIF-Res
+100
+.0555 ± .0217
+.0211 ± .0104
+.2628 ± .0244
+.2238 ± .0267
+.2632 ± .0236
+.2380 ± .0359
+.3552 ± .0333
+.3245 ± .0286
+200
+.0357 ± .0115
+.0101 ± .0044
+.2298 ± .0244
+.1922 ± .0264
+.2294 ± .0149
+.2049 ± .0174
+.3253 ± .0125
+.2989 ± .0120
+500
+.0274 ± .0039
+.0053 ± .0025
+.2217 ± .0101
+.1781 ± .0135
+.2063 ± .0084
+.1838 ± .0137
+–
+–
+1000
+.0268 ± .0035
+.0034 ± .0009
+.2166 ± .0081
+.1761 ± .0102
+.2018 ± .0072
+.1804 ± .0069
+–
+–
+Full
+.0263
+.0029
+.2111
+.1729
+.1959
+.1732
+.3203
+.2914
+Sensitivity to the initial transient.
+Since the temporal mean includes the initial transient from
+the zero-initialised state, we recomputed CKA after discarding the first 10%, 25%, and 50% of each
+trajectory (Table 11). CKA changes only marginally with the washout length, and HRF-Res retains a
+higher score than LIF-Res in every setting. The classification experiments with the final-state readout
+are unaffected by washout by construction.
+C
+Robustness to Temporal Perturbations
+The band-pass mechanism of Section 4.1 makes two opposite predictions under distribution shift:
+frequency selectivity should suppress broadband perturbations, but should make the reservoir more
+sensitive to shifts of the input spectrum. We test both on FordA and sMNIST, keeping trained
+reservoirs and readouts fixed and perturbing inputs only at test time (three independently initialised
+reservoirs per model). We consider additive zero-mean Gaussian noise with standard deviation σ,
+and sampling-rate shifts implemented by linear interpolation, where a rate below (above) 1.0 slows
+22
+
+
+Table 11: CKA after discarding an initial fraction of each trajectory (washout; one fixed reservoir
+per model). Washout steps at 10/25/50%: FordA 50/125/250; sMNIST 78/196/392; SHD 25/62/125;
+DVS Gesture 20/50/100.
+FordA
+sMNIST
+SHD
+DVS Gesture
+Washout
+HRF-Res
+LIF-Res
+HRF-Res
+LIF-Res
+HRF-Res
+LIF-Res
+HRF-Res
+LIF-Res
+0%
+.0399
+.0078
+.2708
+.2144
+.2143
+.1836
+.3509
+.2835
+10%
+.0414
+.0084
+.2707
+.2144
+.2145
+.1829
+.3509
+.2832
+25%
+.0365
+.0086
+.2723
+.2155
+.2143
+.1832
+.3509
+.2825
+50%
+.0301
+.0069
+.2720
+.2200
+.2142
+.1881
+.3507
+.2819
+down (speeds up) the input sequence. Time warping is not considered, as it lacks a single standard
+operationalisation.
+Under additive noise (Table 12), HRF-Res degrades more gracefully than LIF-Res: at σ = 0.5, HRF-
+Res loses 5.6 percentage points on FordA versus 14.4 for LIF-Res, and on sMNIST HRF-Res retains
+above-chance accuracy at noise levels at which LIF-Res drops to chance. Under sampling-rate
+shifts (Table 13) the trend reverses: on sMNIST, HRF-Res drops to near-chance accuracy for every
+shift tested, whereas LIF-Res degrades less, and on FordA the two models degrade similarly. Both
+observations follow from the same mechanism: a bank of band-pass filters rejects energy outside its
+preferred bands, but a rate change moves the informative content of the signal away from those bands.
+Neither model, however, is robust to sampling-rate mismatch, and both would require retraining or
+adaptation in that setting.
+Table 12: Test accuracy (%) under additive Gaussian input noise of standard deviation σ (mean ± std
+over three reservoirs). The σ = 0 row reproduces the clean results of Table 1 (five seeds).
+FordA
+sMNIST
+σ
+HRF-Res
+LIF-Res
+HRF-Res
+LIF-Res
+0.00
+69.72 ± 0.68
+67.15 ± 0.66
+93.64 ± 0.25
+67.00 ± 1.04
+0.05
+69.42 ± 0.90
+67.07 ± 0.95
+77.22 ± 4.07
+12.46 ± 1.19
+0.10
+70.10 ± 0.81
+66.39 ± 0.95
+73.82 ± 3.01
+12.16 ± 0.63
+0.20
+68.03 ± 0.75
+62.67 ± 0.80
+67.14 ± 1.52
+12.15 ± 0.91
+0.30
+67.25 ± 1.12
+57.73 ± 0.27
+59.90 ± 1.34
+12.04 ± 0.70
+0.50
+64.09 ± 0.97
+52.80 ± 0.22
+46.18 ± 1.41
+12.08 ± 0.69
+Table 13: Test accuracy (%) under sampling-rate shifts (rate = 1.0: original sampling rate; mean ± std
+over three reservoirs). The rate = 1.0 row reproduces the clean results of Table 1 (five seeds).
+FordA
+sMNIST
+Rate
+HRF-Res
+LIF-Res
+HRF-Res
+LIF-Res
+0.70
+52.02 ± 0.55
+49.80 ± 1.33
+7.37 ± 2.83
+11.22 ± 1.41
+0.80
+53.11 ± 3.04
+50.66 ± 1.60
+9.04 ± 1.42
+13.48 ± 2.86
+0.90
+55.23 ± 1.08
+53.64 ± 3.73
+13.06 ± 4.20
+18.68 ± 1.65
+1.00
+69.72 ± 0.68
+67.15 ± 0.66
+93.64 ± 0.25
+67.00 ± 1.04
+1.10
+57.80 ± 1.50
+55.68 ± 5.84
+10.22 ± 0.46
+25.35 ± 8.25
+1.20
+52.25 ± 0.78
+53.38 ± 4.60
+9.80 ± 0.00
+18.53 ± 3.67
+1.30
+50.66 ± 0.37
+53.06 ± 4.51
+9.73 ± 0.10
+15.69 ± 2.44
+23
+
+
+NeurIPS Paper Checklist
+1. Claims
+Question: Do the main claims made in the abstract and introduction accurately reflect the
+paper’s contributions and scope?
+Answer: [Yes]
+Justification: The abstract and introduction state all main contributions and claims, each
+directly supported by experimental results in Sections 4.1–4.5.
+Guidelines:
+• The answer [N/A] means that the abstract and introduction do not include the claims
+made in the paper.
+• The abstract and/or introduction should clearly state the claims made, including the
+contributions made in the paper and important assumptions and limitations. A [No] or
+[N/A] answer to this question will not be perceived well by the reviewers.
+• The claims made should match theoretical and experimental results, and reflect how
+much the results can be expected to generalize to other settings.
+• It is fine to include aspirational goals as motivation as long as it is clear that these goals
+are not attained by the paper.
+2. Limitations
+Question: Does the paper discuss the limitations of the work performed by the authors?
+Answer: [Yes]
+Justification: Limitations are discussed in the Conclusion, covering multiple aspects includ-
+ing hardware validation, theoretical characterisation, scope of evaluation, and conditions
+under which the approach may underperform.
+Guidelines:
+• The answer [N/A] means that the paper has no limitation while the answer [No] means
+that the paper has limitations, but those are not discussed in the paper.
+• The authors are encouraged to create a separate “Limitations” section in their paper.
+• The paper should point out any strong assumptions and how robust the results are to
+violations of these assumptions (e.g., independence assumptions, noiseless settings,
+model well-specification, asymptotic approximations only holding locally). The authors
+should reflect on how these assumptions might be violated in practice and what the
+implications would be.
+• The authors should reflect on the scope of the claims made, e.g., if the approach was
+only tested on a few datasets or with a few runs. In general, empirical results often
+depend on implicit assumptions, which should be articulated.
+• The authors should reflect on the factors that influence the performance of the approach.
+For example, a facial recognition algorithm may perform poorly when image resolution
+is low or images are taken in low lighting. Or a speech-to-text system might not be
+used reliably to provide closed captions for online lectures because it fails to handle
+technical jargon.
+• The authors should discuss the computational efficiency of the proposed algorithms
+and how they scale with dataset size.
+• If applicable, the authors should discuss possible limitations of their approach to
+address problems of privacy and fairness.
+• While the authors might fear that complete honesty about limitations might be used by
+reviewers as grounds for rejection, a worse outcome might be that reviewers discover
+limitations that aren’t acknowledged in the paper. The authors should use their best
+judgment and recognize that individual actions in favor of transparency play an impor-
+tant role in developing norms that preserve the integrity of the community. Reviewers
+will be specifically instructed to not penalize honesty concerning limitations.
+3. Theory assumptions and proofs
+Question: For each theoretical result, does the paper provide the full set of assumptions and
+a complete (and correct) proof?
+24
+
+
+Answer: [N/A]
+Justification: The paper does not include theoretical results or proofs; all contributions are
+empirical.
+Guidelines:
+• The answer [N/A] means that the paper does not include theoretical results.
+• All the theorems, formulas, and proofs in the paper should be numbered and cross-
+referenced.
+• All assumptions should be clearly stated or referenced in the statement of any theorems.
+• The proofs can either appear in the main paper or the supplemental material, but if
+they appear in the supplemental material, the authors are encouraged to provide a short
+proof sketch to provide intuition.
+• Inversely, any informal proof provided in the core of the paper should be complemented
+by formal proofs provided in appendix or supplemental material.
+• Theorems and Lemmas that the proof relies upon should be properly referenced.
+4. Experimental result reproducibility
+Question: Does the paper fully disclose all the information needed to reproduce the main ex-
+perimental results of the paper to the extent that it affects the main claims and/or conclusions
+of the paper (regardless of whether the code and data are provided or not)?
+Answer: [Yes]
+Justification: The architecture and neuron models are fully described in Sections 3.1–3.2,
+the energy estimation framework in Section 3.3, and the analysis methods in Section 3.4.
+Full hyperparameter search ranges and selected configurations for all datasets are reported in
+Appendix A.6 (HRF-Res) and A.5 (LIF-Res baseline), the evaluation and training protocol in
+Appendix A.4, data preprocessing in Appendix A.3, energy estimation details in Appendix
+A.2, and frequency sweep and CKA implementation details in Appendices B.1–B.2. Code
+is publicly available.
+Guidelines:
+• The answer [N/A] means that the paper does not include experiments.
+• If the paper includes experiments, a [No] answer to this question will not be perceived
+well by the reviewers: Making the paper reproducible is important, regardless of
+whether the code and data are provided or not.
+• If the contribution is a dataset and/or model, the authors should describe the steps taken
+to make their results reproducible or verifiable.
+• Depending on the contribution, reproducibility can be accomplished in various ways.
+For example, if the contribution is a novel architecture, describing the architecture fully
+might suffice, or if the contribution is a specific model and empirical evaluation, it may
+be necessary to either make it possible for others to replicate the model with the same
+dataset, or provide access to the model. In general. releasing code and data is often
+one good way to accomplish this, but reproducibility can also be provided via detailed
+instructions for how to replicate the results, access to a hosted model (e.g., in the case
+of a large language model), releasing of a model checkpoint, or other means that are
+appropriate to the research performed.
+• While NeurIPS does not require releasing code, the conference does require all submis-
+sions to provide some reasonable avenue for reproducibility, which may depend on the
+nature of the contribution. For example
+(a) If the contribution is primarily a new algorithm, the paper should make it clear how
+to reproduce that algorithm.
+(b) If the contribution is primarily a new model architecture, the paper should describe
+the architecture clearly and fully.
+(c) If the contribution is a new model (e.g., a large language model), then there should
+either be a way to access this model for reproducing the results or a way to reproduce
+the model (e.g., with an open-source dataset or instructions for how to construct
+the dataset).
+25
+
+
+(d) We recognize that reproducibility may be tricky in some cases, in which case
+authors are welcome to describe the particular way they provide for reproducibility.
+In the case of closed-source models, it may be that access to the model is limited in
+some way (e.g., to registered users), but it should be possible for other researchers
+to have some path to reproducing or verifying the results.
+5. Open access to data and code
+Question: Does the paper provide open access to the data and code, with sufficient instruc-
+tions to faithfully reproduce the main experimental results, as described in supplemental
+material?
+Answer:[Yes]
+Justification: Code to reproduce all experiments, tables, and figures is publicly available,
+together with instructions on environment setup, data download and preprocessing, and
+the commands to run each experiment. All datasets used are publicly available: MNIST,
+CIFAR-10, UCR archive, SHD, DVS Gesture, and N-MNIST. Full implementation details
+are also provided in Appendices A–C.
+Guidelines:
+• The answer [N/A] means that paper does not include experiments requiring code.
+• Please see the NeurIPS code and data submission guidelines (https://neurips.cc/
+public/guides/CodeSubmissionPolicy) for more details.
+• While we encourage the release of code and data, we understand that this might not
+be possible, so [No] is an acceptable answer. Papers cannot be rejected simply for not
+including code, unless this is central to the contribution (e.g., for a new open-source
+benchmark).
+• The instructions should contain the exact command and environment needed to run to
+reproduce the results. See the NeurIPS code and data submission guidelines (https:
+//neurips.cc/public/guides/CodeSubmissionPolicy) for more details.
+• The authors should provide instructions on data access and preparation, including how
+to access the raw data, preprocessed data, intermediate data, and generated data, etc.
+• The authors should provide scripts to reproduce all experimental results for the new
+proposed method and baselines. If only a subset of experiments are reproducible, they
+should state which ones are omitted from the script and why.
+• At submission time, to preserve anonymity, the authors should release anonymized
+versions (if applicable).
+• Providing as much information as possible in supplemental material (appended to the
+paper) is recommended, but including URLs to data and code is permitted.
+6. Experimental setting/details
+Question: Does the paper specify all the training and test details (e.g., data splits, hyperpa-
+rameters, how they were chosen, type of optimizer) necessary to understand the results?
+Answer: [Yes]
+Justification: All training and evaluation details are provided, including data splits and
+preprocessing (Appendix A.3), the readout training procedure and optimizer (Appendix A.4),
+hyperparameter search protocol and selected configurations for all datasets (Appendices
+A.5–A.6), and compute resources (Appendix A.4). Key details are also summarised in the
+main text in Section 3.
+Guidelines:
+• The answer [N/A] means that the paper does not include experiments.
+• The experimental setting should be presented in the core of the paper to a level of detail
+that is necessary to appreciate the results and make sense of them.
+• The full details can be provided either with the code, in appendix, or as supplemental
+material.
+7. Experiment statistical significance
+Question: Does the paper report error bars suitably and correctly defined or other appropriate
+information about the statistical significance of the experiments?
+26
+
+
+Answer: [Yes]
+Justification: All results are reported as mean ± standard deviation over 5 independent trials,
+where each trial uses a different random seed controlling all fixed weight matrices and, for
+neuromorphic datasets, the sparse input projection mask. This is stated consistently across
+all tables and figures, and described in Appendix A.4.
+Guidelines:
+• The answer [N/A] means that the paper does not include experiments.
+• The authors should answer [Yes] if the results are accompanied by error bars, confidence
+intervals, or statistical significance tests, at least for the experiments that support the
+main claims of the paper.
+• The factors of variability that the error bars are capturing should be clearly stated (for
+example, train/test split, initialization, random drawing of some parameter, or overall
+run with given experimental conditions).
+• The method for calculating the error bars should be explained (closed form formula,
+call to a library function, bootstrap, etc.)
+• The assumptions made should be given (e.g., Normally distributed errors).
+• It should be clear whether the error bar is the standard deviation or the standard error
+of the mean.
+• It is OK to report 1-sigma error bars, but one should state it. The authors should
+preferably report a 2-sigma error bar than state that they have a 96% CI, if the hypothesis
+of Normality of errors is not verified.
+• For asymmetric distributions, the authors should be careful not to show in tables or
+figures symmetric error bars that would yield results that are out of range (e.g., negative
+error rates).
+• If error bars are reported in tables or plots, the authors should explain in the text how
+they were calculated and reference the corresponding figures or tables in the text.
+8. Experiments compute resources
+Question: For each experiment, does the paper provide sufficient information on the com-
+puter resources (type of compute workers, memory, time of execution) needed to reproduce
+the experiments?
+Answer: [Yes]
+Justification: Compute resources are reported in Appendix A.4: all experiments were run
+on a single NVIDIA A100 GPU (40 GB), with per-trial feature extraction ranging from
+∼10s (sMNIST, N = 800) to ∼15 min (N-MNIST, N = 3600), and a total compute budget
+of approximately 500 GPU-hours across all experiments including hyperparameter search.
+This figure covers all experiments reported in the paper.
+Guidelines:
+• The answer [N/A] means that the paper does not include experiments.
+• The paper should indicate the type of compute workers CPU or GPU, internal cluster,
+or cloud provider, including relevant memory and storage.
+• The paper should provide the amount of compute required for each of the individual
+experimental runs as well as estimate the total compute.
+• The paper should disclose whether the full research project required more compute
+than the experiments reported in the paper (e.g., preliminary or failed experiments that
+didn’t make it into the paper).
+9. Code of ethics
+Question: Does the research conducted in the paper conform, in every respect, with the
+NeurIPS Code of Ethics https://neurips.cc/public/EthicsGuidelines?
+Answer: [Yes]
+Justification: The research conforms with the NeurIPS Code of Ethics. The work involves
+no human subjects, sensitive data, or potential for direct misuse.
+Guidelines:
+27
+
+
+• The answer [N/A] means that the authors have not reviewed the NeurIPS Code of
+Ethics.
+• If the authors answer [No], they should explain the special circumstances that require a
+deviation from the Code of Ethics.
+• The authors should make sure to preserve anonymity (e.g., if there is a special consid-
+eration due to laws or regulations in their jurisdiction).
+10. Broader impacts
+Question: Does the paper discuss both potential positive societal impacts and negative
+societal impacts of the work performed?
+Answer: [N/A]
+Justification: This work presents foundational research on spiking reservoir computing and
+is not tied to any specific application or deployment. The primary contribution is a more
+energy-efficient neural computation model, which has positive implications for low-power
+edge computing but no direct path to harmful applications.
+Guidelines:
+• The answer [N/A] means that there is no societal impact of the work performed.
+• If the authors answer [N/A] or [No], they should explain why their work has no societal
+impact or why the paper does not address societal impact.
+• Examples of negative societal impacts include potential malicious or unintended uses
+(e.g., disinformation, generating fake profiles, surveillance), fairness considerations
+(e.g., deployment of technologies that could make decisions that unfairly impact specific
+groups), privacy considerations, and security considerations.
+• The conference expects that many papers will be foundational research and not tied
+to particular applications, let alone deployments. However, if there is a direct path to
+any negative applications, the authors should point it out. For example, it is legitimate
+to point out that an improvement in the quality of generative models could be used to
+generate Deepfakes for disinformation. On the other hand, it is not needed to point out
+that a generic algorithm for optimizing neural networks could enable people to train
+models that generate Deepfakes faster.
+• The authors should consider possible harms that could arise when the technology is
+being used as intended and functioning correctly, harms that could arise when the
+technology is being used as intended but gives incorrect results, and harms following
+from (intentional or unintentional) misuse of the technology.
+• If there are negative societal impacts, the authors could also discuss possible mitigation
+strategies (e.g., gated release of models, providing defenses in addition to attacks,
+mechanisms for monitoring misuse, mechanisms to monitor how a system learns from
+feedback over time, improving the efficiency and accessibility of ML).
+11. Safeguards
+Question: Does the paper describe safeguards that have been put in place for responsible
+release of data or models that have a high risk for misuse (e.g., pre-trained language models,
+image generators, or scraped datasets)?
+Answer: [N/A]
+Justification: The paper poses no such risks. The model is a small-scale spiking reservoir for
+time series classification, and all datasets used are standard, publicly available benchmarks
+with no sensitive content.
+Guidelines:
+• The answer [N/A] means that the paper poses no such risks.
+• Released models that have a high risk for misuse or dual-use should be released with
+necessary safeguards to allow for controlled use of the model, for example by requiring
+that users adhere to usage guidelines or restrictions to access the model or implementing
+safety filters.
+• Datasets that have been scraped from the Internet could pose safety risks. The authors
+should describe how they avoided releasing unsafe images.
+28
+
+
+• We recognize that providing effective safeguards is challenging, and many papers do
+not require this, but we encourage authors to take this into account and make a best
+faith effort.
+12. Licenses for existing assets
+Question: Are the creators or original owners of assets (e.g., code, data, models), used in
+the paper, properly credited and are the license and terms of use explicitly mentioned and
+properly respected?
+Answer: [Yes]
+Justification: All datasets are properly cited. All are publicly available benchmarks for
+research use. The software libraries used (PyTorch, scikit-learn) are open-source under
+BSD-style licenses. Explicit license names are not stated in the paper but all assets are
+standard research benchmarks with well-established terms of use.
+Guidelines:
+• The answer [N/A] means that the paper does not use existing assets.
+• The authors should cite the original paper that produced the code package or dataset.
+• The authors should state which version of the asset is used and, if possible, include a
+URL.
+• The name of the license (e.g., CC-BY 4.0) should be included for each asset.
+• For scraped data from a particular source (e.g., website), the copyright and terms of
+service of that source should be provided.
+• If assets are released, the license, copyright information, and terms of use in the
+package should be provided. For popular datasets, paperswithcode.com/datasets
+has curated licenses for some datasets. Their licensing guide can help determine the
+license of a dataset.
+• For existing datasets that are re-packaged, both the original license and the license of
+the derived asset (if it has changed) should be provided.
+• If this information is not available online, the authors are encouraged to reach out to
+the asset’s creators.
+13. New assets
+Question: Are new assets introduced in the paper well documented and is the documentation
+provided alongside the assets?
+Answer: [N/A]
+Justification: No new datasets, pretrained models, or other assets are released with this paper.
+Code is publicly available.
+Guidelines:
+• The answer [N/A] means that the paper does not release new assets.
+• Researchers should communicate the details of the dataset/code/model as part of their
+submissions via structured templates. This includes details about training, license,
+limitations, etc.
+• The paper should discuss whether and how consent was obtained from people whose
+asset is used.
+• At submission time, remember to anonymize your assets (if applicable). You can either
+create an anonymized URL or include an anonymized zip file.
+14. Crowdsourcing and research with human subjects
+Question: For crowdsourcing experiments and research with human subjects, does the paper
+include the full text of instructions given to participants and screenshots, if applicable, as
+well as details about compensation (if any)?
+Answer: [N/A]
+Justification: The paper does not involve crowdsourcing or research with human subjects.
+Guidelines:
+• The answer [N/A] means that the paper does not involve crowdsourcing nor research
+with human subjects.
+29
+
+
+• Including this information in the supplemental material is fine, but if the main contribu-
+tion of the paper involves human subjects, then as much detail as possible should be
+included in the main paper.
+• According to the NeurIPS Code of Ethics, workers involved in data collection, curation,
+or other labor should be paid at least the minimum wage in the country of the data
+collector.
+15. Institutional review board (IRB) approvals or equivalent for research with human
+subjects
+Question: Does the paper describe potential risks incurred by study participants, whether
+such risks were disclosed to the subjects, and whether Institutional Review Board (IRB)
+approvals (or an equivalent approval/review based on the requirements of your country or
+institution) were obtained?
+Answer: [N/A]
+Justification: The paper does not involve crowdsourcing or research with human subjects, so
+IRB approval was not required.
+Guidelines:
+• The answer [N/A] means that the paper does not involve crowdsourcing nor research
+with human subjects.
+• Depending on the country in which research is conducted, IRB approval (or equivalent)
+may be required for any human subjects research. If you obtained IRB approval, you
+should clearly state this in the paper.
+• We recognize that the procedures for this may vary significantly between institutions
+and locations, and we expect authors to adhere to the NeurIPS Code of Ethics and the
+guidelines for their institution.
+• For initial submissions, do not include any information that would break anonymity (if
+applicable), such as the institution conducting the review.
+16. Declaration of LLM usage
+Question: Does the paper describe the usage of LLMs if it is an important, original, or
+non-standard component of the core methods in this research? Note that if the LLM is used
+only for writing, editing, or formatting purposes and does not impact the core methodology,
+scientific rigor, or originality of the research, declaration is not required.
+Answer: [N/A]
+Justification: LLMs were used only for writing and editing purposes and did not impact the
+core methodology, scientific rigor, or originality of the research.
+Guidelines:
+• The answer [N/A] means that the core method development in this research does not
+involve LLMs as any important, original, or non-standard components.
+• Please refer to our LLM policy in the NeurIPS handbook for what should or should not
+be described.
+30
