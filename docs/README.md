@@ -1,37 +1,31 @@
 ## 最新日报
-- 最新运行日期：2026-11-01
-- 运行时间：2026-11-01 06:10:06 北京时间
+- 最新运行日期：2026-11-02
+- 运行时间：2026-11-02 06:41:24 北京时间
 - 运行状态：成功
-- 本次总论文数：6
-- 精读区：2
-- 速读区：4
+- 本次总论文数：4
+- 精读区：1
+- 速读区：3
 
 ### 今日简报（AI）
-- 今日共生成 6 篇推荐（精读 2 篇，速读 4 篇）
-- 精读：《ACAM-J-MARS: Multi-Atlas Riemannian Spectral Representations for Decoding Advanced Meditation States from fMRI》（9.0/10）, 《A Multi-Layer Navigation System for Smart Wheelchairs with a Limited Input Interface》（8.0/10）
-- 速读：《Every route counts, but some count more: a max-plus view of the C. elegans brain》（6.0/10）, 《Beyond Low-Pass Dynamics: Frequency-Selective Spiking Reservoirs with Resonant Neurons》（6.0/10）, 《REVBRAIN: Real-time Probabilistic EEG Forecasting Using Residual Vector Quantization》（6.0/10）
+- 今日共生成 4 篇推荐（精读 1 篇，速读 3 篇）
+- 精读：《Control of Seizure Dynamics in a Bistable System with Pulsatile Inputs》（8.0/10）
+- 速读：《Recognition of auditory objects from continuous and ultra-sparse spike streams in neuromorphic devices》（7.0/10）, 《Dynamical mean-field theory for associative memory with block-correlated patterns》（6.0/10）, 《A Pretrained Model for Bayesian Filtering in Heterogeneous Dynamical Systems》（6.0/10）
 - 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202611/01/README](/202611/01/README)
+- 详情：[/202611/02/README](/202611/02/README)
 
 ### 精读区论文标签
-1. [ACAM-J-MARS: Multi-Atlas Riemannian Spectral Representations for Decoding Advanced Meditation States from fMRI](/202611/01/2610.39171v1-acam-j-mars-multi-atlas-riemannian-spectral-representations-for-decoding-advanced-meditation-states-from-fmri)  
-   标签：评分：9.0/10、query:sr
-   evidence：使用多图谱黎曼谱表示从fMRI解码冥想状态
-2. [A Multi-Layer Navigation System for Smart Wheelchairs with a Limited Input Interface](/202611/01/2610.38569v1-a-multi-layer-navigation-system-for-smart-wheelchairs-with-a-limited-input-interface)  
+1. [Control of Seizure Dynamics in a Bistable System with Pulsatile Inputs](/202611/02/2610.40178v1-control-of-seizure-dynamics-in-a-bistable-system-with-pulsatile-inputs)  
    标签：评分：8.0/10、query:sr
-   evidence：用于智能轮椅导航的脑机接口
+   evidence：通过脉冲刺激控制癫痫发作的双稳态神经群体模型
 
 ### 速读区论文标签
-1. [Every route counts, but some count more: a max-plus view of the C. elegans brain](/202611/01/2610.37587v1-every-route-counts-but-some-count-more-a-max-plus-view-of-the-c-elegans-brain)  
+1. [Recognition of auditory objects from continuous and ultra-sparse spike streams in neuromorphic devices](/202611/02/2610.38564v1-recognition-of-auditory-objects-from-continuous-and-ultra-sparse-spike-streams-in-neuromorphic-devices)  
+   标签：评分：7.0/10、query:sr
+   evidence：超稀疏脉冲流和脉冲模式模板用于听觉对象识别
+2. [Dynamical mean-field theory for associative memory with block-correlated patterns](/202611/02/2610.40060v1-dynamical-mean-field-theory-for-associative-memory-with-block-correlated-patterns)  
    标签：评分：6.0/10、query:sr
-   evidence：神经信号路由的max-plus代数模型
-2. [Beyond Low-Pass Dynamics: Frequency-Selective Spiking Reservoirs with Resonant Neurons](/202611/01/2610.37906v1-beyond-low-pass-dynamics-frequency-selective-spiking-reservoirs-with-resonant-neurons)  
+   evidence：联想记忆模型的动态平均场理论
+3. [A Pretrained Model for Bayesian Filtering in Heterogeneous Dynamical Systems](/202611/02/2610.40437v1-a-pretrained-model-for-bayesian-filtering-in-heterogeneous-dynamical-systems)  
    标签：评分：6.0/10、query:sr
-   evidence：谐振神经元脉冲储备池用于时间频率选择性
-3. [REVBRAIN: Real-time Probabilistic EEG Forecasting Using Residual Vector Quantization](/202611/01/2610.38558v1-revbrain-real-time-probabilistic-eeg-forecasting-using-residual-vector-quantization)  
-   标签：评分：6.0/10、query:sr
-   evidence：用于脑状态依赖刺激的实时概率EEG预测
-4. [Optimal Neural Estimation for High-Dimensional Nonparametric Regression under Multisource Covariate Shift](/202611/01/2610.40331v1-optimal-neural-estimation-for-high-dimensional-nonparametric-regression-under-multisource-covariate-shift)  
-   标签：评分：6.0/10、query:sr
-   evidence：多源协变量偏移回归作为域适应方法
+   evidence：用于状态估计的预训练贝叶斯滤波可应用于神经解码
 
