@@ -1,0 +1,2384 @@
+Title: Spiking Neural Networks Incrementally Track Firing-Rate Networks
+
+URL Source: https://arxiv.org/pdf/2611.27322v1
+
+Published Time: Mon, 23 Nov 2026 02:13:12 GMT
+
+Number of Pages: 45
+
+Markdown Content:
+Preprint 
+
+# SPIKING NEURAL NETWORKS INCREMENTALLY TRACK 
+
+# FIRING -R ATE NETWORKS 
+
+Hyunseok Oh & Youngki Lee 
+
+Department of Computer Science and Engineering Seoul National University 1 Gwanak-ro, Gwanak-gu, Seoul 08826, Republic of Korea 
+
+{ohsai,youngki.lee }@snu.ac.kr 
+
+# ABSTRACT 
+
+Understanding how spiking neural networks (SNNs) efficiently process data streams is key to (i) studying how biological brains conserve energy for lifelong predictions and (ii) enabling efficient continuous AI inference. In this work, we propose a theory on how an SNN incrementally tracks its corresponding firing-rate network, a continuous-valued neural network (ANN). We prove that the output of a discrete SNN continuously tracks the instantaneous ANN output implicitly determined by the SNN input. Based on this principle, we develop LIF-Stream, a conversion framework for efficient SNN inference over unbounded data streams. It enables the converted SNN to reuse its prior activation state and compute only the activation updates between frames, thereby reducing the average number of time steps needed per frame. Specifically, LIF-Stream controls the SNN to continuously track the reference ANN output, which gives a high-accuracy prediction for ev-ery frame. Evaluation on three large-scale streaming inference benchmarks with distinct modalities shows that LIF-Stream achieves the best efficiency-accuracy trade-off compared to high-accuracy SNN techniques. Code will be released at 
+
+https://github.com/snuhcs/LIF-Stream .
+
+# 1 INTRODUCTION 
+
+Understanding how biological brains efficiently process continuous sensory streams throughout their lifetimes can advance the design of efficient, always-on AI systems. Brains save metabolic energy on static scenes while selectively scaling cognitive compute on surprising events (Attwell & Laughlin, 2001; Friston, 2010). Spiking neural networks (SNNs) computationally model these biological neural systems to (i) study their underlying information processing mechanisms and (ii) implement extremely energy-efficient AI systems with neuromorphic hardware (Roy et al., 2019). SNNs are networks of spiking neurons that mimic neuronal dynamics and communicate through binary spikes (Maass, 1996b; Gerstner & Kistler, 2002). Since they fundamentally process the time series of binary events (spike trains) in a biophysical manner, they are naturally expected to process streaming data efficiently. However, existing high-accuracy SNN techniques, including direct SNN training and ANN-to-SNN conversion methods, overlook the need to leverage historical states to efficiently process new inputs, especially for unbounded streams. We first derive a theoretical principle governing the transient dynamics of discrete SNNs, which underlies how an SNN can efficiently process information through time. It is challenging to analyze the discrete SNNs since they are discontinuous dynamical systems. We overcome this by extending the ANN-to-SNN conversion theory (Rueckauer et al., 2016; Xiao et al., 2021; Oh & Lee, 2024) to the transient regimes through the lens of reference tracking. Specifically, we prove that SNN consisting of discrete LIF neurons (LIF-SNN) continuously attracts toward the instantaneous output of its corresponding continuous-valued clipped-ReLU network (ANN). This ANN is a firing-rate network (Gerstner et al., 2014): its activations are the targets of the exponentially filtered firing rates of the SNN neurons. Thus, the ANN output is a time-varying reference target that SNN dynamics tracks. LIF-SNN dynamics is a damped fixed-point iteration with a constant step size that permanently tracks this target. For static inputs, it oscillates within the small neighborhood of the static equilibrium. Although SNNs with discrete Integrate-and-Fire (IF) neurons match the ANN output exactly at steady 1arXiv:2611.27322v1 [cs.NE] 20 Nov 2026 Preprint state, they cannot guarantee tracking of a changing input, because their step sizes decay through time and their membranes accumulate charge debt (Sec. 3). Based on our theory, we introduce LIF-Stream , a conversion framework for efficient SNN inference over unbounded data streams, in which the SNN incrementally tracks its continuous-valued ANN counterpart across an unbounded input stream, producing a prediction for every frame. Concretely, LIF-Stream is a two-time-scale SNN control process: The outer loop continuously encodes the input stream to implicitly drive the reference ANN for accurate frame-wise prediction. The inner loop allocates a few time steps per frame for the SNN to continuously track this reference ANN output, which is a time-varying target, while retaining its states across frame boundaries. The framework is a recipe into which any frame-wise ReLU1 ANN can be plugged, configured only by the leak τ , the number of ticks (SNN time steps) per frame T , the input encoder, and an optional warm-up. LIF-Stream efficiently processes streams, since SNN retains prior activation values and incrementally computes to close the gap between ANN and SNN activations. For streams where consecutive frames are similar, SNNs need only a few ticks per frame on average to maintain high frame-wise accuracy. This finding challenges the common belief by showing that ANN-to-SNN conversion can be as efficient as direct training methods on streaming data without specialized training or fine-tuning. For such incremental computation to persist indefinitely, we argue that ANN-to-SNN conversion techniques should pivot from IF to LIF neuron. While the IF neuron’s time-diminishing step size and charge debt prevent it from tracking continuously, the LIF neuron’s constant step size ensures permanent and autonomous alertness. We comprehensively evaluate our framework across diverse streaming inference tasks spanning vision, audio, and neuromorphic (event-stream) benchmarks. Comparisons with state-of-the-art SNN tech-niques show that LIF-Stream generally achieves the best efficiency-accuracy trade-off. LIF-Stream is significantly more tick-efficient than conversion techniques, while surpassing directly trained SNNs in peak accuracy with comparable low-tick accuracy. Furthermore, LIF-Stream is natively compatible with standard digital neuromorphic hardware out-of-the-box, as it operates without post-training model calibration, customized neuronal dynamics, or non-binary spike communication. In-depth analyses demonstrate that this tick efficiency stems from our incremental computing approach, which naturally exploits small inter-frame prediction deltas by computing incremental state updates rather than full activations. 
+
+# 2 COMPUTING DYNAMICS OF SPIKING NEURAL NETWORKS 
+
+We study the standard Leaky Integrate-and-Fire (LIF) neuron model (Gerstner et al., 2014), which is widely researched and implemented in neuromorphic hardware. The discrete-time dynamics of an LIF neuron with membrane potential u(t) and spike output s(t) consists of three consecutive steps: 
+
+upre (t) = 
+
+
+
+1 − 1
+
+τ
+
+
+
+u(t − 1) + 1
+
+τ urest + Rτ I(t) (Integration) (1) 
+
+s(t) = H(upre (t) − θ) (Thresholding) (2) 
+
+u(t) = upre (t) − θ s (t) (Reset) (3) Here, upre (t) and urest denote the pre-firing and resting potential, H(·) is the Heaviside step function, 
+
+θ is the threshold, τ is the leakage factor, and R is membrane resistance. We adopt a soft reset ( equation 3), the subtraction-based discretization of neuronal reset. We choose it instead of hard reset for its superior accuracy and analytical tractability (Han & Roy, 2020). 
+
+Integrate-and-Fire (IF) neuron further simplifies the integration dynamics by removing the leakage behavior through τ → ∞ , R = τ .We use two decoding schemes to map binary spike trains s(t) into real-valued signals y(t). First, the standard rate coding averages all spikes equally through time. Second, the exponential moving average (EMA) coding (Oh & Lee, 2024) averages spikes with weights that exponentially decay through time. For analytical tractability, we align the decay factor of EMA coding with the leakage factor τ of the LIF neuron. Both admit streaming formulation, starting from y(0) = 0 :
+
+y(t + 1) = τ − 1
+
+τ y(t) + 1
+
+τ s(t)  EMA  y(t + 1) = t − 1
+
+t y(t) + 1
+
+t s(t)  Rate  (4) 2Preprint      
+
+> (a) Conceptual overview of our theory: LIF-SNN dy-namics constantly tracks time-varying ANN outputs.
+> (b) Empirical validation of our theory: Time-domain tracking of LIF-SNN towards its ANN Trajectory.
+> (c) Multiple LIF-SNN trajectories starting from ran-dom initial conditions converge toward the time vary-ing ANN trajectory given identical input sequences.
+> (d) Impact of step size on SNN tracking dynamics. Unlike constant 1/τ (LIF neuron), time-decaying step size 1/(t+ 1) (IF neuron) fails to track continuously.
+
+Figure 1: Conceptual overview and empirical validation of theoretical findings. (b) LIF-SNNs are continuously attracted to instantaneous ReLU1-ANN outputs, tracking the ANN trajectory through time. (c) Basin of attraction: trajectories starting from arbitrary initial states and histories converge toward the same target trajectory given identical inputs afterwards. (d) Trade-offs in step size ( τ ): larger step sizes (smaller τ ) achieve faster convergence with larger oscillation, while smaller step sizes (larger τ ) reduce oscillation at the expense of convergence speed. We consider a general fully connected network of d neurons driven by n input sources. An input matrix F ∈ Rd×n weighs input signals x(t), and a recurrent matrix W ∈ Rd×d weighs previous spike outputs s(t − 1) . Assuming linear synapse, the total current I(t) ∈ Rd is given by: 
+
+I(t) = F x (t) + W s (t − 1) . (5) 2.1 THEORETICAL ANALYSIS 
+
+The LIF-SNN dynamics in equation 1-5 is a complex nonlinear system of difference equations that is difficult to analyze directly. We first show that these dynamics reduce to a single damped fixed-point iteration. Throughout the paper, we list complete proofs in Appendix B. I denotes the identity matrix, 
+
+1 the vector of ones, and ReLU1 : R → [0 , 1] defined as ReLU1 (x) = min(max( x, 0) , 1) .
+
+Lemma 2.1. Let the input signals x(t) and spike outputs s(t) be EMA-coded into ˜x(t) and y(t),respectively. The output trajectory y(t) of a discrete-time LIF-SNN exactly equals the trajectory of the damped fixed point iteration with a constant factor 1 
+
+> τ
+
+:
+
+y(t) = 
+
+
+
+1 − 1
+
+τ
+
+
+
+y(t − 1) + 1
+
+τ H
+
+
+
+F ˜x(t) + W0 y(t − 1) + b(t) − θ · 1
+
+
+
+(6) 
+
+where α = 1 − 1 
+
+> τ
+
+, W0 := W − (τ − 1) θI, and b(t) := urest (1 − αt)1 + αtupre (0) .Proof sketch. We eliminate the membrane potentials u(t), u pre (t) in terms of ˜x(t) and y(t). Recur-sively unrolling the integration equation 1 backwards to t = 0 expresses upre (t) as an exponentially weighted sum of I(k). Substituting I(k) using equation 5 reduces upre (t) to a linear combination of 
+
+y(t − 1) and ˜x(t):
+
+upre (t) = F ˜x(t) + W0 y(t − 1) + b(t), (7) 3Preprint Plugging this equation 7 and the firing rule equation 2 into the coding definition equation 4 yields the desired results (see complete proof in Appendix B.1). We call 1 
+
+> τ
+
+the step size because equation 6 is a relaxed fixed-point iteration, y(t) = y(t − 1) + 
+
+> 1
+> τ
+
+ H(·) − y(t − 1) , whose coefficient sets how far y moves toward its current target per tick; the same coefficient is the step size in stochastic approximation (Robbins & Monro, 1951). Based on this, we derive our key finding governing the computing direction of transient SNN dynamics: the SNN output y(t) continuously tracks its corresponding continuous-valued ReLU1 network instantaneously determined by the input ˜x(t) at each time step t, as shown in Figure 1a. 
+
+Theorem 2.2. For each time step t, the LIF-SNN output y(t) is attracted with a step size 1 
+
+> τ
+
+toward the fixed-point set E(t) of a continuous-valued neural network, instantaneously defined by ˜x(t):
+
+E(t) := 
+
+
+
+y ∈ [0 , 1] d y = ReLU1 
+
+ 1(τ −1) θ
+
+ F ˜x(t + 1) + W y + b(t + 1) − θ · 1
+
+(8) 
+
+The set E(t) is always nonempty because its ReLU1 map is a continuous self-map on the compact convex domain [0 , 1] d, guaranteeing the existence of a fixed point by Brouwer’s fixed-point theorem. Proof sketch. The update term equation 6 can be rewritten as y(t + 1) = y(t) − 1 
+
+> τ
+
+(y(t) −
+
+H(D(t; y(t)) − y(t))) , where D(t; y) := 1(τ −1) θ
+
+ F ˜x(t + 1) + b(t + 1) + W y − θ · 1. A coordinate-wise analysis shows that each coordinate [y(t)] k always moves toward ReLU1 ([ D(t; y(t))] k) with a constant step size 1 
+
+> τ
+
+. This contracts the gap between [y(t)] k and ReLU1 ([ D(t; y(t))] k) at a geometric rate α = 1 − 1 
+
+> τ
+
+, towards the set of points satisfying y = ReLU1 (D(t; y)) , which is E(t). Hence, y(t)
+
+is attracted towards the instantaneous fixed-point set E(t) regardless of the initial condition or prior history y(< t ). (See full proof in Appendix B.2.) 
+
+E(t) can be identified as a Deep Equilibrium Model (DEQ) (Bai et al., 2019), which defines the output as the fixed point of a single transformation driven by input. A single-layer DEQ is equivalent to infinite-depth, weight-tied feedforward network, and thus can represent any finite-depth network. The constant step size makes y(t) continuously pursue the moving target E(t), but also prevents exact convergence. Using Theorem 2.2, we can derive a stronger version of ANN-to-SNN conversion than prior work (Xiao et al., 2021): When input stabilizes and weight is contractive, y(t) converges geometrically into an O( 1 
+
+> τ
+
+)-neighborhood of the static equilibrium and oscillates within it thereafter. 
+
+Corollary 2.3 (ANN-to-SNN Conversion) . Let γ := ∥W ∥∞  
+
+> (τ−1) θ
+
+< 1. If ˜x(t) → x, then E(t) → E ∗, i.e., 
+
+E∗ := y ∈ [0 , 1] d y = ReLU1   1(τ −1) θ (F x + W y + ( urest − θ)1) (9) 
+
+is a singleton {y∗}, and y(t) approaches its 1  
+
+> τ(1 −γ)
+
+-neighborhood at the geometric rate max {α, γ },remaining there thereafter: lim sup t→∞ ∥y(t) − y∗∥∞ ≤ 1  
+
+> τ(1 −γ)
+
+(Proof at Appendix B.3.) 
+
+Note that E(t) and E∗ are both outputs of the same ReLU1 network evaluated at different inputs ˜x(t)
+
+and x. Their only other difference is the initial-state term αtupre (0) in b(t), which vanishes within a few frames. The SNN output y(t) tracks E(t) within an O( 1 
+
+> τ
+
+) band, and the error stays bounded on a moving stream as well (proof at Appendix B.4): 
+
+Corollary 2.4 (Tracking error on a stream) . Let γ < 1 as in Corollary 2.3, so that E(t) = {y∗ 
+
+> t
+
+},let ρ := max {α, γ }, and suppose that after some tick t0 the target moves at most δ per tick, 
+
+∥y∗ 
+
+> t
+
+− y∗
+
+> t−1
+
+∥∞ ≤ δ for t > t 0. Then for every k ≥ 0, whatever the state y(t0) was at t0,
+
+∥y(t0 + k) − y∗
+
+> t0+k
+
+∥∞
+
+| {z }
+
+> SNN tracking error
+
+≤ R∗ + ρk, where R∗ := max 
+
+n 1/τ +γδ 
+
+> 1−γ
+
+| {z } 
+
+> jitter
+
+, (τ − 1) δ
+
+| {z }
+
+> lag
+
+o
+
+. (10) 
+
+So after any abrupt change, such as a scene cut at t0, the error falls below R∗ + ϵ within 
+
+log(1 /ϵ )/ log(1 /ρ ) ticks, however long the stream has run. 
+
+IF Neuron: steady-state equivalence does not imply tracking. Under rate coding, IF-SNN dynamics simplify into a fixed-point iteration with a step size η(t) = 1 
+
+> t+1
+
+. The trajectory is 4Preprint attracted toward its corresponding ReLU1-DEQ model outputs EIF (x(t)) . Unlike LIF-SNNs, the time-diminishing characteristic of the step size η(t) (Robbins & Monro, 1951) makes the IF-SNN trajectory converge exactly towards EIF (x) once the input stabilizes x(t) → x, under ∥W ∥∞ < θ .
+
+EIF (x) = y ∈ [0 , 1] d | y = ReLU1  (W y + F x )/θ  (11) This analytical mapping between the IF neuron and clipped ReLU at steady state (Rueckauer et al., 2017; Han & Roy, 2020) has been foundational for ANN-to-SNN conversion, and our findings reveal the transient dynamics underlying it. However, steady-state equivalence alone does not imply tracking: IF neurons satisfy it exactly , yet cannot guarantee tracking of a changing input (Appendix B.5.4). Hence tracking (Theorem 2.2 and Corollary 2.4) is a strictly stronger property than steady-state conversion, and whether it holds depends on the neuronal dynamics. 
+
+Empirical Validation. We validate our theoretical findings through a toy experiment. We train a 7-layer MLP with ReLU1 activations to regress a smooth multivariate sinusoidal function, and convert it to SNN by replacing ReLU1s with LIF (or IF) neurons. Figure 1 shows that LIF-SNN output continuously tracks its corresponding ReLU1-ANN’s trajectory through time with a broad basin of attraction. Interestingly, the tracking dynamics governed by step sizes closely mirror online optimization dynamics: larger step sizes accelerate convergence at the expense of higher oscillation, whereas smaller step sizes yield smoother trajectories that lag behind. In contrast, time-diminishing step size (IF neuron) greatly lags behind the time-varying target (Detailed experimental setup is at Appendix H.8.) 
+
+# 3 CONTROLLING SNN S TO EFFICIENTLY PROCESS DATA STREAMS 
+
+In the last section, we discovered a core principle governing the transient dynamics of SNN. We now leverage this principle to establish a framework that processes data streams accurately and efficiently with SNNs. Specifically, Theorem 2.2 shows that SNN constantly updates its output a step towards its corresponding ANN output. We control the dynamics of SNN using this governing principle so that SNN continuously tracks its corresponding ANN as a reference model. Our LIF-Stream framework is a two-time-scale control that continuously adapts SNN to its time-varying reference model. It consists of (i) an inner loop, in which the SNN output closely tracks the output of the reference ANN model, and (ii) an outer loop, in which the reference ANN continuously evolves its output given input stream. Simply put, we continuously tune the reference ANN, which is easier to train and stably infers, to robustly control the unstable and discontinuous SNN computation. Figure 2 (left) illustrates the concept of our framework. SNN continuously updates its output to adapt to a new reference ANN output. Here, the inner loop can be framed as an online adaptation process of SNN y to its reference model y∗ in a time window of t ∈ [Ti−1, T i], as follows: • Estimator: The SNN output y(t) encoded in spike trains. • Initial State: Prior SNN output y(Ti−1).• Goal: The ANN output y∗(t) that stably evolves towards desired frame output y∗(Ti).• Update Rule: The forward propagation of SNN, a fixed point iteration (Lemma 2.1.) that attracts y(t) towards the reference ANN output y∗(t).• Step size: Constant 1 
+
+> τ
+
+(LIF) or time-decaying 1 
+
+> t+1
+
+(IF) We pretrain a reference ReLU1-ANN with floating-point activations as a normal DNN. Unlike prior ANN-to-SNN conversion methods that utilize IF neurons, we convert ReLU1 functions into LIF neurons based on the steady-state equivalence in Corollary 2.3. Since the reference ANN achieves high accuracy with standard gradient-based optimizations, the SNN could also achieve high streaming accuracy as long as it stably and closely tracks the reference model. Algorithm 1 simply implements our framework with LIF-SNNs. Such simplicity comes from two aspects. First, the principle we discovered intrinsically links SNN with its reference ANN through inputs, without additional component. Second, the step size of LIF dynamics is constant throughout the adaptation process. These preclude any intervention during stream processing. As in Algorithms 2– 7, input streams could be arbitrarily encoded, as long as the reference ANN stably and swiftly evolves towards the desired frame output. We empirically compare the encoding schemes in Appendix C.1. 
+
+Streaming Efficiency Our framework reveals how SNNs could be exceptionally efficient for pro-cessing temporally correlated data streams. We view SNN dynamics as an incremental computing 5Preprint 
+
+Figure 2: Conceptual overview and empirical trajectory analysis of LIF-Stream . (Left) Conceptual diagram of our LIF-Stream framework for streaming SNN inference. (Right) Empirical validation on MOT17 video sequences (Milan et al., 2016) evaluated as a streaming pedestrian detection task. LIF-Stream efficiently tracks the continuous ANN output by updating only inter-frame delta, whereas standard reset-based IF and LIF-SNNs suffer from re-convergence latency overhead for every frame. algorithm of continuous-valued neural networks; It retains prior state and computes only the incre-mental updates in neural activations induced by input changes. For continuous, temporally correlated streams, the activations change gradually rather than abruptly. When the prior SNN state is already close to the target ANN output, and the reference ANN output changes minimally, the SNN requires only a small number of time steps to process a new frame. Hence, SNN naturally exploits the temporal redundancy without sacrificing accuracy, whereas conventional DNN inference should fully recompute regardless of temporal correlation. 
+
+Perpetual Inference Incremental computation is most effective when it can operate continuously without external reset or intervention. However, SNN inference systems frequently employ global reset that re-initialize all the neuronal states each frame to start with a clean slate. For our framework, this introduces three key drawbacks: (i) it completely discards the prior states that SNNs rely on for streaming efficiency, (ii) SNNs struggle to recover the accuracy after the reset, and (iii) it triggers global synchronization, which makes real-time systems less responsive to sudden events. We observe that LIF neurons should be used instead of IF neurons to make neural computation perpetually incremental. Prior approaches using IF neuron (or its variants) are fundamentally limited because IF-SNNs have a time-diminishing step size . The number of time steps (i.e., ticks) to track the reference model scales linearly over time, and thus it freezes after a few frames. Thus, in practice the IF conversions we compare against reset every frame. While recent IF-based conversion techniques show high accuracy in ultra-low ticks, they are only effective in the first few ticks after global reset. In contrast, LIF neuron’s time-constant step size makes the SNN permanently alert. LIF-SNN can continuously track the reference model’s trajectory closely without any intervention. It is also naturally robust to long time horizon and scene cuts in input streams. Furthermore, the IF neuron cannot guarantee continuous tracking under any decoder (including rate coding) because of charge debt : negative input cannot leave an IF membrane as spikes and piles up as a debt that silences the neuron for a time proportional to the history. We prove in Appendix B.5.4 that no decoder gives an IF neuron a lag bound that holds over a stream, whereas leak lets the debt of an LIF neuron fade and keeps its tracking error bounded (Corollary 2.4). 
+
+Initial Warm-up. SNNs can exhibit a cold start phenomenon: a temporary initial accuracy drop where the SNN output y(t) requires several ticks to warm up from y(0) to match the reference target 
+
+y∗(T1). This can be problematic in real-world scenarios when an agent should wake up fast and react. To resolve this, we dynamically schedule more time-steps solely for the first frame, e.g., 32 ticks in Figure 2 (right). This design preserves both initial accuracy and a low average-case tick budget. 
+
+Empirical validation on static-camera video streaming perception. Figure 2 (right) demonstrates our framework on MOT17 video sequences (Milan et al., 2016) repurposed for streaming pedestrian detection. We use an FCOS-lite architecture (Tian et al., 2019) with a VGG backbone (Simonyan & Zisserman, 2014) restricted to affine layers and ReLU1, trained on COCO (Lin et al., 2014b). We project the SNN output trajectories onto a 2D PCA subspace fitted to the ANN trajectory. LIF-Stream smoothly tracks the reference ANN via local incremental updates within 8 ticks. In contrast, reset-6Preprint based baselines reinitialize to the origin each frame, and thus incur significant time steps. Also, initial warm-up aligns LIF-Stream with the ANN output in earlier frames. 
+
+# 4 EVALUATION 
+
+To demonstrate generalizability, we extensively evaluate our framework across three distinct stream processing modalities, including vision, audio, and event streams. We benchmark against ANN-to-SNN conversion and direct SNN training baselines (see Appendix D for implementation details). 
+
+Streaming Object Detection. We assess streaming detection by zero-shot transferring models pretrained frame-by-frame on MS COCO (Lin et al., 2014b) directly to the Argoverse-HD bench-mark (Li et al., 2020b). COCO provides large-scale object detection pretraining across 80 classes, while Argoverse-HD provides high-frame-rate (30 FPS) egocentric video sequences annotated at 2D bounding-box level across eight road-object overlapping categories (24 validation streams, 15,062 frames). We report frame-wise mAP@50 evaluated sequentially over streaming frames. For conver-sion baselines, we adapt YOLOv8 (Jocher et al., 2023) for SNN conversion (60.7% AP50 on COCO, ReLU1). Full experimental setups are in Appendix E. 
+
+Streaming Automatic Speech Recognition (ASR). We train and evaluate streaming ASR on the LibriSpeech dataset ( ∼960 hours of speech across 3–15 s clips) (Panayotov et al., 2015). To simulate a real-time streaming environment, audio signals are processed sequentially in small, fixed-size chunks rather than feeding full utterances simultaneously. Candidate transcriptions are served at a low latency every 33 ms to mirror real-time serving pipelines, with final output decisions committed every 1.28 s to ensure prediction stability. Accuracy is measured via Word Error Rate (WER). We base our conversion backbone on an adapted SummaryMixing architecture (Parcollet et al., 2024) (7.62% WER on LibriSpeech); Detailed model and training specifications are provided in Appendix F. 
+
+Gesture Recognition on Event Streams. We benchmark streaming event processing using the standard DVS-Gesture dataset (1,342 event recordings across 11 gesture classes captured by a DAVIS240 sensor) (Amir et al., 2017). In contrast to offline clip-level classification, we evaluate online streaming inference: the model must continuously feed event streams and classify gestures using only the event history received so far. The task involves 12 target classes, including 11 gesture categories and an additional background (NULL) class. Performance is measured by frame-wise classification accuracy. As a conversion backbone, we adapt GestureNet (Massa et al., 2020) (a TCN-based model reaching 91.1% streaming accuracy). Complete setup details are in Appendix G. 
+
+Results. Table 1 shows that LIF-Stream generally achieves the best efficiency-accuracy trade-off among SNN techniques: (i) it is substantially more tick-efficient than conversion methods while maintaining peak accuracy, and (ii) it achieves higher peak accuracy with competitive low-tick performance compared to direct training methods. Prior conversion approaches degrade sharply in streaming tasks at low tick budgets ( T < 8). Conversely, while direct training performs well at ultra-low ticks, its peak accuracy remains constrained, and it fails to train on complex backbones matching conversion baselines beyond DVS-Gesture (e.g., streaming object detection and ASR). Importantly, LIF-Stream is natively compatible with standard digital neuromorphic hardware sup-porting soft reset, as it operates out-of-the-box without post-training model calibration, customized neuronal dynamics, or non-binary spike communication. These structural properties also preserve the full ANN-level peak accuracy ceiling of our method. Prior conversion methods frequently sac-rifice peak accuracy to compensate for low-tick latency (via parameter altering (Li et al., 2021) or discontinuous activation functions (Bu et al., 2023; Jiang et al., 2023)). Similarly, direct SNN training suffers from an inherent accuracy gap with ANNs due to discontinuous spiking mechanisms and surrogate gradient approximations, which trade exactness for smoothness. This tick-efficiency stems from our incremental computing approach. Streaming inference tasks frequently exhibit high inter-frame similarity, which LIF-Stream exploits to reduce the average computational cost required for the SNN to track the reference ANN prediction. Consequently, our framework achieves high accuracy with low frame-wise ticks. This reduction is vital for real-time streaming, where per-frame computing load directly bottlenecks the system throughput, making low tick latency essential for SNNs in streaming workloads. 7Preprint Table 1: Comparison of high-accuracy SNN techniques across ANN-to-SNN conversion and direct training approaches. Calibration-Free : requires no data-driven post-training calibration. Binary Spike : inter-neuron communication only with a single binary spike per tick; No burst or multi-precision spikes. Standard neurons : utilizes basic neuronal dynamics (e.g., IF/LIF) supported by conventional neuromorphic chips. ANN Accuracy : accuracy of the dense ANN each conversion starts from. Bold and underline denote the best accuracy within the same time-step, across all methods and among conversion methods, respectively. 
+
+Method Calibration Free Binary Spike Standard Neurons ANN Accuracy Task Accuracy ( T is time-steps per frame) 
+
+T = 2 T = 4 T = 8 T = 16 T = 32 T = 64 Best 
+
+Streaming Object Detection (COCO → Argoverse-HD Zero-shot Transfer, Accuracy metric: AP50, higher the better) EMS-YOLO (Su et al., 2023) O O O – 20.2 22.1 22.5 22.7 23.2 23.6 23.7 SpikeYolo (Luo et al., 2024) O ✗ ✗ – - 30.3 - - - - 30.3 ReLUNorm (Rueckauer et al., 2017) ✗ O O 38.8 0.0 0.0 0.0 0.0 0.0 0.9 33.6 Spike-Calib (Li et al., 2021) ✗ O O 38.8 0.0 0.0 0.0 0.1 2.5 10.8 34.6 QCFS (Bu et al., 2023) ✗ O O 34.5 0.0 0.0 1.5 4.2 9.3 25.5 34.1 SlipReLU (Jiang et al., 2023) ✗ O O 35.0 0.0 0.0 0.2 0.8 2.9 12.0 26.0 RMP-SNN (Hao et al., 2023a) ✗ O O 38.8 0.0 0.0 0.0 0.0 0.0 0.0 29.8 DCGS (Huang et al., 2025) ✗ O ✗ 38.8 0.0 0.0 0.0 0.7 3.8 12.6 37.3 AdaFire (Wang et al., 2025) ✗ ✗ ✗ 38.8 0.0 0.0 0.0 0.4 6.4 20.7 35.4 AdaFire+SSC (Wang et al., 2025) ✗ ✗ ✗ 38.8 0.0 0.0 0.1 1.4 7.4 17.8 25.0 LIF Neuron + Per-frame Reset O O O 37.9 0.0 0.0 0.0 0.0 0.0 25.7 37.4 LIF-Stream (Ours) O O O 37.9 12.3 16.8 21.5 25.2 26.5 27.8 37.4 Streaming Automatic Speech Recognition (LibriSpeech dev-clean [greedy, no LM], Accuracy metric: WER, lower the better) ReLUNorm (Rueckauer et al., 2017) ✗ O O 7.6 100.0 100.0 100.0 100.0 100.0 100.0 72.6 RTS (Deng & Gu, 2021) ✗ O O 7.6 100.0 100.0 100.0 100.0 100.0 100.0 62.9 Spike-Calib (Li et al., 2021) ✗ O O 7.6 100.0 100.0 100.0 100.0 98.1 91.4 65.7 QCFS (Bu et al., 2023) ✗ O O 17.9 114.9 95.9 61.7 30.2 21.1 18.8 18.2 SlipReLU (Jiang et al., 2023) ✗ O O 14.5 122.9 81.5 42.7 23.9 18.1 16.2 14.9 RMP-SNN (Hao et al., 2023a) ✗ O O 7.6 100.0 100.0 100.0 100.0 100.0 94.2 18.3 DCGS (Huang et al., 2025) ✗ O ✗ 7.6 143.9 108.7 95.9 66.2 27.9 15.1 11.9 AdaFire (Wang et al., 2025) ✗ ✗ ✗ 7.6 97.1 94.0 51.0 19.1 12.2 10.5 10.1 AdaFire+SSC (Wang et al., 2025) ✗ ✗ ✗ 7.6 99.8 99.2 58.4 19.4 11.9 10.5 9.8 LIF Neuron + Per-frame Reset O O O 7.8 100.0 100.0 99.9 87.6 12.1 9.9 8.1 
+
+LIF-Stream (Ours) O O O 7.8 44.6 27.8 19.3 15.5 12.0 9.8 8.0 Event Stream-based Gesture Recognition (DVS-Gesture, Accuracy metric: Multi-class Accuracy over 11+1 classes, higher the better) STBP (Wu et al., 2018) O O O – 28.2 87.5 90.2 90.6 90.5 90.3 90.6 TET (Deng et al., 2022) O O O – 65.1 88.4 89.7 89.7 89.5 89.5 89.7 OTTT (Xiao et al., 2022) O O O – 19.8 86.3 89.7 90.3 90.3 90.3 90.3 SLTT (Meng et al., 2023) O O O – 37.6 86.7 88.5 88.8 88.8 88.9 88.9 ASGL (Wang et al., 2023) O O ✗ – 36.3 86.9 89.6 89.8 89.7 89.7 89.8 SDT (Yao et al., 2023) O O O – - - - 89.4 - - 89.4 ReLUNorm (Rueckauer et al., 2017) ✗ O O 91.1 25.2 25.0 25.0 4.8 7.5 28.4 86.9 RTS (Deng & Gu, 2021) ✗ O O 91.1 12.6 4.8 4.8 4.8 5.9 25.2 86.9 Spike-Calib (adv) (Li et al., 2021) ✗ O O 91.1 25.0 27.5 49.2 78.8 86.2 87.5 88.6 QCFS (Bu et al., 2023) ✗ O O 91.1 59.1 69.5 85.9 88.3 89.6 90.4 90.8 SlipReLU (Jiang et al., 2023) ✗ O O 91.5 56.8 63.7 79.5 87.4 89.3 90.4 90.8 RMP-SNN (Hao et al., 2023a) ✗ O O 91.1 25.0 14.3 4.8 4.8 4.8 18.5 26.5 DCGS (Huang et al., 2025) ✗ O ✗ 91.1 25.0 25.0 25.0 25.0 27.0 53.3 86.0 AdaFire (Wang et al., 2025) ✗ ✗ ✗ 91.1 12.6 25.0 24.8 4.8 9.0 31.1 87.0 AdaFire+SSC (Wang et al., 2025) ✗ ✗ ✗ 91.1 12.6 25.0 25.0 4.8 4.8 16.2 85.8 LIF Neuron + Per-frame Reset O O O 91.1 13.8 19.8 19.8 20.8 88.2 90.5 90.9 LIF-Stream (Ours) O O O 91.1 66.4 80.3 88.5 90.0 90.4 90.5 90.9 
+
+In terms of theoretical energy consumption (Appendix H.5), at T = 16 LIF-Stream reaches higher AP50 on Argoverse-HD than AdaFire at T = 64 , QCFS at T = 128 and SlipReLU at T = 128 ,with 6.1×, 6.4× and 6.6× less energy per frame, respectively. At T = 32 , it also uses 2.1× less energy than the same LIF network with a per-frame reset at T = 64 . We also tested its robustness by streaming three scenes back to back without a reset, randomly dropping 30% of frames, and adding Gaussian noise to every frame. Scene cuts cost nothing, and frame drops and noise reduce AP50 by at most 2.7 and 1.7 points ( 15% and 8% relative), respectively (Appendix H.7). 4.1 IN-DEPTH ANALYSIS 
+
+We comprehensively analyze LIF-Stream across multiple dimensions. Setup details are in Ap-pendix H. 
+
+Inter-frame Redundancy benefits LIF-Stream. We demonstrate the efficiency gains of our incremental computing SNN by measuring the distribution of inter-frame ticks required to reach a stable, confident prediction. Specifically, we conduct a post-hoc evaluation on LIF-Stream using Argoverse dataset and measure, for each frame, the number of ticks needed to fall and remain within an ϵ = 0 .15 error tolerance of the peak SNN F1 score. We define frame complexity as the prediction drift of the reference ANN, given by the relative variation ∥y∗ − y∗
+
+prev ∥/∥y∗
+
+prev ∥. As shown in Figure 3, 8Preprint 
+
+Figure 3: Efficiency via inter-frame redundancy (post-hoc analysis; Table 1 uses a fixed number of ticks). 
+
+Figure 4: Finer temporal resolution benefits ours (post-hoc analysis). 
+
+Figure 5: SNNs on egocentric driving perception. Figure 6: Prior IF-conversions fail to stream. a logarithmically dominant portion of frames converge in fewer than three ticks due to temporal redundancy. This effect becomes even more pronounced for lower-complexity frames, confirming that SNNs efficiently process consecutive frames by reusing prior prediction states. 
+
+Finer temporal resolution benefits LIF-Stream. To further demonstrate computational efficiency, we examine how the tick cost required for accurate predictions scales with temporal resolution. Using the Argoverse dataset, we perform streaming SNN inference over fixed time intervals and aggregate the ticks needed per frame to reach the stable prediction region (within ϵ = 0 .15 of the peak SNN F1 score). We then compute the cumulative tick consumption per second across varying temporal resolutions. As shown in Figure 4, reset-based SNN baseline scales linearly ( O(T 1.0))with temporal resolution because it discards prior state information and recomputes predictions from scratch for every frame. In contrast, LIF-Stream exhibits sub-linear scaling ( O(T 0.56 )). Higher temporal resolution increases inter-frame similarity, reducing LIF-Stream’s computation per frame. 
+
+Qualitative Evaluation. Figure 5 illustrates the streaming inference trajectory to highlight how LIF-Stream efficiently handles consecutive frames unlike reset-based frame-wise approaches. Inference is evaluated on a stream from Argoverse-HD, featuring complex egocentric driving scenes in contrast to the static person-detection scenarios in Figure 2. Reset-based methods reinitialize their hidden states to the origin at every frame, requiring them to cover a significantly longer distance in state space per frame. In contrast, LIF-Stream computes small state updates between the prior state and the new target prediction, effectively exploiting inter-frame prediction deltas. As a result, it converges faster with fewer ticks. Additionally, our initial warm-up mechanism positions the SNN state near the ANN output at the first frame, effectively preventing early mispredictions. 
+
+Compatibility with IF-SNN conversions. Our approach is conceptually orthogonal to advanced conversion techniques that calibrate or optimize IF-SNNs, as it is built upon a distinct theoretical foundation. We evaluate our streaming inference framework alongside existing ANN-to-SNN conversion methods to examine how these techniques interact. Specifically, we apply our framework across diverse conversion methods (while maintaining IF neurons) and measure their AP50 accuracy over ticks on Argoverse-HD to determine if incremental computing benefits advanced conversion techniques. As shown in Figure 6, our streaming SNN inference does not transfer to existing IF-neuron-based conversion methods. Although these techniques are engineered to accelerate early-step inference in static frames, their gains do not propagate across frames, as our streaming framework relies theoretically on LIF neuron dynamics. Consequently, this demonstrates that streaming SNN inference calls for tailored optimizations beyond standard static IF conversion approaches. We also empirically analyze whether the streaming inference capability comes from stream-friendly decoders by applying them to the streamed IF network. With an EMA or a sliding-window decoder, 9Preprint every streamed IF conversion we tested (QCFS, SlipReLU, ReLU-Norm and AdaFire) stays below 1
+
+AP50 (Figure 6, Appendix H.1), as the charge-debt analysis of Appendix B.5.4 predicts. 
+
+# 5 RELATED WORKS 
+
+Direct SNN Training. A common approach for building high-accuracy SNNs is to directly train them with backpropagation-based methods (Lee et al., 2016). The learning signal backpropagates across time steps, and surrogate gradients (Neftci et al., 2019) relax the discontinuous firing rule with smooth approximations. Techniques such as OTTT (Xiao et al., 2022), e-prop (Bellec et al., 2020), mixed-mode differentiation (Zenke & Neftci, 2021), or event-driven BP (Zhu et al., 2022) further improve computational efficiency. BPTT extends to advanced sequence processing architectures such as spiking transformers (Zhou et al., 2022; 2023) or state-space SNN models (Stan & Rhodes, 2024; Shen et al., 2025). These methods do not compute states incrementally. In contrast, LIF-Stream reuses prior states to compute only incremental activation updates without specialized training, and guarantees this property perpetually over unbounded streams. Furthermore, directly trained SNNs generally exhibit an accuracy gap relative to their ANN counterparts (Fang et al., 2021; Sengupta et al., 2019; Zhou et al., 2022) due to the gradient mismatch introduced by surrogate gradient approximations. 
+
+ANN-to-SNN Conversion is an alternative of direct training to build a high-performance SNN that can match the ANN accuracy. Cao et al. (2015) and Diehl et al. (2015) first empirically demonstrated its feasibility. Rueckauer et al. (2016; 2017) established its theoretical basis by finding a steady-state equivalence between discrete IF neuron firing rates and clipped ReLU activations. Because early conversion methods took too many time steps even for a single static input, subsequent works focused on improving the static SNN accuracy in early steps (Diehl et al., 2015; Li et al., 2021; Hao et al., 2023b). Deng & Gu (2021) formulated the layer-wise conversion errors, and Bu et al. (2023) categorizes this error to propose a clip-floor function to replace ReLU1. Huang et al. (2025) propose a new differential multi-threshold neuron that communicates rate delta, and Hwang et al. (2024) converted Transformers using a custom winner-takes-all neurons and one-spike phase coding. Few works keep neuron states across multiple frames. Kugele et al. (2020) convert an ANN to IF neurons and keep membrane potentials across frames as a warm start, but their ANN is a streaming-rollout network trained over multiple frames. Unlike us, they note that the carried state can slow convergence, and they neither analyze state reuse nor claim it as a contribution. Moreover, they bound the membrane from below to avoid long silence after negative input. As we prove in Remark B.12, such a bound breaks the conversion relation, since the firing rate no longer equals ReLU1 of the mean input. Diehl et al. (2016) keep IF states within a sentence and reset between sentences, and P´ erez-Carrasco et al. (2013) run leaky event-driven neurons continuously with a hand-tuned leak. None of these works analyzes why state reuse works or when it fails; our theory explains both, and shows that a plain LIF neuron on an ordinary frame-wise ANN suffices (Appendix B.5.4). We contribute to the conversion theory in two novel directions: (i) we reveal the principle underlying the transient SNN dynamics which fundamentally enabled the ANN-to-SNN conversion, and (ii) we make the converted SNNs efficiently process the sequence or streaming inputs without any additional training or fine-tuning. We also challenge the conventional dependence on IF neurons, showing why LIF neurons should be primarily used for stream processing. 
+
+SNN Theories. Continuous-time SNNs have been widely studied theoretically in terms of computa-tional power (Maass, 1996a;b) or dynamics (Gerstner et al., 2014; Zhang et al., 2021; Mancoo et al., 2020). However, directly applying these results to discrete-time SNNs causes errors that accumu-late over time (Mancoo et al., 2020; Niesen & Hall, 2004). Discontinuous discrete dynamics are more difficult to analyze, and hence relatively few works have studied discrete-time SNNs; through symbolic dynamics (Cessac, 2008), ergodic theory (Cessac, 2011), geometric expressivity (Nguyen et al., 2025), or optimization theory (Oh & Lee, 2024). We provide a new perspective by viewing the transient dynamics of discrete SNNs as continuous attraction toward an instantaneous ANN. This bridges transient SNN dynamics, reference tracking, and the conversion theory. Our view is closest to spike-coding networks in computational neuroscience (Boerlin et al., 2013; Den` eve & Machens, 2016), in which exponentially filtered spike trains track a target signal and each neuron spikes only when this reduces the readout error, so that computation is incremental by construction. The targets have grown from linear dynamical systems to nonlinear dynamics (Thalmeier et al., 2016; 10 Preprint Alemi et al., 2018) and convex piecewise-linear input-output functions akin to ReLU layers (Mancoo et al., 2020). In all of these, the connectivity and thresholds are derived from, or learned toward, the target, which requires specific structure such as fast recurrent inhibition or dendritic nonlinearities. In contrast, we start from an arbitrary trained deep ReLU1 network, convert it with standard conversion into standard LIF neurons, and prove that the resulting dynamics already track the instantaneous fixed point of the corresponding firing-rate network, a static map of the current filtered input, under a contraction condition that every feedforward network satisfies. Incremental computation thus comes for free from conversion, which lets us run deep networks incrementally on data streams. Sigma-delta modulation (de Jagar, 1952; Steele, 1975; O’Connor & Welling, 2016) conceptually links to our work. In detail, Yoon (2016) interpreted LIF neuron as a variant of sigma-delta modulator, an analog-to-digital converter that communicates only quantized temporal differences between nodes. Following works applied this idea for sequence processing DNNs by computing only quantized activation deltas (O’Connor & Welling, 2016; O’Connor et al., 2017; Zambrano et al., 2019). In contrast, we view SNN computation through the lens of reference tracking. The concept of closing the temporal activation gap is a byproduct of controlling SNN dynamics for efficient stream processing. 
+
+Incremental Computation of Neural Activations. Delta networks (Neil et al., 2017; Gao et al., 2018; Parger et al., 2022; Yousefzadeh & Sifalakis, 2022) reuse prior activations and incrementally compute only activation differences. However, the efficiency gain only comes when the activation deltas are sparsified through quantization, and thus the ANN should be trained to be aware of this quantization effect to reduce its impact on stream processing accuracy. Techniques for vision tasks exploit the temporal redundancy in their features by computing feature changes from events (Cavigelli et al., 2017; Dutson et al., 2022; Buckler et al., 2018; Li et al., 2022). More coarse-grained approaches adapt neural computation through early exit (Teerapittayanon et al., 2016), test-time block scaling (Fang et al., 2018; Han et al., 2021), or caching (Huynh et al., 2017; Narayanan et al., 2018). Unlike them, our work performs fine-grained, neuron-level incremental computation with SNNs, and computes to narrow the ANN-SNN activation gap instead of the inter-frame ANN activation gap. 
+
+# 6 CONCLUSION 
+
+We reveal a core principle underlying discrete SNN dynamics: an instantaneous ReLU1-ANN serves as a moving reference target that drives the output trajectory of the discrete SNN. Upon this, we build LIF-Stream, an efficient stream processing framework that controls a discrete SNN to continuously adapt to the reference ANN’s output trajectory, thereby incrementally computing the streaming perception. Comprehensive evaluations across three large-scale benchmarks with distinct modalities show that our method achieves the best efficiency-accuracy trade-off. LIF-Stream is deployable out-of-the-box only with a trained ReLU1-ANN, requiring no post-training model calibration, customized neuron dynamics, or non-binary spike formats. Broader discussions, including limitations regarding hardware evaluations and sequence modeling, are detailed in Appendix A. ACKNOWLEDGMENTS 
+
+This work was supported by the Institute for Information & Communications Technology Planning & Evaluation (IITP) grant funded by the Korea government (MSIT) (No. RS-2026-25507282, Develop-ment of AI learning technologies based on brain cognitive science and biological learning principles). This work was supported by the National Research Foundation of Korea(NRF) grant funded by the Korea government(MSIT) (No. RS-2024-00463802). 
+
+# REFERENCES 
+
+Filipp Akopyan, Jun Sawada, Andrew Cassidy, Rodrigo Alvarez-Icaza, John Arthur, Paul Merolla, Nabil Imam, Yutaka Nakamura, Pallab Datta, Gi-Joon Nam, et al. Truenorth: Design and tool flow of a 65 mw 1 million neuron programmable neurosynaptic chip. IEEE transactions on computer-aided design of integrated circuits and systems , 34(10):1537–1557, 2015. Alireza Alemi, Christian K Machens, Sophie Den` eve, and Jean-Jacques Slotine. Learning nonlinear dynamics in efficient, balanced spiking networks using local plasticity rules. In AAAI Conference on Artificial Intelligence , volume 32, 2018. 11 Preprint Arnon Amir, Brian Taba, David Berg, Timothy Melano, Jeffrey McKinstry, Carmelo Di Nolfo, Tapan Nayak, Alexander Andreopoulos, Guillaume Garreau, Marcela Mendoza, Jeff Kusnitz, Michael Debole, Steve Esser, Tobi Delbruck, Myron Flickner, and Dharmendra Modha. A low power, fully event-based gesture recognition system. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 7243–7252, 2017. David Attwell and Simon B Laughlin. An energy budget for signaling in the grey matter of the brain. 
+
+Journal of Cerebral Blood Flow & Metabolism , 21(10):1133–1145, 2001. Shaojie Bai, J Zico Kolter, and Vladlen Koltun. Deep equilibrium models. Advances in neural information processing systems , 32, 2019. Guillaume Bellec, Franz Scherr, Anand Subramoney, Elias Hajek, Darjan Salaj, Robert Legenstein, and Wolfgang Maass. A solution to the learning dilemma for recurrent networks of spiking neurons. 
+
+Nature communications , 11(1):3625, 2020. Martin Boerlin, Christian K Machens, and Sophie Den` eve. Predictive coding of dynamical variables in balanced spiking networks. PLoS Computational Biology , 9(11):e1003258, 2013. Tong Bu, Wei Fang, Jianhao Ding, PengLin Dai, Zhaofei Yu, and Tiejun Huang. Optimal ann-snn conversion for high-accuracy and ultra-low-latency spiking neural networks. arXiv preprint arXiv:2303.04347 , 2023. Mark Buckler, Philip Bedoukian, Suren Jayasuriya, and Adrian Sampson. Eva 2: Exploiting temporal redundancy in live computer vision. In 2018 ACM/IEEE 45th Annual International Symposium on Computer Architecture (ISCA) , pp. 533–546. IEEE, 2018. Yongqiang Cao, Yang Chen, and Deepak Khosla. Spiking deep convolutional neural networks for energy-efficient object recognition. International Journal of Computer Vision , 113(1):54–66, 2015. Lukas Cavigelli, Philippe Degen, and Luca Benini. Cbinfer: Change-based inference for convolutional neural networks on video data. In Proceedings of the 11th international conference on distributed smart cameras , pp. 1–8, 2017. Bruno Cessac. A discrete time neural network model with spiking neurons: rigorous results on the spontaneous dynamics. Journal of Mathematical Biology , 56:311–345, 2008. Bruno Cessac. A discrete time neural network model with spiking neurons: Ii: Dynamics with noise. 
+
+Journal of mathematical biology , 62(6):863–900, 2011. Ming-Fang Chang, John Lambert, Patsorn Sangkloy, Jagjeet Singh, Slawomir Bak, Andrew Hartnett, De Wang, Peter Carr, Simon Lucey, Deva Ramanan, and James Hays. Argoverse: 3d tracking and forecasting with rich maps. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 8748–8757, 2019. Mike Davies, Narayan Srinivasa, Tsung-Han Lin, Gautham Chinya, Yongqiang Cao, Sri Harsha Choday, Georgios Dimou, Prasad Joshi, Nabil Imam, Shweta Jain, et al. Loihi: A neuromorphic manycore processor with on-chip learning. Ieee Micro , 38(1):82–99, 2018. F de Jagar. Delta modulation, a method of pcm transmission using a one-unit code. Philips Research Rept. , 7:442, 1952. Sophie Den` eve and Christian K Machens. Efficient codes and balanced networks. Nature Neuro-science , 19(3):375–382, 2016. Shikuang Deng and Shi Gu. Optimal conversion of conventional artificial neural networks to spiking neural networks. arXiv preprint arXiv:2103.00476 , 2021. Shikuang Deng, Yuhang Li, Shanghang Zhang, and Shi Gu. Temporal efficient training of spiking neural network via gradient re-weighting. arXiv preprint arXiv:2202.11946 , 2022. Peter U Diehl, Daniel Neil, Jonathan Binas, Matthew Cook, Shih-Chii Liu, and Michael Pfeiffer. Fast-classifying, high-accuracy spiking deep networks through weight and threshold balancing. In 
+
+2015 International joint conference on neural networks (IJCNN) , pp. 1–8. ieee, 2015. 12 Preprint Peter U. Diehl, Guido Zarrella, Andrew Cassidy, Bruno U. Pedroni, and Emre Neftci. Conversion of artificial recurrent neural networks to spiking neural networks for low-power neuromorphic hardware. In IEEE International Conference on Rebooting Computing (ICRC) , 2016. Matthew Dutson, Yin Li, and Mohit Gupta. Event neural networks. In European Conference on Computer Vision , pp. 276–293. Springer, 2022. Biyi Fang, Xiao Zeng, and Mi Zhang. Nestdnn: Resource-aware multi-tenant on-device deep learning for continuous mobile vision. In Proceedings of the 24th Annual International Conference on Mobile Computing and Networking , pp. 115–127, 2018. Wei Fang, Zhaofei Yu, Yanqi Chen, Tiejun Huang, Timoth´ ee Masquelier, and Yonghong Tian. Deep residual learning in spiking neural networks. Advances in Neural Information Processing Systems ,34:21056–21069, 2021. Wei Fang, Yanqi Chen, Jianhao Ding, Zhaofei Yu, Timothee Masquelier, Ding Chen, Liwei Huang, Huihui Zhou, Guoqi Li, and Yonghong Tian. Spikingjelly: An open-source machine learning infrastructure platform for spike-based intelligence. Science Advances , 9(40):eadi1480, 2023. doi: 10.1126/sciadv.adi1480. URL https://www.science.org/doi/abs/10.1126/ sciadv.adi1480 .Karl Friston. The free-energy principle: a unified brain theory? Nature reviews neuroscience , 11(2): 127–138, 2010. Karl Friston and Stefan Kiebel. Predictive coding under the free-energy principle. Philosophical transactions of the Royal Society B: Biological sciences , 364(1521):1211, 2009. Steve B Furber, Francesco Galluppi, Steve Temple, and Luis A Plana. The spinnaker project. 
+
+Proceedings of the IEEE , 102(5):652–665, 2014. Chang Gao, Daniel Neil, Enea Ceolini, Shih-Chii Liu, and Tobi Delbruck. Deltarnn: A power-efficient recurrent neural network accelerator. In Proceedings of the 2018 ACM/SIGDA International Symposium on Field-Programmable Gate Arrays , pp. 21–30, 2018. Zhengyang Geng, Xin-Yu Zhang, Shaojie Bai, Yisen Wang, and Zhouchen Lin. On training implicit models. Advances in Neural Information Processing Systems , 34:24247–24260, 2021. Wulfram Gerstner and Werner M Kistler. Spiking neuron models: Single neurons, populations, plasticity . Cambridge university press, 2002. Wulfram Gerstner, Werner M Kistler, Richard Naud, and Liam Paninski. Neuronal dynamics: From single neurons to networks and models of cognition . Cambridge University Press, 2014. Hector A Gonzalez, Jiaxin Huang, Florian Kelber, Khaleelulla Khan Nazeer, Tim Langer, Chen Liu, Matthias Lohrmann, Amirhossein Rostami, Mark Sch¨ one, Bernhard Vogginger, et al. Spinnaker2: A large-scale neuromorphic system for event-based and asynchronous machine learning. arXiv preprint arXiv:2401.04491 , 2024. Yufei Guo, Yuanpei Chen, Xiaode Liu, Weihang Peng, Yuhan Zhang, Xuhui Huang, and Zhe Ma. Ternary spike: Learning ternary spikes for spiking neural networks. In Proceedings of the AAAI conference on artificial intelligence , volume 38, pp. 12244–12252, 2024. Bing Han and Kaushik Roy. Deep spiking neural network: Energy efficiency through time based coding. In European Conference on Computer Vision , pp. 388–404. Springer, 2020. Jianhui Han, Zhaolin Li, Weimin Zheng, and Youhui Zhang. Hardware implementation of spiking neural networks on fpga. Tsinghua Science and Technology , 25(4):479–486, 2020. Rui Han, Qinglong Zhang, Chi Harold Liu, Guoren Wang, Jian Tang, and Lydia Y Chen. Legodnn: Block-grained scaling of deep neural networks for mobile vision. In Proceedings of the 27th Annual International Conference on Mobile Computing and Networking , pp. 406–419, 2021. Zecheng Hao, Tong Bu, Jianhao Ding, Tiejun Huang, and Zhaofei Yu. Reducing ann-snn conversion error through residual membrane potential. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 37, pp. 11–21, 2023a. 13 Preprint Zecheng Hao, Jianhao Ding, Tong Bu, Tiejun Huang, and Zhaofei Yu. Bridging the gap between anns and snns by calibrating offset spikes. arXiv preprint arXiv:2302.10685 , 2023b. Alan L Hodgkin and Andrew F Huxley. A quantitative description of membrane current and its application to conduction and excitation in nerve. The Journal of physiology , 117(4):500, 1952. Zihan Huang, Wei Fang, Tong Bu, Peng Xue, Zecheng Hao, Wenxuan Liu, Yuanhong Tang, Zhaofei Yu, and Tiejun Huang. Differential coding for training-free ann-to-snn conversion. arXiv preprint arXiv:2503.00301 , 2025. Loc N Huynh, Youngki Lee, and Rajesh Krishna Balan. Deepmon: Mobile gpu-based deep learning framework for continuous vision applications. In Proceedings of the 15th Annual International Conference on Mobile Systems, Applications, and Services , pp. 82–95, 2017. Sangwoo Hwang, Seunghyun Lee, Dahoon Park, Donghun Lee, and Jaeha Kung. Spikedattention: Training-free and fully spike-driven transformer-to-snn conversion with winner-oriented spike shift for softmax operation. Advances in Neural Information Processing Systems , 37:67422–67445, 2024. Eugene M Izhikevich. Simple model of spiking neurons. IEEE Transactions on neural networks , 14 (6):1569–1572, 2003. Haiyan Jiang, Srinivas Anumasa, Giulia De Masi, Huan Xiong, and Bin Gu. A unified optimization framework of ann-snn conversion: towards optimal mapping from activation values to firing rates. In International Conference on Machine Learning , pp. 14945–14974. PMLR, 2023. Glenn Jocher, Ayush Chaurasia, and Jing Qiu. Ultralytics yolo. Zenodo , 2023. Saeed Reza Kheradpisheh, Mohammad Ganjtabesh, Simon J Thorpe, and Timoth´ ee Masquelier. Stdp-based spiking deep convolutional neural networks for object recognition. Neural Networks ,99:56–67, 2018. Dmitry Krotov and John J Hopfield. Dense associative memory for pattern recognition. Advances in neural information processing systems , 29, 2016. Alexander Kugele, Thomas Pfeil, Michael Pfeiffer, and Elisabetta Chicca. Efficient processing of spatio-temporal data streams with spiking neural networks. Frontiers in neuroscience , 14:439, 2020. Souvik Kundu, Massoud Pedram, and Peter A Beerel. Hire-snn: Harnessing the inherent robustness of energy-efficient deep spiking neural networks by training with crafted input noise. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 5209–5218, 2021. Jun Haeng Lee, Tobi Delbruck, and Michael Pfeiffer. Training deep spiking neural networks using backpropagation. Frontiers in neuroscience , 10:508, 2016. Mengtian Li, Yu-Xiong Wang, and Deva Ramanan. Towards streaming perception. In European Conference on Computer Vision (ECCV) , pp. 473–488, 2020a. Mengtian Li, Yu-Xiong Wang, and Deva Ramanan. Towards streaming perception. In European conference on computer vision , pp. 473–488. Springer, 2020b. Shengzhao Li, Qin Wang, Jianfei Jiang, Weiguang Sheng, Naifeng Jing, and Zhigang Mao. An efficient cnn accelerator using inter-frame data reuse of videos on fpgas. IEEE Transactions on Very Large Scale Integration (VLSI) Systems , 30(11):1587–1600, 2022. Yuhang Li, Shikuang Deng, Xin Dong, Ruihao Gong, and Shi Gu. A free lunch from ann: Towards efficient, accurate spiking neural networks calibration. In International conference on machine learning , pp. 6316–6325. PMLR, 2021. Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Doll´ ar, and C Lawrence Zitnick. Microsoft COCO: Common objects in context. In European Conference on Computer Vision (ECCV) , pp. 740–755, 2014a. 14 Preprint Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Doll´ ar, and C Lawrence Zitnick. Microsoft coco: Common objects in context. In European conference on computer vision , pp. 740–755. Springer, 2014b. Xinhao Luo, Man Yao, Yuhong Chou, Bo Xu, and Guoqi Li. Integer-valued training and spike-driven inference spiking neural network for high-performance and energy-efficient object detection. In 
+
+European Conference on Computer Vision , pp. 253–272. Springer, 2024. Wolfgang Maass. Lower bounds for the computational power of networks of spiking neurons. Neural Computation , 8:1–40, 1996a. Wolfgang Maass. Networks of spiking neurons: The third generation of neural network models. 
+
+Electron. Colloquium Comput. Complex. , TR96, 1996b. Allan Mancoo, Sander Keemink, and Christian K Machens. Understanding spiking networks through convex optimization. Advances in Neural Information Processing Systems , 33:8824–8835, 2020. Riccardo Massa, Alberto Marchisio, Maurizio Martina, and Muhammad Shafique. An efficient spiking neural network for recognizing gestures with a dvs camera on the loihi neuromorphic processor. In 2020 International Joint Conference on Neural Networks (IJCNN) , pp. 1–9. IEEE, 2020. Qingyan Meng, Mingqing Xiao, Shen Yan, Yisen Wang, Zhouchen Lin, and Zhi-Quan Luo. To-wards memory-and time-efficient backpropagation for training spiking neural networks. In 2023 IEEE/CVF International Conference on Computer Vision (ICCV) , pp. 6143–6153. IEEE, 2023. Anton Milan, Laura Leal-Taix´ e, Ian Reid, Stefan Roth, and Konrad Schindler. Mot16: A benchmark for multi-object tracking. arXiv preprint arXiv:1603.00831 , 2016. Javier R Movellan. Contrastive hebbian learning in the continuous hopfield model. In Connectionist models , pp. 10–17. Elsevier, 1991. Arvind Narayanan, Saurabh Verma, Eman Ramadan, Pariya Babaie, and Zhi-Li Zhang. Deepcache: A deep learning based framework for content caching. In Proceedings of the 2018 Workshop on Network Meets AI & ML , pp. 48–53, 2018. Emre O. Neftci, Hesham Mostafa, and Friedemann Zenke. Surrogate gradient learning in spiking neural networks: Bringing the power of gradient-based optimization to spiking neural networks. 
+
+IEEE Signal Processing Magazine , 36:51–63, 2019. Daniel Neil, Jun Haeng Lee, Tobi Delbruck, and Shih-Chii Liu. Delta networks for optimized recurrent network computation. In International conference on machine learning , pp. 2584–2593. PMLR, 2017. Duc Anh Nguyen, Ernesto Araya, Adalbert Fono, and Gitta Kutyniok. Time to spike? under-standing the representational power of spiking neural networks in discrete time. arXiv preprint arXiv:2505.18023 , 2025. Jitse Niesen and Trinity Hall. On the global error of discretization methods for ordinary differential equations . PhD thesis, University of Cambridge, 2004. Peter O’Connor and Max Welling. Sigma delta quantized networks. arXiv preprint arXiv:1611.02024 ,2016. Peter O’Connor, Efstratios Gavves, and Max Welling. Temporally efficient deep learning with spikes. 
+
+arXiv preprint arXiv:1706.04159 , 2017. Hyunseok Oh and Youngki Lee. Sign gradient descent-based neuronal dynamics: Ann-to-snn conversion beyond relu network. In Proceedings of the 41st International Conference on Machine Learning , pp. 38562–38598, 2024. Garrick Orchard, E Paxon Frady, Daniel Ben Dayan Rubin, Sophia Sanborn, Sumit Bam Shrestha, Friedrich T Sommer, and Mike Davies. Efficient neuromorphic signal processing with loihi 2. In 
+
+2021 IEEE Workshop on Signal Processing Systems (SiPS) , pp. 254–259. IEEE, 2021. 15 Preprint Vassil Panayotov, Guoguo Chen, Daniel Povey, and Sanjeev Khudanpur. Librispeech: An ASR corpus based on public domain audio books. In IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pp. 5206–5210, 2015. Titouan Parcollet, Rogier van Dalen, Shucong Zhang, and Sourav Bhattacharya. SummaryMixing: A linear-complexity alternative to self-attention for speech recognition and understanding. In 
+
+Interspeech , 2024. Mathias Parger, Chen Tang, Christopher D. Twigg, Cem Keskin, Robert Wang, and Markus Stein-berger. Deltacnn: End-to-end cnn inference of sparse frame differences in videos. 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 12487–12496, 2022. Jos´ e Antonio P´ erez-Carrasco, Bo Zhao, Carmen Serrano, Bego˜ na Acha, Teresa Serrano-Gotarredona, Shouchun Chen, and Bernab´ e Linares-Barranco. Mapping from frame-driven to frame-free event-driven vision systems by low-rate rate coding and coincidence processing–application to feedforward ConvNets. IEEE Transactions on Pattern Analysis and Machine Intelligence , 35(11): 2706–2719, 2013. Hubert Ramsauer, Bernhard Sch¨ afl, Johannes Lehner, Philipp Seidl, Michael Widrich, Thomas Adler, Lukas Gruber, Markus Holzleitner, Milena Pavlovi´ c, Geir Kjetil Sandve, et al. Hopfield networks is all you need. arXiv preprint arXiv:2008.02217 , 2020. Rajesh PN Rao and Dana H Ballard. Predictive coding in the visual cortex: a functional interpretation of some extra-classical receptive-field effects. Nature neuroscience , 2(1):79–87, 1999. Herbert Robbins and Sutton Monro. A stochastic approximation method. The Annals of Mathematical Statistics , 22(3):400–407, 1951. Kaushik Roy, Akhilesh Jaiswal, and Priyadarshini Panda. Towards spike-based machine intelligence with neuromorphic computing. Nature , 575(7784):607–617, 2019. Bodo Rueckauer, Iulia-Alexandra Lungu, Yuhuang Hu, and Michael Pfeiffer. Theory and tools for the conversion of analog to spiking convolutional neural networks. arXiv preprint arXiv:1612.04052 ,2016. Bodo Rueckauer, Iulia-Alexandra Lungu, Yuhuang Hu, Michael Pfeiffer, and Shih-Chii Liu. Conver-sion of continuous-valued deep networks to efficient event-driven networks for image classification. 
+
+Frontiers in neuroscience , 11:682, 2017. Benjamin Scellier and Yoshua Bengio. Equilibrium propagation: Bridging the gap between energy-based models and backpropagation. Frontiers in computational neuroscience , 11:24, 2017. Abhronil Sengupta, Yuting Ye, Robert Wang, Chiao Liu, and Kaushik Roy. Going deeper in spiking neural networks: Vgg and residual architectures. Frontiers in neuroscience , 13:95, 2019. Shuaijie Shen, Chao Wang, Renzhuo Huang, Yan Zhong, Qinghai Guo, Zhichao Lu, Jianguo Zhang, and Luziwei Leng. Spikingssms: Learning long sequences with sparse and parallel spiking state space models. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pp. 20380–20388, 2025. Karen Simonyan and Andrew Zisserman. Very deep convolutional networks for large-scale image recognition. arXiv preprint arXiv:1409.1556 , 2014. Matei-Ioan Stan and Oliver Rhodes. Learning long sequences in spiking neural networks. Scientific Reports , 14(1):21957, 2024. Raymond Steele. Delta modulation systems. 1975. URL https://api.semanticscholar. org/CorpusID:60916149 .Qiaoyi Su, Yuhong Chou, Yifan Hu, Jianing Li, Shijie Mei, Ziyang Zhang, and Guoqi Li. Deep directly-trained spiking neural networks for object detection. In 2023 IEEE/CVF International Conference on Computer Vision (ICCV) , pp. 6532–6542. IEEE, 2023. 16 Preprint Surat Teerapittayanon, Bradley McDanel, and Hsiang-Tsung Kung. Branchynet: Fast inference via early exiting from deep neural networks. In 2016 23rd international conference on pattern recognition (ICPR) , pp. 2464–2469. IEEE, 2016. Dominik Thalmeier, Marvin Uhlmann, Hilbert J Kappen, and Raoul-Martin Memmesheimer. Learn-ing universal computations with spikes. PLoS Computational Biology , 12(6):e1004895, 2016. Zhi Tian, Chunhua Shen, Hao Chen, and Tong He. Fcos: Fully convolutional one-stage object detection. In 2019 IEEE/CVF international conference on computer vision (ICCV) , pp. 9626–9635. Ieee, 2019. Ziming Wang, Runhao Jiang, Shuang Lian, Rui Yan, and Huajin Tang. Adaptive smoothing gradient learning for spiking neural networks. In International conference on machine learning , pp. 35798– 35816. PMLR, 2023. Ziqing Wang, Yuetong Fang, Jiahang Cao, Hongwei Ren, and Renjing Xu. Adaptive calibration: A unified conversion framework of spiking neural networks. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pp. 1583–1591, 2025. Yujie Wu, Lei Deng, Guoqi Li, Jun Zhu, and Luping Shi. Spatio-temporal backpropagation for training high-performance spiking neural networks. Frontiers in neuroscience , 12:331, 2018. Mingqing Xiao, Qingyan Meng, Zongpeng Zhang, Yisen Wang, and Zhouchen Lin. Training feedback spiking neural networks by implicit differentiation on the equilibrium state. Advances in neural information processing systems , 34:14516–14528, 2021. Mingqing Xiao, Qingyan Meng, Zongpeng Zhang, D.K. He, and Zhouchen Lin. Online training through time for spiking neural networks. ArXiv , abs/2210.04195, 2022. URL https://api. semanticscholar.org/CorpusID:252781051 .Xingrun Xing, Zheng Zhang, Ziyi Ni, Shitao Xiao, Yiming Ju, Siqi Fan, Yequan Wang, Jiajun Zhang, and Guoqi Li. Spikelm: Towards general spike-driven language modeling via elastic bi-spiking mechanisms. arXiv preprint arXiv:2406.03287 , 2024. Man Yao, Jiakui Hu, Zhaokun Zhou, Li Yuan, Yonghong Tian, Bo Xu, and Guoqi Li. Spike-driven transformer. In Advances in Neural Information Processing Systems (NeurIPS) , 2023. Man Yao, Jiakui Hu, Tianxiang Hu, Yifan Xu, Zhaokun Zhou, Yonghong Tian, Bo Xu, and Guoqi Li. Spike-driven transformer v2: Meta spiking neural network architecture inspiring the design of next-generation neuromorphic chips. In International Conference on Learning Representations (ICLR) , 2024. Bojian Yin, Federico Corradi, and Sander M Boht´ e. Accurate and efficient time-domain classification with adaptive spiking recurrent neural networks. Nature Machine Intelligence , 3(10):905–913, 2021. Young C Yoon. Lif and simplified srm neurons encode signals into spikes via a form of asynchronous pulse sigma–delta modulation. IEEE transactions on neural networks and learning systems , 28(5): 1192–1205, 2016. Amirreza Yousefzadeh and Manolis Sifalakis. Delta activation layer exploits temporal sparsity for efficient embedded video processing. In 2022 International Joint Conference on Neural Networks (IJCNN) , pp. 01–10. IEEE, 2022. Davide Zambrano, Roeland Nusselder, H Steven Scholte, and Sander M Boht´ e. Sparse computation in adaptive spiking neural networks. Frontiers in neuroscience , 12:987, 2019. Friedemann Zenke and Emre O Neftci. Brain-inspired learning on neuromorphic substrates. Proceed-ings of the IEEE , 109(5):935–950, 2021. Shao-Qun Zhang, Zhao-Yu Zhang, and Zhi-Hua Zhou. Bifurcation spiking neural network. The Journal of Machine Learning Research , 22(1):11459–11479, 2021. 17 Preprint Chenlin Zhou, Liutao Yu, Zhaokun Zhou, Zhengyu Ma, Han Zhang, Huihui Zhou, and Yonghong Tian. Spikingformer: Spike-driven residual learning for transformer-based spiking neural network. 
+
+arXiv preprint arXiv:2304.11954 , 2023. Zhaokun Zhou, Yuesheng Zhu, Chao He, Yaowei Wang, Shuicheng Yan, Yonghong Tian, and Li Yuan. Spikformer: When spiking neural network meets transformer. arXiv preprint arXiv:2209.15425 ,2022. Yaoyu Zhu, Zhaofei Yu, Wei Fang, Xiaodong Xie, Tiejun Huang, and Timoth´ ee Masquelier. Training spiking neural networks with event-driven backpropagation. Advances in Neural Information Processing Systems , 35:30528–30541, 2022. 
+
+# TECHNICAL APPENDICES 
+
+# A DISCUSSIONS AND LIMITATIONS 
+
+On-device Always-on Inference. A prominent application of this technique is on-device continuous inference. These workloads are typically embodied and event-driven, meaning that sensory inputs are temporally correlated rather than batched. Crucially, surprising events are usually rare, and a proper, composed reaction is often more adequate than immediate precision. Computational resources are scarce on mobile devices; the static amortized cost must remain low while dynamically scaling up when sudden events occur abruptly. Our technique precisely satisfies these conditions: our average-case cost reduction, combined with the energy efficiency of neuromorphic computing, leads to ultra-low cost in static scenes with high temporal redundancy, while adaptively allocating higher computation only during surprising events. In contrast, standard ANNs consume significant energy on mobile devices, making true always-on execution infeasible unless they are (i) constantly plugged into power, or (ii) triggered on-demand by humans or lightweight wake-up models. However, the trigger-based approach (ii) either loses immediate always-on responsiveness or inherently sacrifices the accuracy of the main model during non-triggered intervals. By contrast, our technique enables SNNs to maintain permanent responsiveness with ultra-low latency, without sacrificing model accuracy. It is thus a candidate enabling technique for ubiquitous, low-cost, always-on sensing applications; demonstrating it on a neuromorphic chip is future work. 
+
+Biological Implications. Since SNNs serve as simplified models of biological neural networks, our theory offers valuable insights into how biological brains efficiently sense, perceive, and react continuously throughout their lifespan. Biological brains do not reprocess full-resolution sensory inputs for every inference, nor do they exhibit global state resets. Like SNNs, the brain may persistently retain neural activations and compute only to minimize the error between current spike-coded activations and underlying continuous-valued signals. This mechanism conserves energy in static environments while maintaining constant readiness to respond to unexpected events. In this perspective, the intrinsic leakage in LIF neurons enables unbounded stream processing without state resets, analogous to how biological forgetting via neuronal leakage clears capacity for new information, thereby facilitating lifelong inference in biological agents. Nevertheless, biological neuronal dynamics are continuous and substantially more complex, and hence extending our theoretical framework to continuous-time and biophysically detailed models, such as the Hodgkin-Huxley (Hodgkin & Huxley, 1952), adaptive LIF (Gerstner et al., 2014), or Izhikevich (Izhikevich, 2003) models, remains an essential direction for future work to validate this hypothesis. 
+
+Predictive Coding. Our theoretical framework aligns closely with the principles of predictive coding (Friston & Kiebel, 2009). Predictive coding views the brain as an active prediction engine :rather than constructing perception purely bottom-up by processing raw sensory inputs, the brain uses internal generative models to continuously predict incoming signals. Within our formulation, the top-down predictions correspond to the prior SNN output y(t), while the bottom-up prediction error represents the activation gap y∗(t) − y(t) relative to the target ANN output y∗(t). The internal state is subsequently updated through adaptation dynamics that drive y(t) toward y∗(t).In this 18 Preprint sense, the neural network computes only the prediction error rather than re-evaluating the full input scene, directly analogous to how our SNN operates exclusively to close the ANN-SNN activation gap. This error-driven scheme ensures extreme bandwidth and energy efficiency by transmitting prediction errors instead of full-resolution sensory data, while enabling rapid response through temporal anticipation. Consequently, our framework provides a formal mechanism demonstrating how predictive coding operates within and benefits SNNs from an ANN-SNN equivalence perspective. An important extension of predictive coding pertains to learning, which we discuss next. 
+
+Online Learning for SNNs. Extending our theoretical framework to train the corresponding ANN online over continuous data streams, and thereby train the SNN dynamically, represents a promising research direction. The traditional paradigm of ANN-to-SNN conversion relies on pre-training an ANN offline prior to conversion. However, extending this framework to online learning disentangles ANN-SNN correspondence from a purely static conversion pipeline, establishing this equivalence as a general paradigm for studying SNNs and potentially biological neural networks. Our theory naturally connects to local, bio-plausible learning methods that assign credit based on per-neuron activation error signals, including predictive coding (Rao & Ballard, 1999; Friston & Kiebel, 2009), equilibrium propagation (Scellier & Bengio, 2017), and contrastive Hebbian learning (Movellan, 1991). While STDP (Kheradpisheh et al., 2018) also measures activation differences over time rather than direct value encodings, its precise theoretical link warrants further investigation. Prior conversion techniques offer limited implications for online SNN training since they lack an online adaptation perspective; at equilibrium, the corresponding ANN retains few signal components to exploit beyond static state values. Consequently, training traditionally resorts to standard backprop-agation or, for feedback architectures, Deep Equilibrium methods such as implicit differentiation (Bai et al., 2019; Xiao et al., 2021) and phantom gradients (Geng et al., 2021). While DEQ training concepts offer valuable insights, these approaches remain computationally expensive and require global coordination, highlighting the advantages of our adaptive formulation. 
+
+Hardware Implementation. Our stream processing SNN framework uses only operations sup-ported by neuromorphic hardware platforms with LIF neurons and soft reset. As a cornerstone model in computational neuroscience, the LIF neuron is widely supported across modern neuromorphic platforms, including Intel Loihi (Davies et al., 2018; Orchard et al., 2021), IBM TrueNorth (Akopyan et al., 2015), SpiNNaker (Furber et al., 2014; Gonzalez et al., 2024), and custom FPGA-based implementations (Han et al., 2020). Crucially, our method avoids the need for global state resets, a requirement inherently imposed by prior conversion techniques, allowing each neuron to operate independently without global synchronization beyond a shared clock. This offers a significant hardware advantage over recent trends aiming for high-accuracy SNNs. Such approaches typically introduce non-standard components alongside basic neuronal dynamics, including synchronized bitwise operations across spike trains (Zhou et al., 2022), customized neuron dynamics (Oh & Lee, 2024), group dynamics (Hwang et al., 2024), or multi-bit spiking mecha-nisms (Guo et al., 2024; Xing et al., 2024). These additions incur substantial silicon complexity overheads without yielding proportional energy efficiency gains, making custom chip fabrication impractical. We evaluate energy efficiency theoretically, following standard, hardware-agnostic evaluation practices in recent theoretical SNN literature (Zhou et al., 2022; 2023; Kundu et al., 2021; Yin et al., 2021; Oh & Lee, 2024). These estimates are not hardware measurements, and how much of the advantage carries over to physical neuromorphic silicon remains to be measured. We leave full-scale hardware deployment as direct future work for efficient mobile applications. 
+
+Beyond ReLU1. With a standard LIF neuron the reference ANN must use ReLU1 and affine operators. The theory itself only needs a neuron whose dynamics form a fixed-point iteration with a constant step size, so neurons that can approximate general multivariate nonlinearities, such as the sign-gradient neurons of Oh & Lee (2024), would lift this restriction when run with a constant step size. This trades away the standard-neuron property that matters for deployment on existing neuromorphic hardware. 
+
+Sequence Processing. Our current framework focuses on converting feedforward architectures to achieve high per-frame accuracy, and thus it does not yet directly apply to sequence models. Never-19 Preprint theless, extending our theoretical formulation to sequence modeling represents a highly promising research direction for two key reasons: (i) our theory is the first to leverage the transient dynamics of SNNs to enable practically efficient stream processing, and (ii) our framework demonstrates that SNN inference over sequential inputs is inherently stateful. A motivating insight is that a DEQ can be viewed as a convergent RNN , specifically, an RNN processing a static input over an extended time horizon. Since an SNN at equilibrium corresponds to a DEQ, extending an SNN to time-varying inputs may yield a corresponding RNN with analogous transient dynamics. Alternatively, the transient dynamics and hysteresis behavior of SNNs could be linked to associative memory frameworks, such as Modern Hopfield Networks (Ramsauer et al., 2020; Krotov & Hopfield, 2016), enabling SNNs to execute attention mechanisms or normalized state transitions purely through intrinsic neuronal interactions. Consequently, exploring how SNNs can actively utilize prior state information, rather than merely computing activation deltas, to infer new sequential predictions remains a compelling direction for future work. 
+
+# B MATHEMATICAL PROOFS 
+
+B.1 PROOF OF THEOREM 2.1 
+
+Proof. Let α := τ −1 
+
+> τ
+
+, so that 1 
+
+> τ
+
+= 1 − α. Applying the soft-reset rule 3 to the charging equation 1 gives 
+
+upre (t + 1) = α  upre (t) − θs (t)| {z } 
+
+> =u(t)
+
++(1 − α) urest 1 + I(t + 1) . (12) The exponential coding scheme defines the output y and filtered input ˜x as exponentially weighted sums of spikes and inputs: 
+
+y(t) = 
+
+> t
+
+X
+
+> i=1
+
+αt−i(1 − α) s(i), ˜x(t) = 
+
+> t
+
+X
+
+> i=1
+
+αt−i(1 − α) x(i). (13) Solving the recurrence equation 12 from t = 0 forward (using y(0) = 0 and s(0) = 0 ) yields a closed-form relation between upre and y:
+
+upre (t) = W0 y(t − 1) + F ˜x(t) + b(t), (14) where W0 := W − (τ − 1) θI and b(t) := urest (1 − αt)1 + αt upre (0) .To verify equation 14, we expand the accumulated current term using equation 5 and equation 13: 
+
+> t+1
+
+X
+
+> i=1
+
+αt+1 −i(1 − α) I(i) = F
+
+> t+1
+
+X
+
+> i=1
+
+αt+1 −i(1 − α) x(i) + W
+
+> t+1
+
+X
+
+> i=1
+
+αt+1 −i(1 − α) s(i − 1) = F ˜x(t + 1) + W
+
+> t
+
+X
+
+> j=0
+
+αt−j (1 − α) s(j)= F ˜x(t + 1) + W y (t), (∵ s(0) = 0) (15) and substituting this into the inductive solution of equation 12 recovers equation 14. Finally, substituting equation 14 into the spike-generation rule y(t) = α y (t−1)+(1 −α) H(upre (t)−
+
+θ1) from 4 gives the desired recurrence: 
+
+y(t) = α y (t − 1) + (1 − α) H
+
+
+
+W0 y(t − 1) + F ˜x(t) + b(t) − θ1
+
+
+
+. (16) This is a fixed-point iteration with relaxation factor (1 − α) = 1 
+
+> τ
+
+.B.2 PROOF OF THEOREM 2.2 
+
+Proof. From the equation 16, expanding W0 and dividing by (τ −1) θ inside H (using scale-invariance of H) yields the equivalent form 
+
+y(t) = y(t − 1) − 1
+
+τ
+
+
+
+y(t − 1) − H
+
+ F ˜x(t) + W y (t − 1) + b(t) − θ · 1
+
+(τ − 1) θ − y(t − 1) 
+
+
+
+. (17) 20 Preprint We now derive the attractor of this dynamics. For simplicity, we denote the formula inside the step function as 
+
+D(t) = 1(τ − 1) θ
+
+ F ˜x(t + 1) + W y (t) + b(t + 1) − θ · 1, (18) The update ∆y(t) from the dynamics equation 17 as 
+
+∆y(t) = H(D(t) − y(t)) − y(t) (19) and the k-th coordinate of the d-dimensional vector as [·]k for k ∈ { 1, · · · , d }. Since the step function 
+
+H applies element-wise, we analyze the update coordinate-wise. For any k-th coordinate, (i) If D(t) 
+
+> k
+
+< 0, the k-th coordinate [y(t)] k updates towards 0.• y(t) 
+
+> k
+
+≤ D(t) 
+
+> k
+
+< 0, then ∆y(t) 
+
+> k
+
+= 1 − y(t) 
+
+> k
+
+> 0
+
+• D(t) 
+
+> k
+
+< y(t) 
+
+> k
+
+< 0, then ∆y(t) 
+
+> k
+
+= 0 − y(t) 
+
+> k
+
+> 0
+
+• y(t) 
+
+> k
+
+> 0, then ∆y(t) 
+
+> k
+
+= 0 − y(t) 
+
+> k
+
+< 0
+
+• y(t) 
+
+> k
+
+= 0 , then ∆y(t) 
+
+> k
+
+= 0 − y(t) 
+
+> k
+
+= 0 
+
+(ii) If 0 ≤ D(t) 
+
+> k
+
+< 1, the k-th coordinate [y(t)] k updates towards D(t)
+
+> k
+
+.• y(t) 
+
+> k
+
+< D(t) 
+
+> k
+
+< 1, then ∆y(t) 
+
+> k
+
+= 1 − y(t) 
+
+> k
+
+> 0
+
+• 1 > y(t) 
+
+> k
+
+= D(t) 
+
+> k
+
+≥ 0, then ∆y(t) 
+
+> k
+
+= 1 − y(t) 
+
+> k
+
+> 0
+
+• y(t) 
+
+> k
+
+> D(t) 
+
+> k
+
+≥ 0, then ∆y(t) 
+
+> k
+
+= 0 − y(t) 
+
+> k
+
+< 0
+
+(iii) If D(t) 
+
+> k
+
+≥ 1, the k-th coordinate [y(t)] k updates towards 1.• y(t) 
+
+> k
+
+< 1 ≤ D(t)
+
+> k
+
+, then ∆y(t) 
+
+> k
+
+= 1 − y(t) 
+
+> k
+
+> 0
+
+• y(t) 
+
+> k
+
+= 1 ≤ D(t)
+
+> k
+
+, then ∆y(t) 
+
+> k
+
+= 1 − y(t) 
+
+> k
+
+= 0 
+
+• 1 < y(t) 
+
+> k
+
+≤ D(t)
+
+> k
+
+, then ∆y(t) 
+
+> k
+
+= 1 − y(t) 
+
+> k
+
+< 0
+
+• y(t) 
+
+> k
+
+> D(t) 
+
+> k
+
+> 0, then ∆y(t) 
+
+> k
+
+= 0 − y(t) 
+
+> k
+
+< 0
+
+This applies to all the coordinates. This derivation covers all the possible cases of y(t) and D(t).So for each k-th coordinate of y(t) and D(t), the following relation holds. 
+
+[y(t)] k → ReLU1 ([ D(t)] k) (Coordinate-wise update direction.) 
+
+Geometric Contraction. Fix a coordinate k and let g(t) := ReLU1 ([ D(t)] k) be the instantaneous target value. From the relaxed form equation 17, each coordinate evolves as [y(t)] k = α [y(t − 1)] k + 
+
+> 1
+> τ
+
+h with h = H([ D(t)] k − [y(t − 1)] k) ∈ { 0, 1} and α = τ −1 
+
+> τ
+
+.Suppose [y(t − 1)] k > g (t) + 1 
+
+> τ
+
+, i.e., y is above the band. Then [D(t)] k − [y(t − 1)] k < 0, so h = 0 
+
+and [y(t)] k = α [y(t − 1)] k, giving 
+
+[y(t)] k − g(t) = α [y(t − 1)] k − g(t) − (1 − α) g(t) ≤ α [y(t − 1)] k − g(t), (20) the gap above contracts by α since g(t) ≥ 0.Symmetrically, if [y(t − 1)] k < g (t) − 1 
+
+> τ
+
+, i.e., y is below the band, then [D(t)] k − [y(t − 1)] k > 0,so h = 1 and [y(t)] k = α[y(t − 1)] k + 1 
+
+> τ
+
+, giving 
+
+g(t) − [y(t)] k = α g(t) − [y(t − 1)] k
+
+ − (1 − α) (1 − g(t)) ≤ α [g(t) − [y(t − 1)] k
+
+, (21) the gap below contracts by α using g(t) ≤ 1. Thus, while y lies outside the 1 
+
+> τ
+
+-band around g(t), the per-coordinate gap between y(t) and g(t) contracts at rate α.Once |[y(t − 1)] k − g(t)| ≤ 1 
+
+> τ
+
+, a single step of magnitude 1 
+
+> τ
+
+cannot leave the 1 
+
+> τ
+
+-band since the y(t)
+
+step treads across g(t) with a step size 1 
+
+> τ
+
+. It may overshoot g(t) but lands within 1 
+
+> τ
+
+on the other side. So y remains trapped, chattering around g(t) without converging to it. This holds for any input trajectory. 21 Preprint The point of coordinate-wise zero-gap |[y(t)] k − g(t)| = 0 between g(t) and y(t) is the point where [y(t)] k = ReLU1 ([ D(t)] k). Since the contraction applies generally for all coordinates, the equilibrium of the contraction is the zero-gap point 
+
+
+
+y ∈ Rd | ∀ k, y 
+
+> k
+
+= ReLU1   1(τ − 1) θ (F ˜x(t + 1) + b(t + 1) + W y − θ · 1) 
+
+> k
+
+
+
+, (22) which precisely matches the definition of E(t):
+
+E(t) = 
+
+
+
+y ∈ Rd | y = ReLU1 
+
+ 1(τ − 1) θ
+
+ F ˜x(t + 1) + W y + b(t + 1) − θ · 1 
+
+. (23) To sum up, the damped fixed-point iteration with update ∆y(t) globally contracts the gap with a geometric rate α towards the 1 
+
+> τ
+
+band of the zero-gap equilibrium E(t) instantaneously defined by 
+
+˜x(t + 1) and b(t + 1) . Hence, the LIF-SNN output y(t) is globally attracted towards the instantaneous fixed-point set E(t), the output of the continuous-valued neural network determined by the input ˜x(t),fed at each time step t. Global in the sense that the property holds unconditional to the initial state or prior history. B.3 PROOF OF COROLLARY 2.3 
+
+Proof. We denote η := 1 
+
+> τ
+
+= 1 − α and Φ( y) := ReLU1   1(τ −1) θ (F x + W y + ( urest − θ)1), so that E∗ = {y | y = Φ( y)}. Since y(0) ∈ [0 , 1] d and y(t) is an exponential average of spikes started in [0 , 1] d, y(t) ∈ [0 , 1] d for every t. By equation 17, each step is y(t) = (1 − η) y(t −
+
+1) + η H D(t; y(t − 1)) − y(t − 1)  with the drive D(t; y) := 1(τ −1) θ
+
+ F ˜x(t) + W y + b(t) − θ1,whose instantaneous map Φt(y) := ReLU1 (D(t; y)) has the fixed-point set E(t). Since ReLU1 is 
+
+1-Lipschitz, Φ and every Φt are γ-Lipschitz in ∥ · ∥ ∞; with γ < 1 they are contractions on the complete set [0 , 1] d, and Banach’s fixed-point theorem gives E∗ = {y∗} and E(t) = {y∗ 
+
+> t
+
+}.The geometric rate of approach comes from the one-step contraction of Lemma B.1 below: outside its band, the excess error shrinks by ρ := max {α, γ } per step. For static input sequences ˜x(t) → x,the iteration complexity to reach the error tolerance ϵ > 0 is: 
+
+ρt ≤ ϵ ⇒ t ≥ ln(1 /ϵ )ln(1 /ρ )
+
+Hence, t = O(log 1/ρ ( 1 
+
+> ϵ
+
+)) , a linear convergence rate. 
+
+Lemma B.1 (One step) . Let Ψ be γ-Lipschitz in ∥ · ∥ ∞ with a fixed point z = Ψ( z) ∈ [0 , 1] d, and suppose sup y ∥Φt(y) − Ψ( y)∥∞ ≤ ε. Then 
+
+∥y(t) − z∥∞ ≤ max 
+
+n
+
+(1 − η) e
+
+| {z }
+
+> relaxation
+
+, γ e 
+
+|{z} 
+
+> contraction
+
++ η + ε
+
+| {z } 
+
+> floor
+
+o
+
+, e := ∥y(t − 1) − z∥∞. (24) 
+
+Proof. The instantaneous target g := Φ t(y(t − 1)) satisfies ∥g − z∥∞ ≤ ∥ g − Ψ( y(t − 1)) ∥∞ +
+
+∥Ψ( y(t − 1)) − Ψ( z)∥∞ ≤ ε + γe =: r. Fix a coordinate k and write v := [ y(t − 1)] k, gk := [ g]k,
+
+zk := [ z]k ∈ [0 , 1] , and h := H([ D(t; y(t − 1))] k − v), so that [y(t)] k = (1 − η)v + ηh . By the case analysis in Appendix B.2, v > g k forces h = 0 and v < g k forces h = 1 .• If v > g k: [y(t)] k − zk = (1 − η)( v − zk) − η z k, which is at most (1 − η)e since zk ≥ 0,and exceeds (1 − η)( zk − r) − zk ≥ − (η + r) since v > g k ≥ zk − r and zk ≤ 1.• If v < g k: symmetrically, [y(t)] k −zk = (1 −η)( v−zk)+ η(1 −zk) lies in [−(1 −η)e, η +r].• If v = gk: |v − zk| ≤ r and the step is at most η, so |[y(t)] k − zk| ≤ r + η.Taking the maximum over k gives equation 24. 
+
+Asymptotic convergence. For a point y ∈ Rd and a set E ⊂ Rd, denote the point-to-set distance as dist ∞(y, E) := inf z∈E ∥y − z∥∞, and the directed Hausdorff semi-distance from A to B as dist H (A, B) := sup a∈A inf b∈B ∥a − b∥∞. We first derive the triangle equality we will be using in the main proof. 22 Preprint 
+
+Lemma B.2 (Point-to-set Triangle Inequality) . For any point y ∈ Rd and non-empty sets A, B ⊂ Rd,dist ∞(y, B) ≤ dist ∞(y, A) + dist H (A, B).Proof. For any a ∈ A and b ∈ B , the triangle inequality yields ∥y − b∥∞ ≤ ∥ y − a∥∞ + ∥a −
+
+b∥∞. Taking inf b∈B on both sides gives dist ∞(y, B) ≤ ∥ y − a∥∞ + inf b∈B ∥a − b∥∞. Since 
+
+inf b∈B ∥a − b∥∞ ≤ sup a′∈A inf b∈B ∥a′ − b∥∞ = dist H (A, B) for any a ∈ A , it follows that dist ∞(y, B) ≤ ∥ y − a∥∞ + dist H (A, B). Finally, taking inf a∈A on the right-hand side yields dist ∞(y, B) ≤ dist ∞(y, A) + dist H (A, B).Suppose ˜x(t) → x. Then b(t) = urest (1 − αt)1 + αtupre (0) → urest 1, since the initial-condition term αtupre (0) decays to zero. The drive then differs from that of Φ only by a vanishing term independent of y,
+
+εt := sup 
+
+> y
+
+Φt(y) − Φ( y) ∞ ≤ ∥F (˜ x(t) − x) + b(t) − urest 1∥∞
+
+(τ − 1) θ
+
+> t→∞
+
+−−−→ 0, (25) and E(t) → E ∗: from y∗ 
+
+> t
+
+= Φ t(y∗ 
+
+> t
+
+) and y∗ = Φ( y∗), ∥y∗ 
+
+> t
+
+− y∗∥∞ ≤ εt + γ∥y∗ 
+
+> t
+
+− y∗∥∞, so dist H (E(t), E∗) = ∥y∗ 
+
+> t
+
+− y∗∥∞ ≤ εt 
+
+> 1−γ
+
+.For any desired tolerance 0 < δ ≤ η2 
+
+> 2
+
+, we can explicitly construct a finite time T (δ, y (0)) = T1 + T2
+
+as follows: By equation 25, there exists a finite T1(δ) such that dist H (E(t), E∗) < δ for all t > T 1.Let et := dist ∞(y(t), E(t)) = ∥y(t) − y∗ 
+
+> t
+
+∥∞. Lemma B.1 with Ψ = Φ t, z = y∗ 
+
+> t
+
+and ε = 0 , together with ∥y(t − 1) − y∗ 
+
+> t
+
+∥∞ ≤ et−1 + ∥y∗ 
+
+> t−1
+
+− y∗ 
+
+> t
+
+∥∞ < e t−1 + 2 δ for t > T 1 + 1 , gives 
+
+et ≤ max (1 − η) et−1, γ e t−1 + η + 2 δ. (26) Let Rδ := η+2 δ 
+
+> 1−γ
+
+, which is at least 2δη for δ ≤ η2 
+
+> 2
+
+. If et−1 ≤ Rδ , then et ≤ Rδ ; otherwise et −
+
+Rδ ≤ ρ (et−1 − Rδ ). Hence there exists a finite number of steps T2(δ, y (0)) ∼ O   log 1/ρ (eT1 /δ )
+
+required to contract the state error et inside the (Rδ + δ)-neighborhood of E(t). Triangle inequality (Lemma B.2) then yields dist ∞(y(t), E∗) ≤ dist ∞(y(t), E(t)) + dist H (E(t), E∗) < R δ + 2 δ for all 
+
+t > T 1 + T2. Hence, for any arbitrary tolerance δ > 0, there exists a finite time T (δ, y (0)) such that for all t > T (δ, y (0)) ,dist ∞(y(t), E∗) < η + 2 δ
+
+1 − γ + 2 δ. (27) Since δ > 0 can be chosen arbitrarily small as t → ∞ , this establishes global asymptotic convergence toward the 1  
+
+> τ(1 −γ)
+
+-band of E∗ = {y∗}:
+
+lim sup 
+
+> t→∞
+
+∥y(t) − y∗∥∞ ≤ η
+
+1 − γ = 1
+
+τ (1 − γ) . (28) B.4 TRACKING A MOVING TARGET 
+
+Corollary 2.3 lets the input settle. In a stream it never does, so the question that matters is how far 
+
+y(t) trails its target while the target keeps moving. The answer needs no assumption on the input beyond how fast the target moves. We restate Corollary 2.4 with η = 1 
+
+> τ
+
+and ρ = max {1 − η, γ }: for t > t 0 the tracking error 
+
+et := ∥y(t) − y∗ 
+
+> t
+
+∥∞ obeys 
+
+et ≤ R∗ + ρ t−t0 max {et0 − R∗, 0}, R∗ = max 
+
+n η + γδ 
+
+1 − γ , (1 − η) δη
+
+o
+
+, (29) so lim sup t et ≤ R∗, and R∗ = η+γδ  
+
+> 1−γ
+
+whenever δ ≤ η2. Since y(t) and y∗ 
+
+> t
+
+both lie in [0 , 1] d, et0 ≤ 1
+
+for every t0, so equation 29 gives et0+k ≤ R∗ + ρk from any state, which is the form stated in Corollary 2.4: the time to come within R∗ + ϵ is at most log(1 /ϵ )/ log(1 /ρ ), independent of the history before t0.23 Preprint The two terms have a plain reading. The jitter term is the 1 
+
+> τ
+
+oscillation of Corollary 2.3, slightly widened by the motion. The lag term is what any exponential average pays to follow a target that moves δ per tick: it trails by 1−ηη δ, as a moving average trails a ramp. Neither term grows with time, so the bound holds for the whole stream, however long; this is what the per-frame reset of IF conversions cannot offer (Appendix B.5.4). The drift δ is itself small in a stream. Since y∗ 
+
+> t
+
+and 
+
+y∗ 
+
+> t−1
+
+are fixed points of maps that differ only in their drive, the argument used for E(t) → E ∗ above gives ∥y∗ 
+
+> t
+
+− y∗
+
+> t−1
+
+∥∞ ≤ ∥F (˜ x(t)−˜x(t−1))+ b(t)−b(t−1) ∥∞   
+
+> (τ−1) θ(1 −γ)
+
+, and ˜x(t) − ˜x(t − 1) = η (x(t) − ˜x(t − 1)) .So δ scales with η times the change of the input, and the lag term (1 −η)δη scales with the size of the frame-to-frame change and does not grow with τ : frames that change little are tracked closely, as Fig. 3 measures. 
+
+Proof. Apply Lemma B.1 with Ψ = Φ t, z = y∗ 
+
+> t
+
+and ε = 0 . Writing f (e) := max {(1 − η)e, γe + η},it gives et ≤ f (∥y(t − 1) − y∗ 
+
+> t
+
+∥∞). The triangle inequality gives ∥y(t − 1) − y∗ 
+
+> t
+
+∥∞ ≤ et−1 + δ, and 
+
+f is nondecreasing, so 
+
+et ≤ f (et−1 + δ) (t > t 0). (30) 
+
+The ball of radius R∗ is invariant. If et−1 ≤ R∗, then et ≤ max {(1 − η)( R∗ + δ), γ (R∗ + δ) + η}.The first entry is at most R∗ because R∗ ≥ (1 −η)δη , and the second because R∗ ≥ η+γδ  
+
+> 1−γ
+
+; so et ≤ R∗.
+
+Outside the ball the excess contracts. If et−1 > R ∗, write et−1 = R∗ + ∆ . Then (1 − η)( et−1 + δ) = (1 −η)∆+(1 −η)( R∗ +δ) ≤ (1 −η)∆+ R∗ and γ(et−1 +δ)+ η = γ∆+ γ(R∗ +δ)+ η ≤ γ∆+ R∗,by the same two inequalities. Hence et − R∗ ≤ ρ ∆ = ρ (et−1 − R∗). Combining the two cases by induction from t0 gives equation 29. Finally, if δ ≤ η2 then (1 −η)δη ≤ (1 − η)η ≤ η ≤ η+γδ  
+
+> 1−γ
+
+.
+
+Numerical check. On 120 random LIF networks ( d = 5 , τ ∈ { 4, 8, 16 }, γ ∈ [0 , 0.8] , sinusoidal inputs of five speeds) simulated spike by spike with soft reset, the largest ratio of the observed sup t et
+
+(second half of a 3000 -tick run) to R∗ was 0.989 : the bound holds and is nearly tight. 
+
+Remark B.3 (Layered networks need no contraction) . The condition γ < 1 is a statement about 
+
+∥ · ∥ ∞, and for a layered feedforward network it can always be met in a rescaled norm. For positive weights w (one per neuron) let ∥v∥w := max k |vk|/w k and γw := max k 1
+
+> wk
+
+P    
+
+> j
+> |Wkj |wj
+> (τ−1) θ
+
+. The proof of Lemma B.1 is coordinate-wise and goes through verbatim in ∥ · ∥ w, with γ replaced by 
+
+γw and the floor η + ε replaced by (η + ε)/ min k wk (each coordinate still moves by at most η per tick). If W is block strictly lower-triangular, a neuron of layer l reads only earlier layers l′ < l 
+
+(skip connections included). Let Ll,l ′ be the largest absolute row sum of the block from layer l′
+
+to layer l, divided by (τ − 1) θ, and choose w constant within a layer, recursively w1 = 1 and 
+
+wl = max {wl−1, 2 P 
+
+> l′<l
+
+Ll,l ′ wl′ }. Then every row satisfies 1
+
+> wl
+
+P 
+
+> l′<l
+
+Ll,l ′ wl′ ≤ 12 , so γw ≤ 12 .Corollaries 2.3 and 2.4 then hold in ∥ · ∥ w; since min k wk = 1 the floor is unchanged, and returning to ∥ · ∥ ∞ multiplies the bounds by max k wk, a constant that depends on depth and weights but not on time. The fixed point is in any case unique and equal to the feedforward output, by forward substitution. B.5 THEOREMS AND PROOFS FOR IF-SNN S
+
+The Integrate-and-Fire (IF) neuron under rate coding obeys the same three results as the LIF neuron, with one substitution: the relaxation factor η becomes time-dependent. Rate coding is natural here: without leak, the membrane potential is a plain sum of past currents and spikes equation 35, so the firing rule depends only on cumulative quantities. The step size η(t) is how this unbounded memory appears in rate coordinates. Appendix B.5.4 states the same obstruction without any decoder, directly on the spike train. 24 Preprint 
+
+LIF (exponential coding) IF (rate coding) 
+
+relaxation factor η = 1 
+
+> τ
+
+(constant) η(t) = 1 
+
+> t
+
+(diminishing) attraction, any input Thm. 2.2 Theorem B.5 once the input settles (γ < 1)residual 1  
+
+> τ(1 −γ)
+
+(Cor. 2.3) residual 0 (Theorem B.6) tracking a moving target never decays decays like 1
+
+> t
+
+memory of past input (any decoder) fading, αt (Remark B.11) never fades: spike count is a running maximum (Proposition B.9) Appendix B.5.1 puts the IF dynamics in fixed-point-iteration form. Appendix B.5.2 shows that every 
+
+update is directed toward the time-varying attractor defined by the input accumulated so far, with no assumption on the input. Appendix B.5.3 then lets the input settle and shows the residual vanishes, so the convergence is exact. Remark B.8 explains why that exactness is precisely what makes IF-SNNs unsuitable for a perpetual stream, and Appendix B.5.4 shows that this does not depend on reading the spikes with a rate code. 
+
+Setting. An IF neuron with soft reset, threshold θ and unit resistance integrates its input current without leak, 
+
+upre (t) = u(t − 1) + I(t), s(t) = H upre (t) − θ1, u(t) = upre (t) − θ s (t), (31) with input current I(t) = F x (t) + W s (t − 1) as in Equation (5) and s(0) = 0. Under rate coding 
+
+the output and the filtered input are running arithmetic means, 
+
+y(t) = 1
+
+t
+
+> t
+
+X
+
+> i=1
+
+s(i), ˜x(t) = 1
+
+t
+
+> t
+
+X
+
+> i=1
+
+x(i), (32) equivalently the streaming recurrence y(t) = t−1 
+
+> t
+
+y(t − 1) + 1 
+
+> t
+
+s(t) of Equation (4). Two facts are used throughout: s(i) ∈ { 0, 1}d, so 
+
+y(t) ∈ [0 , 1] d for every t, (33) and H is scale-invariant, H(cz ) = H(z) for c > 0.B.5.1 DYNAMICS : IF IS A FIXED -POINT ITERATION WITH A DIMINISHING STEP 
+
+Lemma B.4. Let ˜x(t) and y(t) be rate-coded as in equation 32. Then the output trajectory of an IF-SNN is the trajectory of a fixed-point iteration with relaxation factor 1 
+
+> t
+
+,
+
+y(t) = t − 1
+
+t y(t − 1) + 1
+
+t H
+
+ t − 1
+
+t
+
+ W − θIy(t − 1) + F ˜x(t) + upre (0) − θ1
+
+t
+
+
+
+. (34) 
+
+Proof. The proof is one telescoping sum. Substituting the reset rule of equation 31 into its charging equation gives upre (t) = upre (t − 1) − θ s (t − 1) + I(t), hence 
+
+upre (t) = upre (0) + 
+
+> t
+
+X
+
+> i=1
+
+I(i) − θ
+
+> t−1
+
+X
+
+> i=1
+
+s(i). (35) Both sums are rate codes in disguise. With I(i) = F x (i) + W s (i − 1) , s(0) = 0 and equation 32, 
+
+> t
+
+X
+
+> i=1
+
+I(i) = F
+
+> t
+
+X
+
+> i=1
+
+x(i)+ W
+
+> t−1
+
+X
+
+> j=0
+
+s(j) = t F ˜x(t)+( t−1) W y (t−1) ,
+
+> t−1
+
+X
+
+> i=1
+
+s(i) = ( t−1) y(t−1) ,
+
+(36) so equation 35 becomes the closed form 
+
+upre (t) = ( t − 1)  W − θI y(t − 1) + t F ˜x(t) + upre (0) . (37) Inserting this into y(t) = t−1 
+
+> t
+
+y(t − 1) + 1 
+
+> t
+
+H(upre (t) − θ1) and dividing the argument of H by t > 0
+
+gives equation 34. 25 Preprint 
+
+Relaxed form and the instantaneous drive. For t ≥ 2 the factor t−1 
+
+> t
+
+θ multiplying y(t − 1) 
+
+inside H in equation 34 is strictly positive, so dividing the argument by it isolates y(t − 1) and turns equation 34 into 
+
+y(t) = y(t − 1) + η(t) ∆ y(t), ∆y(t) := H DIF (t) − y(t − 1)  − y(t − 1) , η(t) := 1 
+
+> t
+
+,
+
+(38) driven by the instantaneous drive 
+
+DIF (t) := DIF 
+
+ t; y(t − 1) , DIF (t; y) = 1
+
+θ
+
+
+
+W y + tt − 1 F ˜x(t) + upre (0) − θ1
+
+t − 1
+
+| {z }   
+
+> depends on t, not on y
+
+
+
+. (39) Equation 38 is the LIF relaxed form equation 17 with 1 
+
+> τ
+
+replaced by η(t); the initial-condition term also decays differently, geometrically as αt for LIF and as 1 
+
+> t
+
+here. B.5.2 GLOBAL ATTRACTION TOWARD THE INSTANTANEOUS ATTRACTOR 
+
+Theorem B.5 (Global attraction, IF) . At each time step t ≥ 2, the IF-SNN output y(t) is globally attracted with a step size η(t) = 1 
+
+> t
+
+toward the instantaneous fixed-point set of the continuous-valued neural network, 
+
+EIF (t) := 
+
+n
+
+y ∈ [0 , 1] d y = ReLU1  DIF (t; y)o
+
+. (40) 
+
+The set EIF (t) is always nonempty because its ReLU1 map is a continuous self-map on the compact convex domain [0 , 1] d, guaranteeing the existence of a fixed point by Brouwer’s fixed-point theorem. Proof. We follow the proof of Theorem 2.2 (Appendix B.2), with the constant step size 1 
+
+> τ
+
+replaced by η(t). From the relaxed form equation 38, the update is 
+
+∆y(t) = H DIF (t) − y(t − 1)  − y(t − 1) , (41) and we denote the k-th coordinate of a d-dimensional vector as [·]k for k ∈ { 1, · · · , d }. Since H
+
+applies element-wise, we analyze the update coordinate-wise. Unlike the LIF case, [y(t−1)] k ∈ [0 , 1] 
+
+always holds by equation 33, so fewer cases arise. For any k-th coordinate, (i) If DIF (t) 
+
+> k
+
+< 0, the k-th coordinate [y(t − 1)] k updates towards 0.• y(t − 1)  
+
+> k
+
+> 0, then ∆y(t) 
+
+> k
+
+= 0 − y(t − 1)  
+
+> k
+
+< 0
+
+• y(t − 1)  
+
+> k
+
+= 0 , then ∆y(t) 
+
+> k
+
+= 0 − y(t − 1)  
+
+> k
+
+= 0 
+
+(ii) If 0 ≤ DIF (t) 
+
+> k
+
+≤ 1, the k-th coordinate [y(t − 1)] k updates towards DIF (t)
+
+> k
+
+.• y(t − 1)  
+
+> k
+
+< DIF (t)
+
+> k
+
+, then ∆y(t) 
+
+> k
+
+= 1 − y(t − 1)  
+
+> k
+
+> 0
+
+• y(t − 1)  
+
+> k
+
+= DIF (t)
+
+> k
+
+, then ∆y(t) 
+
+> k
+
+= 1 − y(t − 1)  
+
+> k
+
+≥ 0
+
+• y(t − 1)  
+
+> k
+
+> DIF (t)
+
+> k
+
+, then ∆y(t) 
+
+> k
+
+= 0 − y(t − 1)  
+
+> k
+
+< 0
+
+(iii) If DIF (t) 
+
+> k
+
+> 1, the k-th coordinate [y(t − 1)] k updates towards 1.• y(t − 1)  
+
+> k
+
+< 1, then ∆y(t) 
+
+> k
+
+= 1 − y(t − 1)  
+
+> k
+
+> 0
+
+• y(t − 1)  
+
+> k
+
+= 1 , then ∆y(t) 
+
+> k
+
+= 1 − y(t − 1)  
+
+> k
+
+= 0 
+
+This derivation covers all the possible cases of y(t − 1) and DIF (t), and applies to all the coordinates. So for each k-th coordinate, the following relation holds. 
+
+[y(t − 1)] k → ReLU1 ([ DIF (t)] k) (Coordinate-wise update direction.) Moreover, H(·) ∈ { 0, 1}d and y(t − 1) ∈ [0 , 1] d give ∥∆y(t)∥∞ ≤ 1, so every update moves the output by at most one step, ∥y(t) − y(t − 1) ∥∞ ≤ η(t).
+
+Contraction. Fix a coordinate k and let g(t) := ReLU1 ([ DIF (t)] k) be the instantaneous target value. From equation 38, each coordinate evolves as [y(t)] k = (1 − η(t)) [ y(t − 1)] k + η(t) h with 
+
+h = H([ DIF (t)] k − [y(t − 1)] k) ∈ { 0, 1}.26 Preprint Suppose [y(t − 1)] k > g (t) + η(t), i.e., y is above the band. Then [DIF (t)] k − [y(t − 1)] k < 0, so 
+
+h = 0 and [y(t)] k = (1 − η(t)) [ y(t − 1)] k, giving 
+
+[y(t)] k − g(t) = (1 − η(t))  [y(t − 1)] k − g(t) − η(t) g(t) ≤ (1 − η(t))  [y(t − 1)] k − g(t), (42) the gap above contracts by 1 − η(t) since g(t) ≥ 0.Symmetrically, if [y(t − 1)] k < g (t) − η(t), i.e., y is below the band, then [DIF (t)] k − [y(t − 1)] k > 0,so h = 1 and [y(t)] k = (1 − η(t)) [ y(t − 1)] k + η(t), giving 
+
+g(t)−[y(t)] k = (1 −η(t))  g(t)−[y(t−1)] k
+
+−η(t) (1 −g(t)) ≤ (1 −η(t))  g(t)−[y(t−1)] k
+
+, (43) the gap below contracts by 1 − η(t) using g(t) ≤ 1. Thus, while y lies outside the η(t)-band around 
+
+g(t), the per-coordinate gap contracts at rate 1 − η(t) = t−1 
+
+> t
+
+.Once |[y(t − 1)] k − g(t)| ≤ η(t), a single step of magnitude at most η(t) cannot leave the η(t)-band. It may overshoot g(t) but lands within η(t) on the other side. So y remains trapped, chattering around 
+
+g(t). In contrast to LIF, the band itself shrinks as η(t) = 1 
+
+> t
+
+→ 0. This holds for any input trajectory. Unlike the geometric rate α of LIF, the contraction factors now telescope as Qti=t0+1 
+
+ 1 − 1
+
+> i
+
+ = t0 
+
+> t
+
+.Combining the two regimes by induction on t, the per-coordinate gap from any time t0 onward satisfies 
+
+[y(t)] k − g(t) ≤ max t0 [y(t0)] k − g(t0) , 1
+
+t = O
+
+ 1
+
+t
+
+
+
+. (44) The point of coordinate-wise zero-gap |[y]k − g(t)| = 0 is the point where [y]k =
+
+ReLU1 ([ DIF (t; y)] k). Since the contraction applies to all coordinates, the equilibrium of the contrac-tion is the zero-gap point 
+
+
+
+y ∈ [0 , 1] d ∀k, y 
+
+> k
+
+=
+
+h
+
+ReLU1 
+
+ 1
+
+θ
+
+
+
+W y + tt − 1 F ˜x(t) + upre (0) − θ1
+
+t − 1
+
+i 
+
+> k
+
+
+
+, (45) which precisely matches the definition of EIF (t) in equation 40. Finally, the map y 7 →
+
+ReLU1 (DIF (t; y)) is continuous and maps the compact convex set [0 , 1] d into itself, so EIF (t) is nonempty by Brouwer’s fixed-point theorem. To sum up, the damped fixed-point iteration with update ∆y(t) contracts the gap with rate 1 − η(t)
+
+towards the η(t)-band of the zero-gap equilibrium EIF (t) instantaneously defined by ˜x(t). Hence, the IF-SNN output y(t) is globally attracted towards the instantaneous fixed-point set EIF (t). Global in the sense that the property holds unconditional to the initial state, prior history, or whether the input 
+
+˜x(t) ever settles. B.5.3 EXACT CONVERGENCE TO THE STATIC EQUILIBRIUM 
+
+Now let the input settle. For a fixed limit input x define the static map and its equilibrium set, which is the set displayed in the main text, 
+
+Φ( y) := ReLU1 
+
+ 1
+
+> θ
+
+ W y + F x
+
+, EIF (x) := y ∈ [0 , 1] d | y = Φ( y) . (46) 
+
+Theorem B.6 (Exact convergence, IF) . Let γ := ∥W ∥∞/θ < 1. If ˜x(t) → x under rate coding, then 
+
+EIF (x) is a singleton {y∗} and the IF-SNN output converges to it exactly, lim t→∞ ∥y(t) − y∗∥∞ = 0 .Proof. We run the argument of Corollary 2.3 (Appendix B.3) with the constant step 1 
+
+> τ
+
+replaced by 
+
+ηt := η(t) = 1 
+
+> t
+
+.
+
+Uniqueness. Φ is γ-Lipschitz in ∥ · ∥ ∞, a contraction on [0 , 1] d for γ < 1, so Banach’s theorem gives EIF (x) = {y∗}.
+
+The moving target. Comparing equation 39 with equation 46, the two drives share the y-dependent term W y/θ , so their gap does not depend on y:
+
+εt := sup 
+
+> y∈[0 ,1] d
+
+DIF (t; y)− 1
+
+> θ
+
+ W y +F x
+
+> ∞
+
+= 1
+
+θ 
+
+> tt−1
+
+F ˜x(t)−F x+ upre (0) −θ1 
+
+> t−1∞
+> t→∞
+
+−−−→ 0, (47) 27 Preprint because ˜x(t) → x, tt−1 → 1, and the initial-condition term is O( 1 
+
+> t
+
+). Since ReLU1 is 1-Lipschitz, the same bound holds after ReLU1. 
+
+One step. Let at := ∥y(t) − y∗∥∞. The proof of Lemma B.1 uses only y(t − 1) , z ∈ [0 , 1] d, the direction rule of the coordinate-wise case analysis (here Theorem B.5), and the relaxed form of the update (here equation 38). It therefore carries over verbatim to IF with the step ηt, and applying it with Ψ = Φ , z = y∗ and ε = εt gives, for t ≥ 2,
+
+at ≤ max (1 − ηt) at−1, γ a t−1 + ηt + εt . (48) 
+
+The floor vanishes. Fix ϵ > 0 and choose Tϵ such that, for all t > T ϵ, ηt + εt ≤ (1 − γ) ϵ and 
+
+1 − ηt ≥ γ, which is possible since ηt → 0 and εt → 0. Let dt := max {at − ϵ, 0}. As in the proof of Corollary 2.3, equation 48 gives dt ≤ max {γ, 1 − ηt} dt−1 = (1 − ηt) dt−1 for t > T ϵ, and the product telescopes, 
+
+dt ≤ dTϵ
+
+> t
+
+Y
+
+> i=Tϵ+1
+
+
+
+1 − 1
+
+> i
+
+
+
+= dTϵ
+
+Tϵ
+
+t
+
+> t→∞
+
+−−−→ 0. (49) The product vanishes because P 
+
+> i
+
+ηi = ∞: the step size is diminishing but non-summable , which is precisely the Robbins–Monro condition (Robbins & Monro, 1951). Hence lim sup t at ≤ ϵ, and as 
+
+ϵ > 0 was arbitrary, at → 0, at the sublinear rate O( 1 
+
+> t
+
+) once t > T ϵ.
+
+Remark B.7 (One inequality, two step sizes) . The step size enters equation 24 and equation 48 only through the floor, so the ultimate residual is lim t η(t)1−γ . For LIF, η ≡ 1 
+
+> τ
+
+gives the residual 1  
+
+> τ(1 −γ)
+
+of Corollary 2.3 at the geometric rate max {α, γ }; for IF, η(t) = 1 
+
+> t
+
+→ 0 collapses the residual to zero, at the price of an O( 1 
+
+> t
+
+) rate. The exactness of IF conversion and the residual jitter of LIF conversion are one inequality evaluated at two step sizes , not two separate phenomena. 
+
+Remark B.8 (Why exact convergence is a liability on a stream) . Theorem B.6 is the dynamical explanation of the steady-state correspondence between IF neurons and clipped ReLU on which ANN-to-SNN conversion has long relied (Rueckauer et al., 2017; Han & Roy, 2020). It also explains why IF-SNNs do not stream. Exactness rests on two hypotheses: the input settles, and the step size vanishes, and the second is a property of the neuron , not of the input. By Theorem B.5 the per-tick displacement is at most η(t) = 1 
+
+> t
+
+, so after t ticks of a stream a new frame that moves the reference output by δ needs at least δ t further ticks to be followed: the cost of tracking a change of fixed size grows linearly with elapsed stream time , and under a fixed per-frame budget the attainable tracking error grows without bound. This argument is phrased in rate coordinates; Appendix B.5.4 shows that the obstruction remains for any decoding of the spikes. It explains why the IF conversion pipelines we compare against reset globally every frame, discarding exactly the state that makes incremental computation cheap. The LIF constant step size trades the exact limit for a permanent 1 
+
+> τ
+
+residual and buys, in exchange, a tracking ability that does not decay with time: the property the streaming framework of Algorithm 1 is built on. B.5.4 CHARGE DEBT : WHY NO DECODER LETS AN IF NEURON TRACK A STREAM 
+
+What we claim. Tracking a stream means that the output stays close to the ANN output of the recent input, with a lag that does not grow with how long the stream has run. LIF-SNNs have this property for any input (Corollary 2.4). IF-SNNs do not, whatever decoder reads their spikes: there are inputs for which every decoder fails for an arbitrarily long time. The results above describe the IF neuron through its rate code; this section shows that the obstruction does not depend on that choice. 
+
+Intuition: charge debt. By equation 35 the IF membrane is an unweighted sum of everything the neuron has received and paid out, u(t) = u(0) + P
+
+> k≤t
+
+ I(k) − θs (k): an input from the distant past counts as much as the newest one. While the input stays in [0 , θ ] this does no harm, since every input soon leaves the membrane as spikes. Negative input cannot leave, because a neuron cannot emit negative spikes. It piles up as a debt , and the neuron stays silent until new input repays it, however long that takes; during that time no decoder reading its spikes, and no downstream layer, can recover the correct value. This is the common case in a converted network, since negative input is exactly when the ReLU1 unit outputs 0: in our detector 45% of the IF membranes are below 0 at a tick on average (Appendix H.1). An LIF neuron instead discounts an input received t − k ticks ago by αt−k,the rate at which its target forgets the stream through ˜x(t), so its memory, and its debt, fades. 28 Preprint 
+
+Proof by counterexample, in four steps. (1) For input I ≤ θ the IF spike count is exactly the running maximum of the cumulative input (Proposition B.9). (2) Two IF neurons, A with a long negative prefix followed by a positive input and B with a negative input throughout, therefore emit the same (empty) spike train for a time that grows with the prefix length L. (3) Their correct outputs differ during that time, but a decoder sees the same spikes for both, so it is wrong on one of them (Corollary B.10). (4) Since L is arbitrary, no decoder gives IF a lag bound that holds over a stream, whereas an LIF neuron recovers within a time set by τ alone (Remark B.11). 
+
+Step 1: the spike count. Consider one IF neuron equation 31 with scalar input current I(t), initial potential u(0) ∈ [0 , θ ), H(0) = 1 , and write 
+
+S(t) := 
+
+> t
+
+X
+
+> i=1
+
+I(i), N (t) := 
+
+> t
+
+X
+
+> i=1
+
+s(i), S(0) = N (0) = 0 , (50) for the cumulative input and the spike count. 
+
+Proposition B.9 (The spike count is a running maximum) . If I(t) ≤ θ for all t ≥ 1, then for all 
+
+t ≥ 0
+
+N (t) = max 
+
+> 0≤k≤t
+
+j u(0) + S(k)
+
+θ
+
+k
+
+and u(t) < θ. (51) 
+
+Proof. Write M (t) for the right-hand side of equation 51; M (0) = ⌊u(0) /θ ⌋ = 0 = N (0) and 
+
+u(0) < θ . Assume N (t − 1) = M (t − 1) and u(t − 1) < θ . By equation 35, upre (t) = u(0) + 
+
+S(t) − θN (t − 1) , so the neuron fires at t if and only if ⌊(u(0) + S(t)) /θ ⌋ ≥ N (t − 1) + 1 . If it fires , then also upre (t) = u(t − 1) + I(t) < 2θ, i.e. ⌊(u(0) + S(t)) /θ ⌋ ≤ N (t − 1) + 1 . Hence 
+
+⌊(u(0) + S(t)) /θ ⌋ = N (t − 1) + 1 = N (t), which exceeds M (t − 1) , so M (t) = N (t); and 
+
+u(t) = upre (t) − θ < θ . If it does not fire , then ⌊(u(0) + S(t)) /θ ⌋ ≤ N (t − 1) = M (t − 1) , so 
+
+M (t) = M (t − 1) = N (t), and u(t) = upre (t) < θ .
+
+Reading the proposition. Without the constraint that spikes are nonnegative and at most one per tick, the count would simply be ⌊(u(0) + S(t)) /θ ⌋, all charge received so far divided by the charge per spike. The constraint I ≤ θ means this ideal count rises by at most one per tick, so the only constraint that ever binds is that the count cannot go down. The actual count is therefore the running maximum of the ideal one: it rises only when the cumulative input exceeds its earlier peak. A worked example with θ = 1 , u(0) = 0 :                                                             
+
+> t12345678910 11 12
+> I(t).6 .6 .6 −1−1−1.6 .6 .6 .6 .6 .6
+> ⌊S(t)⌋0110−1−2−100112
+> N(t)011111111112
+> u(t).6 .2 .8 −.2−1.2−2.2−1.6−1.0−.4.2 .8 .4
+
+After the input returns to 0.6 at t = 7 , the neuron stays silent for five ticks while it repays its debt; a neuron that had seen only the positive input would have fired about three times in the same interval. 
+
+Steps 2 and 3: the same spikes, different correct outputs. Corollary B.10 (No decoder gives IF a lag bound) . Let u(0) = 0 , 0 < a ≤ 1, c > 0, L ∈ N, and set 
+
+m := ⌊cL/ (aθ )⌋. Consider two IF neurons with input currents 
+
+IA(t) = 
+
+−c, t ≤ L, aθ, t > L, IB (t) = −c for all t. (52) 
+
+Both neurons emit no spike for all t ≤ L + m, so their spike trains coincide up to L + m. Yet on 
+
+(L, L + m] their correct outputs differ, ReLU1 (IA(t)/θ ) = a while ReLU1 (IB (t)/θ ) = 0 . Hence any decoder of the spike train, causal or not, of any memory length, has error at least a/ 2 on one of the two neurons at every t ∈ (L, L + m]. Since m grows linearly in L and L is arbitrary, no decoder gives an IF neuron a lag bound that holds over a stream. 
+
+29 Preprint 
+
+Proof. Both inputs satisfy I ≤ θ, so Proposition B.9 applies. For neuron B, SB (k) = −ck < 0 for all 
+
+k ≥ 1, so NB (t) = 0 . For neuron A and k ≤ L+m, SA(k) ≤ − cL +( k−L)+aθ ≤ − cL +maθ ≤ 0,so every term of the running maximum is at most 0 and NA(k) = 0 . The spike trains are identical (all zero) up to L + m, so any decoder returns the same value ˆy for both; since the correct outputs differ by a, max {| ˆy − a|, |ˆy − 0|} ≥ a/ 2.Neuron B is what makes the statement hold for every decoder: a decoder that reads silence as a
+
+would be right on A, but then it is wrong on B, which emits the same silence. A neuron with input 
+
+I = aθ from the start, by contrast, has N (t) = ⌊at ⌋ and fires at rate a immediately; neuron A falls behind it only because of the debt it accumulated before L. The same construction with I > θ during the prefix gives the symmetric case, where excess charge keeps the neuron firing after the drive has dropped. 
+
+Why one neuron suffices. The statement is negative, so a single neuron is enough: a neuron of the first hidden layer receives currents of exactly this form for suitable inputs. Whether the mechanism is what limits a full IF network on a real stream is an empirical question, answered in Appendix H.1. 
+
+Step 4: the LIF neuron recovers. 
+
+Remark B.11 (LIF recovers in a time independent of the history) . For the LIF neuron equation 1 with urest = 0 , a current bounded below by I(t) ≥ − c keeps the potential bounded below, u(t) ≥
+
+min {u(0) , −Rc }, because between spikes u is a convex combination of its previous value and R I (t),and a reset only follows upre ≥ θ > 0. If the current then switches to a constant Iin with RI in > θ ,then until the first spike u(L + n) = αnu(L) + (1 − αn)RI in , and αn ≤ e−n/τ shows that the first spike occurs within 
+
+n ≤
+
+l
+
+τ ln RI in + max {Rc, −u(0) }
+
+RI in − θ
+
+m
+
+(53) ticks, a bound that does not depend on L. This is the fading memory that the streaming framework relies on: leak removes the debt that an IF neuron would carry forever. 
+
+The obvious fix does not work. 
+
+Remark B.12 (Bounding the IF membrane breaks the conversion) . The debt could be limited by clamping the IF membrane from below, u(t) ← max {u(t), β }, as done by Kugele et al. (2020). The clamp, however, invalidates the steady-state correspondence of Theorem B.6 on which conversion rests. Let D(t) ≥ 0 be the total charge discarded by the clamp up to time t. The charge balance equa-tion 35 becomes u(t) = u(0) + S(t) − θN (t) + D(t). Whenever u(t) stays bounded, as in the example below, this gives 
+
+N (t)
+
+t = 1
+
+θ
+
+ S(t)
+
+t + D(t)
+
+t
+
+
+
++ O
+
+ 1
+
+t
+
+
+
+. (54) The rate is the mean input plus the mean discarded charge, and the latter depends on how the input fluctuates rather than on its mean. The rate is therefore no longer a function of the mean input, and in a network the currents W s (t − 1) fluctuate from tick to tick even for a constant stimulus. For example, with β = 0 , u(0) = 0 and input alternating between −θ and 1.5θ, the charge below 0 is discarded on every negative tick and the neuron fires on every positive tick: the rate is 0.5, whereas ReLU1 of the mean input is 0.25 , which an unclamped IF neuron attains. An upper clamp fails by the symmetric argument, with D(t) ≤ 0. Leak, in contrast, bounds the history while preserving the correspondence (Corollary 2.3). 30 Preprint 
+
+# C ALGORITHMS 
+
+Algorithm 1 LIF-Stream 
+
+Input: LIF-SNN S; Stream {xi}; Ticks {Ti}; Leak τ ; Init 
+
+y(0) , z (0) , u n(0) 
+
+Output: Output stream {yi}
+
+1: Initialize LIF neurons n ∈ S with un(0) 
+
+2: y ← y(0) , z ← z(0) 
+
+3: for each frame xi in stream do 
+
+4: for t = 1 to Ti do 
+
+5: x(t), z ← StreamEncode (xi, z, τ ) {Algorithms 2–7 }
+
+6: y ← τ −1 
+
+> τ
+
+y + 1 
+
+> τ
+
+S(x(t)) {decode }
+
+7: end for 
+
+8: yi ← y
+
+9: end for 
+
+Stream encoders. The SNN sees its input only through the exponentially coded input ˜x(t) (The-orem 2.2), so any encoder is valid as long as ˜x tracks the frame x. With z the encoder’s replica of 
+
+˜x,
+
+x − z ← τ −1 
+
+> τ
+
+(x − z) + 1
+
+> τ
+
+ x − x(t), (55) i.e., each encoder is a feedback controller on this error, and must emit x on average once z = x.The float encoders (Algorithms 2–4) are x(t) = x + κ(x − z), contracting the error by τ −1−κτ per tick. The spike encoders (Algorithms 5–7) quantize the same controller: sigma-delta is the LIF dynamics equation 17 with drive x, and population lookahead splits the lookahead current over 
+
+K ≥ τ neurons with graded thresholds, each firing at most one binary spike per tick, keeping 
+
+|x − z| ≤ 12τ for x ∈ [0 , 1] d.
+
+Algorithm 2 Sample-and-hold (float) 
+
+Input: Frame x; State z; Leak τ
+
+Output: Current x(t); State z
+
+1: x(t) ← x {Stateless encoding }
+
+2: z ← τ −1 
+
+> τ
+
+z + 1 
+
+> τ
+
+x(t) {x − z decays by τ −1 
+
+> τ
+
+}
+
+3: return x(t), z 
+
+Algorithm 3 Proportional residual (float) 
+
+Input: Frame x; State z; Leak τ ; Gain κ ∈ [0 , τ − 1] 
+
+Output: Current x(t); State z
+
+1: x(t) ← x + κ (x − z) {Residual feedback }
+
+2: z ← τ −1 
+
+> τ
+
+z + 1 
+
+> τ
+
+x(t) {x − z decays by τ −1−κτ }
+
+3: return x(t), z 
+
+Algorithm 4 Lookahead (float) 
+
+Input: Frame x; State z; Leak τ
+
+Output: Current x(t); State z
+
+1: z ← τ −1 
+
+> τ
+
+z {Lookahead }
+
+2: x(t) ← τ (x − z) {Scaled residual }
+
+3: z ← z + 1 
+
+> τ
+
+x(t) {z = x at every tick }
+
+4: return x(t), z 
+
+Algorithm 5 Sigma-delta (spike) 
+
+Input: Frame x; State z; Leak τ
+
+Output: Spikes x(t); State z
+
+1: x(t) ← H(x − z) {Fire if under-coded }
+
+2: z ← τ −1 
+
+> τ
+
+z + 1 
+
+> τ
+
+x(t) {| x − z| ≲ 1 
+
+> τ
+
+}
+
+3: return x(t), z 
+
+Algorithm 6 Stochastic sigma-delta (spike) 
+
+Input: Frame x; State z; Leak τ ; Dither σ
+
+Output: Spikes x(t); State z
+
+1: ξ ∼ N (0, σ 2I)
+
+2: x(t) ← H(x − z + ξ) {Dithered firing }
+
+3: z ← τ −1 
+
+> τ
+
+z + 1 
+
+> τ
+
+x(t)
+
+4: return x(t), z 
+
+Algorithm 7 Population lookahead (spike) 
+
+Input: Frame x; State z; Leak τ ; Population K
+
+Output: Spikes {s± 
+
+> j
+
+}Kj=1 ; State z
+
+1: z ← τ −1 
+
+> τ
+
+z {Lookahead }
+
+2: r ← τ (x − z) {Float lookahead current }
+
+3: for j = 1 to K do 
+
+4: s± 
+
+> j
+
+← H(±r − j + 12 ) {Thermometer code }
+
+5: end for 
+
+6: x(t) ← PKj=1 (s+ 
+
+> j
+
+− s− 
+
+> j
+
+) {= round (r)}
+
+7: z ← z + 1 
+
+> τ
+
+x(t) {| x − z| ≤ 12τ }
+
+8: return {s± 
+
+> j
+
+}, z 
+
+31 Preprint 
+
+Algorithm 8 ANN → LIF-SNN conversion 
+
+Input: ANN g with ReLU1 activations; leak τ > 1; threshold θ = 1 
+
+Output: LIF-SNN S, codec initializer y(0) , initial un(0) for all neurons n ∈ S  
+
+> 1:
+
+aτ (x) := ( τ − 1) x + 1  
+
+> 2:
+
+// Main conversion  
+
+> 3:
+
+S ← COPY (g) 
+
+> 4:
+
+for all DEQ layers l ∈ L ⊆ S do  
+
+> 5:
+
+f ← forward function of l 
+
+> 6:
+
+for all ReLU1 activations σ ∈ f do  
+
+> 7:
+
+n ← LIF (τ, θ ) 
+
+> 8:
+
+σ ← n ◦ aτ 
+
+> 9:
+
+end for  
+
+> 10:
+
+l ← RECURRENT -SNN (f ) 
+
+> 11:
+
+end for  
+
+> 12:
+
+for all ReLU1 activations σ ∈ S − L do  
+
+> 13:
+
+n ← LIF (τ, θ ) 
+
+> 14:
+
+σ ← n ◦ aτ 
+
+> 15:
+
+end for  
+
+> 16:
+
+// Bias correction: pre-charge u(0) with it  
+
+> 17:
+
+Disable firing of every neuron n ∈ S  
+
+> 18:
+
+Temporarily hook each neuron n to store its influx current bn 
+
+> 19:
+
+y(0) ← S (0) 
+
+> 20:
+
+for all neurons n ∈ S do  
+
+> 21:
+
+un(0) ← bn 
+
+> 22:
+
+end for  
+
+> 23:
+
+Re-enable firing of neurons  
+
+> 24:
+
+return S
+
+C.1 COMPARISON OF STREAM ENCODERS 
+
+We compare the encoders of Algorithms 2–7 at two levels, with τ = 8 , κ = 3 .5, σ = 0 .4, and K = 8 
+
+(Figure 7). Input side (a–c): by equation 55 the SNN sees the input only through ˜x, so encoding quality is |x − ˜x| at the tick a frame is read out, measured on d = 512 coordinates over 64 frames of a random walk in [0 , 1] (per-frame step N (0 , 0.12), reflected at the boundaries). Stream accuracy 
+
+(d): the converted YOLOv8-style detector of Appendix E streams the first Argoverse-HD validation sequence ( 901 frames) without reset, and we report AP50 over all frames. Every encoder runs on raw pixels in [0 , 1] and feeds the network the normalized current (x(t) − μ)/σ img , which for spike encoders amounts to binary spikes on pixel channels through the normalization folded into the first layer; sample-and-hold is then identical to the streaming arm of the main experiments. • Float encoders follow the contraction   τ −1−κτ
+
+T of the gain family, reaching an input error of 2.7 × 10 −2 (sample-and-hold), 1 × 10 −4 (proportional), and exactly 0 (lookahead) at T = 8 . On the stream, the faster input translates into faster tracking at small budgets: at T = 4 , lookahead and proportional reach AP50 0.061 and 0.060 against 0.049 for sample-and-hold, and all three converge to ≈ 0.104 by T = 32 .• Spike encoders settle at an input error floor set by quantization rather than by T : 0.039 
+
+for sigma-delta and 0.033 for population lookahead, which stays below 12τ at every tick at the cost of extra spikes only on frame changes ( 0.73 spikes per coordinate per tick at 
+
+T = 1 , 0.52 at T = 32 , against 0.51 for sigma-delta). On the stream, population lookahead tracks its float counterpart within 0.004 AP50 at every budget, while sigma-delta follows sample-and-hold at small T and levels off lower ( 0.097 at T = 32 ), the residue of its quantization floor. • Stochastic dithering is the one encoder the detector does not tolerate: its input noise leaves AP50 at 0.036 even at T = 32 .This sequence is harder than average: the dense ANN reaches AP50 0.140 on it against 0.296 on the full validation set, so the numbers above are meaningful relative to one another and to that reference rather than in absolute terms. 32 Preprint 
+
+Figure 7: Stream encoders ( τ = 8 ). (a,b) The decoded input ˜x of one coordinate on a staircase of six frames with T = 8 ticks each (grey lines mark frame boundaries). (c) Input readout error |x − ˜x| at the last tick of each frame against the tick budget, on a correlated random stream; values are clipped at 10 −6. (d) AP50 of the converted detector streaming one Argoverse-HD sequence ( 901 frames) against the tick budget; the dotted line is the dense ANN. 
+
+# D BASELINE METHODS AND IMPLEMENTATION DETAILS 
+
+This appendix describes how LIF-Stream is implemented (Appendix D.1), how the baselines are implemented (Appendix D.2–Appendix D.3), and the protocol that is shared by every row of Table 1 (Appendix D.4). All methods are implemented in a single PyTorch codebase on top of spiking-jelly (Fang et al., 2023), so that every arm of a comparison shares the same data pipeline, the same decoder, and the same metric code. Each baseline is implemented directly from the equations of its own paper; where a published method offers several settings we use the one its authors report as best. D.1 LIF-S TREAM 
+
+Convertible ANN. Our framework requires only that the reference ANN be a composition of affine operators and the bounded activation ReLU1 (x). Concretely, every architecture we use is built from convolutions, linear layers, batch normalization, average pooling, and ReLU1. Operators that are not affine (e.g. max-pooling, layer normalization, softmax attention) are replaced by affine equivalents before training, so no approximation is introduced at conversion time. Task-specific post-processing that contains no learnable parameters – non-maximum suppression for detection, CTC collapse for speech, arg-max for classification – is executed outside the converted graph, exactly as in the ANN. 
+
+Conversion. Conversion follows Algorithm 8. The model is traced into a graph, each Conv– BatchNorm pair is folded into a single affine operator, and each ReLU1 site is replaced by the composition n ◦ aτ of an input rescaling aτ (x) = ( τ − 1) x + 1 and a soft-reset LIF neuron with 
+
+θ = 1 , urest = 0 , R = 1 . Because ReLU1 is bounded by construction, the firing threshold is fixed at 1
+
+and no activation statistics, calibration set, or per-layer search is required ; this is the only structural difference from the conversion baselines in Appendix D.2, all of which fit at least one parameter per layer from data. The single data-independent step is the membrane pre-charge of Algorithm 8: firing 33 Preprint is disabled, the zero input is propagated once, and each neuron’s resting influx is stored as its initial membrane potential un(0) together with the output codec state y(0) . This is a one-off correction of the constant term b(t) in Equation (14); it is computed once at conversion time and never re-applied. 
+
+Streaming inference. Streaming inference follows Algorithm 1. The membrane potentials of all neurons and the input/output codec states are initialized once at the beginning of a stream and then persist across frames; there is no global reset, no per-frame re-initialization, and no cross-frame communication other than the neuronal state itself. Each frame k is allotted T ticks, and the prediction for frame k is read from the output codec at the last tick of that frame. Inputs are encoded with the sample-and-hold scheme of Algorithm 2: at each tick the encoder emits the current frame unchanged, and the change between frames reaches the SNN through the exponentially coded input ˜x(t), which follows the new frame at the leak rate τ −1 
+
+> τ
+
+.
+
+Hyperparameters. The framework has two hyperparameters: the leak τ and the per-frame tick budget T . We use τ = 8 throughout (except the Best column), and sweep T ∈ { 2, 4, 8, 16 , 32 , 64 },which is the axis reported in Table 1. For the Best column, we use τ = 16 and measure the accuracy in T > 128 , just like all the other baseline methods. An optional warm-up grants the first frame of a stream 4T extra ticks so that the very first prediction is not read from a cold membrane; its cost is amortized over the whole stream and it is disabled unless stated. The only exception is the Argoverse-HD entry of LIF-Stream at T = 16 in Table 1, which uses a warm-up of 64 (= 4 T ) ticks. No other tuning is performed, and the same τ is used for all three tasks. D.2 ANN-TO -SNN CONVERSION BASELINES 
+
+These methods share our setting most closely: they start from a trained ANN and produce an SNN without direct SNN training. • ReLU-Norm (Rueckauer et al., 2017) (with the max-norm variant of Diehl et al. (2015)): converts an unbounded -ReLU ANN by normalizing each layer by a scale λl estimated on a calibration set, so that weights and biases become ˜Wl = Wlλl−1/λ l and ˜bl = bl/λ l. We implement both the max-norm ( λl = max al) and the robust percentile variant, normalizing one layer at a time and re-measuring after each so that the rescaling is correct when a normalization layer sits between the affine layer and the activation. We report the better of the two. • RTS (Deng & Gu, 2021): threshold balancing plus a single closed-form bias shift bl ←
+
+bl + θ/ (2 T ) that minimizes the half-step mismatch between the ANN’s clipped activation and the SNN’s step response. Its source activation is the threshold-ReLU, which is exactly ReLU1 at threshold 1, so no retraining is required. Note that T enters the stored parameters, so a converted model is tied to the tick budget it was converted for. • RMP-SNN (Hao et al., 2023a): soft reset ( V ← V − Vth ) instead of hard reset, together with a layer-by-layer threshold balancing V l 
+
+> th
+
+← α max l with α ≤ 0.6, each layer frozen before the next is estimated. • Spike-Calib (Li et al., 2021): post-hoc calibration of the converted IF-SNN. We implement both the light (bias) and advanced (bias, initial potential and weights) variants, and follow the paper’s greedy Algorithm 1: the T -step simulation is re-run before each layer is calibrated, so every layer is corrected against the signal it actually receives from the already-corrected layers upstream. BatchNorm folding (their Eq. 19) is already performed by our shared conversion front-end. • QCFS (Bu et al., 2023): a training-time method. The source ANN is trained with the quantization-clip-floor-shift activation al = λl clip   1 
+
+> L
+
+⌊zlL/λ l + ϕ⌋, 0, 1 with a trainable per-layer λl and the paper’s recommended shift ϕ = 1 /2, and is then converted by θl ← λl,
+
+vl(0) ← θlϕ. We train a separate ANN per task with L = 8 .• SlipReLU (Jiang et al., 2023): also training-time. The activation is the convex combination 
+
+c θ clip (z/θ + δ1, 0, 1) + (1 − c) θ clip ( 1 
+
+> N
+
+⌊N z/θ + δ⌋, 0, 1) , converted by Vth ← θ, v(0) ←
+
+Vth δ. We use the authors’ best reported settings δ1 = 0 , δ = 1 /2, c = 0 .4, and train a separate ANN per task. • DCGS (Huang et al., 2025): the multi-threshold (MT) neuron, carrying 2n thresholds 
+
+λp = θ/ 2p−1 for p = 1 , . . . , n together with their negatives, and emitting at most one graded spike per time step whose magnitude is the λp closest to the membrane potential; 34 Preprint 
+
+n = 1 degenerates to an IF neuron with an added negative threshold. We use n = 4 , and report the reported row under rate, since differential coding failed to achieve meaningful accuracy on all tasks. Two threshold settings are run and we report the better: the per-layer threshold iteration of their Algorithm 1, with the fitted thresholds passed per site rather than collapsed to a single global value, and the fixed θ = 1 that a bounded activation admits by construction. • AdaFire and AdaFire+SSC (Wang et al., 2025): an adaptive-firing neuron emitting up to ϕ spikes per step, so its per-step output range is [0 , V th ϕ], with ϕ chosen per layer on the paper’s sensitivity/energy criterion. +SSC adds Sensitivity Spike Compression, which raises the per-layer threshold by a factor ρ so that consecutive spikes merge into fewer, higher-amplitude ones. We do not implement the third component (Input-aware Adaptive Timesteps), an entropy-based early exit over a bounded sample, because this evaluation scores a perpetual stream at a fixed per-frame budget. • LIF-Reset : our own converted LIF-SNN, run under the conventional protocol – membranes and codec states are reset at every frame boundary and the frame is simulated for T ticks. This is the direct ablation of streaming: identical weights, identical neurons, identical decoder, the reset being the only difference. D.3 DIRECTLY -TRAINED SNN BASELINES 
+
+These methods train a spiking network end-to-end with surrogate gradients. For methods that propose specific spiking neural architectures, we use the authors’ released architectures and their released weights except DVS-Gesture task. For the DVS-Gesture task, we train all the models with our task setup. • Training rules. Rectangular/boxcar surrogate gradients (STBP, Wu et al., 2018); the online rules OTTT (Xiao et al., 2022) and SLTT (Meng et al., 2023), whose memory is constant in 
+
+T ; the TET loss (Deng et al., 2022), which scores every tick rather than the time average; and ASGL (Wang et al., 2023), whose analog branch is itself a bounded ReLU. • Spike-driven Transformer (SDT) (Yao et al., 2023) (gesture): spike-driven self-attention (SDSA), which replaces softmax attention with a Hadamard product and column-wise sums of binary spike matrices, with membrane shortcuts between blocks. We use a depth-4, width-256 skeleton of 4.15 M parameters, comparable to GestureNet ( 3.96 M), train it with the same stream windows, augmentation and EMA schedule as our reference ANN, and report the EMA checkpoint. Its forward pass steps through the 16 frames of a window, so its time steps are tied to its frame binning and we report it at this design point, T = 16 . Re-binning a window into T̸ = 16 frames, with the input rescaled to the trained per-frame intensity, moves the model off its training distribution and lowers accuracy on both sides ( 21 .9–82 .6 for 
+
+T ∈ { 2, . . . , 64 }). Spikformer (Zhou et al., 2022) and Meta-SpikeFormer (Yao et al., 2024), trained identically on the same skeleton, reached 89 .4 and 88 .8; we list the Spike-driven Transformer, which ties Spikformer overall and is slightly more accurate on the gesture classes (11 classes) ( 91 .3 vs. 91 .2). • EMS-YOLO (Su et al., 2023) (detection): an ordinary binary LIF neuron ( V [t+1] = 
+
+τ V [t](1 − X[t]) + P 
+
+> j
+
+Wij Xj [t+1] , X[t+1] = H(V [t+1] − Vth )) with a rectangular surrogate, in the EMS-ResNet block that places a LIF before every convolution – including on the shortcut – so that every convolution receives a binary tensor. We evaluate the authors’ COCO weights. • SpikeYOLO (Luo et al., 2024) (detection): the I-LIF neuron clip (round (U ), 0, D ) with the meta SNN blocks, trained with integer values and deployed with each integer step expanded into D binary sub-steps. We evaluate the authors’ COCO weights in both the integer and the expanded-binary inference modes. D.4 COMMON EVALUATION PROTOCOL 
+
+Shared reference ANN. Every post-hoc conversion baseline whose precondition our ANN satisfies is converted from the same trained checkpoint as LIF-Stream, so that the comparison prices what each method loses in conversion rather than differences in the source model. Methods whose activation function is part of their contribution (QCFS, SlipReLU) require their own source ANN; we train one per task with the identical architecture, schedule, and augmentation, changing only the activation. 35 Preprint Methods that need unbounded ReLU statistics (ReLU-Norm, Spike-Calib, AdaFire) are given an unbounded-ReLU ANN trained the same way, plus the calibration split they require. 
+
+Reset convention. Every baseline is run under the protocol its paper specifies, which for all conversion baselines means a per-frame reset: the network state is cleared, the frame is simulated for T ticks, and the prediction is decoded. LIF-Stream is run without any reset after the start of the stream. The LIF-Reset row isolates this single difference on our own converted network. In Figure 6 and Appendix H.1, we additionally report what happens when the reset is simply removed from the published conversions. 
+
+Compute. All models we train ourselves are trained and evaluated on a single NVIDIA RTX 2080 Ti (12 GB). 
+
+# E ZERO -SHOT TRANSFER FOR STREAMING OBJECT DETECTION 
+
+E.1 DATASETS 
+
+COCO 2017 (training). The reference ANN is trained for 80-class object detection on COCO 2017 (Lin et al., 2014a): 118 ,287 train2017 images and 5,000 val2017 images. We use only the box annotations. COCO is the source domain and is used for training and for reporting the ANN’s frame-wise quality; no streaming evaluation is performed on it. 
+
+Argoverse-HD (streaming evaluation). Streaming detection is evaluated on Argoverse-HD (Li et al., 2020a), which pairs the front-center ring camera of Argoverse 1.1 (Chang et al., 2019) with dense 2D box annotations at 30 fps. We use the full validation split: 24 sequences and 15 ,062 
+
+annotated frames, ∼ 627 frames per sequence on average, at a native resolution of 1920 × 1200 .Argoverse-HD annotates eight categories – car, truck, bus, person, bicycle, motorcycle, traffic light, stop sign – all of which are COCO categories with the same definitions, so a COCO-trained detector is scored directly, with no fine-tuning and no modification of the detection head. The annotations are dense and are not temporally interpolated, so every frame is an independent ground-truth observation. 
+
+Why this pair. We chose a zero-shot transfer setting for two reasons. First, COCO is the benchmark on which SNN detectors are trained and compared, but it has no streaming evaluation; Argoverse-HD provides a rigorous 30 fps streaming benchmark but has no SNN detection literature. Second, the two share their label space, so transfer requires no head surgery and no retraining, and the comparison therefore measures streaming inference rather than adaptation. The same argument is made by Li et al. (2020a), whose own baselines are likewise off-the-shelf COCO models evaluated without training on Argoverse. We report ordinary per-frame COCO AP rather than the streaming-AP metric of Li et al. (2020a): sAP scores a detector against the world at the moment its output is emitted and therefore requires a wall-clock latency model, whereas the quantity under study here is the tick budget a frame needs, which is a hardware-independent count. E.1.1 LICENSES 
+
+COCO images are made available under the Flickr Terms of Use and its annotations under the Creative Commons Attribution 4.0 License. Argoverse 1.1 is released by Argo AI under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 License, and the Argoverse-HD annotations are released by Li et al. (2020a) for non-commercial research use. All datasets are used within their licensed terms, for non-commercial academic research. E.2 MODEL 
+
+The reference ANN is a convertible YOLOv8-style detector (Jocher et al., 2023): a CSP backbone, a PAN–FPN neck, and a DFL detection head with task-aligned assignment, at three pyramid levels with strides (8 , 16 , 32) . We use the v8m -scale configuration – stage widths (48 , 96 , 192 , 384 , 576) 
+
+and backbone depths (2 , 4, 4, 2) – giving 25 .05 M parameters and 39 sequential spiking layers along the deepest path. 36 Preprint Three substitutions make the model convertible, and each one is applied before training, so the trained ANN and the converted SNN describe exactly the same function: • SiLU → ReLU1. Every activation in the backbone, neck and head is the bounded ReLU1, which is what lets the converted network use a fixed unit threshold with no data-driven calibration. • MaxPool → AvgPool. The SPPF block’s max-pooling is the only operator in the architecture with no affine equivalent; we use average pooling in its place. (An exact reconstruction of max-pooling from ReLU1 units is also available and gives the same function at a higher layer count; we do not use it in the reported model.) • Post-processing kept outside the graph. Sigmoid decoding, DFL integration, coordinate de-normalization and NMS are parameter-free and run on the decoded output, exactly as in the ANN, and therefore never enter the converted network. Baselines that require a different activation (QCFS, SlipReLU) or an unbounded one (ReLU-Norm, Spike-Calib, AdaFire) are trained as separate arms of the same architecture, schedule and augmenta-tion, changing only the activation; the directly-trained SNN detectors (EMS-YOLO, SpikeYOLO) use their authors’ published architectures and weights. E.3 TRAINING SETUP 
+
+Training follows the standard YOLOv8 recipe, adapted only where the convertibility constraint requires it. The model is trained from scratch on COCO train2017 for 300 epochs at an input resolution of 640 , with SGD (learning rate 0.005 , final learning-rate factor 0.01 , Nesterov momentum 
+
+0.937 , weight decay 5 × 10 −4) and a cosine schedule, after a warm-up of 10 ,992 optimizer steps (≈ 3 epochs) over which the momentum is ramped from 0.8. The effective batch size is 32 , realized as batch 16 with two gradient accumulation steps. Augmentation is mosaic ( p = 1 .0, disabled for the final 10 epochs), horizontal flip ( p = 0 .5), HSV jitter (0 .015 , 0.7, 0.4) , and random affine applied on the composed mosaic canvas with translation 0.1 and scale 0.5. The loss is the YOLOv8 composite – CIoU box loss, distribution focal loss, and BCE classification loss – with gains (7 .5, 1.5, 0.5) and task-aligned assignment. We use mixed precision, TF32 matmuls, and an EMA of the weights; the EMA weights are the ones converted. Checkpoints are selected on val2017 mAP. E.4 EVALUATION SETUP 
+
+Input pipeline. Each frame is letterboxed to 640 × 640 , scaled to [0 , 1] and normalized with the ImageNet statistics used during training. Frames are presented in their recorded order at the native 30 fps and no frame is skipped, since the inter-frame interval is the quantity the streaming claim depends on. 
+
+Streaming protocol. For LIF-Stream, the converted SNN is instantiated once per sequence, its membrane and codec states are initialized once, and the 24 sequences are then processed frame by frame with T ticks per frame. The prediction for a frame is read at the last tick allotted to that frame. For the reset baselines, the state is cleared at every frame boundary and the frame is simulated for T
+
+ticks, which is the protocol every published conversion method specifies. The dense ANN is run on the same frames . 
+
+Metric. We report COCO AP@50 computed with pycocotools , with a score threshold of 0.001 ,NMS IoU 0.7 and at most 300 detections per frame, which is the standard COCO convention. The dense ANN and the streaming arms are scored over all 15 ,062 annotated frames of the validation split; the per-frame-reset conversion baselines are scored on the same 24 sequences under the protocol their own papers specify. Every arm is scored by the same metric code, and each comparison reported in the paper is made over one common frame set. Efficiency is reported as described in Appendix D.4. 37 Preprint 
+
+# F STREAMING AUTOMATIC SPEECH RECOGNITION (ASR) 
+
+F.1 DATASETS 
+
+We train and evaluate on LibriSpeech (Panayotov et al., 2015), the standard English read-speech corpus derived from LibriVox audiobooks and sampled at 16 kHz. Training uses the full 960 h par-tition ( train-clean-100 , train-clean-360 , train-other-500 ), 280 ,663 utterances totalling 958 .2 h after dropping utterances longer than 17 s. dev-clean is used for validation and model selection, and test-clean and test-other are used for the reported word error rates. Unlike the usual offline protocol, which presents a whole pre-segmented utterance to the model at once, we stream each utterance to the model in fixed-size chunks and require a prediction after every chunk, so that the model never sees future audio beyond its own bounded look-ahead. F.1.1 LICENSES 
+
+LibriSpeech is distributed under the Creative Commons Attribution 4.0 License, and is used here for non-commercial academic research. F.2 MODEL 
+
+The reference ANN is a windowed SummaryMixing Conformer encoder (Parcollet et al., 2024) with a CTC head, adapted so that the whole encoder is a composition of affine operators and ReLU1. SummaryMixing is the natural starting point for a convertible streaming encoder: it replaces self-attention’s data-dependent T × T mixing with a constant one – a uniform mean over time – which is an affine operator, whereas softmax attention is not. 
+
+Front-end. 80-bin log-mel filterbank features at a 10 ms hop, normalized with a fixed global CMVN fitted once on the training set and frozen (per-utterance CMVN is neither causal nor foldable into the network), followed by a convolutional subsampling of ×4, giving one encoder frame every 40 ms. 
+
+Window assembly. The encoder consumes one window per call, formed by concatenating the previous chunk and the current chunk, [ prior chunk ∥ current chunk ]. This is the design decision that keeps the encoder feed-forward: the published streaming SummaryMixing variant accumulates its summary statistic across calls, which is a cross-call recurrence, whereas taking the mean over a two-chunk window makes the same summary a reduction inside a single forward pass – an ordinary 
+
+AvgPool1d . With a chunk of 32 encoder frames and a left context of 32 frames, the window spans 
+
+2.56 s and the model emits a 1.28 s chunk of frame posteriors per call. The first window of a stream is zero-padded on the left and its mean is renormalized accordingly. 
+
+Block. Each of the 18 encoder blocks applies two per-frame branches f (X) and s(X) (Lin-ear + ReLU1), averages s(X) over the window with a single AvgPool1d whose kernel equals the window length, broadcasts the resulting summary back to every frame, concatenates it with f (X),and projects with a further Linear + ReLU1. A depthwise convolution module (kernel 31 or 63) and a feed-forward sandwich complete the block, as in a Conformer. The model dimension is 256 ; the encoder has ≈ 25 –28 M parameters and 128 –182 spiking sites depending on the arm. 
+
+Substitutions for convertibility. GELU/Swish are replaced by ReLU1; LayerNorm by masked BatchNorm, since LayerNorm computes per-sample statistics at run time and therefore cannot be folded into the preceding affine layer; and the streaming variant’s cumulative masked mean by the windowed AvgPool1d described above. The head is CTC, as in the source recipe; CTC collapse and beam search run on the decoded posteriors, outside the converted graph. F.3 TRAINING SETUP 
+
+The encoder is trained with CTC on the 960 h partition for 40 –53 epochs, with Adam (peak lr 8×10 −4,
+
+5k– 15 k warm-up steps, then inverse-square-root decay), dropout 0.1, weight decay 5×10 −4, gradient clipping, and mixed precision. The effective batch size is 14 utterances × gradient accumulation, with a length-bucketed sampler. Augmentation is speed perturbation plus DropFreq/DropChunk 38 Preprint on the waveform, and SpecAugment on the features where indicated. We keep an EMA of the weights (decay 0.9999 ) and average the final 10 epoch checkpoints, as is standard for this recipe. Two vocabularies are used: a 29-symbol character set and a 5000 -token unigram sub-word model; and some arms add an auxiliary attention decoder to the CTC loss during training only. The auxiliary decoder is discarded before conversion and is never part of the deployed or converted model ; it acts purely as a training-time regularizer. Training goes through exactly the same window assembly that inference uses, so the model is never trained on context it will not have at deployment; this equivalence is asserted by a unit test on every commit. F.4 EVALUATION SETUP 
+
+Streaming protocol. Each utterance is streamed chunk by chunk with 40ms inter-chunk interval. For LIF-Stream, the converted SNN’s state is initialized once at the beginning of the utterance and then persists across chunk boundaries; each chunk is allotted T ticks and the frame posteriors for that chunk are read at its final tick. The first chunk optionally receives a warm-up of extra ticks. For the reset baselines the state is cleared at every chunk boundary, which is the protocol those methods assume. We use τ = 8 throughout, as on the other two tasks. 
+
+Decoding and metric. Frame posteriors are decoded with CTC greedy decoding, or with a CTC prefix beam search combined with an n-gram language model where stated; decoding is identical for every arm, so it never contributes to a difference between arms. We report corpus-level word error rate (WER) on test-clean and test-other .
+
+# G GESTURE RECOGNITION ON EVENT STREAMS 
+
+G.1 DATASETS 
+
+We use DVS128 Gesture (Amir et al., 2017), the standard neuromorphic gesture benchmark, recorded with a DAVIS128 event camera at 128 × 128 spatial resolution. It contains 1,342 gesture instances over 11 classes (10 gestures plus an other class), performed by 29 subjects under three lighting conditions, and distributed as 122 continuous recordings with interval labels. We use the official subject split: 98 recordings for training and 24 for test. 
+
+Streaming, not clip-wise. Most recent work evaluates this dataset clip-wise: each pre-segmented gesture is cut out in advance, binned by constant event count, and classified as a whole. That protocol is not causal – constant-count binning needs the end of the clip to place its bins, and cutting the clip out presupposes that the gesture has already been segmented. We therefore evaluate on the 
+
+unsegmented recordings, as the original benchmark does (Amir et al., 2017), and require the model to predict on the fly from the events it has received so far. Concretely, we slide a 2 s window over each recording and score every window position. A 2 s window is the geometry that follows from the data. Gestures last 6.53 s on average and the gaps between them 1.84 s, so a window as long as a gesture straddles two gestures in over half of all positions, whereas a 2 s window is clean in 56 .3% of positions and spans two gestures in only 
+
+7.4% . Because the gestures are repetitive, a 2 s window still contains complete motion cycles. Since a streaming evaluation also encounters rest periods, the stream task carries a 12 th null class. G.1.1 LICENSES 
+
+The DVS128 Gesture dataset is released by IBM Research under the Creative Commons Attribution 4.0 License. We use the distributed archive as published, verified by its MD5 checksum, and apply only the corrected label file for one recording released with the dataset mirror (one gesture’s end time is recorded after the next gesture’s start time; the corrected file resolves the overlap). The dataset is used for non-commercial academic research. G.2 MODEL 
+
+The reference ANN is GestureNet , a convertible TCN-style network of 3.96 M parameters with 22 
+
+spiking sites: 39 Preprint stage operator input [B, T, C, 128 , 128] event histogram stem 5 × 5 conv, stride 2 → BN → ReLU1 spatial backbone 4 stages of residual blocks, AvgPool2d (2) between stages spatial pooling AvgPool2d with a kernel fixed at build time temporal 2 Conv1d blocks over the frame axis readout AvgPool1d (T ) → Linear Two design decisions carry the model. First, the spatial backbone is applied frame-wise with shared weights, with T folded into the batch dimension, so the number of spiking sites is O(depth ) rather than O(depth × T ) – which is what makes a multi-frame window affordable at a small tick budget. Second, the time axis is mixed by convolutions rather than by a mean: four of the eleven classes are chirality pairs (left/right hand, clockwise vs. counter-clockwise) that differ only in temporal order, and any order-invariant reduction maps a gesture and its time-reverse to the same representation. AvgPool1d is retained, but only after the temporal convolutions have made the representation order-sensitive. The head is a bare linear layer with no terminal activation. The same constraint rules out horizontal flip and temporal reversal as augmentations: both map a class onto its partner’s label. 
+
+Input representation. Events are accumulated into a voxel grid, without normalization or clamping. For each event (t, x, y, p ) falling in the window, the bin index is ⌊(t−tstart )/∆⌋ and the corresponding cell [bin , p, y, x ] is incremented. The 2 s window is divided into 16 equal bins of 125 ms, giving 
+
+[16 , 2, 128 , 128] for the two event polarities. Beside those disjoint bins we carry a running mean of them, xcum [k] = 1
+
+> k+1
+
+P 
+
+> j≤k
+
+x[j], concatenated along the channel axis to give [16 , 4, 128 , 128] . The two halves hold different things and are kept together rather than one replacing the other: the disjoint bins carry instantaneous ON/OFF polarity structure, which is what separates the rotation classes, while accumulation greys that structure out as both polarities pile onto the same pixels; the running mean in turn carries the longer-range shape of the gesture, which no single 125 ms bin contains. The cumulative sum is an invertible linear map along the frame axis, so nothing is lost relative to the disjoint bins and the traced graph stays affine + ReLU1 – the only structural change is that the stem takes 4 input channels instead of 2.G.3 TRAINING SETUP 
+
+The model is trained on 2 s windows drawn from the training recordings at random offsets, so that every training window is distinct. We use AdamW with a OneCycle schedule, label smoothing 
+
+0.1, dropout 0.1, gradient clipping at 1.0, and standard BatchNorm initialization, for 200 epochs. Augmentation is random spatial roll and rotation only, for the chirality reason above. We keep an EMA of the weights and evaluate both the raw and the EMA checkpoints. The reported configuration is run with 3 seeds; the measured seed spread is 0.51 pp, below the eval-to-eval oscillation within a single run. Since one test clip is 0.347 pp on the 288 -clip protocol, we treat differences below 
+
+∼ 1.4 pp as not meaningful and do not draw conclusions from them. G.4 EVALUATION SETUP 
+
+Streaming protocol. Each test recording is streamed as a sequence of 2 s windows at a 0.25 sstride. For LIF-Stream, the converted SNN’s state is initialized once per recording and persists across windows, with T ticks per window; the prediction is read at the final tick of each window. Reset baselines clear their state at every window. A window is labelled by the class at its center; windows falling in a rest period take the null label. We use τ = 8 , as on the other two tasks. 
+
+Metrics. The primary metric is per-window classification accuracy on the stream. We additionally report two protocols that connect to the literature. (i) Per-decision accuracy in the style of the original benchmark (Amir et al., 2017): decisions are taken on a sliding window at a 0.1 s stride at every position inside a labelled gesture, the null column is dropped, and the arg-max is taken over the 11 
+
+gesture classes, with an optional majority-vote horizon standing in for their sliding-window filter; we also report the 10 -category variant that excludes other , mirroring their own two numbers. (ii) Clip accuracy on the standard 288 -clip test protocol, obtained by sliding the same 2 s windows inside each 40 Preprint test clip, averaging the logits and taking the arg-max over classes 1–11 ; this is the number comparable to the published leaderboard. Efficiency is reported as in Appendix D.4. 
+
+# H EXPERIMENTAL SETUPS FOR THE IN-DEPTH ANALYSES 
+
+All four studies in the in-depth analysis are run on Argoverse-HD with the detector and the streaming protocol described in Appendix E, at 640 input resolution and τ = 8 . Unless stated otherwise they use the full validation split ( 24 sequences, 15 ,062 frames) and never stride the stream, since the inter-frame interval is the independent variable in two of the four studies. H.1 INTEGRATION WITH IF CONVERSION METHODS 
+
+Question. Our framework and the advanced IF conversion methods optimize different things – ours makes the trajectory track a moving reference across frames, theirs makes a single bounded simulation more accurate – so it is worth asking whether the two compose. 
+
+Porting. For each published conversion method we take the converted network exactly as that method produces it, using the same implementation that produces its row in Table 1, and run it under two protocols that differ by exactly one call: the method’s own per-frame reset, and our streaming protocol in which the state is initialized once per sequence and then persists. Nothing else changes – same weights, same calibration, same decoder, same frames, same score threshold – so any difference is attributable to the reset alone. Methods that pre-charge each neuron to a fixed initial potential (e.g. 
+
+θ/ 2 for QCFS and SlipReLU) store that value as the neuron’s reset value, so it is re-applied by the reset call and only by the reset call; AdaFire likewise clears its burst state per frame. 
+
+Measurement. All arms are scored over one identical frame set – whole sequences, never strided – with AP@50 at a score threshold of 0.001 , and sweep T ∈ { 8, 16 , 32 , 64 , 128 } (plus T = 256 
+
+for the IF arm, whose published protocol needs a far larger budget). The dense ANN on the same frames provides the ceiling. Because the per-frame-reset baselines and the streaming arm are scored on the same frames, the ratios are meaningful even where the absolute values differ from the full-validation numbers of Table 1. Some of these baselines require a source ANN trained with their own activation, or an unbounded-ReLU network plus calibration data, so the comparison necessarily crosses checkpoints; this is structural rather than a choice, and is itself part of the point, since a bounded activation needs nothing fitted. 
+
+Is the IF failure a decoder problem? The streaming arm above reads each frame as the mean of its own T ticks, a tumbling window. To separate the neuron from the decoder we keep each converted network, frames and protocol fixed and change only the decoder of the output layer: an exponential moving average with the same τ = 8 as LIF-Stream, never reset, and a sliding window of the last 16 ticks across frame boundaries. We do this for four IF conversions: QCFS and SlipReLU, which train their own source ANN; ReLU-Norm (Rueckauer et al., 2017), which normalizes an unbounded-ReLU ANN (99.9th percentile on 32 calibration frames) and converts it to soft-reset IF neurons with threshold 1; and AdaFire, whose neuron may emit up to four spikes per tick. We also add the mechanism of Kugele et al. (2020), a lower bound u ≥ 0 on every IF membrane, applied after each tick. They apply it to a plain IF conversion, which corresponds to our ReLU-Norm row. 41 Preprint                                                                               
+
+> Argoverse-HD seqs. 5, 19, 10 (1,374 frames), AP50 T= 4 T= 8 T= 16
+> QCFS per-frame reset (published protocol) 0.7 1.7 4.6 no reset, tumbling-window decoder 0.8 0.7 0.7 no reset, EMA decoder ( τ= 8 )0.6 0.7 0.7 no reset, sliding-window decoder ( 16 ticks) 0.6 0.6 0.7 SlipReLU per-frame reset (published protocol) 0.4 0.4 1.1 no reset, tumbling-window decoder 0.2 0.3 0.5 no reset, EMA decoder ( τ= 8 )0.2 0.3 0.5 no reset, sliding-window decoder ( 16 ticks) 0.2 0.4 0.5 ReLU-Norm per-frame reset (published protocol) 0.0 0.0 0.0 no reset, tumbling-window decoder 0.0 0.0 0.0 no reset, EMA decoder ( τ= 8 )0.0 0.0 0.0 no reset, sliding-window decoder ( 16 ticks) 0.0 0.0 0.0 AdaFire per-frame reset (published protocol) 0.0 0.0 0.4 (multi-spike) no reset, tumbling-window decoder 0.5 0.7 0.8 no reset, EMA decoder ( τ= 8 )0.4 0.6 0.8 no reset, sliding-window decoder ( 16 ticks) 0.4 0.6 0.8
+> Membrane bound u≥0as in Kugele et al. (2020), no reset, EMA decoder
+> ReLU-Norm plain IF conversion, the setting of Kugele et al. (2020) 0.0 0.0 0.0 LIF-Stream (ours) 12.1 18.4 22.9
+
+With every conversion the three decoders agree within 0.2 AP50 and stay below 1 AP50: the decoder is not what fails. On average, 45 –50% of the IF membranes are below zero at a tick and are clipped by the bound, so this charge debt is the normal state of these networks rather than a corner case (Appendix B.5.4). On the plain IF conversion that Kugele et al. (2020) use, the bound does not help at these budgets: ReLU-Norm stays at 0 even with a per-frame reset, since it needs hundreds of ticks per frame (Table 1), whereas Kugele et al. (2020) use 15 –60 simulation steps per frame. At any budget the bound is also not a principled fix: it discards charge whenever the input dips below it, which biases the firing rates away from the ReLU1 correspondence that the conversion relies on (Remark B.12). H.2 INTER -FRAME PREDICTION EFFICIENCY 
+
+Question. A uniform budget charges every frame the same T . If frames differ in how many ticks they actually need, the distribution of the needed budget is the quantity the efficiency claim should be stated in, and the gap between it and a flat T is what incremental computing buys. 
+
+Defining “settled”. The settle tick of frame k is measured on the detections , not on the raw readout: 
+
+Ak[t] = F1
+
+ dets( yt), dets( yTmax ), settle( k) = min { t : Ak[t′] ≥ 1−ϵ for all t′ ≥ t }, (56) where detections are matched by class at IoU ≥ 0.3 and F1 is computed over detections above a confidence of 0.3. This is what “the answer has stopped changing” means for a detector, and it is insensitive to the slow residual drift that a threshold on the float readout would pick up. The stability threshold ( 0.3) is deliberately distinct from the scoring threshold ( 0.001 , the COCO convention): at the scoring threshold the output carries a long tail of low-confidence boxes whose ordering never stabilizes. Tmax = 64 is used as the reference budget. 
+
+Complexity label. The per-frame complexity on the x-axis is computed independently of the tick count , otherwise the plot would be a tautology. We use the dense ANN’s own frame-to-frame output change, drift( k) = ∥yANN (k) − yANN (k−1) ∥/∥yANN (k−1) ∥, measured in the same flattened head space; the ANN arm is run anyway as the accuracy ceiling, so this costs nothing extra. Raw pixel change is reported as a secondary, interpretability-only label. H.3 FINER TEMPORAL RESOLUTION HELPS STREAMING SNN S
+
+Question. Tick cost is normally quoted per frame, which silently treats the frame rate as given. It is a design choice, and the two protocols respond to it in opposite ways: with a per-frame reset every 42 Preprint frame pays the full transient, so cost per second is T × fps, exactly linear in the frame rate with no property of the video entering; with a persisting state a higher frame rate means a smaller change between consecutive frames, so each frame needs fewer ticks. 
+
+Setup. We re-use the settle-tick definition of Appendix H.2 unchanged – same detection-space criterion, same matching threshold, same ϵ grid – and sweep the sampling rate by striding the source video: strides 1, 2, 3, 4, 5, 6, 10 of the native 30 fps stream give 30 , 15 , 10 , 7.5, 6, 5, 3 fps. Each point is the full validation split at that rate. Cost per second of video is fps × settle( fps ). The reset arm needs no run: its frames are independent, so its cost is T × fps analytically, and we use the tick budget at which it attains the same accuracy as the streaming arm on the same data. Striding is what the streaming protocol otherwise forbids, precisely because it widens the inter-frame gap and removes the redundancy persistence exploits; here that is the independent variable. Consequently the numbers in this study are comparable only across its own sweep, the 30 fps column being the one it shares with the main streaming results. 
+
+Reporting. We fit a power law to cost per second against frame rate for each arm and report the exponent, together with the censored fraction at every point; points whose censoring is large enough to understate the mean are excluded from the figure rather than reported with a caveat. The claim the measurement supports is the ratio of the two exponents – reset grows linearly with frame rate by construction, while the streaming arm grows sublinearly – so the advantage widens as the stream is sampled more finely. H.4 QUALITATIVE VISUALIZATION OF THE INFERENCE TRAJECTORY 
+
+For Figure 5 we project the dense ANN’s per-frame outputs onto their own top two principal directions and place every SNN tick of every arm on that same basis, so that all arms are shown in one coordinate system defined by the reference model rather than by any of the spiking arms. The projection is computed on a single Argoverse-HD sequence, with the detector and protocol of Appendix E; distances quoted in the text are measured in that 2-D projection between an arm’s final tick for a frame and that frame’s ANN target. The arms shown are the published IF conversion protocol, the LIF conversion under a per-frame reset, and our LIF-Stream, each at its own tick budget, so that the figure shows what a given budget buys rather than a budget-matched comparison alone. H.5 SYNAPTIC OPERATIONS AND ENERGY AT MATCHED ACCURACY 
+
+Ticks are the unit of Table 1, but a tick does not cost the same for every arm. We therefore count synaptic operations per frame with the counter of the DVS leg, unchanged: a layer driven by spikes pays one accumulate (AC) per spike and synapse, a layer driven by analog values (the stem) pays a multiply-accumulate (MAC). MACs arise only in the stem, because the float encoder feeds each frame to it as analog values at every tick (App. D); they scale with T and account for 3–5% of the energy in every row. A spike-based stream encoder removes them, since the stem then also receives binary spikes and pays ACs instead; this costs little accuracy, as the population-lookahead spike encoder stays within 0.4 AP50 of its float counterpart at every tick budget (Appendix C.1). Counts are averaged over the first 60 consecutive frames of Argoverse-HD sequence 5; for a reset arm one frame is its full T -tick simulation, for the streaming arm the sequence is run once and divided by the number of frames. Energy uses the common 45 nm figures, 4.6 pJ per MAC and 0.9 pJ per AC, which are an assumption about hardware rather than a measurement. AP50 is from the three sequences of Appendix H.1. 43 Preprint                                                        
+
+> Arm TAP50 AC (G) MAC (G) energy (mJ) LIF-Stream (ours) 818.4 128 1.1 120 LIF-Stream (ours) 16 22.9 257 2.1 241 LIF-Stream (ours) 32 25.9 515 4.2 483 LIF, per-frame reset 64 24.8 1069 8.5 1001 QCFS, per-frame reset 64 15.7 828 8.5 784 QCFS, per-frame reset 128 22.1 1631 17.0 1546 SlipReLU, per-frame reset 64 10.8 845 8.5 799 SlipReLU, per-frame reset 128 19.0 1679 17.0 1590 AdaFire, per-frame reset 64 22.2 1599 8.5 1478 AdaFire, per-frame reset 128 29.4 3243 17.0 2997
+
+At matched accuracy, LIF-Stream at T = 16 uses 6.1× less energy than AdaFire, the strongest baseline, at T = 64 , and 6.4× less than QCFS at T = 128 ; it uses 6.6× less than SlipReLU at 
+
+T = 128 while being more accurate ( 22 .9 vs. 19 .0); at T = 8 it comes within 0.6 AP50 of SlipReLU at T = 128 with 13 × less energy; and at T = 32 it uses 2.1× less than the same LIF network with a per-frame reset at T = 64 . The saving comes from the smaller tick budget; AdaFire’s burst spikes are counted as multiple events. At T = 128 AdaFire reaches 29 .4 AP50, above the 25 .9 of LIF-Stream at T = 32 , at six times its energy. H.6 SENSITIVITY TO THE LEAK ττ sets the step size 1 
+
+> τ
+
+of Lemma 2.1. We use τ = 8 for every task and budget up to 64 ticks. The sweep below repeats the streaming arm of Appendix H.1 (same detector and frames) with τ ∈ { 4, 8, 16 }.              
+
+> AP50, Argoverse-HD seqs. 5, 19, 10 τ= 4 τ= 8 τ= 16
+> T= 8 3.2 18.4 14.0
+> T= 16 3.7 22.9 20.7
+
+A larger τ moves the output more slowly, so with few ticks per frame it lags the target, and the gap closes as T grows ( 14 .0 → 20 .7). A smaller τ is not simply faster: at τ = 4 accuracy collapses and does not recover with more ticks, which matches the full-validation run ( 1.8 AP50 at T = 8 ). Two effects may contribute, and we have not separated them: the 1 
+
+> τ
+
+band of Corollary 2.3 is then 
+
+0.25 , a quarter of the ReLU1 range, and τ also sets the input gain of the conversion, (τ − 1) z + 1 
+
+(Appendix D), so τ = 4 is a different value-to-rate mapping rather than a leakier τ = 8 . In either case τ is a real hyperparameter. We fixed τ = 8 in advance, independently of the evaluation sets, and used it for every task without tuning; the sweep confirms it as the best of the three values. H.7 SCENE CUTS , FRAME DROPS AND INPUT NOISE 
+
+The streams of Table 1 are continuous recordings. We stress the streaming arm (Appendix H.1: same detector, τ = 8 , sequences 5, 19, 10) in three ways, never resetting the state after the start of a stream. Scene cuts : the three sequences are concatenated into one stream, so the network meets two abrupt cuts. Frame drops : every frame except the first is dropped independently with probability 0.3
+
+(seeded) and the rest are streamed back to back; the arm is scored on the kept frames and compared with the unperturbed stream on the same frames. Noise : i.i.d. Gaussian noise of standard deviation 
+
+0.1 (normalised input units) on every frame; the dense ANN is scored on the same noisy frames.                     
+
+> AP50 T= 8 T= 16
+> Each sequence its own stream (reference) 18.4 22.9 Scene cuts: one stream, no reset at the cuts 18.3 22.9 first 10 frames after each cut: carried state / fresh start 5.9 / 4.3 12.0 / 11.0 Frame drops ( p= 0 .3) / unperturbed stream on the same frames 15.4 / 18.1 21.2 / 22.6 Noise σ= 0 .1(dense ANN: 31 .0, clean 32 .5)17.0 21.2
+
+A cut costs nothing overall, and the frames right after it are recognised slightly better when the network starts from the previous scene’s state than from a fresh one: as Theorem 2.2 predicts, attraction holds from any state, so a stale state is no worse a starting point than an empty one. Dropping frames 44 Preprint enlarges the jump between consecutive frames, which raises the lag term of Corollary 2.4; accuracy falls by 15% at T = 8 and by 6% at T = 16 , where more ticks absorb the larger jumps. Input noise costs the streaming SNN 7–8% , close to the 5% it costs the dense ANN. H.8 EMPIRICAL VALIDATION OF OUR THEORY IN FIGURE 1We use a small, fully controlled network. The reference ANN is an MLP of seven affine layers of width 64 (12-dimensional input, 16-dimensional output, 22.7K parameters) whose only nonlinearity is ReLU1. It is trained on a teacher–student task in which inputs x and targets y are generated from a shared two-dimensional latent z: the input is a random linear lift of the latent into 12 dimensions followed by a tanh squash, and the target is a bank of sinusoids of independent random projections of that same latent, each with its own phase. 
+
+z ∼ N  0, 0.82I2
+
+ shared latent (57) 
+
+x = 0 .5 + 0 .4 tanh( Az ) ∈ (0 .1, 0.9) 12 network input (58) 
+
+y = 0 .5 + 0 .45 sin( Wz + φ) ∈ (0 .05 , 0.95) 16 regression target (59) where Aij ∼ N (0 , 12 ), Wij ∼ N (0 , 1.62) and φi ∼ U (0 , 2π) are sampled once and held fixed, and 
+
+tanh , sin act elementwise. Training is 1.5K Adam steps (batch 256, learning rate 3 × 10 −3, fixed seed). The evaluation input stream is the latent traversing a Lissajous curve over 24 frames. We convert the network with LIF neurons and feed the input 32 ticks per frame in a single streaming pass, and membrane state persists across the entire 768-tick stream. All distances are measured in the full 16-dimensional readout space, with PCA used only for visualization. 45

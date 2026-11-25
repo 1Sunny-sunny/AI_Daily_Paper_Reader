@@ -1,0 +1,433 @@
+Title: PhyMind: Physics-Informed Masked Autoencoding for EEG Foundation Models
+
+URL Source: https://arxiv.org/pdf/2611.28856v1
+
+Published Time: Tue, 24 Nov 2026 02:20:45 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# PhyMind: Physics-Informed Masked Autoencoding for EEG Foundation Models 
+
+A Adith ∗
+
+aditharavind03@gmail.com 
+
+November 2026 
+
+Abstract 
+
+EEG foundation models are pre-trained almost exclusively with masked reconstruction through a free-form decoder, sometimes with hand-crafted spectral targets added, as in MANAS-2. We study what happens when that decoder is replaced by a generative forward model of EEG . PhyMind keeps a standard masked transformer encoder, but its decoder must explain the masked signal through 68 cortical regions, each driven by damped stochastic oscillators and an aperiodic Ornstein–Uhlenbeck process, projected to the recording’s own montage by a fixed boundary-element lead field evaluated per derivation. Training combines masked reconstruction with a Whittle spectral likelihood, an oscillator-dynamics residual, a minimum-norm source prior and a penalised neural residual. In a controlled comparison (same encoder, data, steps and seed), the physics decoder produces encoder tokens whose spectral content is far more linearly decodable than with a plain masked-autoencoder decoder or with the MANAS-2 objective: mean R2 on a token-level spectral probe with amplitude-normalised targets is 0.67/0.77/0.77 on three datasets, against 0.24/0.50/0.50 (MAE) and 0.48/0.67/0.66 (MANAS-2 objective), approaching the released 92.8M-parameter MANAS-2 (0.71/0.81/0.80). Downstream gains in the controlled setting are small (four-task mean balanced accuracy 56.6 vs. 53.8 for MAE frozen, 63.8 vs. 62.7 fine-tuned). Region-level features from the physics decoder raise frozen four-class motor-imagery accuracy by 7–14 points, so a 7.2M-parameter model pre-trained on 3k hours of open EEG is comparable to the released MANAS-2 with frozen features (63.0 vs. 61.6). After full fine-tuning, MANAS-2 remains better (66.8 vs. 65.4 for our best model). The inferred sources do not reproduce the lateralisation that a classical inverse solution finds in motor imagery, so we do not claim they are anatomically interpretable. Code and weights are released. 
+
+## 1 Introduction 
+
+Self-supervised pre-training has produced a family of EEG foundation models (BENDR [14], BIOT [30], LaBraM [11], CBraMod [27], REVE [20], MANAS-2 [15]). Most follow the masked-autoencoder recipe of vision [9]: hide some patches, encode the rest, and decode the hidden waveform with an unconstrained network. MANAS-2 adds six log band-power targets per patch (Raw-Band Hybrid, RBH) and a physics-motivated RMS continuity penalty at patch boundaries (ConRec). The generative process of scalp EEG is unusually well understood. Cortical current sources oscillate in characteristic bands on top of an aperiodic background [3], and they reach the electrodes through volume conduction, which is linear, instantaneous and computable from a head model [7, 8]. Reconstruction-trained embeddings have been reported to be dominated by the aperiodic component 
+
+> ∗
+
+Code: https://github.com/Aditharavind/PhyMind . Weights: Aditharavind/PhyMind-* on the Hugging Face Hub. 
+
+1arXiv:2611.28856v1 [cs.LG] 21 Nov 2026 and by subject identity [13, 16], and in most models electrode geometry only enters as a positional embedding. We ask a narrow question: what does replacing the free-form decoder with a physical forward model change in the encoder? PhyMind’s decoder is a parametric, differentiable generative model of EEG (Fig. 1; a detailed architecture diagram is given in Fig. 2). The encoder must produce tokens from which a small network can infer cortical source dynamics that, after a fixed lead field, explain the masked channels and their spectra. We answer the question with a controlled comparison against a plain MAE decoder and the MANAS-2 objective, and we report a comparison with the released MANAS-2 for context, including where it is better. 
+
+Contributions. 
+
+• A physics-informed masked-autoencoding objective for EEG: a fixed BEM lead field evaluated per derivation (any montage or reference), oscillator and aperiodic source dynamics, a Whittle spectral likelihood, and a constrained neural residual. • A controlled comparison of MAE, the MANAS-2 objective (RBH + ConRec) and PhyMind with identical encoder, data, sampler, steps and seed, under frozen probing, full fine-tuning and a token-level spectral probe whose targets are normalised so that models with per-channel-normalised input are not penalised. • The main empirical finding: the physics decoder makes spectral structure markedly more linearly accessible in encoder tokens (mean R2 +0.27 to +0.43 over MAE, +0.10 to +0.19 over the MANAS-2 objective, without any band-power target), while downstream accuracy gains are small. • Region-level source features that improve frozen motor-imagery decoding, together with a negative result: the sources do not localise motor imagery the way a classical minimum-norm inverse with the same lead field does. • An exact, padding-aware re-implementation of the released MANAS-2 encoder that loads its weights strictly (bit-identical outputs), used for evaluation and for a retrofit experiment (PhyMind-M2), which is negative for classification. 
+
+## 2 Related work 
+
+EEG foundation models. BENDR [14] used contrastive learning; BIOT [30] tokenises channels independently; LaBraM [11] predicts neural codes from a learned spectral tokenizer; CBraMod [27] uses criss-cross spatial/temporal attention; REVE [20] introduced a 4-D Fourier positional encoding of electrode position and time and pre-trains a masked autoencoder on more than 60k hours. MANAS-2 [15] adopts this positional encoding and adds the RBH and ConRec targets. DeeperBrain [26] uses distance-based channel embeddings and neuro-statistical targets. BrainOmni [29] learns latent “sources” shared by EEG and MEG, but they are not tied to a lead field. To our knowledge none of these decodes through a biophysical forward model. 
+
+Physics and EEG. Neural-mass models [10] combined with lead fields underpin supervised source imaging (DeepSIF [24]). NeuroDyn-EEG [1] couples a Jansen–Rit model with a lead field, but trains on simulations. PINR-ESI [32] fits a lead-field-constrained implicit representation per recording. Neither is a pre-trained encoder learned from large real corpora. 2EEG window      
+
+> x∈RC×T
+> any montage
+> patch tokens + 3-D geometry
+> (anode, cathode)
+> Transformer encoder
+> 50% block mask
+> decoder trunk 68 region queries
+> cross-attn.
+> source dynamics, region ksk(t) =
+
+∑4                              
+
+> m=1 ok,m (t) + ak(t)
+> o: damped AR(2) (f, ρ )a: AR(1)/OU (ϕ)
+> volume conduction
+> ˆx=G(montage) s+r
+> fixed BEM lead field, 343 el. ×68 regions
+> ˆx,Pc(f)
+> prediction per region & patch:
+> fk,m , ρ k,m , ϕ k, waveforms sensor residual r(penalised) losses against the observed x:
+> Lwave (masked MSE) ·LWhittle (spectral likelihood) ·Ldyn (AR innovation)
+> Lsrc (wMNE prior) ·Lres (residual penalty) target
+
+Figure 1: PhyMind. Blue: learned modules; orange: fixed physics. The encoder is a standard masked transformer. The decoder infers, for each of 68 cortical regions and each 1 s patch, oscillator and aperiodic parameters and waveforms, which a fixed BEM lead field, evaluated for the recording’s own derivations, projects to the sensors. Only a small, penalised sensor residual r bypasses the physics. 
+
+Hybrid physics–ML. PINNs [21] penalise physical residuals. APHYNITY [31] and physics-integrated VAEs [25] add a neural residual to an incomplete physical model and keep it minimal so that the physics explains as much as possible. PhyMind’s decoder follows this design. 
+
+## 3 Method 
+
+3.1 Tokenisation and encoder 
+
+Recordings are band-passed (0.5–45 Hz), resampled to 200 Hz, average-referenced when unipolar, and cut into 10 s windows. Each window is divided by a single robust scale (median absolute deviation) shared across channels . Per-channel z-scoring, used by MANAS-2 and most other models, would destroy the relative channel amplitudes the lead field predicts. A channel is represented by its derivation (a, b ): an anode and either a cathode or “average reference”, both indexed into the 343-electrode 10-05 system. Each 1 s patch is linearly embedded. A Fourier embedding of the electrode coordinates (the anode–cathode midpoint and difference for bipolar channels) and a learned time embedding are added, and a pre-norm transformer encodes all channel ×patch tokens jointly with a key-padding mask, so channel counts can vary within a batch. 
+
+Masking. We mask 50% of valid tokens. Selection is block-structured: random tokens, whole time patches (25% probability) and whole channels (20%). Masking whole channels forces the model to predict a channel from its neighbours, which is exactly the problem that volume conduction, and hence the lead field, solves. 
+
+3.2 Physics decoder 
+
+Source space. We use the 68 Desikan–Killiany regions [2] on the FreeSurfer fsaverage tem-plate [4]. A two-layer transformer trunk processes the full token grid (visible tokens plus mask 3Figure 1: PhyMind. Blue: learned modules; orange: fixed physics. The encoder is a standard masked transformer. The decoder infers, for each of 68 cortical regions and each 1 s patch, oscillator and aperiodic parameters and waveforms, which a fixed BEM lead field, evaluated for the recording’s own derivations, projects to the sensors. Only a small, penalised sensor residual r bypasses the physics. 
+
+Hybrid physics–ML. PINNs [21] penalise physical residuals. APHYNITY [31] and physics-integrated VAEs [25] add a neural residual to an incomplete physical model and keep it minimal so that the physics explains as much as possible. PhyMind’s decoder follows this design. 
+
+## 3 Method 
+
+3.1 Tokenisation and encoder 
+
+Recordings are band-passed (0.5–45 Hz), resampled to 200 Hz, average-referenced when unipolar, and cut into 10 s windows. Each window is divided by a single robust scale (median absolute deviation) shared across channels . Per-channel z-scoring, used by MANAS-2 and most other models, would destroy the relative channel amplitudes the lead field predicts. A channel is represented by its derivation ( a, b ): an anode and either a cathode or “average reference”, both indexed into the 343-electrode 10-05 system. Each 1 s patch is linearly embedded. A Fourier embedding of the electrode coordinates (the anode–cathode midpoint and difference for bipolar channels) and a learned time embedding are added, and a pre-norm transformer encodes all channel ×patch tokens jointly with a key-padding mask, so channel counts can vary within a batch. 
+
+Masking. We mask 50% of valid tokens. Selection is block-structured: random tokens, whole time patches (25% probability) and whole channels (20%). Masking whole channels forces the model to predict a channel from its neighbours, which is exactly the problem that volume conduction, and hence the lead field, solves. 
+
+3.2 Physics decoder 
+
+Source space. We use the 68 Desikan–Killiany regions [2] on the FreeSurfer fsaverage tem-plate [4]. A two-layer transformer trunk processes the full token grid (visible tokens plus mask 3tokens). Learned region queries, augmented with a Fourier embedding of each region’s centroid, then cross-attend to the trunk output and produce one token per (region, patch). 
+
+Source dynamics. Each region’s activity is a sum of M =4 damped stochastic oscillators and one aperiodic component, 
+
+sk(t) = 
+
+> M∑
+> m=1
+
+ok,m (t) + ak(t). (1) Each oscillator is the AR(2) discretisation of ¨ y + 2 γ ˙y + ω2y = ε (cf. Matsuda and Komaki [18]): 
+
+ot = 2 ρ cos(2 πf /f s) ot−1 − ρ2ot−2 + εt, (2) with f ∈ [1 , 45] Hz and ρ ∈ (0 , 1) predicted per (region, patch). The aperiodic component is an AR(1)/Ornstein–Uhlenbeck process with coefficient ϕ. Its Lorentzian spectrum is the “knee” aperiodic model of specparam [3], and its slope is related to excitation/inhibition balance [5]. The decoder emits the waveforms ok,m and ak directly; the dynamics enter as soft constraints (below), not as a hard recursion. 
+
+Volume conduction. Sensor activity is ˆx = G(montage) s + r. (3) 
+
+G ∈ R343 ×68 is a fixed lead field, computed once with an MNE [7] three-layer BEM on fsaverage . It uses ico-5 cortical dipoles with fixed normal orientation, averaged within each parcel and normalised to unit median column norm. Per sample, a bipolar channel a−b uses the row Ga − Gb, and average-referenced channels use rows re-centred over the channels actually present. CHB-MIT’s double banana, Sleep-EDF’s Fpz–Cz/Pz–Oz and 64-channel caps are therefore all explained by one source model. r is a sensor-level residual for non-cortical activity (ocular, muscle, template mismatch); it is zero-initialised and penalised. 
+
+3.3 Objective 
+
+L = Lwave + λW LWhittle + λDLdyn + λS Lsrc + λRLres (+ λB Lband ). (4) • Lwave : mean squared error of ˆ x on masked tokens. • Ldyn : normalised innovation energy ∥e∥2/∥o∥2 of every component under its AR model, computed over the full 10 s window. Because the recursion crosses patch boundaries, it acts as a generative continuity constraint and replaces ConRec’s boundary heuristic. • LWhittle : the Whittle likelihood [28], in deviance form, of each channel’s Hann-windowed periodogram Ic(f ) under the model spectrum 
+
+Pc(f ) = ∑
+
+> k
+
+G2
+
+> ck
+> [ ∑
+> m
+
+SAR2  
+
+> k,m
+
+(f ) + SAR1  
+
+> k
+
+(f )
+
+> ]
+
++ |Rc(f )|2 + ϵc, (5) where the spectrum is evaluated at 1–45 Hz in 1 Hz bins for each 1 s patch, the innovation variances are taken from the empirical residuals, and ϵc = 10 −2 Ic is a scale-aware floor (1% of the channel’s mean periodogram, gradient-detached) that keeps the term bounded while ˆ x is still near zero. Periodic peaks and the aperiodic knee have separate parameters. 4Input EEG 
+
+...
+
+X ∈ RC×T  
+
+> Montage / Derivation
+> (e.g., bipolar, avg-ref, sparse)
+> Preprocessing
+> Band-pass 0.5–45 Hz Resample 200 Hz Window 10 s Robust Scaling
+> Tokenization
+> Linear Patch Embedding
+> (EEG patch →D)
+
++
+
+> Electrode Geometry Embedding
+> (Fourier, midpoint,
+> difference)
+
++
+
+> Time Embedding
+> (1 s)
+> Masked Transformer
+> Encoder
+> · · ·
+> Visible token Mask token
+
+Transformer Encoder 
+
+× L
+
+Physics Decoder (Generative EEG Model)          
+
+> 68 Region Queries
+> (Desikan–Killiany) + Centroid
+> Fourier Emb.
+> Source Dynamics (per region k)
+> Damped Oscillators
+> (4 per region)
+> ¨s(i)
+> k+ 2 ξ(i)
+> kω(i)
+> k˙s(i)
+> k
+> +( ω(i)
+> k)2s(i)
+> k=ζ(i)
+> k,i=1 .. 4
+
++                     
+
+> Aperiodic
+> (OU / AR1)
+> ak(t+∆ t)= αkak(t)+ϵk(t),ϵk∼ N (0 , σ 2
+> k)
+> Source waveform
+> sk(t) = ∑4
+> i=1 s(i)
+> k(t) + s(aper)
+> k(t)
+> Lead Field Projection
+> Fixed BEM
+> G(montage)
+> •MNE BEM (3-layer)
+> •Per derivation: – Bipolar: Ga−Gb
+> – Avg-ref: re-centered
+> •Supports any montage
+> Penalized Residual r
+
++ ˆx = G(montage) s + r
+
+> Outputs
+> Reconstructed EEG
+
+ˆx ∈ RC×T             
+
+> Interpretable Sources
+> •sk(t) ( k=1 . . . 68)
+> •Oscillator params:
+> f(i)
+> k, ξ (i)
+> k(i=1 . . . 4)
+> •Aperiodic params:
+> α′
+> k, τ ′
+> k
+
+Training Objective 
+
+> (Masked Autoencoding with Physics Priors)
+
+Lwave 
+
+> Masked waveform reconstruction
+> (time domain)
+
+LWhittle 
+
+> Whittle spectral likelihood
+> (spectral fidelity)
+
+Ldyn 
+
+> Dynamics residual (oscillator / AR2)
+> (consistency)
+
+Lsrc 
+
+> Depth-weighted minimum-norm
+> (source prior)
+
+Lres 
+
+> APHYNITY-style minimal residual
+
+Lband (optional) Log band-power target (e.g., δ–γ)
+
++ + + + +
+
+✓ Montage-agnostic (bipolar, average-ref, sparse) ✓ Interpretable 68-region source features ✓ More spectrally faithful representations Figure 2: Detailed PhyMind architecture: preprocessing and tokenisation, masked transformer encoder, physics decoder (68 region queries, oscillator and aperiodic source dynamics, fixed BEM lead-field projection per derivation, penalised residual), outputs, and the training objective. • Lsrc = ∑
+
+k wk∥sk∥2 with wk = ∥Gk∥2: the depth-weighted minimum-norm prior [8]. • Lres = ∥r∥2: keeps the non-physical path minimal [31]. Weights: λD=0 .1, λS =10 −3, λR=0 .1, and λW =0 .2 (v1) or 0 .5 (v2). v2 evaluates the Whittle term on all tokens rather than only masked ones. v2-H additionally adds a linear head on encoder tokens that predicts the six log band powers of each token (log(1+ ·) of the mean periodogram in each band, standardised per window and band over channels and patches; L1 loss, λB =0 .5). PhyMind-lite and PhyMind-large use the v2-H objective. Because this head is a direct, supervised band-power target on encoder tokens, we treat models trained with it separately whenever spectral content is probed (Sec. 5.1). 
+
+Inference. PhyMind.explain returns, for any montage, 68 regional source time series together with per-second oscillator frequencies, dampings and aperiodic coefficients. These are regularised model quantities, not validated source localisations (Sec. 6.1). 
+
+3.4 PhyMind-M2: physics decoder on the MANAS-2 encoder 
+
+We re-implemented the MANAS-2 encoder (22 layers, d=512, 8 heads, 200-sample patches with stride 180, 4-D Fourier positional encoding, and the GEGLU variant used in the release) with a key-padding mask. It loads the released weights strictly; on unpadded input its outputs match the release exactly (max. abs. difference 0.0), and padding changes outputs by less than 10 −5. MANAS-2 
+
+z-scores each channel, so we feed it z-scored visible samples and add a zero-initialised projection of each channel’s log standard deviation. This is intended to restore the amplitude information that the lead field needs. The 11 stride-180 tokens are interpolated to the decoder’s 10 one-second patches. PhyMind-M2 continues pre-training of this encoder (learning rate ×0.2) with the physics decoder. M2+RBH is the identical control trained with the MANAS-2 objective. 54 Experimental setup 
+
+Pre-training data. All data are openly available. Phase 1 uses 621 h: CHB-MIT [6, 23] (bipolar, 23 channels), a subset of Sleep-EDF cassette [12] (2 bipolar channels), and four OpenNeuro [17] resting-state and oddball datasets (ds002778, ds003478, ds003490, ds004584; 32–64 channels). The final runs (lite, large, M2) use 2,959 h from the same sources with all of Sleep-EDF cassette. The three dataset groups (CHB-MIT, Sleep-EDF, OpenNeuro) are sampled with equal total mass, so the small OpenNeuro group is heavily over-sampled relative to its size. At most 32 channels are drawn per window, and channels are randomly dropped (probability 0.2). 
+
+Models. Pre-norm transformers with drop-path 0.1. lite: d=256, 6 layers (4.9M encoder parame-ters, 7.2M with decoder); base: d=384, 12 layers; large: d=512, 16 layers (50.8M / 59.6M). AdamW (lr 3 × 10 −4, weight decay 0.05, cosine schedule), bf16, batch 128, one GPU. Phase 1 base models (MAE, RBH, v1, v2, v2-H) train for 15k steps with seed 0; lite and large train for 20k and 30k steps. The MAE baseline uses the same encoder with a transformer decoder that regresses masked patches. RBH adds MANAS-2’s six log band-power targets (weight 0.5) and ConRec ( q=32, λ=3). There is one pre-training seed per model. 
+
+Downstream tasks. EEGMAT [33] (mental arithmetic vs. rest, 36 subjects, 19 ch.); PhysioNet motor imagery [22] (4 classes: left fist, right fist, both fists, both feet; 105 subjects, 64 ch., 4 s); ADFTD [19] (Alzheimer’s disease / frontotemporal dementia / control, 88 subjects, 19 ch.); and Sleep-EDF sleep-telemetry [12] (5 stages, 22 subjects, 2 ch., 30 s epochs; both nights of a subject share one subject ID). No downstream subject is in the pre-training data: ADFTD is ds004504, which is not one of our OpenNeuro pre-training sets, and sleep-telemetry is disjoint from the cassette recordings. PhyMind’s learned time embedding was pre-trained on 10 one-second patches; the 30-patch Sleep-ST epochs therefore use positions never seen in pre-training, which, if anything, disadvantages PhyMind on that task. 
+
+Protocols. All protocols use the same three subject-disjoint 60/20/20 splits (seeds 0–2); we report mean ± sd balanced accuracy. Because the training sets of the splits overlap, the sd understates uncertainty. LP-Avg : frozen encoder, mean-pooled tokens, multinomial logistic regression with C
+
+selected on validation balanced accuracy. For PhyMind we additionally report one pre-declared variant, “+ src”, which concatenates the pooled tokens with the decoder’s 68 per-region log powers and mean oscillator and aperiodic parameters. Fine-tuning : encoder plus a LayerNorm–linear head trained end to end with AdamW (lr 5 × 10 −5 for the encoder, ×10 for the head, weight decay 0.05, cosine schedule with one warm-up epoch), class-weighted cross-entropy with label smoothing 0.1, batch 32, bf16, for 30/15/15/4 epochs (EEGMAT/MI/ADFTD/Sleep-ST); the epoch with the best validation balanced accuracy is evaluated on test. MANAS-2 is fine-tuned with the same recipe from its released weights, with per-channel z-scored input as in its model card. No hyper-parameters were tuned per model. 
+
+Spectral probe. A ridge regression is fit on frozen tokens (2% random token subsample) to predict, for each token’s channel and 1 s patch: six log band powers (log(1+ ·) of the mean Hann periodogram in 0.5–4, 4–8, 8–13, 13–20, 20–30, 30–45 Hz), alpha flow (the patch-to-patch change in alpha log power; the first patch is excluded), the aperiodic exponent (least-squares log–log slope over 2–40 Hz) and periodic alpha power (largest residual above that fit in 8–13 Hz). Targets are computed from the per-channel z-scored window, so absolute channel amplitude, which MANAS-2’s normalised 650 60       
+
+> 4-task mean bal. acc. (%) MAE (base) RBH (base) PhyMind-base PhyMind-lite PhyMind-large MANAS-2
+> 53.8 56.2 56.6 56.2 57.6 63.0 57.8 61.4 61.6
+> Frozen linear probe 50 60
+> 4-task mean bal. acc. (%)
+> 62.7 63.3 63.8 63.2 64.1 64.4 65.4 66.8
+> Full fi ne-tuning
+> EEGMAT MI-4 ADFTD
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> mean  R2, held-out subjects
+> 0.24 0.50 0.50 0.48 0.67 0.66 0.67 0.77 0.77 0.71 0.81 0.80
+> Spectral probe (normalised targets)
+> MAE (base) RBH (base) PhyMind-base v2 MANAS-2
+> encoder features + physics source features released MANAS-2
+
+Figure 2: Left, middle: four-task mean balanced accuracy with frozen features and after full fine-tuning (hatched: + physics source features). Dashed line: released MANAS-2. Right: spectral-probe mean R2 with amplitude-normalised targets for models without any band-power target on encoder tokens. to 1.7–6 Hz, so the “four oscillators per region” of the final models are not band-specific; the encoder and band head carry the higher-frequency information. A per-slot frequency prior would be needed to keep the slots separated. 
+
+7 Limitations 
+
+• Scale and seeds. One pre-training seed per model, a corpus of 0.6–3k h, and test splits of 7 (EEGMAT) and 18 (ADFTD) subjects. Differences of a few points on these tasks are within noise; we do not have per-window predictions for a paired subject-level bootstrap. 
+
+• Selection. PhyMind variants were iterated on the evaluation tasks (Sec. 4). The controlled baseline comparison predates this, but the lite/large results may be optimistically biased. 
+
+• Scaling. Base, lite and large differ in corpus, steps and objective version, so they do not form a clean scaling study. 
+
+• Physics. The lead field is a template head, the inverse problem is under-determined ( ≤64 channels, 68 regions), regional spectra are assumed independent, and the inferred sources do not localise motor imagery (Sec. 6.1). 
+
+• Comparison with MANAS-2. We evaluate the released weights through our verified re-implementation with our own preprocessing (0.5–45 Hz, bipolar channels placed at the anode), which may differ from its training pipeline. Our numbers for MANAS-2 on mental arithmetic and sleep staging are close to those on its model card. 10 Figure 3: Left, middle: four-task mean balanced accuracy with frozen features and after full fine-tuning (hatched: + physics source features). Dashed line: released MANAS-2. Right: spectral-probe mean R2 with amplitude-normalised targets for models without any band-power target on encoder tokens. input cannot contain, does not enter any target. The ridge penalty is selected on validation subjects and R2 reported on test subjects. Targets follow each encoder’s own patch grid (stride 180 for MANAS-2). This is our probe, inspired by but not identical to MANAS-2’s analysis. 
+
+Model selection. The PhyMind variants (v1 →v2 →v2-H →lite/large) were developed sequentially while inspecting LP and probe results on these same tasks and splits; no separate model-selection benchmark was held out. The controlled block (MAE, RBH, v1) was fixed before this iteration. 
+
+## 5 Results 
+
+5.1 Spectral content of encoder tokens 
+
+Table 3 and Fig. 3 (right) show the clearest effect of the physics decoder. With encoder, data, steps and seed fixed, PhyMind-base v2 reaches mean R2 0.67/0.77/0.77 on EEGMAT/MI/ADFTD, against 0.24/0.50/0.50 for MAE and 0.48/0.67/0.66 for the MANAS-2 objective (RBH), although RBH receives band power as an explicit target and v2 does not. The gain is broad: on EEGMAT, 
+
+β and γ power, the aperiodic exponent and periodic alpha all improve by 0.2–0.8 over MAE. The strength of the spectral likelihood matters: v1, which applies the Whittle term only on masked tokens with weight 0.2, lies between MAE and RBH (0.40/0.59/0.60). The released MANAS-2 remains slightly ahead of v2 (0.71/0.81/0.80) with a much larger model and corpus. Lite and large exceed it (0.80–0.88), but they were trained with a band-power head on encoder tokens, so their probe numbers are largely a consequence of direct supervision and are reported for completeness only. 
+
+5.2 Controlled downstream comparison 
+
+In the controlled block, frozen four-task means are 53.8 (MAE), 56.2 (RBH) and 56.6 (PhyMind v1) (Table 1); after full fine-tuning they are 62.7, 63.3 and 63.8 (Table 2). The physics objective 7Table 1: Frozen linear probing (LP-Avg): balanced accuracy (%), mean ± sd over three subject-disjoint splits. “+ src” (pre-declared feature set) concatenates pooled encoder tokens with the physics decoder’s 68-region source features (PhyMind only). Params include the decoder for PhyMind (needed for + src); encoder-only counts are 4.9M (lite), 50.8M (large) and 92.8M (MANAS-2).  
+
+> †
+
+continued pre-training of the released MANAS-2 encoder. ∗ not stated in the MANAS-2 model card.                                                                                                                                                                                                                                                        
+
+> Model Params Hours EEGMAT MI-4 ADFTD Sleep-ST Mean MAE 23.4M 621 64.3 ±5.6 31.0 ±0.5 50.5 ±6.6 69.4 ±1.2 53.8 RBH (MANAS-2 obj.) 23.4M 621 69.9 ±1.9 29.9 ±1.0 52.7 ±9.2 72.5 ±1.7 56.2 PhyMind-base v1 25.6M 621 71.4 ±0.6 29.1 ±1.0 54.2 ±9.1 71.8 ±1.8 56.6 PhyMind-base v1 + src 25.6M 621 70.5 ±3.0 29.7 ±0.6 52.5 ±9.3 72.0 ±1.8 56.2 PhyMind-base v2 25.6M 621 67.3 ±4.8 28.7 ±1.5 51.7 ±8.7 73.7 ±0.6 55.4 PhyMind-base v2 + src 25.6M 621 65.3 ±0.6 32.4 ±1.1 51.7 ±10.5 73.9 ±0.7 55.8 PhyMind-base v2-H 25.6M 621 65.4 ±2.6 30.6 ±0.7 55.9 ±8.6 74.3 ±1.0 56.6 PhyMind-base v2-H + src 25.6M 621 69.2 ±3.5 34.3 ±0.8 59.6 ±2.6 74.2 ±1.0 59.3 PhyMind-lite 7.2M 2959 67.7 ±6.6 33.2 ±0.1 55.9 ±8.9 73.8 ±1.0 57.6 PhyMind-lite + src 7.2M 2959 73.4 ±3.4 47.0 ±1.0 57.3 ±6.8 74.4 ±0.8 63.0 PhyMind-large 59.6M 2959 65.2 ±6.7 36.1 ±0.3 54.4 ±9.1 75.3 ±1.0 57.8 PhyMind-large + src 59.6M 2959 69.4 ±2.6 45.2 ±0.1 55.9 ±7.7 75.2 ±1.0 61.4 M2 + RBH (control) 95.2M 2959 †70.7 ±3.0 43.6 ±0.7 59.4 ±9.1 75.3 ±1.4 62.2 PhyMind-M2 97.4M 2959 †71.2 ±5.0 37.9 ±0.8 55.9 ±8.5 74.9 ±1.3 60.0 PhyMind-M2 + src 97.4M 2959 †71.1 ±5.8 43.6 ±0.3 51.9 ±6.2 75.2 ±1.3 60.5 MANAS-2 (released) 92.8M n/s ∗72.2 ±3.4 40.5 ±0.6 57.9 ±6.1 75.6 ±1.5 61.6
+
+is therefore never worse than either baseline on average, but the margins are small relative to the split-to-split sd (up to 9–10 points on EEGMAT and ADFTD), and per-task rankings vary. v2, the variant with the strongest spectral representation, is not better than v1 for classification (55.4 frozen). We conclude that more faithful spectral tokens do not by themselves translate into higher downstream accuracy on these tasks. 
+
+5.3 Source features 
+
+The pre-declared “+ src” features help most on four-class motor imagery with frozen encoders: from 33.2 to 47.0 (lite) and from 36.1 to 45.2 (large), against 40.5 for the released MANAS-2; these gains exceed the split sd ( ≤1 point) by a wide margin. On the other tasks the effect is within noise, and for the phase-1 base models it is small or absent. After full fine-tuning the source features add at most 1.6 points (lite, MI), because the encoder itself can adapt. 
+
+5.4 Comparison with the released MANAS-2 
+
+With frozen features, PhyMind-lite + src (63.0) is comparable to MANAS-2 (61.6): it is clearly better on MI (47.0 vs. 40.5), and EEGMAT, ADFTD and Sleep-ST are within split variance. With encoder features alone, MANAS-2 is better (61.6 vs. 57.6–57.8). After full fine-tuning, MANAS-2 is better on average (66.8 vs. 65.4 for PhyMind-large + src and 64.4 for lite + src) and on three of four tasks (EEGMAT 73.7 vs. 67.1, MI 63.7 vs. 60.8, Sleep-ST 77.4 vs. 75.2); PhyMind is ahead on ADFTD (59.5 vs. 52.2), where MANAS-2’s sd is 8.9 points. MANAS-2 has a larger encoder (92.8M vs. 4.9–50.8M) and was pre-trained on a substantially larger corpus. Our models are therefore 8Table 2: Full fine-tuning (encoder and linear head trained end to end): balanced accuracy (%), mean ± sd over the same three subject-disjoint splits as Table 1; the epoch with the best validation balanced accuracy is evaluated. The first block is the controlled comparison (same encoder, data, steps and seed). Bold: best per task.                                                                                                                       
+
+> Model Params EEGMAT MI-4 ADFTD Sleep-ST Mean MAE (base) 23.4M 65.6 ±9.3 55.2 ±1.4 57.4 ±2.9 72.7 ±1.0 62.7 RBH (base) 23.4M 62.8 ±6.1 55.3 ±1.5 60.5 ±3.0 74.5 ±1.8 63.3 PhyMind-base v1 25.6M 69.4 ±2.3 55.4 ±1.3 56.9 ±9.8 73.3 ±1.9 63.8 PhyMind-base v1 + src 25.6M 68.5 ±4.8 54.9 ±0.8 56.6 ±9.4 72.9 ±1.7 63.2 PhyMind-lite 7.2M 65.6 ±2.3 57.3 ±0.5 58.3 ±9.3 75.2 ±1.5 64.1 PhyMind-lite + src 7.2M 67.1 ±4.2 58.9 ±0.8 57.0 ±6.5 74.8 ±1.5 64.4 PhyMind-large + src 59.6M 66.4 ±0.5 60.8 ±0.6 59.5 ±2.4 75.0 ±3.1 65.4 MANAS-2 (released) 92.8M 73.7 ±4.9 63.7 ±0.9 52.2 ±8.9 77.4 ±1.8 66.8
+
+competitive at small scale but do not surpass it. 
+
+5.5 Physics decoder on MANAS-2 (PhyMind-M2) 
+
+Continuing pre-training of the released MANAS-2 encoder on our 2,959 h for 20k steps is negative for classification. With the RBH objective (control), the frozen four-task mean rises from 61.6 to 62.2; with the physics decoder it falls to 60.0 (60.5 + src), mainly on MI (37.9). We hypothesise that this is a normalisation mismatch: MANAS-2’s encoder consumes per-channel z-scored input, which removes the relative channel amplitudes the lead field explains, and our log-scale side channel restores them only partially. We have not tested this hypothesis directly. 
+
+## 6 Analysis 
+
+6.1 Do the sources localise? 
+
+As a sanity check we contrasted right- and left-fist imagery on PhysioNet MI (Fig. 4). At the sensors the expected contralateral alpha/beta desynchronisation is present (C3 t=−5.5, C4 t=+6 .5), and a classical wMNE inverse with the same lead field recovers it in source space (precentral t=−6.5left / +4 .4 right; postcentral −7.3 / +6 .4). PhyMind-lite’s inferred sources do not (precentral 
+
+−0.03 / −1.1; postcentral −2.1 / −0.05). The decoder’s 68 “regions” therefore behave as a learned, lead-field-constrained basis that carries task information (Sec. 5.3), not as anatomically faithful source estimates. We do not claim anatomical interpretability. 
+
+6.2 How much does the physics path explain? 
+
+We measured R2 on held-out masked tokens of the full reconstruction ˆ x, of the lead-field path Gs 
+
+alone, and of the residual r alone. The phase-1 base models (v1, v2-H) have negative held-out R2
+
+(−0.05 to −0.23), i.e. their masked reconstructions are worse than predicting zero, even though they produce useful encoders. For lite and large the full reconstruction reaches 0.25/0.48 and 0.35/0.55 on EEGMAT/MI, of which Gs alone gives 0.11/0.40 and 0.12/0.39; on two-channel Sleep-ST all models are at or below zero. The physical path thus carries a substantial share of the explained variance where reconstruction succeeds, but waveform reconstruction itself is weak, and the representational 9Table 3: Frozen token-level spectral probe (ridge regression, held-out subjects, R2, mean of three splits). Targets are computed from the per-channel z-scored window, so absolute channel amplitude, which MANAS-2’s normalised input cannot contain, is removed from every target (definitions in Sec. 4). ‡ Pre-trained with an auxiliary linear head predicting log band power from encoder tokens, i.e. directly supervised on six of the nine targets; these rows are not a fair comparison and are excluded from bolding. Bold: best among the remaining models. 
+
+Model δ θ α β1 β2 γ α-flow aper. α-per. mean 
+
+EEGMAT 
+
+MAE 0.53 0.37 0.65 0.12 0.01 -0.32 0.26 0.03 0.55 0.24 RBH (MANAS-2 obj.) 0.60 0.48 0.85 0.43 0.40 0.01 0.41 0.38 0.79 0.48 PhyMind-base v1 0.54 0.34 0.74 0.22 0.34 0.13 0.29 0.34 0.69 0.40 PhyMind-base v2 0.66 0.64 0.87 0.75 0.71 0.52 0.39 0.66 0.83 0.67 PhyMind-lite ‡ 0.94 0.91 0.95 0.88 0.83 0.65 0.41 0.79 0.87 0.80 PhyMind-large ‡ 0.95 0.93 0.95 0.90 0.85 0.71 0.43 0.88 0.89 0.83 MANAS-2 (released) 0.77 0.80 0.87 0.76 0.75 0.66 0.33 0.71 0.79 0.71 
+
+MI-4 
+
+MAE 0.69 0.58 0.62 0.34 0.47 0.49 0.32 0.59 0.45 0.50 RBH (MANAS-2 obj.) 0.75 0.65 0.82 0.55 0.67 0.66 0.46 0.79 0.73 0.67 PhyMind-base v1 0.68 0.53 0.70 0.44 0.61 0.70 0.32 0.76 0.59 0.59 PhyMind-base v2 0.77 0.73 0.87 0.80 0.82 0.82 0.44 0.89 0.78 0.77 PhyMind-lite ‡ 0.93 0.90 0.91 0.87 0.86 0.87 0.51 0.93 0.83 0.85 PhyMind-large ‡ 0.95 0.92 0.94 0.90 0.89 0.89 0.54 0.96 0.87 0.88 MANAS-2 (released) 0.86 0.85 0.89 0.84 0.86 0.88 0.41 0.90 0.76 0.81 
+
+ADFTD 
+
+MAE 0.61 0.56 0.75 0.32 0.40 0.40 0.34 0.52 0.64 0.50 RBH (MANAS-2 obj.) 0.68 0.62 0.87 0.54 0.62 0.64 0.44 0.73 0.82 0.66 PhyMind-base v1 0.62 0.54 0.79 0.43 0.56 0.69 0.33 0.73 0.71 0.60 PhyMind-base v2 0.72 0.72 0.90 0.81 0.80 0.83 0.42 0.86 0.84 0.77 PhyMind-lite ‡ 0.93 0.92 0.95 0.89 0.87 0.88 0.50 0.92 0.89 0.86 PhyMind-large ‡ 0.95 0.93 0.96 0.91 0.89 0.90 0.52 0.95 0.91 0.88 MANAS-2 (released) 0.82 0.83 0.90 0.85 0.84 0.86 0.37 0.89 0.82 0.80 
+
+benefit appears to come mainly from the spectral likelihood rather than from accurate waveform prediction. 
+
+6.3 Learned oscillators 
+
+In v1 the oscillator slots separate into roughly delta, theta, beta and gamma frequencies without supervision (Fig. 5). With the stronger Whittle weight and the band head (lite, large) they collapse to 1.7–6 Hz, so the “four oscillators per region” of the final models are not band-specific; the encoder and band head carry the higher-frequency information. A per-slot frequency prior would be needed to keep the slots separated. 
+
+## 7 Limitations 
+
+• Scale and seeds. One pre-training seed per model, a corpus of 0.6–3k h, and test splits of 7 (EEGMAT) and 18 (ADFTD) subjects. Differences of a few points on these tasks are within noise; we do not have per-window predictions for a paired subject-level bootstrap. 10 L R  
+
+> wMNE (same lead fi eld)
+> LR
+> PhyMind-lite sources
+> precentral postcentral supramarg.
+> −8
+> −6
+> −4
+> −20246t
+> Hemispheric contrast
+> wMNE L wMNE R PhyMind L PhyMind R
+> −6
+> −4
+> −20246
+
+Figure 3: Right- minus left-fist motor imagery, PhysioNet MI (paired t over subjects). Left: classical depth-weighted minimum-norm estimate (wMNE) with the same lead field. Middle: PhyMind-lite source power. Right: hemispheric contrast for sensorimotor regions. wMNE shows the expected contralateral pattern; PhyMind’s sources do not. 0 10 20 30 40 oscillator frequency (Hz) 0.0 0.5 1.0 1.5 density PhyMind-base v1         
+
+> slot 1 slot 2 slot 3 slot 4
+> 010 20 30 40 oscillator frequency (Hz) PhyMind-lite 010 20 30 40 oscillator frequency (Hz) PhyMind-large
+
+Figure 4: Distribution of the four oscillator-slot frequencies inferred on held-out data. 
+
+## 8 Conclusion 
+
+Replacing the free-form decoder of an EEG masked autoencoder with a lead-field forward model driven by oscillator and aperiodic source dynamics substantially increases how much spectral struc-ture is linearly decodable from encoder tokens, compared with plain masked reconstruction and with the MANAS-2 objective under identical conditions. This does not translate into large downstream gains: in controlled comparisons the physics objective is on par or slightly better, its region-level features help frozen motor-imagery decoding, and small PhyMind models are competitive with the released MANAS-2 when frozen but behind it after fine-tuning. The inferred sources are useful features but not valid localisations. Larger corpora, multiple seeds, and a mechanism that keeps sources anatomically faithful are the natural next steps. 11 Figure 4: Right- minus left-fist motor imagery, PhysioNet MI (paired t over subjects). Left: classical depth-weighted minimum-norm estimate (wMNE) with the same lead field. Middle: PhyMind-lite source power. Right: hemispheric contrast for sensorimotor regions. wMNE shows the expected contralateral pattern; PhyMind’s sources do not. • Selection. PhyMind variants were iterated on the evaluation tasks (Sec. 4). The controlled baseline comparison predates this, but the lite/large results may be optimistically biased. • Scaling. Base, lite and large differ in corpus, steps and objective version, so they do not form a clean scaling study. • Physics. The lead field is a template head, the inverse problem is under-determined ( ≤64 channels, 68 regions), regional spectra are assumed independent, and the inferred sources do not localise motor imagery (Sec. 6.1). • Comparison with MANAS-2. We evaluate the released weights through our verified re-implementation with our own preprocessing (0.5–45 Hz, bipolar channels placed at the anode), which may differ from its training pipeline. Our numbers for MANAS-2 on mental arithmetic and sleep staging are close to those on its model card. 
+
+## 8 Conclusion 
+
+Replacing the free-form decoder of an EEG masked autoencoder with a lead-field forward model driven by oscillator and aperiodic source dynamics substantially increases how much spectral structure is linearly decodable from encoder tokens, compared with plain masked reconstruction and with the MANAS-2 objective under identical conditions. This does not translate into large downstream gains: in controlled comparisons the physics objective is on par or slightly better, its region-level features help frozen motor-imagery decoding, and small PhyMind models are competitive with the released MANAS-2 when frozen but behind it after fine-tuning. The inferred sources are useful features but not valid localisations. Larger corpora, multiple seeds, and a mechanism that keeps sources anatomically faithful are the natural next steps. 11 Figure 3: Right- minus left-fist motor imagery, PhysioNet MI (paired t over subjects). Left: classical depth-weighted minimum-norm estimate (wMNE) with the same lead field. Middle: PhyMind-lite source power. Right: hemispheric contrast for sensorimotor regions. wMNE shows the expected contralateral pattern; PhyMind’s sources do not. 0 10 20 30 40 oscillator frequency (Hz) 0.0 0.5 1.0 1.5 density PhyMind-base v1         
+
+> slot 1 slot 2 slot 3 slot 4
+> 010 20 30 40 oscillator frequency (Hz) PhyMind-lite 010 20 30 40 oscillator frequency (Hz) PhyMind-large
+
+Figure 4: Distribution of the four oscillator-slot frequencies inferred on held-out data. 
+
+## 8 Conclusion 
+
+Replacing the free-form decoder of an EEG masked autoencoder with a lead-field forward model driven by oscillator and aperiodic source dynamics substantially increases how much spectral struc-ture is linearly decodable from encoder tokens, compared with plain masked reconstruction and with the MANAS-2 objective under identical conditions. This does not translate into large downstream gains: in controlled comparisons the physics objective is on par or slightly better, its region-level features help frozen motor-imagery decoding, and small PhyMind models are competitive with the released MANAS-2 when frozen but behind it after fine-tuning. The inferred sources are useful features but not valid localisations. Larger corpora, multiple seeds, and a mechanism that keeps sources anatomically faithful are the natural next steps. 11 Figure 5: Distribution of the four oscillator-slot frequencies inferred on held-out data. 
+
+## References 
+
+[1] Yi Cui, Tong Zhao, Jiaxin Lei, Chuyi Yang, Yifan Cui, Ling Zhang, Yuxiang Yan, and Bo Hong. NeuroDyn-EEG: An interpretable pre-trained model for EEG based on neural dynamics. arXiv:2609.36773, 2026. [2] Rahul S. Desikan et al. An automated labeling system for subdividing the human cerebral cortex on MRI scans into gyral based regions of interest. NeuroImage , 31(3):968–980, 2006. [3] Thomas Donoghue et al. Parameterizing neural power spectra into periodic and aperiodic components. Nature Neuroscience , 23:1655–1665, 2020. [4] Bruce Fischl. FreeSurfer. NeuroImage , 62(2):774–781, 2012. [5] Richard Gao, Erik J. Peterson, and Bradley Voytek. Inferring synaptic excitation/inhibition balance from field potentials. NeuroImage , 158:70–78, 2017. [6] Ary L. Goldberger et al. PhysioBank, PhysioToolkit, and PhysioNet. Circulation , 101(23):e215– e220, 2000. [7] Alexandre Gramfort et al. MEG and EEG data analysis with MNE-Python. Frontiers in Neuroscience , 7:267, 2013. [8] Matti S. Hämäläinen and Risto J. Ilmoniemi. Interpreting magnetic fields of the brain: Minimum norm estimates. Medical & Biological Engineering & Computing , 32:35–42, 1994. [9] Kaiming He, Xinlei Chen, Saining Xie, Yanghao Li, Piotr Dollár, and Ross Girshick. Masked autoencoders are scalable vision learners. In CVPR , 2022. [10] Ben H. Jansen and Vincent G. Rit. Electroencephalogram and visual evoked potential generation in a mathematical model of coupled cortical columns. Biological Cybernetics , 73:357–366, 1995. [11] Wei-Bang Jiang, Li-Ming Zhao, and Bao-Liang Lu. Large brain model for learning generic representations with tremendous EEG data in BCI. In International Conference on Learning Representations , 2024. [12] Bob Kemp, Aeilko H. Zwinderman, Bert Tuk, Hilbert A. C. Kamphuisen, and Josefien J. L. Oberýe. Analysis of a sleep-dependent neuronal feedback loop: The slow-wave microcontinuity of the EEG. IEEE Transactions on Biomedical Engineering , 47(9):1185–1194, 2000. 12 [13] Aditya Kommineni, Emily Zhou, Kleanthis Avramidis, Simon Bock Segaard, Jeppe Roden Münster, Andreas Peter Juhl Hansen, Takfarinas Medani, Tiantian Feng, Richard Leahy, and Shrikanth Narayanan. Aperiodic and low-frequency spectral bias in reconstruction based EEG foundation models. arXiv:2605.26434, 2026. [14] Demetres Kostas, Stéphane Aroca-Ouellette, and Frank Rudzicz. BENDR: Using transformers and a contrastive self-supervised learning task to learn from massive amounts of EEG data. 
+
+Frontiers in Human Neuroscience , 15, 2021. [15] Arvasu Kulkarni, Aditya Ray Mishra, Jeet Bandhu Lahiri, Mahir Jain, Parshva Runwal, Lakshya Saini, Siddharth Panwar, and Sandeep Singh. MANAS-2: Constrained reconstruction for EEG foundation models. arXiv:2609.13717, 2026. [16] Jun-You Lin, Ying Choon Wu, and Tzyy-Ping Jung. The identity trap in EEG foundation models: A diagnostic audit. arXiv:2606.06647, 2026. [17] Christopher J. Markiewicz et al. The OpenNeuro resource for sharing of neuroscience data. 
+
+eLife , 10:e71774, 2021. [18] Takeru Matsuda and Fumiyasu Komaki. Time series decomposition into oscillation components and phase estimation. Neural Computation , 29(2):332–367, 2017. [19] Andreas Miltiadous et al. A dataset of scalp EEG recordings of Alzheimer’s disease, frontotem-poral dementia and healthy subjects from routine EEG. Data , 8(6):95, 2023. [20] Yassine El Ouahidi, Jonathan Lys, Philipp Thölke, Nicolas Farrugia, Bastien Pasdeloup, Vincent Gripon, Karim Jerbi, and Giulia Lioi. REVE: A foundation model for EEG – adapting to any setup with large-scale pretraining on 25,000 subjects. arXiv:2510.21585, 2025. [21] Maziar Raissi, Paris Perdikaris, and George E. Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378:686–707, 2019. [22] Gerwin Schalk, Dennis J. McFarland, Thilo Hinterberger, Niels Birbaumer, and Jonathan R. Wolpaw. BCI2000: A general-purpose brain-computer interface (BCI) system. IEEE Transac-tions on Biomedical Engineering , 51(6):1034–1043, 2004. [23] Ali H. Shoeb. Application of Machine Learning to Epileptic Seizure Onset Detection and Treatment . PhD thesis, Massachusetts Institute of Technology, 2009. [24] Rui Sun et al. Deep neural networks constrained by neural mass models improve electrophysio-logical source imaging of spatiotemporal brain dynamics. Proceedings of the National Academy of Sciences , 119(31), 2022. [25] Naoya Takeishi and Alexandros Kalousis. Physics-integrated variational autoencoders for robust and interpretable generative modeling. In Advances in Neural Information Processing Systems ,2021. [26] Jiquan Wang, Sha Zhao, Yangxuan Zhou, Yiming Kang, Shijian Li, and Gang Pan. DeeperBrain: A neuro-grounded EEG foundation model towards universal BCI. arXiv:2601.06134, 2026. [27] Jiquan Wang et al. CBraMod: A criss-cross brain foundation model for EEG decoding. In 
+
+International Conference on Learning Representations , 2025. 13 [28] Peter Whittle. The analysis of multiple stationary time series. Journal of the Royal Statistical Society: Series B , 15(1):125–139, 1953. [29] Qinfan Xiao, Ziyun Cui, Chi Zhang, Siqi Chen, Wen Wu, Andrew Thwaites, Alexandra Woolgar, Bowen Zhou, and Chao Zhang. BrainOmni: A brain foundation model for unified EEG and MEG signals. arXiv:2505.18185, 2025. [30] Chaoqi Yang, M. Brandon Westover, and Jimeng Sun. BIOT: Biosignal transformer for cross-data learning in the wild. In Advances in Neural Information Processing Systems , 2023. [31] Yuan Yin, Vincent Le Guen, Jérémie Dona, Emmanuel de Bézenac, Ibrahim Ayed, Nicolas Thome, and Patrick Gallinari. Augmenting physical models with deep networks for complex dynamics forecasting. In International Conference on Learning Representations , 2021. [32] Zhiyong Zhou, Sheng Liao, Xiaolin Li, Youshen Xiao, Bin Dai, Surui Liu, and Yakang Dai. PINR-ESI: Physics-informed self-supervised implicit neural representation framework for EEG extended-source imaging. arXiv:2611.06700, 2026. [33] Igor Zyma et al. Electroencephalograms during mental arithmetic task performance. Data ,4(1):14, 2019. 14
