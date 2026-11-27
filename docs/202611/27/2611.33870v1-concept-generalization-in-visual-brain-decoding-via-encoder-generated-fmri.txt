@@ -1,0 +1,3376 @@
+Preprint. Under review.
+CONCEPT GENERALIZATION IN VISUAL BRAIN DE-
+CODING VIA ENCODER-GENERATED FMRI
+Peter Yongho Kim1,3, Juhyeon Park2,3, Dongsheng Li3,
+Yansen Wang3, Dongqi Han3, Mingqing Xiao3∗, Taesup Moon1,2,4∗
+1ECE, Seoul National University, 2IPAI, Seoul National University,
+3Microsoft Research Asia, 4ASRI / INMC / AIIS, Seoul National University
+{peterkim98, parkjh9229, tsmoon}@snu.ac.kr,
+{dongsli, yansenwang, dongqihan, mingqingxiao}@microsoft.com
+ABSTRACT
+Visual brain decoders are typically trained and evaluated on stimuli drawn from
+similar semantic distributions, leaving their ability to reconstruct unseen concepts
+poorly understood. We study this concept generalization problem by withhold-
+ing semantic concepts from a target subject’s training data. We find that three
+recent fMRI-to-image decoders degrade substantially for the held-out concepts,
+even when the concept remains available for multi-subject models. In contrast,
+brain encoders that map a pretrained visual representation directly to voxels are
+markedly more robust to the same semantic holdout. Motivated by this asymme-
+try, we use such an encoder to generate synthetic fMRI responses for new im-
+ages and add the resulting image-fMRI pairs to decoder training. Across three
+decoders, four subjects, and twelve semantic concepts, synthetic data recovers a
+substantial fraction of the performance lost on unseen concepts without requir-
+ing additional, time-consuming fMRI acquisition. We further show that the same
+approach improves general decoding performance across a wide range of data
+budgets. Analyses of encoder training conditions, encoder designs, and synthetic-
+data controls show that the gains depend on both encoder generalization and the
+semantic content of the synthetic supervision, rather than merely increasing the
+amount of training data. Together, our results show that encoder-generated fMRI
+can transfer semantic generalization to decoders.
+1
+INTRODUCTION
+Recent fMRI-to-image decoders produce reconstructions that are often semantically faithful to the
+viewed stimulus (Scotti et al., 2024; Beliy et al., 2026). These results are obtained under a protocol in
+which training and test images are drawn from the same pool of semantic concepts: a decoder asked
+to reconstruct a zebra at test time has already been trained on other zebras and the responses they
+evoked. The protocol therefore leaves a basic question unanswered: Can a decoder reconstruct a
+concept it was never trained on? A deployed decoder will inevitably face such concepts. Shirakawa
+et al. (2025) recently showed that the semantic overlap between training and test stimuli inflates
+apparent generalization, but the only remedy available so far is the one that limits brain decoding in
+the first place: collecting paired image-fMRI data for every new concept and every new subject, a
+time-consuming and expensive process.
+We make this question measurable with a concept generalization setting (Figure 1a). We take a
+concept C as a COCO supercategory, remove every image containing C from the target subject’s
+training set, and evaluate only on images containing C. Because standard reconstruction metrics
+compare global embeddings and can score a reconstruction highly even when the object of interest
+is absent, we complement them with object-detection metrics that ask whether C itself is recovered.
+Under this setting, three recent decoders (Ozcelik & VanRullen, 2023; Scotti et al., 2024; Beliy et al.,
+2026) degrade sharply across four subjects and all twelve supercategories; e.g., MindEye2 (Scotti
+et al., 2024) retains only 22% of its concept recall. Notably, the degradation persists even though C
+∗Co-corresponding author.
+1
+arXiv:2611.33870v1  [cs.CV]  25 Nov 2026
+
+
+Preprint. Under review.
+remains available in the data of the other subjects used for cross-subject pre-training or joint training.
+Decoders thus largely fail to transfer a concept seen in other brains to a subject who never saw it.
+Brain encoders, which map images to fMRI, behave differently under the same holdout: when their
+predicted fMRIs are decoded, an encoder trained without C from the target subject retains 87%
+of its Object Recall, much higher than the case of the MindEye2 decoder (Figure 1b; Sec. 4.1).
+Although these two ratios compare two specific pipelines rather than isolate an intrinsic advantage
+of the encoding direction, the asymmetry suggests using the encoder to transfer its robustness to the
+decoder through data. We generate synthetic fMRI responses for images containing C and add the
+resulting image-fMRI pairs to the decoder’s training set. Because the intervention acts on the data
+alone, it applies to any decoder architecture or training strategy without modification, and it requires
+no additional scanning. Across the three decoders, the synthetic data recovers a large fraction of the
+generalization gap without any real fMRI for C.
+Since the encoder is trained on the same data as the decoder, why should its synthetic data help?
+By varying the encoder’s training conditions and the composition of the synthetic data, we identify
+two sources of the gain. First, the encoder is inherently robust to unseen concepts: even an encoder
+that never saw C in any subject yields substantial gains, which we trace to its pretrained visual
+backbone: a ridge regression on frozen backbone features already helps and a different pretrained
+backbone gives similar gains, while a randomly initialized one gives almost none. This robustness
+is not automatic across encoder designs, as synthetic data from SynBrain (Mai et al., 2025) gives
+little recovery. Second, the encoder transfers exposure to C from other subjects, which decoders fail
+to exploit on their own. Controls further show that the gain is not a data-volume effect; it requires
+correctly paired synthetic responses to images of C itself, although the synthesis pool need not be
+selected for C as long as it covers it.
+Finally, the use of encoder-generated synthetic data is not specific to concept generalization. When
+the synthesis pool consists of images unseen by the target subject, it improves all three decoders at
+every target-subject data budget from 225 to 9,000 images for most metrics, by an amount equivalent
+to 1.9–2.4× as many real training images, depending on the decoder (Sec. 5.3).
+While using encoder-generated fMRI to train decoders is not new in itself (Sec. 2.3), our contribu-
+tion is a systematic study of concept generalization in recent decoders and of the conditions under
+which synthetic data addresses it. Our contributions are as follows. (i) We introduce the concept
+generalization setting, with concept-level recall metrics, and show that three recent decoders fail
+it even under cross-subject training. (ii) We show that brain encoders built on a pretrained visual
+representation are far more robust to the same holdout, and that transferring this robustness through
+encoder-generated fMRI for images of the held-out concept recovers a large fraction of the gap
+across three decoders, four subjects, and twelve concepts. (iii) We show that the gain stems from the
+encoder’s inherent robustness and from cross-subject transfer rather than from added data volume,
+and identify what the synthetic data must contain (the held-out concept, correctly paired) and what
+the encoder must provide (a pretrained visual representation with a direct readout to voxels). (iv) We
+show that the same recipe improves decoding at various data budgets on most metrics, equivalent to
+1.9–2.4× as many real training images.
+2
+BACKGROUND AND RELATED WORK
+2.1
+VISUAL BRAIN DECODING AND ENCODING
+From neuroimaging experiments that produce paired visual stimulus-fMRI response data, two com-
+plementary tasks can be defined: brain decoding and brain encoding. Brain decoding learns a map
+from fMRI to image, reconstructing the stimulus given the brain response. Brain encoding inversely
+learns a map from image to fMRI, predicting the brain response given the stimulus. One of the most
+widely used datasets is the Natural Scenes Dataset (NSD) (Allen et al., 2022), where eight subjects
+viewed images drawn from COCO (Lin et al., 2014). NSD is the main dataset we use in this work.
+By incorporating diffusion models, brain decoding models rapidly evolved, albeit requiring sepa-
+rately trained models for each subject (Ozcelik & VanRullen, 2023; Scotti et al., 2023). Since this
+paired data is costly, some recent decoders utilize cross-subject (pre-)training to help increase the
+2
+
+
+Preprint. Under review.
+Animal
+Test Set (Only Animal)
+Sports
+Food
+Animal
+Sports
+Food
+Target subject
+Target subject
+Other Subjects (Optional)
+Train Set
+(a) Concept generalization setting, C = animal.
+0%
+50%
+100%
+87%
+Encoder
+(Decoded)
+22%
+Decoder
+(MindEye2)
+93%
+Encoder
+(Decoded)
+37%
+Decoder
+(MindEye2)
+Object Recall
+Relaxed Recall
+0.574→0.499
+0.443→0.096
+0.735→0.685
+0.662→0.242
+Relative performance
+(b) Recall retained when C is held out.
+Figure 1: The concept generalization setting and the encoder-decoder asymmetry. (a) Images
+containing C are removed only from the target subject’s training set and not from other subjects; the
+model is evaluated only on images containing C. (b) The encoder retains most of its concept-specific
+recall under this holdout, while the MindEye2 decoder (Scotti et al., 2024) loses most of it. Encoder
+recall is measured by decoding its predicted fMRI with a MindEye2 trained with C present and with
+additional synthetic data (See Sec. 6 for more details).
+performance for other subjects and therefore reduce the per-subject data burden (Scotti et al., 2024;
+Wang et al., 2024; Huo et al., 2024; Beliy et al., 2026).
+On the encoding side, the Universal Brain Encoder (Beliy et al., 2024) learns voxel embeddings
+that attend to DINOv2 (Oquab et al., 2023) features with LoRA (Hu et al., 2022) tuning. The
+parameters are shared across voxels and subjects, which makes it applicable to different voxel counts
+and transferable between multiple subjects with minimal fine-tuning, and we use it as our brain
+encoding model for the experiments. Other recent encoders include SynBrain (Mai et al., 2025),
+which models the response probabilistically, and TRIBE v2 (d’Ascoli et al., 2026), a multimodal
+encoder which is also capable of predicting subject-agnostic cortical surface responses.
+2.2
+SEMANTIC GENERALIZATION FOR VISUAL BRAIN DECODING
+Whether a decoder can handle concepts absent from its training set is a question that has been raised
+before (Horikawa & Kamitani, 2017), but one that most recent decoding work does not engage with.
+Since NSD draws training and test images from the same pool, Shirakawa et al. (2025) argue that
+the resulting overlap inflates performance. They cluster NSD stimuli in CLIP text-feature space,
+withhold one cluster from training, and find that decoder performance drops and that the standard
+metrics overstate their generalization capabilities. Their proposed solutions concern dataset design
+and representation choice rather than a method that closes the gap for an existing dataset.
+We later propose a concept generalization setting that builds on this diagnosis. We define the held-
+out concept from ground-truth annotations and evaluate decoders that train on multiple subjects
+(Sec. 3.1), use additional metrics to measure whether the concept itself is recovered (Sec. 5.1), and,
+unlike prior work, show a working solution that does not need to collect additional fMRI (Sec. 4).
+2.3
+USING ENCODER-GENERATED SYNTHETIC FMRI FOR DECODING
+To reduce the burden of data collection, a line of work produces synthetic neural responses for
+images that were never shown to the subject. Earlier work trains the decoder on such images
+through a fixed encoder, which supplies surrogate responses (St-Yves & Naselaris, 2018) or a cycle-
+consistency signal (Gaziv et al., 2022), the latter reporting gains on categories never seen in training.
+Their unpaired image pool is, however, not chosen with the test categories in mind: in Gaziv et al.
+(2022) the test categories are absent from the paired data and from the unpaired pool alike. More
+recently, brain encoders have been used to generate synthetic fMRI for decoder training: Brain-IT
+(Beliy et al., 2026) and SynBrain (Mai et al., 2025) add encoder-predicted responses to images drawn
+3
+
+
+Preprint. Under review.
+from the same distribution as the real stimuli, in full-data and few-shot settings, and Benchetrit et al.
+(2026) study synthetic cortical surface maps generated by TRIBE v2, focusing on common, subject-
+agnostic synthetic data and leaving subject-specific synthesis as an open question. None of these
+works examines whether the synthetic pool covers the concept the decoder must generalize to, nor
+evaluates on held-out concepts, which is the gap we address.
+3
+DATA-LIMITED SETTINGS FOR BRAIN DECODING
+As paired image-fMRI training data is slow and expensive to acquire, the data efficiency of brain
+decoders is essential to gauging their practical utility. We use the term data efficiency to represent
+the ability to attain satisfactory performance, even when the training data is limited for the target
+subject (the subject it will be evaluated on). For decoders that train with multiple subjects (Scotti
+et al., 2024; Beliy et al., 2026), a common practice is to only limit the data from the target subject,
+not the other subjects. The reasoning is that in practice, data from other subjects is a one-time cost
+shared by every deployed decoder, whereas target-subject data must be collected for each subject.
+Target-subject data can be restricted along two distinct axes. The commonly addressed one is quan-
+tity of the available data. The other is semantic coverage: which concepts those data depict. We
+introduce the semantic axis as the concept generalization setting (Sec. 3.1), and the quantity axis as
+the limited-data decoding setting (Sec. 3.2).
+3.1
+CONCEPT GENERALIZATION: LIMITING THE SEMANTIC COVERAGE
+The concept generalization setting (Figure 1a) measures how a decoder behaves on a concept for
+which the target subject contributed no training data. Given a target concept C, a concept which we
+want to measure the generalization capability for, we exclude every image containing C from the
+training set of the target subject. The model is then evaluated only on images containing C.
+Defining the concept.
+To introduce a large semantic gap between train and test time, we take C
+to be a COCO supercategory, for example animal. We filter images using their ground-truth COCO
+annotations, where an image is considered to contain C if its annotation includes at least one instance
+of any subcategory belonging to C. We use ground-truth annotations rather than clusters in a learned
+feature space (Shirakawa et al., 2025) for two reasons. A cluster-based holdout retains training
+images in which the concept is present but not dominant, which leaks the concept into training; the
+annotation rule removes it entirely. It also keeps the holdout independent of any model’s feature
+space, so that the holdout and the evaluation are not defined by the same representation. We use all
+12 supercategories, each defining its own training set and separately trained encoders and decoders.
+Can concept exposure from other subjects solve concept generalization?
+Given that recent de-
+coding and encoding methods optionally allow multi-subject training, whether C is included for the
+other subjects must also be accounted for. For the main experiments we assume C remains available
+for the subjects used in pre-training, which we call the transfer-concept setting. For multi-subject
+models, this gives an opportunity to learn about C from other brains, a question that per-subject
+holdout protocols (Shirakawa et al., 2025) cannot pose. It also makes the setting deliberately favor-
+able to existing models: if they still lose performance, concept generalization cannot be achieved by
+their inherent cross-subject transfer capabilities and a different solution is needed. We additionally
+explore settings where C is also absent for other subjects, as part of Sec. 6.
+3.2
+LIMITED-DATA DECODING: LIMITING THE QUANTITY
+Most existing work on data efficiency instead limits the amount of data: the target subject’s training
+set is subsampled to a small budget while the pre-training subjects retain their full data. We follow
+the same protocol and specify the exact budgets in Sec. 5.
+We note that the two settings are not entirely independent. Subsampling a training set may under-
+represent or even exclude some of the semantic content. For example, for our random 225-image
+training splits, equivalent to the 1 hour splits from previous work (Scotti et al., 2024; Beliy et al.,
+2026), on average 31.5 out of the 80 COCO categories appear on 5 or fewer images from the training
+4
+
+
+Preprint. Under review.
+1. Encoder Training
+Pre-train
+other subjects
+target subject
+Brain Encoder
+2. Synthetic fMRI Generation
+New Images
+Brain Encoder
+Synthetic image–fMRI pairs
+3. Decoder Training
+Real + Synthetic Training Data
+real
+synthetic
+Brain Decoder
+Fine-tune
+Figure 2: Encoder-generated synthetic fMRI for decoder training. The encoder is first pre-
+trained and fine-tuned to the target subject (step 1), applied to a new pool of images to generate
+synthetic fMRI (step 2), and the synthetic pairs are added to the decoder’s training set (step 3).
+set. The more aggressively the training data is limited, the more of the concept space will be effec-
+tively unseen, and the more a few-shot problem also turns into a concept generalization problem.
+4
+GENERATING SYNTHETIC TRAINING DATA VIA BRAIN ENCODERS
+4.1
+MOTIVATION FOR USING BRAIN ENCODER
+Using encoder-generated synthetic data for concept generalization is motivated by the asymmetry
+illustrated in Figure 1b. To compare the encoder and decoder on similar footing, we score the en-
+coder by decoded recall (defined in Sec. 6): its predicted fMRI for images with C is reconstructed by
+a fixed MindEye2 readout trained with C present, so that the readout’s own concept-generalization
+limits do not confound the measurement, and scored with the concept metrics given in Sec. 5.1.
+Under this holdout, the encoder retains 87% of Object Recall and 93% of Relaxed Recall, whereas
+MindEye2 retains 22% and 37%, respectively. Since the encoder and the decoder convert infor-
+mation in opposite directions, these two ratios describe two specific pipelines and do not isolate an
+intrinsic advantage of the encoding direction; we use them as motivation, and test the actual utility of
+the encoder’s predictions by training decoders on them (Sec. 5). The pattern persists with a readout
+trained on real data only (Appendix D.1). In this comparison, the encoder is more robust than the
+decoder, which motivates using its predictions to train decoders; Sec. 6 further examines why.
+4.2
+RECIPE FOR GENERATING SYNTHETIC TRAINING DATA
+The cost of paired image-fMRI data lies in acquiring the fMRI, not the image. A brain encoder can
+therefore supply the missing half by predicting responses to novel images, and the resulting pairs
+can be used to train brain decoders. The procedure is summarized in Figure 2.
+The recipe.
+Let D = {(xi, yi)}N
+i=1 denote the target subject’s training set, where xi is an image
+and yi the corresponding measured fMRI response. We train a brain encoder Eϕ : x 7→ˆy on D,
+initializing it from an encoder pre-trained on other subjects, so the encoder sees no target-subject
+fMRI beyond what the decoder already has. Given a new pool of images U = {uj}, we form
+a synthetic training set S = {(uj, Eϕ(uj)) : uj ∈U} and train the decoder on D ∪S. The
+choice of U is the one component that varies across our experiments, and we specify it for each
+setting in Sec. 5. Because this is a data-level intervention, the synthetic pairs can train any decoding
+architecture without modification, regardless of its input shape or training strategy.
+5
+EXPERIMENTAL RESULTS
+5.1
+EXPERIMENTAL SETTING
+All experiments are conducted on the Natural Scenes Dataset (NSD) (Allen et al., 2022). Follow-
+ing common practice, we experiment with four subjects (1, 2, 5 and 7) who completed all scan-
+ning sessions, and report the averaged result. We experiment with three image decoders: Brain-
+5
+
+
+Preprint. Under review.
+Table 1: Concept generalization for decoders. Decoders are trained with/without C for the target
+subject and evaluated on images containing C. Adding synthetic data improves generalization to-
+wards C. Bold marks the better of the two unseen variants, with or without synthetic data.
+High-level
+Object Detection
+Decoder
+Concept C
+Incep ↑
+CLIP ↑
+EffNet ↓
+SwAV ↓
+Recall ↑
+Relaxed ↑
+Brain-Diffuser
+Seen
+90.2%
+91.7%
+0.761
+0.397
+0.330
+0.584
+Unseen
+81.2%
+82.5%
+0.847
+0.458
+0.073
+0.189
+Unseen + syn.
+88.7%
+90.5%
+0.781
+0.408
+0.273
+0.532
+MindEye2
+Seen
+95.9%
+93.0%
+0.636
+0.340
+0.443
+0.662
+Unseen
+88.5%
+83.5%
+0.767
+0.410
+0.096
+0.242
+Unseen + syn.
+93.4%
+89.0%
+0.697
+0.371
+0.288
+0.482
+Brain-IT
+Seen
+97.3%
+95.0%
+0.600
+0.331
+0.495
+0.672
+Unseen
+94.9%
+91.9%
+0.659
+0.360
+0.312
+0.490
+Unseen + syn.
+96.0%
+93.5%
+0.637
+0.349
+0.386
+0.565
+Diffuser (Ozcelik & VanRullen, 2023), MindEye2 (Scotti et al., 2024), and Brain-IT (Beliy et al.,
+2026). Decoders are trained with multiple subjects if possible: Brain-Diffuser can only be trained
+with a single subject, MindEye2 is first pre-trained with other subjects and then fine-tuned, and
+Brain-IT is jointly trained with all subjects. Refer to Appendix A for more details.
+Note that although Brain-IT includes external synthetic data training in the original paper, similar in
+spirit to our synthetic data training, we consider this process to be a training technique independent of
+the core Brain-IT architecture. To keep the training process fair and consistent with other decoding
+models, and to measure the precise effect of synthetic data, we use the base Brain-IT model without
+this external data augmentation, just like the other models.
+We use the Universal Brain Encoder (Beliy et al., 2024) as our synthetic-data generator. The encoder
+is pre-trained on other subjects and adapted to the target subject, using the same training data.
+Evaluation.
+We report the standard decoding metrics: low-level (Pixelwise correlation, SSIM,
+Alex(2), Alex(5)) and high-level (Inception, CLIP, EffNet and SwAV). For concept generaliza-
+tion experiments, we additionally report Object Recall and Relaxed Object Recall, adapted from
+SEED (Park et al., 2026): using object detectors, we measure the ratio of reconstructions that ex-
+actly contain the object (Recall) or at least contain the same supercategory (Relaxed Recall), limited
+to objects that belong to C. For example, if C is animal, and the ground truth includes a zebra, Recall
+counts the reconstruction correct if it also includes a zebra, while Relaxed Recall counts it correct
+if it contains any animal. Identification metrics compare global embeddings against a distractor and
+can remain above chance even when the held-out concept is absent from the reconstruction; Shi-
+rakawa et al. (2025) report exactly this discrepancy under a semantic holdout. We therefore aim to
+measure concept recovery directly through these metrics. Refer to Appendix B for more details.
+5.2
+USING SYNTHETIC DATA FOR CONCEPT GENERALIZATION
+Table 1 reports the performance of each decoder depending on whether C was included in the target
+subject’s training data and whether synthetic data was added. To generate synthetic fMRI, we use the
+images that are removed from the training set, to directly match the baseline condition (unseen) and
+the synthetic condition (unseen + syn.); Sec. 6 shows that a general pool not selected for C recovers
+nearly as much. Low-level metrics, which the semantic holdout affects far less, are reported in
+Appendix C.2.
+All three decoders show a concept generalization gap, largest on the recall metrics. This includes
+MindEye2 and Brain-IT, which were trained with C available from other subjects; as anticipated in
+Sec. 3.1, cross-subject training alone does not transfer C to the target subject. The gap is specific to
+C: on test images without C, the same models differ by an order of magnitude less (Appendix C.1),
+and removing an equal number of randomly chosen images without C from training costs essentially
+nothing on images of C (Appendix C.3).
+6
+
+
+Preprint. Under review.
+C
+Ground Truth
+Brain-Diffuser
+MindEye2
+Brain-IT
+Unseen
+Unseen + syn.
+Unseen
+Unseen + syn.
+Unseen
+Unseen + syn.
+Animal
+Person
+Vehicle
+Figure 3: Qualitative reconstruction highlights. We show the ground truth image and the corre-
+sponding reconstructions for each decoder, before or after adding synthetic data to training. While
+the baseline model fails to accurately reconstruct C, the synthetic variant is able to recover it.
+0.16
+0.24
+0.32
+Brain-Diffuser
+ρ = 2.6×
+PixCorr ↑
+0.85
+0.90
+0.95
+1.00
+ρ = 2.4×
+AlexNet(5) ↑
+0.78
+0.84
+0.90
+0.96
+ρ = 2.2×
+CLIP ↑
+0.6
+0.7
+0.8
+0.9
+ρ = 2.3×
+EffNet-B ↓
+0.16
+0.24
+0.32
+MindEye2
+ρ = 2.9×
+0.85
+0.90
+0.95
+1.00
+ρ = 2.3×
+0.78
+0.84
+0.90
+0.96
+ρ = 1.7×
+0.6
+0.7
+0.8
+0.9
+ρ = 1.9×
+225
+450
+900
+1.8k
+3.6k
+9k
+0.16
+0.24
+0.32
+Brain-IT
+ρ = 1.9×
+225
+450
+900
+1.8k
+3.6k
+9k
+0.85
+0.90
+0.95
+1.00
+ρ = 2.0×
+225
+450
+900
+1.8k
+3.6k
+9k
+0.78
+0.84
+0.90
+0.96
+ρ = 1.8×
+225
+450
+900
+1.8k
+3.6k
+9k
+0.6
+0.7
+0.8
+0.9
+ρ = 1.8×
+Real target-subject training images (log scale)
+Baseline
+Synthetic 3x
+Figure 4: Effect of synthetic data across data scales. The x axis is in log scale. ρ denotes the fitted
+data-efficiency gain. We show 4 metrics spanning the metric groups; the rest are in Appendix E.3.
+When synthetic data is supplied, it closes a substantial portion of the gap. Weaker decoders recover
+more of the lost performance: Brain-Diffuser recovers 76-87%, MindEye2 recovers 53-66%, and
+Brain-IT recovers 37-53% of the lost performance across high-level and recall metrics.
+Figure 3 shows a few qualitative examples on how the baseline decoder fails to reconstruct the object
+belonging to C and how the synthetic-trained decoder is able to reconstruct the object.
+5.3
+USING SYNTHETIC DATA ACROSS DATA SCALES
+We
+now
+turn
+to
+the
+quantity
+axis
+of
+Sec.
+3.2,
+training
+decoders
+on
+x
+∈
+{225, 450, 900, 1800, 3600, 9000} real target-subject images, with and without additional synthetic
+data. The synthesis pool U consists of NSD images shown to other subjects but never to the target
+subject, with |U| = 3x so that real and synthetic pairs contribute equal training volume: each
+real image carries three trials, while the encoder produces one deterministic response per image.
+Appendix E.4 varies this ratio between real and synthetic data.
+7
+
+
+Preprint. Under review.
+Table 2: Encoder variants as synthetic-data sources (supercategory generalization). Variants
+differ in whether C was available during cross-subject pre-training and target-subject adaptation
+(Target). Probe decoder: a from-scratch MindEye2 trained on real data plus that encoder’s synthetic
+pairs, evaluated on images containing C; the two oracle variants see real responses to C and cannot
+be used for synthesis. Encoder: Pearson r of the predicted fMRI, and decoded recall / decoded
+relaxed recall (D.Rec. / D.Rel.) of images reconstructed from it.
+C incl. for
+Probe decoder trained with synthetic data
+Encoder
+Encoder variant
+Other Target Incep ↑CLIP ↑EffNet ↓SwAV ↓Rec. ↑Rel. ↑
+r ↑
+D.Rec. ↑D.Rel. ↑
+Scratch-oracle
+–
+✓
+n/a: trained on real fMRI for C
+0.303
+0.497
+0.686
+Transfer-oracle
+✓
+✓
+0.350
+0.574
+0.735
+Scratch-blind
+–
+✗
+91.4%
+86.9%
+0.729
+0.390
+0.218 0.427 0.277
+0.290
+0.492
+Transfer-blind
+✗
+✗
+91.4%
+87.2%
+0.723
+0.387
+0.229 0.441 0.337
+0.379
+0.585
+Transfer-concept
+✓
+✗
+92.8%
+88.5%
+0.709
+0.381
+0.279 0.486 0.344
+0.499
+0.685
+No synthetic
+–
+87.2%
+82.5%
+0.777
+0.418
+0.087 0.228
+n/a: no encoder
+Real fMRI for C
+–
+95.3%
+92.1%
+0.647
+0.346
+0.411 0.643
+Synthetic data outperforms the baseline at every budget on every metric in Figure 4, and both curves
+keep rising up to the full 9,000-image budget, indicating that the decoders are not yet saturated by
+target-subject data. The remaining metrics behave the same way (Appendix E.3), with the exception
+of SSIM, which varies little with budget and synthetic data does not consistently help it.
+Quantifying the data-efficiency gain.
+The benefit can equivalently be read as the real data col-
+lection it saves. For each metric we fit the single factor ρ that aligns the baseline curve with the
+synthetic one, ˆρ = arg minρ
+P
+x
+ s(x) −ˆb(ρ x)
+2, where b(x) and s(x) are the baseline and syn-
+thetic scores at x real target-subject images and ˆb is a monotone interpolant of the six measured
+budgets, held at its 9,000-image value beyond the measured range. The resulting ˆρ, annotated in
+each panel of Figure 4, reads directly as the amount of real data the synthetic data is worth: ˆρ = 2
+means the same performance would otherwise have required twice as many real training images of
+the target subject. Since ˆb is held constant beyond 9,000 images, ˆρ therefore summarizes the gain
+only within the measured range. Across the four metrics in Figure 4 and all three decoders, ˆρ ranges
+from 1.7 to 2.9 (the remaining metrics fall in the same range; confidence intervals in Appendix G.4),
+with a median over the seven identifiable metrics of 2.4 for Brain-Diffuser, 2.2 for MindEye2, and
+1.9 for Brain-IT.
+Extension to video decoding.
+As a preliminary check of whether the recipe transfers beyond static
+images, we apply it to fMRI-to-video decoding with NEURONS (Wang et al., 2025) on the cc2017
+dataset (Wen et al., 2018), training on 10% or the full amount of data. The same Universal Encoder,
+jointly pre-trained on NSD and the other cc2017 subjects, predicts a response from a single frame
+of each clip, a framewise approximation that does not model temporal dynamics (Appendix F).
+Synthetic data improves the video decoder at both budgets, with the largest absolute gains on the
+semantic metrics: at the 10% budget, video-level 50-way accuracy rises from 0.185 to 0.235, recov-
+ering 68% of the gap to the full-data model, and at the full budget the gains remain significant on
+most metrics (Appendix F). That a still-image encoder improves a video decoder suggests the recipe
+can apply beyond image decoding, even under this approximation.
+6
+WHY DOES ENCODER-GENERATED DATA HELP?
+The encoder is trained on the same image-fMRI pairs available to the decoder, thus it uses no addi-
+tional information from the data, yet its synthetic responses help the decoder. While related work
+attributes this to data augmentation or data enlargement (Mai et al., 2025; Beliy et al., 2026), the
+large improvement for concept generalization suggests the synthetic data contain additional infor-
+mation for C. We first test whether this concept-specific information indeed drives the improvement,
+then vary the encoder’s training conditions and design to locate where its knowledge of C comes
+from, and finally ask whether standard encoder metrics can predict the value of its synthetic data.
+8
+
+
+Preprint. Under review.
+Concept-specific content of synthetic data matters.
+A simpler explanation of the gains in
+Sec. 5.2 is that any additional training pairs help. We test this on subject 1 with two controls that
+add the same number of pairs as the main condition, using encoder predictions for images without
+C: non-C images pairs these predictions with the images they were predicted for, adding data but no
+information about C; wrong fMRI pairs them with the C images instead, so the decoder sees C as
+a target but never with the response it elicits. The controls recover 2% and 12% of the Object Re-
+call gap between the unseen decoder and one trained on real fMRI for C, against 64% for correctly
+paired synthetic data (Appendix D.3). Neither more data nor exposure to C images alone suffices;
+the gain requires the encoder’s response to C itself. Two further controls refine this (Appendix D.3).
+Shuffling the synthetic responses among the C images, which keeps supercategory-level information
+but breaks the pairing, removes most of the gain, so correct pairing within the concept is needed.
+Conversely, the pool does not have to be selected for C: a general pool fixed in advance recovers
+nearly as much as targeted synthesis. What matters is whether C is represented in the synthesis
+pool, not whether the pool was selected for it. Precision also recovers together with recall, and the
+false-positive rate stays below that of a decoder trained on real fMRI for C (Appendix D.6), so the
+gain is not explained by a tendency to generate C more often.
+Comparing encoder variants.
+Table 2 defines five variants along two factors: whether C was
+available during cross-subject pre-training and during target-subject adaptation. The oracle variants
+observe real target-subject responses to C and cannot serve as synthesis sources; they are reported
+as upper bounds. Each of the three remaining variants is evaluated by a probe decoder, a MindEye2
+trained from scratch (to prevent cross-subject information leak from decoder pre-training) on real
+data plus that variant’s synthetic pairs. Transfer-concept is the variant used throughout Sec. 5.
+Evaluating encoders.
+We score each encoder in two ways. Fidelity is the Pearson r between
+predicted and measured fMRI. Decoded recall measures how semantically decodable a prediction
+is: we reconstruct images from the encoder’s predictions with a decoder, a MindEye2 trained with C
+present from the full budget plus synthetic data, and apply the concept metrics of Sec. 5.1. Since the
+decoder has seen C, it can detect and recover the semantic content from the encoder’s prediction. As
+the decoder is not a perfect judge, we intend to use this only to compare encoders (Appendix D.1).
+Where does the encoder’s knowledge of C come from?
+We read Table 2 first by the probe de-
+coder, since that is the quantity we ultimately care about. Scratch-blind, which never sees fMRI
+for C from any subject, already recovers 41% of the Object Recall gap; cross-subject transfer is
+therefore not required, and this baseline robustness must come from the encoder itself, which we
+trace to its pretrained backbone below. At the full budget, pre-training on other subjects without C
+(transfer-blind) adds almost nothing: Object Recall moves from 0.218 to 0.229, and the two probe
+decoders are statistically equivalent (Appendix G.2). Exposure to C in the pre-training subjects
+(transfer-concept) is what adds: the probe decoder improves on every metric in Table 2, by +0.049
+in Object Recall, and reaches 59% of the gap. The gain thus has two sources: the encoder’s inherent
+robustness to unseen concepts, and its transfer of concept exposure from other brains (Sec. 5.2). At
+the finer granularity of single COCO categories (category generalization), every effect shrinks with
+the semantic gap and the concept-specific transfer is no longer significant (Appendix D.2).
+Overall encoder metrics do not suffice to predict the value of its synthetic data.
+One might
+expect a more accurate encoder to yield better synthetic data. The two transfer steps above show
+otherwise: the step that barely helps the probe decoder, pre-training without C, raises Pearson r
+by 0.060, while the step that helps on every metric, exposure to C, raises it by only 0.007. Pre-
+training makes the predicted response more accurate overall; seeing C, from the target subject or
+from others, is what puts C into it. Decoded recall is designed to measure the latter and does recover
+this ordering (scratch-oracle exceeds transfer-blind by 0.118 and matches transfer-concept), but it
+does not track the probe decoder either: it credits the two transfer steps about equally (+0.089 and
++0.119), whereas the probe decoder credits only the second. Overall fidelity is thus informative but
+not sufficient. Across encoder designs, what tracks the decoder benefit better is the encoder’s fidelity
+on the held-out concept itself: the CLIP score of images decoded from its predictions and within-
+concept identification, which needs no decoder, both order the tested encoders by their decoder
+benefit, whereas voxel-wise correlation does not (Appendix D.5). We present these as exploratory
+diagnostics rather than validated predictors.
+9
+
+
+Preprint. Under review.
+The encoder generalizes where the decoder does not.
+The scratch-blind result shows that the
+encoder predicts useful responses to a concept it never saw in any subject’s fMRI, and that a decoder
+trained on those predictions inherits part of that ability. Since no fMRI for C enters that encoder, this
+robustness should come from its pretrained visual backbone: the DINOv2 representation already
+covers C, and a per-voxel readout fit on other concepts extends to it.
+Consistent with this, freezing the backbone instead of LoRA-tuning it leaves the decoder gains
+unchanged (Appendix D.4). We test this explanation directly by varying the encoder design (Ap-
+pendix D.5). A ridge regression from frozen DINOv2 features, with no cross-subject data and no
+backbone tuning, already yields useful synthetic data; replacing DINOv2 with OpenCLIP ViT-bigG,
+the backbone MindEye2 uses, gives similar gains; and a frozen, randomly initialized backbone gives
+almost none. The pretrained backbone therefore plays a major role, and the benefit is specific neither
+to DINOv2 nor to this encoder. It is, however, not automatic across encoder designs: synthetic data
+from SynBrain (Mai et al., 2025), retrained under the same holdout, gives little benefit when used
+as synthetic training data. We therefore find this technique useful for encoders that map a pretrained
+visual representation directly to voxels, but the benefit may vary depending on the encoder design.
+This alone does not explain the asymmetry, since the decoders also build on pretrained components
+(CLIP and diffusion priors) that have seen C and still fail; for example, the encoder built on Mind-
+Eye2’s own backbone remains robust to the holdout while MindEye2 does not. The difference is
+where that pretrained knowledge sits. For the encoder it sits at the input: C images already land in
+a representation that handles them, and only a smooth map from that representation to noisy voxels
+has to be learned. For the decoder it sits at the output: the decoder must learn which fMRI patterns
+to map there, and for C it is never shown any. Synthetic pairs supply exactly the missing supervision,
+with quality bounded by the encoder. Semantic coverage is therefore an axis along which such an
+encoder degrades gracefully and the decoder does not, and encoder-generated data is a way to move
+the decoder along it.
+7
+CONCLUSION & LIMITATIONS
+We showed that in the concept generalization setting, in which a semantic concept is withheld from
+the target subject’s training data, three recent fMRI-to-image decoders substantially lose their abil-
+ity to reconstruct the held-out concept, even when it remains available from other subjects. Brain
+encoders that map a pretrained visual representation directly to voxels, trained on the same data, are
+far more robust to this holdout, and generating synthetic fMRI for images of the concept transfers
+part of that robustness to decoders: across three decoders, four subjects, and twelve concepts, it re-
+covers 37-87% of the gap on high-level and concept-recall metrics without any additional scanning.
+Our analyses indicate that this gain stems from the encoder’s ability to predict responses to concepts
+absent from its fMRI training and from its transfer of concept exposure across subjects, rather than
+from added data volume. Beyond the holdout, the same procedure improves decoding on nearly
+every metric at every data budget we tested, by an amount equivalent to 1.9–2.4× as many real
+training images. More broadly, our results suggest that decoders should be evaluated on concepts
+outside their training distribution, and that encoders offer a practical route to covering them.
+Limitations.
+Our suggested solution for concept generalization has two main limitations. First,
+synthetic neural responses are not a perfect substitute for real ones: under an equal training budget,
+real fMRI for C still outperforms encoder-generated fMRI. Synthetic data should therefore be used
+when collecting real responses to C is impractical, not as a replacement for them. Second, synthetic
+pairs for images of C must be included in the training set. With a general synthesis pool, C need not
+be known in advance in the condition we tested, as long as the pool covers it (Sec. 6); a pool without
+C gives no such gain, and a concept that becomes relevant only after the decoder is trained cannot
+be accounted for without retraining or fine-tuning.
+ACKNOWLEDGMENTS
+This research was supported by the MSIT (Ministry of Science, ICT), Korea, under the Global
+Research Support Program in the Digital Field program (RS-2024-00436680) supervised by the
+IITP (Institute for Information & Communications Technology Planning & Evaluation), and IITP
+grants [RS-2021-II212068, RS-2022-II220113, RS-2022-II220959, RS-2021-II211343]. This re-
+10
+
+
+Preprint. Under review.
+search was also supported by Microsoft Research Asia and Hyundai Motor Chung Mong-Koo Foun-
+dation.
+REFERENCES
+Emily J Allen, Ghislain St-Yves, Yihan Wu, Jesse L Breedlove, Jacob S Prince, Logan T Dowdle,
+Matthias Nau, Brad Caron, Franco Pestilli, Ian Charest, et al. A massive 7t fmri dataset to bridge
+cognitive neuroscience and artificial intelligence. Nature neuroscience, 25(1):116–126, 2022.
+Max Bain, Arsha Nagrani, G¨ul Varol, and Andrew Zisserman. Frozen in time: A joint video and im-
+age encoder for end-to-end retrieval. In 2021 IEEE/CVF International Conference on Computer
+Vision (ICCV), pp. 1708–1718. IEEE, 2021.
+Roman Beliy, Navve Wasserman, Amit Zalcher, and Michal Irani. The wisdom of a crowd of brains:
+A universal brain encoder. arXiv preprint arXiv:2406.12179, 2024.
+Roman Beliy, Amit Zalcher, Jonathan Kogman, Navve Wasserman, and Michal Irani. Brain-it:
+Image reconstruction from fmri via brain-interaction transformer. In International Conference on
+Learning Representations, 2026.
+Yohann Benchetrit, Marl`ene Careil, Simon Dahan, Hubert Banville, St´ephane d’Ascoli, and Jean-
+R´emi King. Boosting brain-to-image decoding with tribe v2 data augmentation. arXiv preprint
+arXiv:2606.06345, 2026.
+Mathilde Caron, Ishan Misra, Julien Mairal, Priya Goyal, Piotr Bojanowski, and Armand Joulin.
+Unsupervised learning of visual features by contrasting cluster assignments. Advances in neural
+information processing systems, 33:9912–9924, 2020.
+St´ephane d’Ascoli, J´er´emy Rapin, Yohann Benchetrit, Teon Brooks, Katelyn Begany, Jos´ephine
+Raugel, Hubert Banville, and Jean-R´emi King.
+A foundation model of vision, audition, and
+language for in-silico neuroscience. arXiv preprint arXiv:2605.04326, 2026.
+Guy Gaziv, Roman Beliy, Niv Granot, Assaf Hoogi, Francesca Strappini, Tal Golan, and Michal
+Irani. Self-supervised natural image reconstruction and large-scale semantic classification from
+brain activity. NeuroImage, 254:119121, 2022.
+Alessandro T Gifford, Benjamin Lahner, Sari Saba-Sadiya, Martina G Vilas, Alex Lascelles, Aude
+Oliva, Kendrick Kay, Gemma Roig, and Radoslaw Martin Cichy. The algonauts project 2023
+challenge: How the human brain makes sense of natural scenes. arXiv preprint arXiv:2301.03198,
+2023.
+Zixuan Gong, Guangyin Bao, Qi Zhang, Zhongwei Wan, Duoqian Miao, Shoujin Wang, Lei Zhu,
+Changwei Wang, Rongtao Xu, Liang Hu, et al. Neuroclips: Towards high-fidelity and smooth
+fmri-to-video reconstruction. Advances in Neural Information Processing Systems, 37:51655–
+51683, 2024.
+Tomoyasu Horikawa and Yukiyasu Kamitani. Generic decoding of seen and imagined objects using
+hierarchical visual features. Nature communications, 8(1):15037, 2017.
+Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang,
+and Weizhu Chen. Lora: Low-rank adaptation of large language models. In International Con-
+ference on Learning Representations, 2022.
+Jingyang Huo, Yikai Wang, Yun Wang, Xuelin Qian, Chong Li, Yanwei Fu, and Jianfeng Feng.
+Neuropictor: Refining fmri-to-image reconstruction via multi-individual pretraining and multi-
+level modulation. In European Conference on Computer Vision, pp. 56–73. Springer, 2024.
+Will Kay, Joao Carreira, Karen Simonyan, Brian Zhang, Chloe Hillier, Sudheendra Vijaya-
+narasimhan, Fabio Viola, Tim Green, Trevor Back, Paul Natsev, et al. The kinetics human action
+video dataset. arXiv preprint arXiv:1705.06950, 2017.
+Chong Li, Xuelin Qian, Yun Wang, Jingyang Huo, Xiangyang Xue, Yanwei Fu, and Jianfeng Feng.
+Enhancing cross-subject fmri-to-video decoding with global-local functional alignment. In Euro-
+pean Conference on Computer Vision, pp. 353–369. Springer, 2024.
+11
+
+
+Preprint. Under review.
+Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr
+Doll´ar, and C Lawrence Zitnick. Microsoft coco: Common objects in context. In European
+conference on computer vision, pp. 740–755. Springer, 2014.
+Weijian Mai, Jiamin Wu, Yu Zhu, Zhouheng Yao, Dongzhan Zhou, Andrew Luo, Qihao Zheng,
+Wanli Ouyang, and Chunfeng Song. Synbrain: Enhancing visual-to-fmri synthesis via proba-
+bilistic representation learning. Advances in Neural Information Processing Systems, 38:29253–
+29284, 2025.
+Maxime Oquab, Timoth´ee Darcet, Th´eo Moutakanni, Huy Vo, Marc Szafraniec, Vasil Khalidov,
+Pierre Fernandez, Daniel Haziza, Francisco Massa, Alaaeldin El-Nouby, et al. Dinov2: Learning
+robust visual features without supervision. arXiv preprint arXiv:2304.07193, 2023.
+Furkan Ozcelik and Rufin VanRullen. Natural scene reconstruction from fmri signals using genera-
+tive latent diffusion. Scientific Reports, 13(1):15666, 2023.
+Juhyeon Park, Peter Kim, Jiook Cha, Shinjae Yoo, and Taesup Moon. Seed: Towards more ac-
+curate semantic evaluation for visual brain decoding. In International Conference on Learning
+Representations, 2026.
+Paul Scotti, Atmadeep Banerjee, Jimmie Goode, Stepan Shabalin, Alex Nguyen, Aidan Dempster,
+Nathalie Verlinde, Elad Yundler, David Weisberg, Kenneth Norman, et al. Reconstructing the
+mind’s eye: fmri-to-image with contrastive learning and diffusion priors. Advances in Neural
+Information Processing Systems, 36:24705–24728, 2023.
+Paul S Scotti, Mihir Tripathy, Cesar Kadir Torrico Villanueva, Reese Kneeland, Tong Chen,
+Ashutosh Narang, Charan Santhirasegaran, Jonathan Xu, Thomas Naselaris, Kenneth A Norman,
+et al. Mindeye2: shared-subject models enable fmri-to-image with 1 hour of data. In Proceedings
+of the 41st International Conference on Machine Learning, pp. 44038–44059, 2024.
+Ken Shirakawa, Yoshihiro Nagano, Misato Tanaka, Shuntaro C Aoki, Yusuke Muraki, Kei Majima,
+and Yukiyasu Kamitani. Spurious reconstruction from brain activity. Neural Networks, 190:
+107515, 2025.
+Ghislain St-Yves and Thomas Naselaris.
+Generative adversarial networks conditioned on brain
+activity reconstruct seen images. In 2018 IEEE international conference on systems, man, and
+cybernetics (SMC), pp. 1054–1061. IEEE, 2018.
+Mingxing Tan and Quoc Le. Efficientnet: Rethinking model scaling for convolutional neural net-
+works. In International conference on machine learning, pp. 6105–6114. PmLR, 2019.
+Zhan Tong, Yibing Song, Jue Wang, and Limin Wang. Videomae: Masked autoencoders are data-
+efficient learners for self-supervised video pre-training. Advances in neural information process-
+ing systems, 35:10078–10093, 2022.
+Haonan Wang, Qixiang Zhang, Lehan Wang, Xuanqi Huang, and Xiaomeng Li. Neurons: Emulating
+the human visual cortex improves fidelity and interpretability in fmri-to-video reconstruction. In
+2025 IEEE/CVF International Conference on Computer Vision (ICCV), pp. 18367–18376. IEEE,
+2025.
+Shizun Wang, Songhua Liu, Zhenxiong Tan, and Xinchao Wang. Mindbridge: A cross-subject
+brain decoding framework.
+In 2024 IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), pp. 11333–11342. IEEE, 2024.
+Zhou Wang, Alan C Bovik, Hamid R Sheikh, and Eero P Simoncelli. Image quality assessment:
+from error visibility to structural similarity. IEEE transactions on image processing, 13(4):600–
+612, 2004.
+Haiguang Wen, Junxing Shi, Yizhen Zhang, Kun-Han Lu, Jiayue Cao, and Zhongming Liu. Neural
+encoding and decoding with deep learning for dynamic natural vision. Cerebral cortex, 28(12):
+4136–4160, 2018.
+Qi Zhang, Zixuan Gong, Zhuojia Wu, and Duoqian Miao. Mindsimulator: Exploring brain concept
+localization via synthetic fmri. In International Conference on Learning Representations, 2025.
+12
+
+
+Preprint. Under review.
+Xiangyu Zhao, Yicheng Chen, Shilin Xu, Xiangtai Li, Xinjiang Wang, Yining Li, and Haian Huang.
+An open and comprehensive pipeline for unified object grounding and detection. arXiv preprint
+arXiv:2401.02361, 2024.
+13
+
+
+Preprint. Under review.
+Concept Generalization in Visual Brain Decoding via
+Encoder-Generated fMRI
+Appendix
+A
+ADDITIONAL EXPERIMENTAL DETAILS
+Decoder training protocols.
+As in the original paper, MindEye2 is first pre-trained on seven other
+subjects and then fine-tuned to the target subject. We utilized the pre-trained MindEye2 checkpoints
+provided by the authors, and only fine-tuned the models ourselves. Brain-IT is jointly trained with
+all eight subjects. Brain-Diffuser is trained from scratch on the target subject as it offers no multi-
+subject training method.
+Decoder input format and the corresponding synthetic fMRI.
+Depending on the decoding
+model, the input fMRI voxel space may differ. While all models use single-trial GLM beta re-
+sponses as the input, MindEye2 and Brain-Diffuser use the nsdgeneral region supplied by the NSD
+authors which includes around 15k voxels, Brain-IT uses a larger region (Gifford et al., 2023), re-
+sulting in around 40k voxels. Therefore, separate versions of encoders were trained for each fMRI
+voxel format, and they were used to generate appropriate fMRI inputs for each decoder. For all eval-
+uations of the encoder outputs such as Pearson correlation, the results for the nsdgeneral encoder
+(corresponding to MindEye2 and Brain-Diffuser inputs) were reported.
+Additional details for evaluation metrics.
+The low-level and high-level evaluation metrics (In-
+ception, CLIP, EfficientNet and SwAV) follow the protocol of previous brain decoding literature:
+AlexNet(2), AlexNet(5), Inception and CLIP are two-way identification metrics, where the respec-
+tive embeddings for the ground truth image, the reconstruction, and another reconstruction are ex-
+tracted, and the percentage chance of the reconstruction being closer to the ground-truth than to
+another reconstruction is reported. EfficientNet and SwAV report the average correlation distance,
+calculated using embeddings extracted from the respective models.
+Data counts for each supercategory.
+Table 3 lists the number of training images containing C for
+each target subject (out of 9,000) as well as the number of test images containing C (out of 1,000).
+Images may contain more than one supercategory, so columns do not sum to the set size.
+Subsampling method for limited data experiments.
+Unlike previous work, which subsamples
+by scan session and therefore retains an uneven number of repetitions per image, we subsample
+by unique image and keep all of its repetitions, giving cleaner control over the budget. NSD shows
+each image three times in random order across 40 sessions, so a session-based split exposes different
+images a different number of times and yields training sets of varying size.
+B
+EVALUATION METRICS
+We report the standard set of low-level and high-level reconstruction metrics used in prior
+work (Scotti et al., 2023; 2024; Beliy et al., 2026). PixCorr is the pixel-wise correlation between
+the ground-truth and the reconstructed image, and SSIM is the grayscale structural similarity in-
+dex (Wang et al., 2004); both are low-level. Alex(2) and Alex(5) are two-way identification accu-
+racies computed from the second and fifth layers of AlexNet, and Incep and CLIP are the corre-
+sponding accuracies from InceptionV3 pool features and the final layer of CLIP ViT-L/14, form-
+ing a sequence of increasing abstraction. Eff and SwAV report the average correlation distance in
+EfficientNet-B1 (Tan & Le, 2019) and SwAV-ResNet50 (Caron et al., 2020) feature space, for which
+lower is better.
+All two-way metrics ask whether a reconstruction is closer, in the relevant feature space, to its own
+stimulus than to an another reconstruction. They are therefore comparative, and a reconstruction
+that is structurally plausible but semantically empty can pass them; this is the reason we adapt the
+object-detection metrics of Sec. 5.1 for the semantic-holdout experiments.
+14
+
+
+Preprint. Under review.
+Table 3: Size of each concept C. The 12 COCO supercategories used for supercategory generaliza-
+tion, each followed by the two categories (indented) used for category generalization. Person has no
+underlying category. Train counts are out of 9,000 images per subject and test counts out of 1,000.
+Note that each image may contain several categories.
+Train images containing C
+Test set
+Concept C
+Subj 1
+Subj 2
+Subj 5
+Subj 7
+Mean %
+Count
+%
+Accessory
+1,281
+1,237
+1,232
+1,211
+13.8%
+97
+9.7%
+Backpack
+393
+411
+413
+404
+4.5%
+29
+2.9%
+Handbag
+465
+478
+473
+446
+5.2%
+43
+4.3%
+Animal
+1,934
+1,929
+1,924
+1,943
+21.5%
+266
+26.6%
+Bird
+258
+239
+274
+271
+2.9%
+39
+3.9%
+Giraffe
+222
+208
+215
+219
+2.4%
+44
+4.4%
+Appliance
+633
+625
+613
+615
+6.9%
+66
+6.6%
+Oven
+233
+229
+216
+214
+2.5%
+21
+2.1%
+Sink
+381
+379
+375
+386
+4.2%
+49
+4.9%
+Electronic
+839
+867
+852
+783
+9.3%
+81
+8.1%
+Cell phone
+328
+333
+318
+292
+3.5%
+31
+3.1%
+TV
+290
+292
+298
+284
+3.2%
+32
+3.2%
+Food
+1,194
+1,192
+1,211
+1,217
+13.4%
+103
+10.3%
+Broccoli
+140
+133
+155
+159
+1.6%
+22
+2.2%
+Orange
+103
+147
+136
+135
+1.4%
+21
+2.1%
+Furniture
+2,121
+2,070
+2,106
+2,078
+23.3%
+186
+18.6%
+Chair
+896
+824
+831
+907
+9.6%
+84
+8.4%
+Dining table
+816
+797
+810
+771
+8.9%
+75
+7.5%
+Indoor
+1,163
+1,149
+1,160
+1,215
+13.0%
+134
+13.4%
+Book
+393
+384
+394
+369
+4.3%
+40
+4.0%
+Clock
+368
+382
+392
+408
+4.3%
+46
+4.6%
+Kitchen
+1,508
+1,439
+1,487
+1,446
+16.3%
+125
+12.5%
+Bottle
+613
+633
+627
+606
+6.9%
+49
+4.9%
+Cup
+653
+657
+658
+625
+7.2%
+56
+5.6%
+Outdoor
+959
+1,051
+1,006
+1,002
+11.2%
+101
+10.1%
+Bench
+402
+466
+427
+413
+4.7%
+50
+5.0%
+Traffic light
+301
+339
+307
+322
+3.5%
+35
+3.5%
+Person
+4,636
+4,567
+4,533
+4,488
+50.6%
+438
+43.8%
+Sports
+1,850
+1,744
+1,763
+1,773
+19.8%
+200
+20.0%
+Skis
+297
+250
+213
+259
+2.8%
+43
+4.3%
+Surfboard
+309
+319
+321
+303
+3.5%
+48
+4.8%
+Vehicle
+2,073
+2,149
+2,111
+2,084
+23.4%
+211
+21.1%
+Car
+876
+927
+919
+884
+10.0%
+74
+7.4%
+Train
+286
+305
+294
+300
+3.3%
+36
+3.6%
+B.1
+OBJECT RECALL AND RELAXED RECALL
+In order to supplement standard high-level metrics that compare global embeddings and can score
+a reconstruction highly even when the object of interest is absent, we adapt metrics that focus on
+whether the target concept itself was recovered. We follow SEED (Park et al., 2026) and run an
+object detector, namely MM-Grounding-DINO (Zhao et al., 2024), on both the ground-truth image
+and the reconstruction, then ask whether the detected content matches. Formally, we index every
+quantity by the subject s ∈S and the decoder variant v ∈V. Let O (|O| = 80) be the set of COCO
+subcategories and G the set of 12 COCO supercategories, which are the same supercategories as the
+held-out concept C in the main text. Each subcategory has a parent supercategory given by the map
+π : O →G, and for a set X ⊆O we write π(X) = {π(o) : o ∈X}.
+We prompt the detector with all 80 COCO class names and, on both ground-truth and reconstructed
+images, discard detections with confidence below 0.3 or bounding-box area below 50 pixels, to filter
+noisy results.
+15
+
+
+Preprint. Under review.
+Which model produces the reconstructions.
+Each holdout excludes an entire supercategory, so
+there are 12 separately trained models per subject and variant. Both metrics for a supercategory γ,
+including the recall of every subcategory o with π(o) = γ, are always computed from the model
+trained with C = γ: for example, zebra is scored with the animal-excluded model, bus with the
+vehicle-excluded model, and so on. This keeps every number a concept measurement, and it is
+consistent with the test set restriction of Sec. 5, since the test set of that model consists precisely of
+images containing γ.
+The qualifying sets.
+For a test image i, write Ai ⊆O for object categories present in the ground-
+truth COCO annotation, Di ⊆O for the detected object categories on the ground-truth image, and
+bDi ⊆O for the detected object categories on its reconstruction. We only score an image if the
+COCO annotation and the detector run on the ground-truth image agree that the object being mea-
+sured is present. The annotation confirms the object is genuinely in the scene, and the ground-truth
+detection confirms the detector is able to find it without any detector-side error. For a subcategory
+o, the qualifying set Qo therefore contains the test images for which both Ai and Di include o. For
+a supercategory γ, the qualifying set Qγ contains the test images for which both Ai and Di include
+at least one object of γ.
+This condition ensures that the trivial perfect reconstruction, which is a reconstruction identical to
+the ground truth, always gets a perfect score for both metrics. Otherwise, even the perfect recon-
+struction would not get a perfect score if any detector-side error occurs.
+The two metrics.
+Recall is defined per subcategory: Ro is the fraction of images in Qo whose
+reconstruction contains the exact subcategory o. If the ground-truth image shows a zebra, the re-
+construction must contain a zebra. Relaxed recall is defined directly on the concept: eRγ is the
+fraction of images in Qγ whose reconstruction contains any object of γ, so a reconstructed giraffe
+still counts even if the ground truth is a zebra, as a giraffe is still an animal just like a zebra. We
+define relaxed recall at the image level rather than per subcategory because its hit condition does not
+depend on which subcategory is present; computing it per subcategory would only reweight images,
+for instance counting an image that contains both a zebra and a giraffe twice with the same outcome.
+The relaxed variant is informative because a decoder that has never seen a concept often produces
+a semantically adjacent object rather than an unrelated one, and this near-miss behavior is invisible
+to exact recall. For any single image, an exact hit is also a relaxed hit, and Qo ⊆Qπ(o); the two
+metrics are, however, averaged over different sets, so relaxed recall exceeding recall is an empirical
+observation rather than an identity. The gap between them indicates how much of the supercategory
+a decoder recovers without pinning down the specific object. Algorithm 1 states the full procedure.
+Algorithm 1 Object recall and relaxed recall, for a fixed subject s and decoder variant v
+Require: Test images Iγ and reconstruction detections bDγ
+i for every held-out supercategory γ ∈G;
+annotations Ai and ground-truth detections Di.
+Ensure: Ro for every o ∈O and eRγ for every γ ∈G.
+1: for all o ∈O do
+2:
+γ ←π(o)
+▷score o on the model that held out its parent
+3:
+Qo ←{ i ∈Iγ : o ∈Ai ∧o ∈Di }
+▷annotation and ground-truth detector agree
+4:
+Ro ←
+1
+|Qo|
+P
+i∈Qo ⊮
+h
+o ∈bDγ
+i
+i
+▷Recall: reconstruction recovers o itself
+5: end for
+6: for all γ ∈G do
+7:
+Qγ ←{ i ∈Iγ : γ ∈π(Ai) ∧γ ∈π(Di) } ▷annotation and ground-truth detector agree
+8:
+eRγ ←
+1
+|Qγ|
+P
+i∈Qγ ⊮
+h
+γ ∈π
+  bDγ
+i
+i
+▷Relaxed Recall: reconstruction recovers γ
+9: end for
+10: return {Ro}o∈O, { eRγ}γ∈G
+Aggregation.
+Recall is first macro-averaged over the subcategories within each supercategory;
+relaxed recall is already computed per supercategory. Both are then averaged across subjects, and
+16
+
+
+Preprint. Under review.
+Table 4: Concept generalization for decoders, evaluated on unrelated images. Decoders are
+trained with/without C and evaluated on images that do not contain C. Removing C’s training data
+or adding synthetic data shifts these scores by an order of magnitude less than on images containing
+C; see Appendix C.1 and Table 19.
+Low-level
+High-level
+Decoder
+Concept C
+PixCorr ↑SSIM ↑Alex(2) ↑Alex(5) ↑Incep ↑CLIP ↑EffNet ↓SwAV ↓
+Brain-Diffuser
+Seen
+0.260
+0.358
+94.5%
+96.6%
+88.0%
+92.0%
+0.772
+0.423
+Unseen
+0.255
+0.357
+94.1%
+96.4%
+87.6%
+91.9%
+0.773
+0.425
+Unseen + syn.
+0.260
+0.357
+94.6%
+96.7%
+87.9%
+92.2%
+0.770
+0.421
+MindEye2
+Seen
+0.281
+0.378
+95.8%
+98.7%
+94.9%
+93.7%
+0.619
+0.345
+Unseen
+0.276
+0.379
+95.2%
+98.5%
+94.6%
+92.9%
+0.628
+0.350
+Unseen + syn.
+0.285
+0.380
+95.7%
+98.7%
+95.0%
+93.4%
+0.618
+0.344
+Brain-IT
+Seen
+0.365
+0.502
+98.0%
+99.3%
+96.8%
+95.7%
+0.581
+0.336
+Unseen
+0.360
+0.502
+98.0%
+99.2%
+96.6%
+95.7%
+0.583
+0.337
+Unseen + syn.
+0.362
+0.503
+98.1%
+99.2%
+96.8%
+95.7%
+0.584
+0.337
+finally across the 12 supercategories with equal weight. Weighting supercategories equally prevents
+frequent concepts such as person, which appears in nearly half of the test images, from dominating
+the reported score, so that the metric reflects performance across concepts rather than across images.
+Category generalization.
+For the 22 categories of Table 3 (two per non-person supercategory),
+the procedure differs in two respects. First, each category o is scored with the model trained with
+o itself held out, rather than with the model that held out π(o); an image containing several of the
+22 categories is therefore scored separately by each corresponding model. Second, both metrics use
+the exact-category qualifying set Qo of Algorithm 1 (line 3), with Io the test images containing o.
+Recall Ro is computed as before, while relaxed recall becomes
+eRo =
+1
+|Qo|
+X
+i∈Qo
+⊮
+h
+π(o) ∈π
+  bD o
+i
+i
+,
+(1)
+so a reconstruction containing a sibling o′ with π(o′) = π(o) is a relaxed hit. Unlike in the supercat-
+egory setting, such siblings remain in the target subject’s training set, so at this granularity relaxed
+recall partly credits the decoder for substituting a seen, semantically adjacent object. Both metrics
+are averaged over subjects and then over the 22 categories with equal weight; since every parent con-
+tributes exactly two categories, this is equivalent to weighting the 11 parent supercategories equally.
+C
+ADDITIONAL CONCEPT GENERALIZATION RESULTS
+C.1
+COMPLEMENTARY TEST SET RESULTS
+Table 4 shows performance of different decoders from the concept generalization experiments in
+Table 1, evaluated instead on the complementary test set that do not contain C. In other words, while
+results from Table 1 are from images that contain C, results from Table 4 are from the left-out images
+that do not contain C. Results from this table show how adding or removing data from the training
+set in our experiments influences semantically unrelated images that do not contain C.
+Both manipulations have small but measurable effects on images that do not contain C (Table 19).
+Removing C’s images from training lowers performance on unrelated images, which is expected
+since the Seen model has more training data (Table 3); the shifts are significant on all eight met-
+rics for MindEye2, five for Brain-Diffuser, and three for Brain-IT. Adding synthetic data raises
+performance on unrelated images, consistent with the general benefit reported in Sec. 5.3; this is
+significant on all eight metrics for MindEye2, six for Brain-Diffuser, and only PixCorr for Brain-IT.
+(MindEye2’s SSIM moves by 0.001 in the opposite direction under the holdout, at the resolution
+where that metric is insensitive to all of our manipulations.)
+What matters for interpreting Table 1 is the magnitude of these shifts relative to those on images
+containing C. On the high-level metrics, the effect of the holdout on unrelated images is 1-8%
+17
+
+
+Preprint. Under review.
+Table 5: Concept generalization for decoders: low-level metrics. Same models and evaluation
+images as Table 1: decoders are trained with/without C for the target subject and evaluated on images
+containing C. Bold marks the better of the two unseen variants, with or without synthetic data.
+Low-level
+Decoder
+Concept C
+PixCorr ↑
+SSIM ↑
+Alex(2) ↑
+Alex(5) ↑
+Brain-Diffuser
+Seen
+0.245
+0.352
+93.8%
+96.8%
+Unseen
+0.221
+0.350
+91.7%
+94.6%
+Unseen + syn.
+0.240
+0.351
+93.6%
+96.7%
+MindEye2
+Seen
+0.255
+0.358
+95.1%
+98.6%
+Unseen
+0.217
+0.353
+92.3%
+96.7%
+Unseen + syn.
+0.244
+0.358
+94.0%
+98.1%
+Brain-IT
+Seen
+0.337
+0.489
+97.6%
+99.2%
+Unseen
+0.321
+0.490
+97.0%
+98.7%
+Unseen + syn.
+0.327
+0.489
+97.4%
+99.0%
+Table 6: Encoder impact on decoding performance by training condition, concept generaliza-
+tion: low-level metrics. Same models and evaluation images as Tables 2 and 10. Each row trains a
+MindEye2 decoder from scratch, varying the encoder that generated its synthetic pairs. The last row
+of each panel uses real fMRI for C as an upper bound.
+Low-level
+Training condition
+PixCorr ↑
+SSIM ↑
+Alex(2) ↑
+Alex(5) ↑
+Supercategory generalization (12 concepts)
+C unseen
+0.209
+0.351
+91.3%
+96.2%
++ syn. (scratch-blind)
+0.232
+0.358
+93.0%
+97.5%
++ syn. (transfer-blind)
+0.231
+0.357
+93.1%
+97.5%
++ syn. (transfer-concept)
+0.236
+0.358
+93.4%
+97.7%
+Real fMRI for C (seen)
+0.246
+0.359
+94.0%
+98.3%
+Category generalization (22 concepts)
+C unseen
+0.235
+0.348
+93.3%
+97.5%
++ syn. (scratch-blind)
+0.248
+0.350
+94.1%
+98.1%
++ syn. (transfer-blind)
+0.249
+0.351
+94.5%
+98.2%
++ syn. (transfer-concept)
+0.254
+0.351
+94.3%
+98.3%
+Real fMRI for C (seen)
+0.254
+0.349
+94.4%
+98.4%
+of its effect on concept images, and the effect of synthetic data is 3-14% for Brain-Diffuser and
+MindEye2 and indistinguishable from zero (not significant) for Brain-IT. The low-level metrics are
+less specific, as expected for a semantic manipulation: there the general effects reach around 10-
+30% of the concept-specific ones. We conclude that the gap in Table 1 is predominantly a failure to
+generalize to C, and that the recovery from synthetic data is predominantly the encoder introducing
+concept-specific knowledge, with a small general improvement on top.
+C.2
+LOW-LEVEL METRICS ON THE TARGET SET
+Table 1 of the main text reports only high-level and object-detection metrics on the target set, since
+the semantic shift is by construction a high-level one. For completeness, Table 5 reports the low-
+level metrics for the same models.
+C.3
+SIZE-MATCHED RANDOM DELETION
+Holding out a concept also shrinks the training set, by as much as half for person (Table 3), and the
+comparison of Appendix C.1 is made on a different test set. To separate the loss of C from the loss
+of training volume on the same target-concept test set, we compare concept deletion with a size-
+18
+
+
+Preprint. Under review.
+Table 7: Size-matched random deletion vs. concept deletion. MindEye2 probe decoder trained
+on real data only, subject 1, C = animal. Random deletion removes 1,934 images without animals;
+concept deletion removes the 1,934 images with animals.
+Animal test images
+Non-animal test images
+Training set
+# images Recall ↑Relaxed ↑Incep ↑CLIP ↑Incep ↑
+CLIP ↑
+Full (C seen)
+9,000
+0.462
+0.748
+88.2%
+91.9%
+96.5%
+93.4%
+Random deletion, animals kept
+7,066
+0.456
+0.767
+90.3%
+91.5%
+95.2%
+91.6%
+Concept deletion (C unseen)
+7,066
+0.015
+0.054
+72.7%
+71.8%
+96.1%
+92.6%
+matched random deletion, using the MindEye2 probe decoder of Sec. 6 on subject 1 with animal
+held out. From the full training set, we randomly remove as many images as the animal holdout does
+(1,934), drawing only from images without animals. The resulting set matches the concept-held-out
+set in total real training volume, and the full set in concept-specific training volume.
+Table 7 shows that size-matched random deletion costs essentially nothing on animal images, while
+concept deletion of the same size removes almost all recall. The loss of general training volume
+alone therefore does not explain the deficit, consistent with the non-C control (Appendix D.3), where
+adding data without C does not help. Note that a similar experiment cannot be constructed for a
+very large concept like person: it would require deleting 4,636 non-person images from subject 1’s
+training set, which contains only 4,364.
+D
+ADDITIONAL ENCODER-VARIANT RESULTS
+D.1
+DECODED RECALL FOR ENCODERS
+Following prior work that evaluates encoders by decoding their predictions (Zhang et al., 2025; Mai
+et al., 2025), we score encoders with the concept metrics of Appendix B.1. For every test image
+containing C, we predict the target subject’s response, reconstruct images from the predictions with
+a fixed readout, and apply Algorithm 1 unchanged. The qualifying sets depend only on annotations
+and ground-truth detections and are therefore identical to those used for decoders. The readout is
+the full-data MindEye2 for the same subject, trained with C present and with encoder-generated
+synthetic data (Sec. 5.3), so it can read encoder outputs as well as any decoder we have. The
+encoder retention in Fig. 1b is the decoded recall of the transfer-concept encoder divided by that of
+the transfer-oracle encoder.
+Because the readout’s synthetic training data come from an encoder that saw C, the readout is ex-
+pected to favor the transfer-oracle variant over the held-out ones. The retention fractions in Fig. 1b
+are therefore conservative, and the decoded columns of Table 2 should be read for ordering rather
+than for the size of differences between the scratch and transfer families.
+Scope of the comparison and a real-data-only readout.
+The readout is intentionally trained with
+C: when an encoder does produce a response that carries the concept, the readout has to convert it
+into an image containing C, and a readout that never saw C would add its own concept-generalization
+limits to the measurement. The retention ratios of Fig. 1b nevertheless compare two fixed pipelines,
+which differ in their input, noise and readout, and do not isolate an intrinsic advantage of the encod-
+ing direction; we use them as motivation for the method, whose utility is tested by training decoders
+(Sec. 5).
+To check that the pattern does not depend on the readout’s synthetic training, we repeat the analysis
+on subject 1 with animal held out, using a MindEye2 readout trained on real data only (Table 8).
+Each encoder’s retention is relative to its own oracle, decoded by the same readout. The pattern is
+unchanged: the encoder retains most of its recall under the holdout, while the decoder retains almost
+none. Retention is graded across encoder variants: it is highest with cross-subject exposure to C, and
+still about half for scratch-blind, which never saw fMRI for C from any subject. The oracles exceed
+real test fMRI, possibly because encoder predictions are free of trial noise.
+19
+
+
+Preprint. Under review.
+Table 8: Encoder retention with a real-data-only readout. Subject 1, C = animal. Encoder-
+predicted test fMRI is decoded by a MindEye2 readout trained with C present on real data only.
+Retained is the ratio to the oracle of the same family (Recall / Relaxed Recall). The last row is the
+probe decoder of Sec. 6 on real test fMRI, relative to its own C-seen model (Table 12).
+Encoder
+C in encoder training
+Recall ↑Relaxed ↑Incep ↑CLIP ↑
+Retained
+Real test fMRI (no encoder) –
+0.484
+0.771
+96.1%
+93.4%
+–
+Transfer-oracle
+seen
+0.559
+0.810
+97.0%
+94.0%
+–
+Transfer-concept
+held out (target subject)
+0.471
+0.713
+96.4%
+93.4%
+84% / 88%
+Transfer-blind
+held out (all subjects)
+0.358
+0.663
+96.0%
+92.9%
+64% / 82%
+Scratch-oracle
+seen
+0.535
+0.798
+95.8%
+93.5%
+–
+Scratch-blind
+held out
+0.262
+0.593
+93.9%
+91.7%
+49% / 74%
+Decoder (probe)
+held out
+0.015
+0.054
+72.7%
+71.8%
+3% / 7%
+Table 9: Synthetic-data controls and frozen-backbone encoders.
+MindEye2 probe decoder
+trained from scratch on subject 1, supercategory generalization (12 concepts). Both controls use
+identical synthetic fMRI, predicted for images not containing C; they differ only in whether it is
+paired with those images (non-C images) or with the C images (wrong fMRI). Frozen encoders keep
+DINOv2 fixed instead of LoRA-tuning it. The last row uses real fMRI for C as an upper bound.
+Low-level
+High-level
+Object Detection
+Training condition
+PixCorr ↑
+SSIM ↑
+Alex(2) ↑
+Alex(5) ↑
+Incep ↑
+CLIP ↑
+EffNet ↓
+SwAV ↓
+Recall ↑
+Relaxed ↑
+C unseen
+0.247
+0.360
+94.0%
+97.1%
+88.4%
+82.9%
+0.770
+0.411
+0.080
+0.219
++ syn. (non-C images)
+0.262
+0.365
+94.2%
+97.6%
+88.1%
+83.7%
+0.766
+0.407
+0.088
+0.242
++ syn. (wrong fMRI)
+0.238
+0.356
+92.5%
+96.4%
+87.7%
+83.1%
+0.769
+0.415
+0.122
+0.298
++ syn. (scratch-blind)
+0.269
+0.367
+95.1%
+98.1%
+91.6%
+87.2%
+0.718
+0.383
+0.228
+0.435
++ syn. (transfer-blind)
+0.272
+0.364
+95.2%
+98.2%
+92.1%
+87.8%
+0.718
+0.381
+0.222
+0.432
++ syn. (transfer-blind, frozen)
+0.272
+0.361
+95.2%
+98.3%
+92.5%
+87.5%
+0.717
+0.379
+0.239
+0.447
++ syn. (transfer-concept)
+0.276
+0.365
+95.5%
+98.5%
+93.2%
+89.0%
+0.698
+0.371
+0.301
+0.519
++ syn. (transfer-concept, frozen)
+0.275
+0.364
+95.4%
+98.5%
+93.1%
+89.2%
+0.702
+0.374
+0.287
+0.515
+Real fMRI for C (seen)
+0.282
+0.364
+95.9%
+98.9%
+95.6%
+92.7%
+0.638
+0.338
+0.423
+0.644
+D.2
+CATEGORY GENERALIZATION
+To probe a smaller semantic gap than a supercategory, we repeat the analysis of Sec. 6 with individ-
+ual COCO categories as C, taking the two most frequent categories of each supercategory among the
+1,000 test set images; person is excluded as it has no subcategories, giving 22 categories (Table 3).
+Table 10 reports the same quantities as Table 2.
+Every effect shrinks with the semantic gap. Removing C from all subjects costs the encoder 0.004
+in r (1%) and 18% of decoded Object Recall, against 0.014 and 34% at supercategory granularity.
+The reversal between fidelity and decoded recall for the pre-training contrast (scratch-oracle vs.
+transfer-blind) shrinks to 0.038 in Object Recall and is not robust across tests (Appendix G.2). For
+the probe decoder, concept-specific transfer is significant on no metric at this granularity, whereas
+it is significant on every metric at supercategory granularity; the dependence on granularity is itself
+significant for Inception, CLIP and EffNet. The within-cell rank correlation between encoder r and
+probe-decoder Object Recall vanishes (ρ = 0.10, n.s.). Scratch-blind and transfer-blind still recover
+55% and 59% of the Object Recall gap. Note that at this granularity sibling categories of C remain
+in training, so relaxed recall partly credits the decoder for substituting a seen, semantically adjacent
+object (Appendix B).
+D.3
+SYNTHETIC-DATA CONTROLS
+Sec. 6 attributes the benefit of synthetic data to the encoder’s ability to predict responses to C. A
+simpler explanation is that any additional training pairs help, as in conventional data augmentation.
+We test this with two controls that add the same number of synthetic pairs as the main condition and
+use identical synthetic responses, differing only in which images those responses are paired with.
+20
+
+
+Preprint. Under review.
+Table 10: Encoder variants and their value as synthetic-data sources, category generalization
+(22 concepts). Same layout as Table 2. Bold marks the best of the three synthesis encoders in each
+probe-decoder column.
+C incl. for
+Probe decoder trained with synthetic data
+Encoder
+Encoder variant
+Other Target Incep ↑CLIP ↑EffNet ↓SwAV ↓Rec. ↑Rel. ↑
+r ↑
+D.Rec. ↑D.Rel. ↑
+Scratch-oracle
+–
+✓
+n/a: trained on real fMRI for C
+0.275
+0.551
+0.693
+Transfer-oracle
+✓
+✓
+0.322
+0.623
+0.738
+Scratch-blind
+–
+✗
+94.5%
+91.9%
+0.685
+0.363
+0.338 0.582 0.268
+0.436
+0.644
+Transfer-blind
+✗
+✗
+94.7%
+92.4%
+0.675
+0.360
+0.351 0.580 0.318
+0.513
+0.692
+Transfer-concept
+✓
+✗
+94.8%
+92.1%
+0.676
+0.358
+0.365 0.578 0.320
+0.551
+0.697
+No synthetic
+92.4%
+90.2%
+0.729
+0.383
+0.179 0.505
+Real fMRI (seen)
+96.0%
+93.2%
+0.636
+0.339
+0.469 0.650
+Non-C images.
+The synthetic responses are predicted by the transfer-concept encoder for images
+that do not contain C, and are paired with those same images. The pairs are therefore correctly
+matched but carry no information about C, which isolates the effect of training-set size.
+Wrong fMRI.
+The same responses are instead paired with the C images that the main condition
+uses. The decoder thus sees C as a reconstruction target, but never with the response that C elicits.
+Because the fMRI is identical to the non-C control and comes from the same encoder, any failure of
+this control cannot be attributed to the synthetic responses being off-distribution.
+Results.
+Table 9 reports both controls for subject 1. Neither closes the gap: both fall well short of
+correctly paired synthetic data on Object Recall (−0.21 and −0.18) and Relaxed Recall (−0.28 and
+−0.22; all p < 0.001). The non-C control is statistically equivalent to the unseen baseline on every
+high-level and object-detection metric (Object Recall 0.080 to 0.088), yet significantly improves
+the low-level metrics (PixCorr +0.015, SSIM +0.005, Alex(5) +0.4 points), consistent with the
+general benefit of synthetic data in Sec. 5.3. Additional data therefore improves decoding in general
+but not on C. Wrong fMRI instead lowers Alex(2), Alex(5) and SSIM significantly, as expected
+from mismatched pairs acting as label noise, and modestly raises Object Recall (0.080 to 0.122) and
+Relaxed Recall (0.219 to 0.298). This is consistent with the decoder’s output prior drifting toward C
+once C images appear as targets, but it amounts to only 19% [12, 26] and 27% [19, 35] of the gain
+from correct pairing. The benefit of synthetic data therefore requires both that the images depict C
+and that they are paired with the encoder’s prediction of the response to them. Neither additional
+data volume nor exposure to C images alone is sufficient.
+Within-concept shuffling and a fixed general pool.
+The wrong-fMRI control pairs C images with
+responses to images without C, so it cannot tell whether the remaining advantage of correct pairing
+comes from coarse supercategory information or from image-specific information. Both controls
+above also leave open whether the synthesis pool must be selected for C. We therefore add two
+controls on subject 1 with animal held out (Table 11).
+Shuffled within C pairs each C image with the synthetic response of a different C image, which
+keeps supercategory-level information but breaks the pairing. It raises only Relaxed Recall (0.054
+to 0.209), while the other metrics stay similar to or fall below the unseen baseline. Supercategory-
+level supervision alone is therefore not enough: correct pairing within the concept is needed.
+Fixed general pool replaces the C images with a pool that is fixed in advance and not selected for
+the test concept: the entire training set of subject 2 (9,000 images, of which 1,929 contain animals,
+against 1,934 held out from subject 1). It recovers nearly as much of the gap as targeted synthesis.
+This pool is larger than the main setting (9,000 against 1,934 synthetic images), but added volume
+alone does not help on C, as the non-C control shows. Together, the two results indicate that what
+matters is whether C is represented in the synthesis pool, not whether the pool was selected for it:
+a broad pool can cover a held-out concept without knowing it in advance, as long as the concept
+appears in it. Since a held-out supercategory removes several COCO categories jointly (e.g., zebra,
+dog and bird for animal) and Object Recall is scored per category, one decoder and one untargeted
+21
+
+
+Preprint. Under review.
+Table 11: Within-concept shuffling and a fixed general pool. MindEye2 probe decoder, subject 1,
+C = animal, synthetic data from the transfer-concept encoder. Gap rec. is the recovered fraction of
+the gap, (syn −unseen)/(seen −unseen), for Recall / Relaxed Recall.
+Synthetic data
+Incep ↑
+CLIP ↑
+Recall ↑
+Relaxed ↑
+Gap rec.
+None (C unseen)
+72.7%
+71.8%
+0.015
+0.054
+–
+C images (main setting)
+83.4%
+86.4%
+0.270
+0.543
+57% / 70%
+Fixed general pool
+83.3%
+88.1%
+0.234
+0.543
+49% / 70%
+Shuffled within C
+66.3%
+70.4%
+0.029
+0.209
+3% / 22%
+Real fMRI for C (seen)
+88.2%
+91.9%
+0.462
+0.748
+–
+pool recover several held-out categories at once. Targeting the pool remains useful when the concept
+is known, as it reaches a similar performance with far fewer synthetic pairs.
+D.4
+FROZEN ENCODER BACKBONE
+The Universal Encoder adapts its DINOv2 backbone with LoRA during pre-training. If the en-
+coder’s robustness to C came from this fMRI-driven adaptation rather than from the pre-trained
+representation, freezing the backbone should reduce it. We retrain the transfer-blind and transfer-
+concept encoders with DINOv2 frozen, so that fMRI training updates only the remaining encoder
+parameters, and train the probe decoder on their synthetic pairs (Table 9).
+Freezing the backbone has no detectable effect on the decoder gains from either encoder. For
+transfer-blind, Object Recall is 0.222 with LoRA and 0.239 frozen (Relaxed Recall 0.432 and 0.447);
+for transfer-concept, it is 0.301 and 0.287 (0.519 and 0.515). Both frozen encoders are statistically
+equivalent to their LoRA counterparts on all four high-level metrics and both object-detection met-
+rics, with 90% confidence intervals for the Object Recall difference within ±0.033 (Appendix G.3).
+The low-level metrics are mostly inconclusive rather than different; the only significant difference
+is a small SSIM decrease for transfer-blind (−0.003). Since transfer-blind never observes C from
+any subject, its ability to produce useful responses to C must come from the pre-trained representa-
+tion itself. The concept-specific advantage of transfer-concept over transfer-blind also persists with
+a frozen backbone (Object Recall +0.049 [0.028, 0.070], Relaxed Recall +0.068 [0.039, 0.097],
+both p < 0.001), so concept-specific transfer through other subjects does not require adapting DI-
+NOv2. Whether freezing modestly reduces this advantage is unresolved (the difference in advantage
+is 0.030 [0.000, 0.059] in Object Recall). Equivalence holds at the margin used throughout the paper
+but not at a stricter margin of half the concept-specific advantage, so we cannot exclude differences
+of that size. These results are for a single subject and do not account for variation across training
+runs. Appendix D.5 tests the role of the backbone more directly.
+D.5
+ENCODER DESIGNS AS SYNTHETIC-DATA SOURCES
+All experiments so far use the Universal Encoder (UE). To test whether the conclusions depend on
+this encoder or on its DINOv2 backbone, we keep the MindEye2 probe decoder of Sec. 6 and vary
+the encoder that generates its synthetic data, on subject 1 with animal held out. Each condition is
+trained once, for a single subject and concept, so the results in this subsection are reported without
+significance tests.
+Encoders.
+Besides the three UE variants of Table 2, we test four encoders: a ridge regression from
+frozen DINOv2 features to voxels, fit only on the target subject’s training data; a UE with a frozen,
+randomly initialized ViT backbone; a UE whose backbone is replaced with OpenCLIP ViT-bigG, the
+backbone MindEye2 uses; and SynBrain (Mai et al., 2025), which we reproduce with the authors’
+official code and recipe, verify against the reported performance and the released checkpoint, and
+then retrain under the same holdout.
+Results.
+Table 12 reports the probe decoder under each encoder. The ridge encoder, whose rep-
+resentation was never exposed to fMRI, already produces useful synthetic data, at roughly half the
+benefit of the UE trained on the same subject’s data (scratch-blind). The benefit therefore requires
+22
+
+
+Preprint. Under review.
+Table 12: Encoder designs as synthetic-data sources. MindEye2 probe decoder trained with syn-
+thetic data from each encoder, subject 1, C = animal. Gap rec. is (syn −unseen)/(seen −unseen)
+for Recall / Relaxed Recall. The first two rows are the probe decoder trained with real fMRI for C
+and without synthetic data. OpenCLIP denotes the OpenCLIP ViT-bigG backbone.
+Encoder for synthesis
+Incep ↑CLIP ↑EffNet ↓SwAV ↓Recall ↑Relaxed ↑
+Gap rec.
+C seen (upper bound)
+88.2%
+91.9%
+0.666
+0.365
+0.462
+0.748
+–
+C unseen (no synthetic)
+72.7%
+71.8%
+0.898
+0.511
+0.015
+0.054
+–
+UE, frozen random-init ViT
+73.0%
+76.8%
+0.886
+0.506
+0.028
+0.147
+3% / 13%
+Ridge, frozen DINOv2
+75.5%
+79.7%
+0.846
+0.474
+0.094
+0.275
+18% / 32%
+SynBrain
+72.0%
+73.0%
+0.887
+0.505
+0.026
+0.093
+2% / 6%
+UE scratch-blind
+79.7%
+80.7%
+0.810
+0.453
+0.167
+0.434
+34% / 55%
+UE transfer-blind
+79.5%
+85.1%
+0.786
+0.433
+0.212
+0.504
+44% / 65%
+UE transfer-concept (DINOv2)
+83.4%
+86.4%
+0.767
+0.422
+0.270
+0.543
+57% / 70%
+UE transfer-concept (OpenCLIP)
+81.1%
+84.2%
+0.782
+0.435
+0.253
+0.484
+53% / 62%
+neither a sophisticated encoder nor cross-subject pre-training. Replacing DINOv2 with OpenCLIP
+gives similar gains, while a randomly initialized backbone gives almost none: the pretrained back-
+bone plays a major role, and the benefit is not specific to DINOv2. The OpenCLIP result also sharp-
+ens the asymmetry of Sec. 6: built on the same backbone as MindEye2, the encoder remains robust
+to the holdout while MindEye2 does not, consistent with the asymmetry depending on where the
+pretrained representation sits (encoder input vs. decoder output) rather than on which representation
+is used.
+SynBrain under the holdout.
+Not every encoder shares this property: SynBrain’s synthetic data
+gives little recovery. Decoding each encoder’s predicted test fMRI with the fixed readout of Sec. 6
+(Table 13) shows that, under the holdout, SynBrain’s predictions for the held-out concept degrade
+while those for seen concepts stay intact. Its predictions also carry less within-concept information
+than the UE’s, both when the UE is matched on training data and when it is built on the same Open-
+CLIP backbone. One possible explanation is SynBrain’s VAE voxel decoder, which is trained only
+on seen-concept fMRI, although establishing this would require a matched architectural ablation.
+SynBrain was designed for in-distribution fidelity and variability; our finding is specific to concept
+holdout and shows that useful concept generalization is not automatic across encoder architectures.
+Encoder-side diagnostics.
+Table 14 compares encoder-side metrics with the decoder gap recov-
+ered. Besides voxel-wise correlation and decoded recall (Sec. 6), we test two metrics that do not
+require training a decoder with synthetic data. Decoded CLIP is computed like decoded recall, but
+reports the CLIP metric of the reconstructed images. Within-concept identification needs no decoder
+at all: it measures how often an encoder’s prediction is matched to the correct image among the
+held-out concept images from training, after subtracting the mean response over all images.
+Overall voxel-wise correlation does not consistently capture differences in synthetic-data utility, as
+encoders with similar correlation can differ widely in their impact on the decoder. Decoded CLIP
+and within-concept identification order the tested encoders by their decoder benefit, and decoded
+recall agrees except for the two weakest encoders. Consistent with Appendix G.2, overall fidelity
+is informative but not sufficient, especially across encoder families; what separates the encoders is
+their fidelity on a concept held out from their training. In practice, both diagnostics can be computed
+by holding out a proxy concept for which the subject has measured responses. We present them as
+exploratory diagnostics rather than validated predictors, and a general-purpose metric for decoding
+and other downstream tasks remains future work.
+D.6
+PRECISION AND FALSE-POSITIVE RATE
+Object Recall and Relaxed Recall are scored on images that contain C, and do not penalize a decoder
+for generating C where it is absent. To check that the gains are not explained by a tendency to
+generate C more often, we additionally report precision and false-positive rate (FPR) for the probe
+decoders of Table 2 (Table 15). Precision is the fraction of the reconstructions in which a category is
+23
+
+
+Preprint. Under review.
+Table 13: Decoding encoder-predicted test fMRI under the holdout. Subject 1, C = animal; In-
+cep / CLIP of images reconstructed from each encoder’s predictions by the fixed MindEye2 readout
+of Sec. 6. Within-concept identification is defined in Appendix D.5. The OpenCLIP UE uses Open-
+CLIP ViT-bigG, the same backbone as SynBrain.
+Encoder
+Animals in training?
+Animal test
+(n=266)
+Non-animal test
+(n=734)
+Within-concept
+identification
+SynBrain, released checkpoint
+Yes
+94.3% / 93.7%
+98.1% / 95.6%
+–
+SynBrain, our retrain
+No
+82.2% / 80.0%
+98.0% / 96.2%
+20%
+UE scratch-blind (subject 1 only) No
+87.3% / 88.6%
+98.6% / 96.3%
+30%
+UE transfer-blind
+No (any subject)
+93.7% / 94.6%
+99.1% / 97.3%
+58%
+UE transfer-blind (OpenCLIP)
+No (any subject)
+85.1% / 84.1%
+98.8% / 96.4%
+38%
+Table 14: Encoder-side metrics vs. value of synthetic data. Subject 1, C = animal. The first four
+columns evaluate the encoder-predicted fMRI (decoded metrics on the animal test images); the last
+column is the decoder gap recovered when the synthetic data is used for training (Table 12).
+Encoder
+Voxel-wise
+r ↑
+Decoded
+CLIP ↑
+Decoded
+Recall ↑
+Within-concept
+identification ↑
+Decoder gap rec.
+(Recall / Relaxed)
+SynBrain
+0.334
+80.0%
+0.14
+20%
+2% / 6%
+Ridge, frozen DINOv2
+0.362
+82.9%
+0.11
+28%
+18% / 32%
+UE scratch-blind
+0.342
+88.6%
+0.26
+30%
+34% / 55%
+UE transfer-blind
+0.398
+94.6%
+0.42
+58%
+44% / 65%
+UE transfer-concept
+0.400
+96.1%
+0.58
+62%
+57% / 70%
+detected whose ground-truth image also contains it, and FPR is the fraction of the test images without
+the category whose reconstruction nevertheless contains it. All metrics are computed over the full
+test set, including images without C, with the same models and averaging as Table 2; the relaxed
+versions are at the supercategory level. Precision is undefined when no reconstruction contains the
+category (20% of subject-category pairs for the model without synthetic data, 3–7% for the others),
+so it is averaged over the 246 of 320 pairs defined for all five variants.
+Precision recovers together with recall. The FPR does rise relative to the model without synthetic
+data, which rarely generates C at all, but it stays below that of the decoder trained on real fMRI for
+C. Decoders trained with synthetic data therefore do not produce C on images without it more often
+than a decoder that has seen real data for C.
+E
+ADDITIONAL DATA-SCALING RESULTS
+E.1
+LIMITED AND FULL DATA RESULTS WRITTEN OUT
+Table 16 lists part of the exact results for the experiment in Sec. 5.3, with values identical to Fig. 4.
+E.2
+ENCODER PRE-TRAINING ACROSS DATA BUDGETS
+Figure 5 investigates the effect of encoder pre-training across budgets, using the full MindEye2 of
+Sec. 5.3 with synthetic data from either a cross-subject pre-trained and fine-tuned encoder or one
+trained from scratch on the target subject. A scratch encoder delivers roughly a quarter of the pre-
+trained encoder’s improvement at 225 real images but roughly three quarters at 9,000. The increase
+of this ratio with budget is significant on every metric, as is the encoder × log-budget interaction
+(Appendix G.5). Given enough target-subject data the encoder can be fit without a cross-subject
+prior; below that it cannot. The scratch encoder still improves the decoder at every budget, and at
+the full budget the pre-trained encoder’s advantage is no longer significant on PixCorr, Inception,
+CLIP or EffNet, so pre-training sharpens the effect rather than causing it. The negligible effect of
+general transfer in Table 2, measured at the full budget, would not hold at small budgets.
+24
+
+
+Preprint. Under review.
+Table 15: Precision and false-positive rate on held-out concepts. Probe decoders of Table 2, same
+models and averaging. Relaxed versions are computed at the supercategory level.
+Recall ↑
+Precision ↑
+FPR ↓
+Training condition
+Exact
+Relaxed
+Exact
+Relaxed
+Exact
+Relaxed
+Real fMRI for C
+0.411
+0.643
+0.461
+0.686
+2.01%
+4.69%
+No synthetic
+0.087
+0.228
+0.273
+0.573
+1.23%
+3.13%
++ syn. (transfer-concept)
+0.279
+0.486
+0.416
+0.680
+1.58%
+3.82%
++ syn. (transfer-blind)
+0.229
+0.441
+0.397
+0.671
+1.50%
+3.60%
++ syn. (scratch-blind)
+0.218
+0.427
+0.393
+0.658
+1.56%
+3.74%
+Table 16: Effect of synthetic data across data scales. Numbers correspond to values from Figures
+4 and 6. The better result within each decoder pair in bold.
+Low-level
+High-level
+Decoder
+Syn. PixCorr ↑SSIM ↑Alex(2) ↑Alex(5) ↑Incep ↑CLIP ↑EffNet ↓SwAV ↓
+Full data (9,000 images)
+Brain-Diffuser ✗
+0.258
+0.357
+94.4%
+96.6%
+88.2% 91.9%
+0.770
+0.420
+✓
+0.273
+0.353
+95.5%
+97.4%
+90.1% 93.3%
+0.749
+0.401
+MindEye2
+✗
+0.278
+0.376
+95.6%
+98.6%
+94.9% 93.4%
+0.621
+0.344
+✓
+0.312
+0.389
+96.9%
+99.1%
+96.1% 94.1%
+0.604
+0.330
+Brain-IT
+✗
+0.362
+0.501
+98.0%
+99.3%
+96.8% 95.6%
+0.584
+0.336
+✓
+0.371
+0.494
+98.7%
+99.5%
+97.2% 95.9%
+0.566
+0.327
+Limited data (225 images)
+Brain-Diffuser ✗
+0.128
+0.322
+77.7%
+82.4%
+71.8% 77.4%
+0.899
+0.533
+✓
+0.164
+0.335
+83.5%
+87.6%
+76.2% 81.6%
+0.874
+0.507
+MindEye2
+✗
+0.148
+0.360
+82.4%
+89.2%
+79.5% 79.9%
+0.822
+0.476
+✓
+0.184
+0.375
+88.3%
+93.4%
+84.0% 83.1%
+0.778
+0.442
+Brain-IT
+✗
+0.149
+0.479
+79.2%
+86.2%
+80.7% 79.7%
+0.822
+0.509
+✓
+0.174
+0.485
+81.1%
+87.8%
+82.3% 81.2%
+0.806
+0.495
+E.3
+ADDITIONAL RESULTS FOR USING SYNTHETIC DATA ACROSS DATA SCALES
+Figure 6 shows results for additional metrics that were not shown in figure 4. While AlexNet(2),
+Inception, and SwAV behave similarly, SSIM is a clear outlier. ρ is not reported for SSIM because
+its nearly flat baseline curve makes it unidentifiable for all three models (Appendix G.4). It is
+observed that SSIM also decreases for the synthetic data model at the full 9,000-image budget for
+Brain-Diffuser and Brain-IT.
+E.4
+SCALING THE AMOUNT OF SYNTHETIC DATA
+The experiments so far add a fixed amount of synthetic data. Here we vary it systematically, to
+establish whether the benefit is specific to one operating point and how it interacts with the amount
+of real data available for the target subject. Similar to Sec. 5.3, we fine-tune MindEye2 on x ∈
+{225, 450, 900, 1800, 3600, 9000} real images from the target subject, where x = 9000 corresponds
+to the full budget, and additionally vary the number of images that are used for synthetic data,
+y = m · x for m ∈{0, 1, 2, 3, 4}. The synthetic pairs are generated in the same manner, and
+the m = 0 condition is the real-data-only baseline. Every configuration is trained separately for
+subjects 1, 2, 5 and 7, and all results are averaged over those four subjects. Figure 7 reports each
+metric as the improvement over that budget’s own m = 0 baseline, so that all curves start at zero
+and lower-is-better metrics are sign-flipped.
+Most of the benefit arrives by 2×.
+The gain is strongly concave in m. Averaged over the eight
+metrics, the first increment (m = 0 →1) delivers 63% (95% CI 60-66) of the total improvement
+25
+
+
+Preprint. Under review.
+225
+450
+900
+1.8k
+3.6k
+9k
+0.000
+0.015
+0.030
+0.045
+Improvement over baseline
+PixCorr ↑
+225
+450
+900
+1.8k
+3.6k
+9k
+0.000
+0.015
+0.030
+AlexNet(5) ↑
+225
+450
+900
+1.8k
+3.6k
+9k
+0.00
+0.01
+0.02
+0.03
+CLIP ↑
+225
+450
+900
+1.8k
+3.6k
+9k
+0.000
+0.015
+0.030
+0.045
+EffNet-B ↓
+Real target-subject training images (log scale)
+Using data from fine-tuned encoder
+Using data from scratch encoder
+225
+450
+900
+1.8k
+3.6k
+9k
+0.000
+0.005
+0.010
+0.015
+Improvement over baseline
+SSIM ↑
+225
+450
+900
+1.8k
+3.6k
+9k
+0.00
+0.02
+0.04
+0.06
+AlexNet(2) ↑
+225
+450
+900
+1.8k
+3.6k
+9k
+0.000
+0.015
+0.030
+0.045
+Inception ↑
+225
+450
+900
+1.8k
+3.6k
+9k
+0.00
+0.01
+0.02
+0.03
+SwAV ↓
+Real target-subject training images (log scale)
+Using data from fine-tuned encoder
+Using data from scratch encoder
+Figure 5: Encoder pre-training matters most when target-subject data is scarce. Improvement
+of synthetic data for MindEye2 over its real-data-only baseline, on all eight metrics, when the syn-
+thetic data come from a cross-subject pre-trained encoder (blue) versus an encoder trained from
+scratch on the target subject (orange). Both help at every budget, but the pre-trained encoder’s ad-
+vantage is largest at small budgets and shrinks as target-subject data grows (Appendix G.5). SSIM
+is the exception, with small gains and no consistent ordering between the two encoders.
+measured at m = 4, and m = 2 delivers 84% (81-87). The remaining increments are small but not
+uniformly null: the m = 1 →2 step is significant on 32 of 48 cells and the m = 2 →4 step on 25
+of 48, so a larger pool continues to help modestly; the only significant reversal is EffNet at the full
+budget from m = 2 to m = 4.
+The benefit grows as real data becomes scarce.
+At m = 4, the improvement in AlexNet(2) falls
+monotonically from 6.1 points at x = 225 to 1.0 points at x = 9000, and AlexNet(5), Inception,
+CLIP, EffNet-B and SwAV show the same ordering without crossings; for all six of these metrics
+the x = 225 gain significantly exceeds the x = 9000 gain (Spearman ρ ≤−0.94 between budget
+and gain, all pHolm ≤0.001).
+Low-level and high-level metrics behave differently.
+The budget ordering above is clean for the
+semantic and identification metrics but not for PixCorr and SSIM, where the curves are compressed
+and the ordering is scrambled: at m = 4, PixCorr improves by 0.047 at x = 450 against 0.041
+at x = 225 and 0.035 at x = 9000, and neither metric shows a significant difference between the
+x = 225 and x = 9000 gains (PixCorr p = 0.17, SSIM p = 0.59).
+F
+EXTENSION TO VIDEO DECODING
+We extend the encoder-generated data for decoder recipe to fMRI-to-video decoding to test if it
+could be extended to other modalities.
+Setup.
+We trained and evaluated the NEURONS (Wang et al., 2025) model in the cc2017 dataset
+(Wen et al., 2018) under the limited data setting (10% of full data) as well as the full data setting.
+The cc2017 dataset comprises three subjects who viewed 18 8-minute training clips and 5 8-minute
+test clips inside a 3-T scanner at a 2s temporal resolution. Each fMRI sample therefore corresponds
+26
+
+
+Preprint. Under review.
+0.33
+0.34
+0.35
+Brain-Diffuser
+ρ = —
+SSIM ↑
+0.78
+0.84
+0.90
+0.96
+ρ = 2.5×
+AlexNet(2) ↑
+0.72
+0.80
+0.88
+0.96
+ρ = 2.4×
+Inception ↑
+0.36
+0.42
+0.48
+ρ = 2.4×
+SwAV ↓
+0.36
+0.37
+0.38
+0.39
+MindEye2
+ρ = —
+0.78
+0.84
+0.90
+0.96
+ρ = 2.6×
+0.72
+0.80
+0.88
+0.96
+ρ = 2.2×
+0.36
+0.42
+0.48
+ρ = 2.0×
+225
+450
+900
+1.8k
+3.6k
+9k
+0.480
+0.488
+0.496
+Brain-IT
+ρ = —
+225
+450
+900
+1.8k
+3.6k
+9k
+0.78
+0.84
+0.90
+0.96
+ρ = 2.3×
+225
+450
+900
+1.8k
+3.6k
+9k
+0.72
+0.80
+0.88
+0.96
+ρ = 1.9×
+225
+450
+900
+1.8k
+3.6k
+9k
+0.36
+0.42
+0.48
+ρ = 1.8×
+Real target-subject training images (log scale)
+Baseline
+Synthetic 3x
+Figure 6: Effect of synthetic data across data scales: remaining metrics. Companion to Figure 4,
+showing SSIM, AlexNet(2), Inception and SwAV for each decoder.
+to a 2s, 6-frame video clip, giving 4320 unique training clips presented twice and 1200 test clips
+presented ten times; following common practice, the test repetitions are averaged.
+Following the convention of Sec. 5.3, we parameterize the limited-data budget by the number of
+unique clips and retain both repetitions of each. The target subject’s training set is reduced to 432
+unique clips, 10% of the full 4,320, corresponding to 864 recorded trials and roughly 29 minutes of
+scanning. The fMRI recorded for the remaining 3,888 clips is discarded; the video itself is kept.
+Encoder adaptation and synthesis.
+The Universal Encoder (Beliy et al., 2024) is jointly pre-
+trained on the eight NSD subjects and the two non-target cc2017 subjects, and then adapted to
+the target subject. This joint pre-training spans two datasets, two field strengths and two stimulus
+modalities at once, which the encoder accommodates without architectural change: all weights other
+than the per-voxel embeddings are shared across voxels, subjects and datasets, so a new subject is
+absorbed simply by adding its voxels to the embedding table. Because the encoder predicts responses
+to still images, we sample a single frame from each 6-frame clip and treat it as the stimulus for the
+corresponding fMRI sample. Given the synthesis pool U, we predict a response for each 2s window
+independently, from its single frame. Following standard practice in video decoding, we apply a
+fixed temporal offset between the video and the fMRI scans, using the same offset as NEURONS
+when generating synthetic responses.
+For the limited data experiment, we replace all of the 3,888 discarded clips with synthetic data, while
+for the full data experiment we introduce additional video clips from the WebVid dataset (Bain et al.,
+2021). We use 1,200 8s clips from the dataset, using the same set of video clips selected in Li et al.
+(2024), which we split into 4,800 2s clips and generate synthetic fMRI based on them. As in the
+image experiments, real and synthetic pairs are mixed within each batch and are not distinguished
+by the decoder in any way.
+Evaluation metrics.
+We report the standard cc2017 metrics (Wang et al., 2025; Gong et al., 2024).
+Video-based metrics evaluate the reconstruction as a clip: semantic-level 2-way and 50-way top-
+1 accuracy from a classifier based on VideoMAE (Tong et al., 2022) over the 400 Kinetics-400
+classes (Kay et al., 2017), and spatiotemporal-level CLIP-pcc, the average cosine similarity between
+27
+
+
+Preprint. Under review.
+0.000
+0.015
+0.030
+0.045
+PixCorr
+0.000
+0.005
+0.010
+0.015
+SSIM
+0.00
+0.02
+0.04
+0.06
+AlexNet(2)
+0.000
+0.015
+0.030
+0.045
+AlexNet(5)
+0
+1x
+2x
+3x
+4x
+0.000
+0.015
+0.030
+0.045
+Inception
+0
+1x
+2x
+3x
+4x
+0.00
+0.01
+0.02
+0.03
+CLIP
+0
+1x
+2x
+3x
+4x
+0.000
+0.015
+0.030
+0.045
+EffNet-B
+0
+1x
+2x
+3x
+4x
+0.00
+0.01
+0.02
+0.03
+SwAV
+Synthetic data amount
+Improvement over no-synthetic baseline
+Number of real training images
+225
+450
+900
+1800
+3600
+9000
+Figure 7: Scaling the amount of synthetic data. Improvement over the baseline for MindEye2,
+as a function of the number of synthetic image-fMRI pairs added per real training image. One line
+per real-data budget x; each curve is measured against its own x-matched m=0 baseline, so all
+curves start at zero. Lower-is-better metrics are sign-flipped, so up is better in every panel; note
+that vertical scales differ across panels. Gains are positive at every budget, and grow as the real-data
+budget shrinks.
+Table 17: Extension to video decoding. A NEURONS model is trained with and without synthetic
+fMRI, for limited and full data settings. Bold marks the better of the two conditions for each budget.
+Video-based
+Frame-based
+Semantic-level
+ST-level
+Semantic-level
+Pixel-level
+Training data
+Syn.
+2-way ↑
+50-way ↑
+CLIP-pcc ↑
+2-way ↑
+50-way ↑
+SSIM ↑
+PSNR ↑
+Limited (432 clips)
+✗
+0.837
+0.185
+0.932
+0.770
+0.154
+0.357
+9.458
+✓
+0.855
+0.235
+0.932
+0.797
+0.187
+0.383
+9.669
+Full (4,320 clips)
+✗
+0.857
+0.259
+0.937
+0.810
+0.206
+0.377
+9.672
+✓
+0.865
+0.275
+0.936
+0.816
+0.221
+0.397
+9.896
+CLIP embeddings of adjacent frames, which measures temporal consistency. Frame-based metrics
+evaluate individual frames: semantic-level 2-way and 50-way top-1 accuracy from an ImageNet
+classifier, and pixel-level SSIM and PSNR.
+Results.
+Table 17 shows that encoder-generated fMRI recovers most of the performance lost to
+the data limitation. Under the limited budget, synthetic data significantly improves every metric
+except CLIP-pcc, which the data limitation itself barely affects (a drop of 0.005). The limited-data
+model with synthetic data recovers 63-87% of the gap to the full-data model on the four semantic
+metrics and matches or exceeds it on the pixel-level metrics (SSIM 127% [107, 153], PSNR 99%
+[71, 139]). At the full budget the gains are smaller but remain significant on five of seven metrics
+(Appendix G.7).
+Two aspects of this result are worth emphasizing. First, the encoder is a still-image model: it
+never observes motion, and each synthetic response is predicted from one frame of a six-frame clip.
+Such coarse supervision still improves a video decoder. Second, no component of either model
+was modified for the video case. This supports the claim of Sec. 4.2 that the intervention is at the
+level of the data rather than the model, and suggests the approach may carry to other stimulus and
+recording modalities for which a stimulus-to-signal encoder is available. We intend this experiment
+28
+
+
+Preprint. Under review.
+Table 18:
+Fraction of the concept generalization gap recovered by synthetic data, (syn −
+unseen)/(seen −unseen) on aggregate means, with 95% bootstrap CIs over the 48 subject-
+supercategory cells. Left: the three decoders of Table 1. Right: the probe decoder of Table 2
+under each synthesis encoder. SSIM is omitted because the holdout barely changes it. Subject-level
+bootstrap intervals are similar and are provided with the released results.
+Decoders (Table 1)
+Probe decoder by encoder (Table 2)
+Metric
+Brain-Diffuser
+MindEye2
+Brain-IT
+Scratch-blind
+Transfer-blind
+Transfer-concept
+PixCorr
+82% [77, 87]
+71% [62, 81]
+40% [16, 66]
+61% [51, 74]
+59% [49, 72]
+73% [63, 86]
+Alex(2)
+92% [84, 102]
+64% [54, 72]
+64% [38, 89]
+63% [51, 76]
+67% [57, 79]
+77% [67, 88]
+Alex(5)
+93% [89, 98]
+73% [68, 79]
+58% [46, 71]
+63% [56, 72]
+64% [57, 73]
+74% [67, 81]
+Incep
+83% [79, 87]
+66% [60, 71]
+46% [33, 55]
+51% [46, 56]
+51% [46, 57]
+69% [63, 74]
+CLIP
+87% [84, 90]
+57% [53, 62]
+53% [43, 62]
+46% [41, 53]
+49% [43, 56]
+62% [57, 67]
+EffNet
+76% [74, 79]
+53% [49, 58]
+38% [30, 44]
+37% [33, 41]
+41% [37, 46]
+52% [49, 56]
+SwAV
+81% [79, 83]
+56% [51, 61]
+37% [28, 44]
+39% [35, 43]
+43% [39, 48]
+52% [48, 56]
+Object Recall
+78% [70, 85]
+55% [50, 60]
+41% [32, 48]
+41% [36, 45]
+44% [39, 49]
+59% [54, 64]
+Relaxed Recall
+87% [83, 90]
+57% [52, 62]
+41% [32, 49]
+48% [44, 52]
+51% [47, 57]
+62% [58, 67]
+as a preliminary check and deliberately kept the setup simple: a still-image encoder, a single frame
+per 2s window, and no temporal modeling. Whether an encoder that models temporal dynamics
+would improve the value of synthetic data remains to be tested.
+G
+STATISTICAL TESTS
+This section describes the statistical procedures behind the claims in the main text and the appendix,
+and summarizes their outcomes. Point estimates are given in the corresponding result tables and
+are not repeated here; per-contrast estimates, confidence intervals and p-values not listed below
+are provided with the released results. Unless stated otherwise, tests are two-sided, p-values are
+Holm-corrected within the stated family, and confidence intervals (CIs) are 95% percentile bootstrap
+intervals from 10,000 resamples. Since each condition is trained once, all tests account for the
+sampling of subjects, concepts and test images, but not for variation across training runs.
+G.1
+CONCEPT GENERALIZATION ACROSS DECODERS
+Procedure.
+For each decoder and metric, we average within each of the 48 subject-concept cells
+(4 subjects × 12 supercategories) and compare conditions with Wilcoxon signed-rank tests over
+cells, Holm-corrected across the 20 planned comparisons per decoder (10 metrics × 2 contrasts).
+CIs are bootstrapped over cells, stratified by subject, and recovery fractions are computed from
+aggregate means. As sensitivity checks, we repeat each comparison with paired t-tests and with
+linear mixed models with crossed random intercepts for subject and concept, and, for the two recall
+metrics, with logistic mixed models on individual qualifying images. The two-way identification
+metrics are computed against the full pool of remaining test images, so no distractor sampling enters
+the comparison. The complementary test set (Appendix C.1) is analyzed in the same way, with 16
+comparisons per decoder (8 metrics × 2 contrasts).
+Results.
+Both the concept generalization gap (Seen vs. Unseen) and the gain from synthetic data
+(Unseen + syn. vs. Unseen) are significant for every decoder on every metric except SSIM, which
+the holdout leaves essentially unchanged for Brain-Diffuser and Brain-IT and shifts by only 0.004
+for MindEye2. All sensitivity analyses agree, with one exception: the PixCorr gain for Brain-
+IT is significant under the Wilcoxon test (pHolm = 0.022) but not under the mixed model (p =
+0.063). Object Recall improves for each of the twelve concepts under every decoder. Table 18
+reports the fraction of the gap recovered by synthetic data, and Table 19 compares the effect of each
+manipulation on images with and without C.
+G.2
+ENCODER VARIANTS
+Procedure.
+For Tables 2 and 10, we use the cell-level paired procedure of Appendix G.1 over 48
+subject-supercategory or 88 subject-category cells, Holm-corrected within each granularity and fam-
+29
+
+
+Preprint. Under review.
+Table 19: Effect of the training-set manipulations on images that do not contain C, compared with
+their effect on images that do. ∆C and ∆¬C are mean paired differences over the 48 subject-concept
+cells on the concept test set (Table 1) and the complementary test set (Table 4); positive = improve-
+ment, EffNet and SwAV sign-flipped, identification metrics in percentage points. Ratio is ∆¬C/∆C.
+∗marks ∆¬C significant after Holm correction (Wilcoxon signed-rank, 16 comparisons per decoder).
+Seen vs. Unseen
+Unseen + syn. vs. Unseen
+Decoder
+Metric
+∆C
+∆¬C
+Ratio
+∆C
+∆¬C
+Ratio
+Brain-Diffuser
+Incep
+9.0
+0.4∗
+4%
+7.5
+0.2
+3%
+CLIP
+9.3
+0.1
+1%
+8.1
+0.3∗
+4%
+EffNet
+0.086
+0.001
+1%
+0.066
+0.003∗
+4%
+SwAV
+0.061
+0.002∗
+4%
+0.050
+0.004∗
+8%
+MindEye2
+Incep
+7.4
+0.3∗
+5%
+4.9
+0.4∗
+8%
+CLIP
+9.5
+0.8∗
+8%
+5.5
+0.4∗
+8%
+EffNet
+0.132
+0.009∗
+7%
+0.070
+0.010∗
+14%
+SwAV
+0.070
+0.005∗
+8%
+0.040
+0.006∗
+14%
+Brain-IT
+Incep
+2.5
+0.2∗
+7%
+1.1
+0.2
+15%
+CLIP
+3.0
+0.0
+1%
+1.6
+0.0
+0%
+EffNet
+0.059
+0.002
+3%
+0.022
+0.000
+-2%
+SwAV
+0.029
+0.001
+2%
+0.011
+0.000
+4%
+ily of tests. Equivalence is assessed with two one-sided tests (TOST) at a margin of 25% of the rele-
+vant oracle-to-blind gap: the unseen-to-real gap for probe-decoder contrasts, and the transfer-oracle
+to transfer-blind gap for encoder contrasts. Whether a contrast depends on granularity is tested with
+a mixed model that includes a granularity × condition term and crossed random intercepts for sub-
+ject and concept. Because no transfer variant sees C in the target subject while withholding it from
+the other subjects, the two-factor design is incomplete, and we test the estimable contrasts directly.
+Agreement between an encoder-side metric and decoder benefit is the Spearman correlation, within
+each cell, between that metric and probe-decoder Object Recall across the three synthesis variants,
+averaged over cells. For decoded recall, we additionally fit image-level logistic mixed models with
+random intercepts for subject and concept. Point estimates for every contrast below are differences
+between rows of Tables 2 and 10.
+Probe decoder.
+Transfer-blind and scratch-blind are statistically equivalent on nine of ten probe-
+decoder metrics at supercategory granularity and on five of ten at category granularity, so general
+transfer adds little at the full budget. Concept-specific transfer (transfer-concept vs. transfer-blind)
+is significant on every metric at supercategory granularity and on none at category granularity, and
+this dependence on granularity is itself significant for Inception, CLIP and EffNet.
+Fidelity.
+Removing C from all subjects lowers encoder Pearson r significantly at both granular-
+ities, but pre-training on other subjects raises it by more (by a further 0.020 [0.012, 0.026] at su-
+percategory and 0.039 [0.035, 0.043] at category granularity; all p < 0.001). The within-cell rank
+correlation between r and probe-decoder Object Recall is ρ = 0.56 [0.42, 0.70] at supercategory
+granularity and 0.10 [−0.04, 0.24] at category granularity.
+Decoded recall.
+Removing C from the encoder’s training data, from all subjects or from the target
+subject only, significantly lowers decoded Object Recall and Relaxed Recall at both granularities
+(pHolm < 10−4, image-level models agree). Removing it from all subjects costs 34% [30, 38] and
+20% [17, 25] of the oracle’s decoded Object Recall and Relaxed Recall at supercategory granularity,
+and 18% [14, 22] and 6% [4, 8] at category granularity.
+Decoded recall orders pre-training and exposure opposite to fidelity. At supercategory granularity,
+scratch-oracle significantly exceeds transfer-blind on both decoded metrics (pHolm < 10−5, image-
+level models agree), and transfer-concept is equivalent to scratch-oracle on both. At category granu-
+larity, the Object Recall reversal is not robust (significant by Wilcoxon, pHolm = 0.003, but not under
+the mixed model, p = 0.59), Relaxed Recall does not differ, and transfer-concept and scratch-oracle
+are equivalent on Object Recall only. For supercategory Relaxed Recall, the cell-level difference
+30
+
+
+Preprint. Under review.
+between transfer-concept and scratch-oracle is null (p = 0.92) while the image-level model detects
+one (p = 0.004), which reflects weighting by image rather than by cell.
+Unlike the probe decoder, decoded recall credits both transfer steps. At supercategory granularity,
+general transfer (transfer-blind vs. scratch-blind) and concept-specific transfer (transfer-concept vs.
+transfer-blind) are both significant on both metrics (pHolm < 10−6) and do not differ significantly
+from each other (pHolm = 0.65 for both metrics). At category granularity, general transfer is the
+larger step (pHolm = 0.021 for Object Recall and 0.027 for Relaxed Recall, the latter not significant
+under the mixed model). Transfer-blind and scratch-blind are not equivalent on decoded recall at
+either granularity (TOST p = 1.00). Within cells, decoded recall agrees with probe-decoder Object
+Recall about as well as r does (ρ = 0.58 and 0.55 for decoded Object Recall and Relaxed Recall at
+supercategory granularity, 0.14 and 0.07 at category granularity).
+Encoder versus decoder retention (Fig. 1b).
+Per cell, encoder retention is transfer-concept over
+transfer-oracle, and decoder retention is MindEye2 unseen over seen, computed on the 48 supercat-
+egory cells (no denominator is zero). Aggregate encoder retention is 0.869 [0.847, 0.889] for Object
+Recall and 0.931 [0.917, 0.946] for Relaxed Recall, against 0.216 [0.175, 0.260] and 0.365 [0.304,
+0.427] for the decoder. Encoder retention exceeds decoder retention in every cell, on average by
+0.638 [0.587, 0.688] and 0.561 [0.505, 0.617] (pHolm < 10−13); subject-level bootstrap intervals are
+similar.
+Sensitivity.
+Paired t-tests and linear mixed models agree with the Wilcoxon conclusions on every
+contrast except three: the category-level Object Recall reversal above, the category-level difference
+in r between scratch-oracle and scratch-blind, and the category-level difference in Relaxed Recall
+between the two transfer steps. Excluding the four subcategories with fewer than five qualifying
+images (toaster, parking meter, hair drier, toothbrush) from Object Recall changes no decision.
+G.3
+SYNTHETIC-DATA CONTROLS AND FROZEN BACKBONE
+Procedure.
+All models in Table 9 are trained on subject 1 and evaluated on the same test images,
+so we use a paired stratified bootstrap over images. Images are resampled within each subcategory’s
+qualifying set Qo for Object Recall, within each supercategory’s qualifying set Qγ for Relaxed
+Recall, and within each supercategory’s test set for the remaining metrics. The same resampled
+indices are used for every condition, and stratum sizes and macro-averaging weights are held fixed.
+Each control is tested against the unseen baseline on all ten metrics (20 comparisons) and against
+transfer-concept on the two recall metrics (4 comparisons). Equivalence, of the non-C control to the
+unseen baseline and of each frozen encoder to its LoRA counterpart, is assessed with TOST at the
+margin of Appendix G.2, reporting 90% CIs. SSIM is excluded from equivalence claims because
+the holdout barely changes it, which makes its margin degenerate.
+Results.
+Both controls fall significantly below transfer-concept on both recall metrics (pHolm <
+0.001). The non-C control is equivalent to the unseen baseline on all four high-level metrics and both
+recall metrics, and significantly improves PixCorr, SSIM and Alex(5). Wrong fMRI significantly
+raises both recall metrics and significantly lowers Alex(2), Alex(5) and SSIM.
+Both frozen encoders are equivalent to their LoRA counterparts on all four high-level metrics and
+both recall metrics (pHolm ≤0.002), with 90% CIs for the Object Recall difference within ±0.033.
+The low-level metrics are mostly inconclusive; the only significant difference is a small SSIM
+decrease for transfer-blind. With a frozen backbone, transfer-concept still significantly exceeds
+transfer-blind on both recall metrics (pHolm < 0.001). Whether freezing reduces this advantage is
+unresolved: the difference in advantage is 0.030 [0.000, 0.059] for Object Recall and 0.019 [−0.020,
+0.058] for Relaxed Recall, and at a stricter margin of half the LoRA advantage, equivalence holds
+only for Relaxed Recall of transfer-concept. Excluding the four subcategories with fewer than five
+qualifying images changes none of these decisions.
+G.4
+DATA SCALING
+Procedure.
+In the scaling experiments of Sec. 5.3, the four subjects share the same 1,000 test
+images, so we compare conditions at the image level. Each of the 48 budget-metric contrasts per
+31
+
+
+Preprint. Under review.
+Table 20: Data-efficiency factor ˆρ for every metric and decoder, with 95% CIs from 10,000 subject-
+stratified image-level bootstraps in which the interpolant and ˆρ are refitted on each replicate. SSIM
+is omitted: its curves are nearly flat across budgets, so ˆρ is not identifiable for it (point estimates of
+0.8 to 4.9 with CIs spanning an order of magnitude).
+Metric
+Brain-Diffuser
+MindEye2
+Brain-IT
+PixCorr
+2.64 [2.48, 2.77]
+2.94 [2.67, 3.26]
+1.94 [1.87, 2.02]
+Alex(2)
+2.55 [2.42, 2.69]
+2.61 [2.45, 2.80]
+2.27 [2.17, 2.38]
+Alex(5)
+2.39 [2.27, 2.53]
+2.35 [2.20, 2.51]
+2.03 [1.91, 2.19]
+Incep
+2.37 [2.20, 2.64]
+2.16 [1.98, 2.36]
+1.86 [1.72, 1.99]
+CLIP
+2.20 [2.08, 2.35]
+1.74 [1.61, 1.87]
+1.78 [1.66, 1.90]
+EffNet
+2.30 [2.21, 2.40]
+1.87 [1.78, 1.96]
+1.78 [1.72, 1.83]
+SwAV
+2.43 [2.35, 2.52]
+1.99 [1.91, 2.08]
+1.84 [1.79, 1.89]
+decoder (6 budgets × 8 metrics) is the mean paired difference between training with and without
+synthetic data over the 4,000 subject-image pairs, with CIs and p-values from bootstrap resamples
+of images within subject, Holm-corrected within decoder. With only four subjects, a subject-level
+sign test cannot reach p < 0.05, so the image-level tests are primary.
+For the data-efficiency factor ˆρ, the monotone interpolant ˆb is a PCHIP fit to the six baseline points on
+log x, and the interpolant and ˆρ are refitted on each bootstrap replicate. Because ˆρx exceeds 9,000 at
+the largest budget for every metric, ˆb is held at its 9,000-image value there rather than extrapolated.
+The largest budget therefore does not inform the fit; measuring the factor there would require a
+baseline trained on roughly twice the full budget, which cannot be obtained without collecting new
+data from the NSD subjects.
+Results.
+Synthetic data significantly improves 137 of the 144 contrasts. The two significant rever-
+sals are SSIM at the full budget for Brain-Diffuser and Brain-IT (Table 16); the five non-significant
+contrasts are SSIM at intermediate budgets and, for Brain-IT at the full budget, Inception and CLIP.
+At the subject level, all four subjects improve in 46, 47 and 41 of the 48 contrasts for Brain-Diffuser,
+MindEye2 and Brain-IT. Every curve still rises significantly from 3,600 to 9,000 real images, ex-
+cept SSIM for the MindEye2 baseline. Table 20 lists ˆρ with image-level CIs; subject-level intervals
+are wider but overlap them for every entry. The improvement from synthetic data decreases mono-
+tonically with budget on five of eight metrics for Brain-Diffuser and MindEye2, and on none for
+Brain-IT, whose gain is non-monotonic across budgets.
+G.5
+ENCODER PRE-TRAINING ACROSS BUDGETS
+Procedure.
+Figure 5 compares three conditions per budget: the baseline and synthetic data from
+either the pre-trained or the scratch encoder.
+We use the image-level paired bootstrap of Ap-
+pendix G.4, Holm-corrected within metric. The budget dependence of the scratch encoder’s relative
+benefit is tested in two ways: a one-sided paired bootstrap of the change, from 225 to 9,000 images,
+in the ratio of scratch to pre-trained improvement, and a mixed model on subject-level scores with
+an encoder × log x term and a random intercept per subject.
+Results.
+Both encoders improve on the baseline in nearly every budget-metric contrast (47 of 48
+for the pre-trained encoder and 42 of 48 for the scratch encoder; the exceptions are SSIM and, for
+the scratch encoder, CLIP at three budgets). The pre-trained encoder’s advantage is significant in 41
+of 48 contrasts; it is not significant for SSIM at 225-900 images, nor at 9,000 images for PixCorr,
+Inception, CLIP and EffNet. Averaged over the four metrics in the upper panel of Figure 5, the
+ratio of scratch to pre-trained improvement is 0.21 at 225 images and 0.77 at 9,000. Its increase
+with budget is significant on all eight metrics, and the mixed model confirms the encoder × budget
+interaction on all eight (pHolm ≤0.04).
+G.6
+SCALING THE AMOUNT OF SYNTHETIC DATA
+Procedure.
+For Figure 7, we use the image-level paired bootstrap of Appendix G.4, comparing
+each multiplier m with both the x-matched m = 0 baseline and the preceding multiplier, Holm-
+32
+
+
+Preprint. Under review.
+corrected within metric. The fraction of the m = 4 gain reached at m = 1 and m = 2 is computed
+per metric as the ratio of gains averaged over the six budgets, then averaged over metrics, with a
+bootstrap CI. The dependence of the m = 4 gain on budget is tested with a bootstrap Spearman
+correlation between x and the gain, and with a one-sided paired bootstrap of the x = 225 gain
+minus the x = 9,000 gain.
+Results.
+Both budget tests are significant for AlexNet(2), AlexNet(5), Inception, CLIP, EffNet and
+SwAV (pHolm ≤0.001), and neither is significant for PixCorr or SSIM.
+G.7
+VIDEO DECODING
+Procedure.
+The three cc2017 subjects share the same 1,200 test clips, so we compare training with
+and without synthetic data at the clip level (n = 3,600 subject-clip pairs), using Wilcoxon signed-
+rank tests Holm-corrected within budget and CIs from subject-stratified clip bootstraps. Paired t-
+tests agree throughout. The identification metrics use one fixed distractor assignment, shared by all
+four conditions of Table 17.
+Results.
+Under the limited budget, synthetic data significantly improves six of seven metrics
+(pHolm < 10−6), leaving only CLIP-pcc unchanged. Under the full budget, it significantly improves
+five of seven; Frame 2-way and CLIP-pcc do not reach significance (both p = 0.06). All three
+subjects improve individually on every metric except CLIP-pcc at both budgets and Frame 50-way
+at the full budget. The fractions of the limited-to-full gap recovered by synthetic data are 87% [56,
+127] for Video 2-way, 68% [53, 85] for Video 50-way, 69% [57, 82] for Frame 2-way, 63% [48, 80]
+for Frame 50-way, 127% [107, 153] for SSIM and 99% [71, 139] for PSNR; CLIP-pcc is excluded
+because its gap is negligible.
+33

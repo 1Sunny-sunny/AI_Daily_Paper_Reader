@@ -1,0 +1,4235 @@
+Beyond Patching: Consistent Circuit Discovery via
+Gradient Spectral Analysis
+Yujie Zhang∗
+Tianyi Zhao∗
+Guanghui Min
+Chen Chen
+Department of Computer Science
+University of Virginia
+Charlottesville, VA 22904
+{qrk9jt, abs4dj, jjm8vr, zrh6du}@virginia.edu
+∗Equal contribution
+Abstract
+Mechanistic interpretability seeks to reverse-engineer neural networks by iden-
+tifying small, faithful subgraphs—circuits—that implement specific behaviors.
+The dominant paradigm scores each unit by replacing its clean activation with
+a corrupted counterpart as causal intervention. While effective, this approach
+rests on a brittle prerequisite: the structure prompt pairs are task-specific, ex-
+pensive to engineer, and silently couple the discovered circuit to prompt-design
+choices. In this work, we propose Spectral Circuit Analysis (SCA), a gradient-
+spectral pipeline that achieves consistent circuit discovery along both axes: sta-
+ble across input formulations of the same task, and natively exposing struc-
+ture shared across tasks. Our contributions are threefold. First, we provide a
+counterfactual-free reframing of circuit discovery: causally relevant directions are
+recoverable from the spectral structure of forward gradients across paraphrases,
+with leading directions concentrating task signal and trailing ones absorbing para-
+phrase noise—yielding circuits tied to the task rather than the prompt. Second,
+we introduce SCA, a block-wise SVD pipeline that extracts a task subspace
+per architectural block and redistributes spectral energy onto constituent units
+via a consistency-weighted share, producing per-unit rankings competitive with
+attribution-patching baselines under strictly less supervision. Finally, on twelve
+circuit-discovery tasks in GPT-2 Small and Pythia-160M, SCA performs compara-
+bly or exceeds EAP-family methods under the standard recovery-score protocol
+and recovers IOI canonical heads with Precision@K = 1.0 in top-10 slices on
+GPT-2 Small; the same machinery extends to a unified cross-task analysis clas-
+sifying units as universal, family-shared, or task-specific and exposing composi-
+tional structure invisible to per-task analyses. Our code and data are available at
+https://github.com/YujieZhangzz/Spectral-Circuit-Analysis.
+1
+Introduction
+Mechanistic interpretability seeks to reverse-engineer neural networks by identifying small, faithful
+subgraphs—circuits—that implement specific behaviors [34, 6]. Case studies on indirect object
+identification [44], factual recall [26, 27], and in-context learning [35] share a precise geometric
+premise: high-level task variables admit low-dimensional, often near-linear representations in trans-
+former activation space [36, 23, 9, 41], with inter-layer communication itself routed through low-rank
+channels [29]. Circuit discovery, at its core, is the recovery of low-rank task-relevant structure.
+The dominant operationalization casts this recovery as a problem of causal intervention. Beginning
+with causal mediation analysis [43] and matured through automated discovery [5], first-order ap-
+proximations [40, 15, 21], and differentiable mask optimization [2], this paradigm scores each unit
+by replacing its clean activation with a corrupted counterpart, the best-practice studies mapping the
+space [16, 46]. Across this lineage, however, the recovered circuit depends sensitively on the chosen
+Preprint.
+arXiv:2611.30939v1  [cs.LG]  23 Nov 2026
+
+
+contrast: corruption choices change recovered components in unpredictable ways [46], circuits discov-
+ered on a fixed template do not always generalize across paraphrases [32], and distinct counterfactual
+designs for the same task can induce systematically different circuits [13, 8]. As task suites grow,
+this coupling between counterfactual design and recovered circuit motivates complementary methods
+that operate without contrast construction—pursued recently via information-flow attribution [7],
+contextual decomposition [18], and sparse-feature circuits [24]. Independently, cross-task investi-
+gations [28, 12] suggest that a substantial fraction of circuit machinery is shared across tasks, yet
+existing pipelines discover circuits one task at a time and only compare post hoc.
+We pursue consistent circuit discovery along both axes: a single procedure stable across input
+formulations of the same task and natively exposing structure shared across tasks. Our key observation
+is that the information identifying causally relevant units is already encoded in the spectrum of the
+forward task gradient, recoverable from semantically related prompts alone. Two properties make
+this spectrum a natural target. First, task-relevant computation in transformers is intrinsically low-
+rank: rank-one MLP edits install factual associations [26], singular vectors of weight matrices
+align with token features [30], and modest-dimensional per-head subspaces capture in-context
+arithmetic [20]. The forward gradient inherits this geometry—its dominant directions form a low-rank
+subspace not generally aligned with per-unit coordinate axes, calling for spectral rather than unit-
+wise decomposition. Second, this subspace is invariant under semantic-preserving transformations:
+paraphrases of one prompt elicit gradients that share a task-specific subspace while differing only in
+surface-form noise. singular value decomposition (SVD) on stacked paraphrase gradients exploits
+this directly—leading directions concentrate consistent task signal, trailing ones absorb paraphrase-
+specific variation—yielding a circuit description tied to the task rather than to any particular prompt.
+Building on this, we propose Spectral Circuit Analysis (SCA), a gradient-spectral pipeline that
+applies SVD to per-paraphrase gradients block-wise within each (layer, type) block and redistributes
+spectral energy to attention heads and MLP units via a consistency-weighted share. The block-
+wise design follows a recurring pattern in transformer analysis: low-rank structure aligns with
+the architecture’s per-block decomposition. Parameter-efficient adaptation exploits this directly-
+LoRA injects independent low-rank adapters per layer [19]—and circuit discovery reflects the same
+geometry, with IOI units grouped into contiguous attention layers [44], factual recall localized to
+mid-layer MLPs [26, 11], and induction heads concentrated in early-layer attention [35]. Units within
+a block share residual-stream geometry and low-rank communication channels [29, 6], making a
+shared spectral basis the natural object of analysis; cross-block structure then emerges from unit-level
+subspace overlap, whose induced geometric similarity also provides the cross-task signal: classifying
+units as universal, family-shared, or task-specific [4] within the same machinery. On twelve circuit-
+discovery tasks in GPT-2 Small [37] and Pythia-160M [3], SCA performs comparably or exceeds
+EAP-family baselines [40, 15] under the standard recovery-score protocol, and recovers IOI canonical
+heads with Precision@K = 1.0 in top-10 slices on GPT-2 Small [44] ; Cross-task analysis exposes a
+sharp layer-wise partition: early-layer attention is broadly universal [12, 28], while late layers host
+narrow family-level circuits. Our contributions are as follow:
+• A counterfactual-free reframing of circuit discovery. We show that causally relevant computa-
+tional directions are recoverable from the spectral structure of forward gradients across paraphrased
+prompts, complementing the patching paradigm with an input-consistent route.
+• The SCA algorithm. A block-wise SVD pipeline that extracts a task subspace per architectural
+block and redistributes spectral energy to constituent units via a consistency-weighted share,
+yielding per-unit rankings competitive with state-of-the-art attribution patching while consuming
+strictly less supervision.
+• A unified cross-task analysis framework. The same per-unit subspaces that drive single-task
+discovery directly support cross-task comparison, classifying units into universal, family-shared,
+and task-specific roles and uncovering compositional structure.
+2
+Preliminaries
+Setup. We study circuit discovery in pre-trained transformer language models. Let fθ denote a
+transformer with parameter vector θ ∈RD, where D is the total parameter count. A task T is
+specified by an input distribution x ∼DT that elicits a target behavior, together with a scalar metric
+M that maps the model’s next-token logits to R. For example, the logit difference between a correct
+completion and a contrastive completion of matched syntactic form, as in the IOI task [44]. We
+2
+
+
+Paraphrase Collection
+Semantic
+Instances
+Paraphrases
+Gradient Computation
+...
+...
+Block-wise Spectral Filtering
+instance 1
+instance 2
+instance N
+Gradient for
+each paraphrase
+Mean Grad.
+Noisy Gradient
+Mean Gradient
+For each layer-type block 
+instances (
+)
+Parameters in block
+SVD
+Top-
+ singular
+directions
+...
+Layer 
+Attention Heads
+...
+MLP Projections
+Up
+Down
+Project Back to Units &
+Score
+...
+Top Units (ranked)
+high
+low
+L7-H3
+L10-MLP-Up
+L8-H11
+...
+...
+...
+"Upon
+hearing
+the news,
+Gary felt
+that he ..."
+"After receiving the news,
+Gary sensed that, he ..."
+"When Gary learned about
+the news, he sensed that he
+..."
+"After receiving the update,
+Gary sensed that he ..."
+Figure 1: Overview of Spectral Circuit Analysis (SCA). SCA converts semantic-preserving para-
+phrases into instance-level mean gradients, extracts shared low-rank gradient subspaces within
+layer-type blocks via block-wise SVD, and projects the resulting spectral energy back to attention
+heads and MLP projections to produce a ranked list of circuit candidates.
+adopt standard decoder-only transformer notation [42]: a model has L layers operating on residual
+streams of dimension dmodel, each comprising H attention heads of head-dimension dhead and a
+position-wise MLP block of hidden dimension dmlp.
+2.1
+Problem Formulation
+Units. Let [D] := {1, . . . , D} index the D trainable parameters of θ. We decompose θ into a
+set of architecturally meaningful units U = {u1, . . . , u|U|}, where each unit u is identified with
+the index set Iu ⊆[D] of the parameter coordinates it owns. The {Iu} are pairwise disjoint,
+and S
+u Iu ⊊[D]: embedding, layer-norm, and unembedding parameters are treated as fixed
+and excluded. Each attention head (ℓ, h) contributes one unit, consisting of the value and output
+projections W (ℓ,h)
+V
+∈Rdmodel×dhead and W (ℓ,h)
+O
+∈Rdhead×dmodel, which we treat as a single read–
+write operator of rank dhead following Elhage et al. [6]. Each MLP block at layer ℓcontributes
+units cmlp (cmlp = 2 for the models studied in Section 4), namely W (ℓ)
+up ∈Rdmodel×dmlp and
+W (ℓ)
+down ∈Rdmlp×dmodel, treated as separate units because the two matrices admit independent low-
+rank structure under our analysis. In total, |U| = LH + L cmlp. For task T with loss LT and an input
+x, the parameter gradient is
+g(x) := ∇θ LT (x; θ) ∈RD.
+(1)
+Circuit discovery and the ranking protocol. A circuit discovery method A takes fθ and T as
+input and outputs a description of the units most responsible for T . The form of this output varies:
+greedy search produces a discrete subset [5], while attribution patching produces per-unit scalar
+scores [40, 15]. We assume A assigns each unit a real-valued importance score I : U →R, inducing a
+ranking: u(1), u(2), . . . , u(|U|) with I(u(1)) ≥I(u(2)) ≥· · · , where parenthesized subscripts denote
+rank order. A circuit at any budget K is read off as the top-K prefix CK = {u(1), . . . , u(K)}. The
+quality of A is measured by how rapidly the metric M(fθ | CK)—evaluated with units in CK replaced
+by their corrupted activations while the remaining units retain their clean activations—departs from
+the clean metric M(fθ) as K grows. We formalize this as the recovery score rA(K) in Section 4.
+3
+SCA: Our Proposed Method
+3.1
+Single-Task Circuit Discovery
+We propose Spectral Circuit Analysis (SCA), a gradient-spectral pipeline that ranks units by their
+participation in a task’s shared computation. Our key observation is that while single input gradients
+are noisy, gradients of semantically equivalent paraphrases share a common direction in parameter
+space that reflects the task itself; across units that read from and write to the same residual stream,
+this direction generalizes to a low-dimensional semantic subspace on which their gradients jointly lie.
+3
+
+
+Building on this, we propose a consistent three-stage pipeline that recovers the semantic subspace
+from paraphrase-averaged gradients via a per-block SVD and redistributes its spectral content onto
+units to score them, capturing collaborative computation that per-unit attribution discards.
+Algorithm 1: SCA: Single-Task Per-Unit Importance Ranking
+Require: model fθ; task T
+with N semantic instances
+{xi}N
+i=1, each with M paraphrases {xi,j}M
+j=1; unit set U;
+blocks {Bk}B
+k=1 from Eq. (3); energy threshold η=0.95
+Ensure: per-unit importance I : U →R; block subspaces
+{UBk}B
+k=1
+1: // Stage 1: paraphrase-averaged gradients
+2: for i = 1, . . . , N do
+3:
+¯gi ←
+1
+M
+PM
+j=1 ∇θLT (xi,j; θ)
+4: end for
+5: G ←[¯g1, . . . , ¯gN]⊤
+6: // Stage 2: block-wise SVD
+7: for k = 1, . . . , B do
+8:
+GBk ←G[:, IBk]⊤
+9:
+{(σ(k)
+j
+, u(k)
+j
+)} ←SVD(GBk) Gram Trick
+10:
+ρk ←min{r :
+P
+j≤r(σ(k)
+j
+)2
+P
+j(σ(k)
+j
+)2
+≥η}
+11:
+UBk ←[u(k)
+1
+, . . . , u(k)
+ρk ]
+12: end for
+13: // Stage 3: two-factor importance
+14: for k = 1, . . . , B do
+15:
+cons(Bk) ←∥1
+N
+P
+i normalize(G[i, IBk])∥2
+16:
+for u ∈Bk do
+17:
+unit_share(u) ←
+1
+du ∥UBk[idxloc
+u , :]∥2
+F
+18:
+I(u) ←cons(Bk) · unit_share(u)
+19:
+end for
+20: end for
+21: return I, {UBk}B
+k=1
+Setup.
+We instantiate DT from Section 2.1
+as N semantic instances {xi}N
+i=1, each with
+M semantic-preserving paraphrases {xi,j}M
+j=1.
+The instance gradient is the paraphrase average
+¯gi :=
+1
+M
+M
+X
+j=1
+∇θLT (xi,j; θ) ∈RD.
+(2)
+We group units into blocks by layer and type.
+Letting ℓ: U →[L] and τ : U →{attn, mlp}
+denote the layer and type of a unit,
+Bℓ,τ :=
+
+u ∈U : ℓ(u) = ℓ, τ(u) = τ
+	
+(3)
+yields B := 2L blocks, with k(u) ∈[B] in-
+dexing the block of u. Blocks are the natural
+locus for a shared task subspace: units within
+one read from and write to the same residual
+stream, operating collaboratively rather than in-
+dependently [6, 44].
+The SCA pipeline.
+SCA (Algorithm 1) fol-
+lows three stages: gradient collection, block-
+wise spectral decomposition, and two-factor unit
+scoring. We first compute paraphrase-averaged
+instance gradients ¯gi via Eq. (2) and stack them
+into the gradient matrix G (steps 2–5). Averag-
+ing preserves the task-invariant unit while sup-
+pressing input-specific noise at rate O(M −1/2). Step 7–12 extract each block’s semantic subspace.
+Since N ≪dk, step 9 uses the Gram trick: eigendecompose G⊤
+BkGBk (N × N) for right singular
+vectors and squared singular values, then recover left singular vectors by one matrix multiplication,
+reducing per-block cost from O(dkN min(dk, N)) to O(dkN 2). Step 10 truncates at the smallest
+rank ρk satisfying
+P
+j≤ρk(σ(k)
+j
+)2
+P
+j≤N(σ(k)
+j
+)2 ≥η,
+η = 0.95,
+(4)
+retaining directions on which instances jointly vary. Since the column span of GBk is at most
+N-dimensional, the task signal concentrates on these few directions; orthogonal ones contribute only
+noise. Step 14–19 score each unit by a product of two complementary factors. cons(Bk) (step 15) is
+the mean resultant length [22] of the block’s row-normalized per-instance gradients on the unit sphere,
+answering: is the block doing coherent task-relevant work? unit_share(u) (step 17) is the row energy
+of u’s parameter slice within UBk, normalized by parameter count, answering: is the unit carrying
+the work within its block? Since UBk has orthonormal columns, the total energy ∥UBk∥2
+F = ρk splits
+among units in proportion to how strongly each participates in the block’s leading singular directions;
+per-parameter normalization prevents larger units (e.g., Wup) from inheriting score on size alone. The
+product I(u) = cons(Bk(u)) · unit_share(u) (step 18) ranks a unit high only when both conditions
+hold: the block is active and the unit carries its spectral mass. Sorting by I(u) yields the ranking
+u(1), u(2), . . . that defines the circuit CK = {u(1), . . . , u(K)} at any budget K.
+3.2
+Cross-Task Generalization Analysis
+The pipeline of Section 3.1 produces, for one task, a per-unit ranking I(u) and block subspaces
+{UBk}. A natural question is whether the units SCA identifies serve universal computation, align
+with coherent task families, or are task-specific. Our key observation: the a block’s semantic subspace
+is a geometric signature of its computation; if two tasks recruit the same unit for the same operation,
+4
+
+
+that unit’s per-task subspaces should geometrically agree regardless of surface form. Building on this,
+we extend SCA jointly over T tasks: project each block’s semantic subspace to per-unit subspaces,
+measure pairwise geometric agreement against a structural null, weight by task-side importance, and
+classify each unit through priority-ordered gating tests. Quantities from Section 3.1 acquire a task
+superscript when computed under task t (e.g. U t
+Bk, ρt
+k, It(u)).
+Algorithm 2: Cross-Task Family-Membership Classification
+Require: tasks {T t}T
+t=1 with single-task outputs
+{It, {Ut
+Bk}} from Algorithm 1; family layout
+F = {F1, . . . , Fm}; thresholds
+(θuniv, θfloor
+F
+, θdom, θout, δ); null sample size Rnull;
+energy threshold η
+Ensure: per-unit class
+C : U →{UNIVERSAL, FAMILY-F, TASK-t∗, MIXED}
+1: // Stage 1: per-unit semantic subspaces
+2: for u ∈U, t ∈[T] do
+3:
+Mt
+u ←Ut
+Bk(u)[idxloc
+u , :] ∈Rdu×ρt
+k(u)
+4:
+{(σj, vj)} ←COMPACTSVD(Mt
+u);
+ρt
+u ←
+truncate at energy η
+5:
+Ut
+u ←[v1, . . . , vρtu] ∈Rdu×ρt
+u
+6: end for
+7: // Stage 2: importance-weighted, null-calibrated overlap
+8: for u ∈U, unordered pair {s, t} ⊆[T] do
+9:
+overlap(u, s, t) ←∥(Us
+u)⊤Ut
+u∥2
+F / min(ρs
+u, ρt
+u)
+▷
+Eq. (5)
+10:
+draw Rnull random rank-matched orthonormal pairs in
+Rdu; flag significant if above 95th percentile
+11:
+bI r(u) ←Ir(u)/ maxu′:τ(u′)=τ(u) Ir(u′) for
+r ∈{s, t}
+12:
+w(u, s, t) ←
+q
+bIs(u)bIt(u) · overlap(u, s, t)
+▷
+Eq. (6)
+13: end for
+14: // Stage 3: priority-ordered family-membership gating
+15: for u ∈U do
+16:
+score(u) ←agg{s,t}⊆[T ]w
+17:
+for F ∈F do
+18:
+withinF (u) ←agg{s,t}⊆F w;
+crossmax
+F
+(u) ←maxF ′̸=F withinF ′(u)
+19:
+end for
+20:
+if score(u) ≥θuniv then
+21:
+C(u) ←UNIVERSAL
+// G1
+22:
+else if ∃F : withinF (u) ≥
+θfloor
+F
+and withinF (u) −crossmax
+F
+(u) ≥δ then
+23:
+C(u) ←FAMILY-F
+// G2
+24:
+else
+25:
+t∗←arg maxt bI t(u)
+26:
+if bI t∗(u)/ maxt̸=t∗bI t(u) ≥
+θdom and maxt̸=t∗w(u, t∗, t) ≤θout then
+27:
+C(u) ←TASK-t∗
+// G3
+28:
+else
+29:
+C(u) ←MIXED
+30:
+end if
+31:
+end if
+32: end for
+33: return C
+The cross-task SCA pipeline.
+The cross-task
+analysis (Algorithm 2) has three stages: per-
+unit subspace extraction, importance-weighted
+overlap, and family-membership gating. Step
+2–6 project each block’s semantic subspace to
+its constituent units.
+The row slice M t
+u =
+U t
+Bk(u)[idxloc
+u , :] inherits the block’s leading di-
+rections but is no longer column-orthonormal;
+we re-orthonormalize via a secondary compact
+SVD and truncate at the same threshold η from
+Eq. (4), yielding the per-unit semantic subspace
+U t
+u ∈Rdu×ρt
+u. This allows each unit to retain
+only the block directions it actually participates
+in, so generally ρt
+u ≤ρt
+k(u). Step 8–13 measure
+cross-task agreement and weight it by impor-
+tance. The geometric agreement (step 9) is the
+normalized projection energy
+overlap(u, s, t) :=
+(U s
+u)⊤U t
+u
+2
+F
+min(ρsu, ρtu)
+∈[0, 1],
+(5)
+which equals 1 iff one subspace contains the
+other. Since ρs
+u and ρt
+u vary across units and
+tasks, raw overlap values are not directly com-
+parable: a high overlap between two rank-1
+subspaces in Rdu is geometrically unsurpris-
+ing, while the same value between two rank-
+10 subspaces is not. Step 10 calibrates against
+this baseline using Rnull random orthonormal
+pairs of matched ranks (ρs
+u, ρt
+u) in Rdu, flag-
+ging overlap(u, s, t) as significant when it ex-
+ceeds the 95th null percentile. Step 11 type-
+stratifies the single-task scores so attention and
+MLP units are placed on a common scale, and
+step 12 combines geometry and importance into
+the importance-weighted overlap
+w(u, s, t) :=
+q
+bI s(u) bI t(u) · overlap(u, s, t).
+(6)
+The geometric mean ensures both tasks score
+the unit non-trivially: a unit important on one
+task but irrelevant on the other receives near-
+zero weight regardless of subspace alignment,
+suppressing spurious overlaps that pure geomet-
+ric measures admit. Step 14–26 classify each
+unit through three priority-ordered gates. We first aggregate w(u, s, t) globally and within each
+candidate family F to obtain score(u) and withinF (u) (steps 15–18); the family layout F is supplied
+as input and encodes which task subsets are hypothesized to share computation. The gates are then
+applied as follows. G1 (step 19, UNIVERSAL): a unit passes if score(u) exceeds θuniv, indicating
+consistently strong agreement across all task pairs. G2 (step 21, FAMILY-F): a unit passes if some
+family F exceeds the within-family floor θfloor
+F
+and beats every other family by a margin of at least
+δ, preventing broadly active units from satisfying multiple families. G3 (step 24, TASK-t∗where
+5
+
+
+t∗:= arg maxt bI t(u)): a unit passes if its top task dominates the runner-up by ratio θdom and its
+weighted overlap with all other tasks is bounded by θout, ensuring the unit is task-selective without
+coincidental alignment. Units passing none of G1–G3 are labeled MIXED. The five thresholds
+are fixed default whose robustness is verified in Appendix G.4.2; full specification, family-layout
+robustness, and a specialized/broad split within FAMILY-F are deferred to Appendix E.2.
+4
+Experiments
+4.1
+Experimental Setup
+Models and tasks. We evaluate on two language models with identical macro-architecture (L =
+12, dmodel=768, H = 12, cmlp = 2, |U| = LH + Lcmlp = 168): GPT-2 Small (124M; 37),
+the canonical testbed for unit-level circuit discovery, and Pythia-160M (162M; 3). Pythia-160M
+results are deferred to Appendix G.3. We use twelve circuit-discovery tasks: Indirect Object
+Identification (IOI), Greater-Than, Greater-Than-Price, Country-Capital, Person-Country, Person-
+Profession, Colored Objects, Gender Bias, Gendered Pronoun, Subject-Verb Agreement (SVA), SVA-
+Binary, and SVA-BLiMP. Per-task templates, paraphrase generation (M=5 per, Appendix G.4.1), and
+the logit-difference / probability-difference loss LT used for each task are specified in Appendix F.
+We assemble N=100 semantic instances, each with M = 5 paraphrases per task.
+Evaluation Metric. We follow the standard clean/corrupted recovery-score protocol [44, 5]. Each
+task T comes with paired distributions Dclean
+T
+and Dcorr
+T
+that contrast the target behavior. For a unit
+set C ⊆U and paired sample (x, x′), denoising patching restores units in C to their clean activations
+on x during the corrupted forward pass on x′, and we write
+M(fθ | C) := E(x,x′)
+
+M
+ fθ
+ x′ | patchC(x′ ←x)
+
+,
+(7)
+so that M(fθ | ∅) is the corrupted baseline and M(fθ | U) recovers the clean metric M(fθ).
+Restricting attention to heads, let Uattn := {u ∈U : τ(u) = attn} and let CA
+K ⊆Uattn be the top-K
+prefix of method A’s ranking. The recovery score is
+rA(K) := M(fθ | CA
+K) −M(fθ|Uattn)
+MM(fθ|∅) −M(fθ|Uattn)
+,
+(8)
+with rA(0) = 1 and rA(|Uattn|) = 0 by construction. A ranking that concentrates task-relevant
+heads at low K drives rA(K) rapidly toward zero; uniform-random rankings descend approximately
+linearly. Lower rA(K) indicates a better ranking. On IOI we additionally report Recall@K and
+Average Precision against the 26-head canonical circuit of Wang et al. [44]. SCA recover 10/26
+canonical heads in their top-10 slices, with Precision@K = 1.0 for the leading positions, details
+deferred to Appendix G.2).
+4.2
+Baselines
+We compare SCA against six per-unit ranking baselines under a unified cumulative-patching protocol.
+The Random baseline samples a uniform permutation of U as the ranking, with results averaged
+over five random seeds. (i) Two raw-gradient baselines operate on the same per-paraphrase gradients
+gi,j that SCA consumes and reduce them to a per-component scalar via either gradient magnitude
+∥¯gi[Iu]∥2
+2 averaged over instances (Magnitude) or directional coherence ∥P
+i ¯gi[Iu]/∥¯gi[Iu]∥∥2/N
+(Direction); they isolate the two factors SCA’s spectral filtering jointly accounts for. (ii) The EAP-
+family baselines: EAP [40], the original first-order formulation; EAP-IG [15], which integrates the
+gradient over a clean→corrupted input interpolation to mitigate gradient saturation; and EAP-IG-KL,
+an EAP-IG variant that replaces the task metric M with the KL divergence between clean and patched
+output distributions. More explanation of EAP family is in Appendix D.1 All seven methods (SCA +
+six baselines) are evaluated under the protocol of Eq. (8).
+4.3
+Main Results
+4.3.1
+Single-Task Circuit Discovery
+Figure 2 reports the recovery score rA(K) for SCA and six baselines on six tasks: IOI, Colored
+Objects, Greater-Than, Country-Capital, SVA-BLiMP, and Gender Bias. Lower curves indicate
+6
+
+
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+−0.5
+0.0
+0.5
+1.0
+1.5
+recovery score
+IOI
+(a)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+0.00
+0.25
+0.50
+0.75
+1.00
+1.25
+recovery score
+Colored Objects
+(b)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+1.2
+recovery score
+Greater-Than
+(c)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+recovery score
+Country-Capital
+(d)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+recovery score
+Gender Bias
+(e)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+recovery score
+SVA-BLiMP
+(f)
+SCA (ours)
+Random
+Magnitude (raw)
+Direction (raw)
+EAP
+EAP-IG
+EAP-IG-KL
+Figure 2: Recovery score rA(K) on six GPT-2 Small circuit-discovery tasks. For each method
+A, attention heads are ranked by importance and the top-K are patched with corrupted activations;
+rA(K) measures the residual clean–floor gap (Eq. 8). Lower is better. Gray shading: Random
+baseline mean ±1σ over 5 seeds.
+rankings that concentrate causally relevant heads at low K. Results on the remaining tasks are
+deferred to Appendix G.1.
+SCA matches the EAP family without counterfactual prompts. On all six tasks, SCA’s curve tracks
+the EAP variants closely or lies below them across K ∈[1, 144]. The match is most pronounced at
+small budgets, where circuit-level interpretation is most informative: on Colored Objects, Country-
+Capital, Gender Bias, and SVA-BLiMP (Figures 2b, 2d, 2e, 2f), SCA falls below all three EAP
+variants within the top-10 budget. SCA achieves this from forward-task gradients alone, whereas
+EAP variants require matched clean–corrupted prompt pairs [40, 15]. On the 26-head canonical IOI
+circuit of Wang et al. [44], SCA matches EAP-IG at the top of the ranking—both recover 10/26 heads
+in their top-10 slices with Precision@K ≈1.0 at leading positions. A per-category breakdown and
+full retrieval analysis are in Appendix G.2.
+Subspace geometry, not gradient magnitude or direction, drives SCA. The Magnitude and
+Direction baselines consume the same per-paraphrase gradients as SCA but reduce them to first-
+moment statistics. Both underperform SCA and the EAP family across all six tasks: Direction sits
+at or above the Random band over most of the budget range on Country-Capital, Greater-Than,
+Gender Bias, and SVA-BLiMP, indicating that per-instance directional coherence is uninformative
+or anti-correlated with causal relevance; Magnitude tracks Random closely but never matches SCA
+on any task. Replacing this first-moment reduction with block-wise SVD on the same gradient
+input recovers a ranking comparable to EAP-family attribution—isolating cross-instance subspace
+geometry as the operative signal underlying SCA.
+4.4
+Cross-task
+4.5
+Cross-Task Analysis: Family Structure and Unit-Level Specialization
+From task similarity to a family-level prior. We first establish a task-level family structure that
+will serve as the backbone for unit-level analysis. The spectral similarity matrix over the 12 tasks
+(in Figure 3) admits a clean hierarchical decomposition, yielding four families and two singletons:
+Numeric Comparison (GT, GT}), Subject–Verb Agreement (SVA, SVA-Bi, SVA-BLi), Factual
+Recall (CC, PC), and Gendered Coreference (PP, GB, GP), with CO and IOI remaining as singletons.
+The two surface forms of Greater-Than collapse onto a single near-diagonal block, confirming that
+7
+
+
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+Similarity
+Greater-Than
+Greater-Than$
+SVA
+SVA-Binary
+SVA-BLiMP
+Colored Objects
+Country-Capital
+Person-Country
+IOI
+Person-Profession
+Gender Bias
+Gender Pronoun
+0.5
+0.6
+0.7
+0.8
+0.9
+Distance  (1 − similarity)
+Greater-Than
+Greater-Than$
+SVA
+SVA-Binary
+SVA-BLiMP
+Colored Objects
+Country-Capital
+Person-Country
+IOI
+Person-Profession
+Gender Bias
+Gender Pronoun
+  cut = 0.82
+Task family:
+  Numeric Comparison
+  Subject-Verb Agreement
+  Factual Recall
+  Gendered Coreference
+  Singletons
+Figure 3: Cross-task similarity on 12 GPT-2 tasks. Heatmap (Left): pairwise similarity, diagonal
+masked; vertical band marks family. Dendrogram (Right): average-linkage on d = 1 −similarity,
+branches colored by family when all leaves agree.
+Table 1: Cross-task subspace lift across candidate component sets. Each row is a candidate set of
+GPT-2 Small units (attention heads + MLPs); each column is one of 12 evaluation tasks. Values are
+mean lift in target-token logit difference when the residual stream is restricted to the candidate’s
+weighted unit-SVD subspace. |S| is the number of components in the set. Bold indicates positive
+effect with lift ≥0.25. Significance vs. size-matched Monte-Carlo null: * |z|≥2, † |z|≥3, ‡ |z|≥5.
+Task abbreviations: GT = Greater-Than, GT$ = Greater-Than-Price, SVA = Subject–Verb Agreement,
+SVA-Bi = SVA-Binary, SVA-BLi = SVA-BLiMP, CO = Color–Object, CC = Country–Capital, PC =
+Person–Country, IOI = Indirect Object Identification, PP = Person–Pronoun, GB = Gender Bias, GP
+= Gendered Pronoun.
+Set
+|S|
+GT
+GT$
+SVA
+SVA-Bi
+SVA-BLi
+CO
+CC
+PC
+IOI
+PP
+GB
+GP
+Universal
+9
+0.99‡
+0.86‡
+1.79‡
+1.74‡
+1.79‡
+1.34*
+1.47‡
+1.25†
+0.86†
+1.11‡
+4.51‡
+1.82‡
+GTspeca
+2
+0.32‡
+0.40‡ −0.02
+−0.03
+−0.06
+−0.30* −0.13‡ −0.05† −0.50‡ −0.08
+−0.06
+−0.02
+GTbroad-4b
+4
+0.50
+0.45
+0.09
+0.19
+0.15
+−0.22
+−0.06
+−0.03
+−0.07
+−0.05
+−0.70
+−0.18
+GTall
+8
+0.51
+0.51
+−0.24
+−0.20
+−0.11
+−0.70
+−0.67
+−0.45
+−0.69
+−0.34
+−1.77
+−0.41
+SVAspec
+2
+0.00
+0.01
+0.53‡
+0.62‡
+0.80†
+0.07
+0.00
+0.00
+−0.01
+−0.01
+2.20‡
+0.95‡
+SVAbroad
+3
+−0.01
+−0.01
+0.27*
+0.33*
+0.70*
+−0.11
+−0.06
+−0.04
+−0.05
+−0.04
+−0.20
+−0.06
+SVAall
+5
+−0.09
+−0.10
+1.05‡
+1.06‡
+1.73‡
+−0.17
+−0.01
+0.00
+−0.10
+0.03
+1.92*
+0.82*
+Country
+1
+0.00
+0.00
+0.00
+0.00
+0.00
+−0.02
+0.59‡
+0.82‡
+0.00
+−0.11‡
+0.02
+−0.01
+TSIOI
+6
+−0.12
+−0.21
+−0.04
+−0.08
+−0.08
+−0.53* −0.12
+−0.16
+0.67‡ −0.14
+−0.46
+−0.16
+TSCC
+1
+0.09‡
+0.08†
+0.00
+0.00
+0.00
+0.11
+0.40‡
+0.27‡
+0.01
+0.06‡
+0.42‡
+0.08*
+TSPP
+1
+0.00
+0.00
+0.00
+0.00
+0.00
+0.08
+−0.01
+0.00
+0.01
+0.05‡
+0.01
+−0.01
+Random-22
+22
+−0.30
+−0.29
+−0.38
+−0.43*
+−0.69
+0.12
+−0.78
+−0.56
+−0.56
+−0.60
+−1.63
+−0.61
+a GTspec collapses GT_specialized_top2.
+b GTbroad-4 collapses GT_broad_top4.
+they share the underlying computation; the SVA variants likewise form a tight block, with SVA/SVA-
+Bi the most internally similar pair.
+Universal infrastructure dominates early layers. The unit-level circuit in Figure 4 reveals a sharp
+layer-wise functional partition. Layers 0–2 are almost exclusively populated by Universal units—
+L0H1, L0H9, L1H6/H7/H10/H11, L2H1/H7/H9—all of which pass ablation validation (yellow ring),
+recovering the attention heads typically associated with induction and early positional routing in the
+literature [35]. Causally, the Universal set lifts every one of the 12 tasks (lift ∈[+0.86, +4.51], all
+|z|≥2.8, see Table 1), confirming that these units are not merely correlated with task gradients but are
+causally relied upon across the entire task suite. Mid-layer attention (L3–L6) is conspicuously empty
+8
+
+
+Attention heads
+MLP
+H0
+H1
+H2
+H3
+H4
+H5
+H6
+H7
+H8
+H9
+H10
+H11
+up
+down
+L0
+L1
+L2
+L3
+L4
+L5
+L6
+L7
+IOI
+IOI
+L8
+IOI
+IOI
+CC
+L9
+IOI
+IOI
+L10
+IOI
+PP
+L11
+Universal
+Numeric Comparison
+Subject-Verb Agreement
+Factual Recall
+Gendered Coreference
+Task-specific
+Unassigned
+Ablation-validated
+Figure 4: Unit-level cross-task circuit in
+GPT-2 small. A unit is colored Universal
+when it ranks among the top-importance units
+in a majority of tasks; Family-shared when
+its importance concentrates within one fam-
+ily of related tasks, and task-specific when
+it is uniquely required by a single task; Task-
+specific markers carry that task’s abbreviation.
+A yellow outline marks units that pass causal
+validation |z|≥3. Grey dots denote units not
+assigned to any role at our discovery thresh-
+old.
+of family or task labels, suggesting that GPT-2 Small’s specialization machinery is concentrated
+downstream of L7.
+Late-layer attention hosts family- and task-specific circuits. Specialization concentrates in L7–L11
+attention. We highlight four findings, each cross-validated against ablation lift in Table 1.
+(i) The Numeric Comparison family is hosted by an exceptionally narrow circuit. Just two heads
+(GTspec, principally L9H1, L10H7) drive the numeric comparison computation. Restoring the pro-
+jection onto these two units yields a modest in-family lift of +0.32/ + 0.40, but with extreme
+size-matched z-scores (zGT = +79.5, zGT$ = +46.2); all other ten tasks have |z| < 1. The in-
+family/out-of-family ratio of |2.9| marks GT as the most computationally compressed family in our
+suite.
+(ii) The Factual Recall family is even more isolated. The 2-head broad set lifts PC (z =+119) and
+CC (z =+67.6) and almost nothing else, giving an in/out ratio of |72.6|—the highest of any family
+and consistent with entity→attribute retrieval being a highly localized operation.
+(iii) The 7-unit IOI-specific cohort recovers the canonical IOI circuit [44]. Six of the seven SCA-
+discovered IOI task-specific units— L7H3, L7H9 (S-Inhibition); L8H6 (S-Inhibition); L9H6, L9H9
+(Name Mover); L10H2 (Backup Name Mover)—fall within Wang et al.’s 26-head canonical IOI
+circuit, and all three layers of the canonical hierarchy (S-Inhibition, Name Mover, Backup Name
+Mover) are recovered. The remaining unit (L8H3) is an immediate layer-mate of an S-Inhibition head
+not in Wang’s enumeration. Causally, this cohort lifts only IOI (+0.67, z =+3.6); |z|<1 on every
+other task. The fact that an importance-and-overlap procedure recovers a community-validated circuit
+without using IOI as a target is, to our knowledge, the strongest external validation available for
+unsupervised circuit-discovery methods of this type.
+(iv) Single-head readers exhibit graded specificity. L8H11 carries the highest CC z-score (z =+46)
+but exhibits real spillover into PC (z = +40), GB (z = +18), and GT (z = +18), identifying it as
+an entity→attribute reader most strongly recruited by CC rather than as a strictly single-task head.
+L10H11, by contrast, is genuinely PP-specific (zPP =+5.4, all other |z|<1).
+5
+Conclusion
+In this work, we presented a gradient-spectral perspective on consistent circuit discovery, showing
+that the information identifying causally relevant components is already encoded in the spectrum
+of forward task gradients across paraphrased prompts. We demonstrated that prior gradient-based
+attribution methods, by reducing per-instance gradients to component-wise scalars, are blind to the
+rotated low-rank subspace structure that distinguishes task-relevant directions from task-irrelevant
+ones. To address this, we proposed SCA, which applies block-wise SVD to paraphrase-derived
+gradients and redistributes spectral energy to attention heads and MLP units via a consistency-
+weighted share, yielding a circuit description that is stable across input formulations of the same
+task. SCA performs comparably or exceeds EAP-family baselines on twelve circuit-discovery tasks
+in GPT-2 Small and Pythia-160M, and the same per-unit subspaces that drive single-task discovery
+9
+
+
+directly support cross-task comparison, exposing universal infrastructure, narrow family-level circuits,
+and compositional reuse patterns invisible to per-task analysis. We discuss limitations and future
+work directions in Appendix A.
+10
+
+
+References
+[1] A. Ahmad, A. Joshi, and A. Modi.
+Beyond components: Singular vector-based interpretability of
+transformer circuits. In The Thirty-ninth Annual Conference on Neural Information Processing Systems,
+2026. URL https://openreview.net/forum?id=7UbXEQNny7.
+[2] A. Bhaskar, A. Wettig, D. Friedman, and D. Chen. Finding transformer circuits with edge pruning.
+Advances in Neural Information Processing Systems, 37:18506–18534, 2024.
+[3] S. Biderman, H. Schoelkopf, Q. G. Anthony, H. Bradley, K. O’Brien, E. Hallahan, M. A. Khan, S. Purohit,
+U. S. Prashanth, E. Raff, et al. Pythia: A suite for analyzing large language models across training and
+scaling. In International conference on machine learning, pages 2397–2430. PMLR, 2023.
+[4] B. Chughtai, L. Chan, and N. Nanda. A toy model of universality: Reverse engineering how networks learn
+group operations. In International Conference on Machine Learning, pages 6243–6267. PMLR, 2023.
+[5] A. Conmy, A. Mavor-Parker, A. Lynch, S. Heimersheim, and A. Garriga-Alonso. Towards automated
+circuit discovery for mechanistic interpretability. Advances in Neural Information Processing Systems, 36:
+16318–16352, 2023.
+[6] N. Elhage, N. Nanda, C. Olsson, T. Henighan, N. Joseph, B. Mann, A. Askell, Y. Bai, A. Chen, T. Conerly,
+et al. A mathematical framework for transformer circuits. Transformer Circuits Thread, 1(1):12, 2021.
+[7] J. Ferrando and E. Voita. Information flow routes: Automatically interpreting language models at scale.
+In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing, pages
+17432–17445, 2024.
+[8] G. Franco, L. M. Tassis, A. Rohr, and M. Crovella. Finding highly interpretable prompt-specific circuits in
+language models. arXiv preprint arXiv:2602.13483, 2026.
+[9] A. Geiger, Z. Wu, C. Potts, T. Icard, and N. Goodman. Finding alignments between interpretable causal
+variables and distributed neural representations. In Causal Learning and Reasoning, pages 160–187.
+PMLR, 2024.
+[10] M. Geva, R. Schuster, J. Berant, and O. Levy. Transformer feed-forward layers are key-value memories.
+In Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing, pages
+5484–5495, 2021.
+[11] M. Geva, J. Bastings, K. Filippova, and A. Globerson. Dissecting recall of factual associations in auto-
+regressive language models. In Proceedings of the 2023 Conference on Empirical Methods in Natural
+Language Processing, pages 12216–12235, 2023.
+[12] W. Gurnee, T. Horsley, Z. C. Guo, T. R. Kheirkhah, Q. Sun, W. Hathaway, N. Nanda, and D. Bertsimas.
+Universal neurons in gpt2 language models. arXiv preprint arXiv:2401.12181, 2024.
+[13] T. Haklay, H. Orgad, D. Bau, A. Mueller, and Y. Belinkov. Position-aware automatic circuit discovery.
+In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1:
+Long Papers), pages 2792–2817, 2025.
+[14] M. Hanna, O. Liu, and A. Variengien. How does gpt-2 compute greater-than?: Interpreting mathematical
+abilities in a pre-trained language model. Advances in Neural Information Processing Systems, 36:
+76033–76060, 2023.
+[15] M. Hanna, S. Pezzelle, and Y. Belinkov. Have faith in faithfulness: Going beyond circuit overlap when
+finding model mechanisms. arXiv preprint arXiv:2403.17806, 2024.
+[16] S. Heimersheim and N. Nanda.
+How to use and interpret activation patching.
+arXiv preprint
+arXiv:2404.15255, 2024.
+[17] E. Hernandez, A. S. Sharma, T. Haklay, K. Meng, M. Wattenberg, J. Andreas, Y. Belinkov, and D. Bau.
+Linearity of relation decoding in transformer language models. arXiv preprint arXiv:2308.09124, 2023.
+[18] A. R. Hsu, G. Zhou, Y. Cherapanamjeri, Y. Huang, A. Y. Odisho, P. R. Carroll, and B. Yu. Efficient auto-
+mated circuit discovery in transformers using contextual decomposition. arXiv preprint arXiv:2407.00886,
+2024.
+[19] E. J. Hu, Y. Shen, P. Wallis, Z. Allen-Zhu, Y. Li, S. Wang, L. Wang, W. Chen, et al. Lora: Low-rank
+adaptation of large language models. Iclr, 1(2):3, 2022.
+11
+
+
+[20] X. Hu, K. Yin, M. I. Jordan, J. Steinhardt, and L. Chen. Understanding in-context learning of addition via
+activation subspaces. arXiv preprint arXiv:2505.05145, 2025.
+[21] J. Kramár, T. Lieberum, R. Shah, and N. Nanda. Atp*: An efficient and scalable method for localizing llm
+behaviour to components. arXiv preprint arXiv:2403.00745, 2024.
+[22] K. V. Mardia and P. E. Jupp. Directional statistics. John Wiley & Sons, 2009.
+[23] S. Marks and M. Tegmark. The geometry of truth: Emergent linear structure in large language model
+representations of true/false datasets. arXiv preprint arXiv:2310.06824, 2023.
+[24] S. Marks, C. Rager, E. J. Michaud, Y. Belinkov, D. Bau, and A. Mueller. Sparse feature circuits: Discovering
+and editing interpretable causal graphs in language models. arXiv preprint arXiv:2403.19647, 2024.
+[25] R. Marvin and T. Linzen. Targeted syntactic evaluation of language models. In Proceedings of the 2018
+conference on empirical methods in natural language processing, pages 1192–1202, 2018.
+[26] K. Meng, D. Bau, A. Andonian, and Y. Belinkov. Locating and editing factual associations in gpt. Advances
+in neural information processing systems, 35:17359–17372, 2022.
+[27] K. Meng, A. S. Sharma, A. Andonian, Y. Belinkov, and D. Bau. Mass-editing memory in a transformer.
+arXiv preprint arXiv:2210.07229, 2022.
+[28] J. Merullo, C. Eickhoff, and E. Pavlick. Circuit component reuse across tasks in transformer language
+models. arXiv preprint arXiv:2310.08744, 2023.
+[29] J. Merullo, C. Eickhoff, and E. Pavlick. Talking heads: Understanding inter-layer communication in
+transformer language models. Advances in Neural Information Processing Systems, 37:61372–61418,
+2024.
+[30] B. Millidge and S. Black. The singular value decompositions of transformer weight matrices are highly
+interpretable. In AI Alignment Forum, page 17, 2022.
+[31] M. Nadeem, A. Bethke, and S. Reddy. Stereoset: Measuring stereotypical bias in pretrained language
+models. In Proceedings of the 59th annual meeting of the association for computational linguistics and
+the 11th international joint conference on natural language processing (volume 1: long papers), pages
+5356–5371, 2021.
+[32] J. Nainani, S. Vaidyanathan, A. Yeung, K. Gupta, and D. Jensen. Adaptive circuit behavior and generaliza-
+tion in mechanistic interpretability. arXiv preprint arXiv:2411.16105, 2024.
+[33] N. Nanda. Attribution patching: Activation patching at industrial scale. URL: https://www. neelnanda.
+io/mechanistic-interpretability/attribution-patching, 15:19, 2023.
+[34] C. Olah, N. Cammarata, L. Schubert, G. Goh, M. Petrov, and S. Carter. Zoom in: An introduction to
+circuits. Distill, 2020. doi: 10.23915/distill.00024.001. https://distill.pub/2020/circuits/zoom-in.
+[35] C. Olsson, N. Elhage, N. Nanda, N. Joseph, N. DasSarma, T. Henighan, B. Mann, A. Askell, Y. Bai,
+A. Chen, et al. In-context learning and induction heads. arXiv preprint arXiv:2209.11895, 2022.
+[36] K. Park, Y. J. Choe, and V. Veitch. The linear representation hypothesis and the geometry of large language
+models. arXiv preprint arXiv:2311.03658, 2023.
+[37] A. Radford, J. Wu, R. Child, D. Luan, D. Amodei, I. Sutskever, et al. Language models are unsupervised
+multitask learners. OpenAI blog, 1(8):9, 2019.
+[38] A. Srivastava, A. Rastogi, A. Rao, A. A. M. Shoeb, A. Abid, A. Fisch, A. R. Brown, A. Santoro, A. Gupta,
+A. Garriga-Alonso, et al. Beyond the imitation game: Quantifying and extrapolating the capabilities of
+language models. Transactions on machine learning research, 2023.
+[39] M. Sundararajan, A. Taly, and Q. Yan. Axiomatic attribution for deep networks. In International conference
+on machine learning, pages 3319–3328. PMLR, 2017.
+[40] A. Syed, C. Rager, and A. Conmy. Attribution patching outperforms automated circuit discovery. In
+Proceedings of the 7th BlackboxNLP Workshop: Analyzing and Interpreting Neural Networks for NLP,
+pages 407–416, 2024.
+[41] E. Todd, M. L. Li, A. S. Sharma, A. Mueller, B. C. Wallace, and D. Bau. Function vectors in large language
+models. arXiv preprint arXiv:2310.15213, 2023.
+12
+
+
+[42] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, Ł. Kaiser, and I. Polosukhin.
+Attention is all you need. Advances in neural information processing systems, 30, 2017.
+[43] J. Vig, S. Gehrmann, Y. Belinkov, S. Qian, D. Nevo, Y. Singer, and S. Shieber. Investigating gender bias in
+language models using causal mediation analysis. Advances in neural information processing systems, 33:
+12388–12401, 2020.
+[44] K. Wang, A. Variengien, A. Conmy, B. Shlegeris, and J. Steinhardt. Interpretability in the wild: a circuit
+for indirect object identification in gpt-2 small. arXiv preprint arXiv:2211.00593, 2022.
+[45] A. Warstadt, A. Parrish, H. Liu, A. Mohananey, W. Peng, S.-F. Wang, and S. R. Bowman. Blimp: The
+benchmark of linguistic minimal pairs for english. Transactions of the Association for Computational
+Linguistics, 8:377–392, 2020.
+[46] F. Zhang and N. Nanda. Towards best practices of activation patching in language models: Metrics and
+methods. arXiv preprint arXiv:2309.16042, 2023.
+[47] J. Zhao, T. Wang, M. Yatskar, V. Ordonez, and K.-W. Chang. Gender bias in coreference resolution:
+Evaluation and debiasing methods. In Proceedings of the 2018 Conference of the North American Chapter
+of the Association for Computational Linguistics: Human Language Technologies, Volume 2 (Short Papers),
+pages 15–20, 2018.
+13
+
+
+Appendix
+A Limitation and Future Work . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+15
+B
+Extended Discussion on Related Work . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+15
+C Notations and Symbols . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+15
+D Definition. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+17
+D.1
+Edge Attribution Patching . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+17
+D.2
+mAP . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+18
+D.3
+Monte Carlo Significance Baseline . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+18
+E
+Extend Method. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+18
+E.1
+Paraphrase Augmentation Diagnostics . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+18
+E.2
+Cross-Task Analysis: Implementation Details . . . . . . . . . . . . . . . . . . . . . . . . . .
+19
+F
+Tasks and Datasets . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+20
+F.1
+Per-Task Descriptions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+20
+F.2
+Paraphrase Methodology . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+25
+F.3
+Approach . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+25
+F.4
+Evaluation Metrics . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+29
+G More Experiment Results . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+30
+G.1
+SCA Evaluation on GPT-2 Small with More Tasks . . . . . . . . . . . . . . . . . . . . . . .
+30
+G.2
+Case Study: IOI on GPT-2 Small. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+31
+G.3
+Transferable Experiment: Pythia-160M . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+33
+G.4
+Sensitivity Analysis . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+37
+H Computational Resources. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+40
+14
+
+
+A
+Limitation and Future Work
+SCA’s spectral subspaces are interpretive lenses rather than guaranteed mediators; we validate them
+via projection-based ablation (Table 1) but acknowledge that subspace recovery, like activation
+patching [46], has design choices—paraphrase-set composition (whose underlying sign-consistency
+distribution is itself model-dependent; see Appendix G.3), energy threshold η, layer-type aggrega-
+tion—whose sensitivity warrants further study. Our experiments are confined to GPT-2 Small and
+Pythia-160M; scaling SCA to billion-parameter models will require Gram-trick variants and is an
+immediate next step. More broadly, we view SCA as complementary to the matched-counterfactual
+paradigm rather than a replacement: counterfactual-driven methods provide direct causal interventions
+on token-level contrasts, while paraphrase-driven spectral methods provide a task-level geometric
+view. Combining the two—e.g., using SCA-discovered subspaces to seed targeted counterfactual
+patching—appears to be a productive direction.
+Outlook.
+Several recent threads converge on the view that transformer computation is fundamentally
+low-rank and task-conditioned [36, 41, 29, 20]. SCA offers one operationalization of this view:
+it shows that the spectrum of the forward gradient, taken across paraphrases, is rich enough to
+recover circuit-level structure, identify cross-task computational primitives, and surface compositional
+patterns that single-task discovery cannot reveal. We hope this encourages further work on attribution
+methods that leverage the geometric structure of model parameters and gradients beyond per-edge
+causal intervention.
+B
+Extended Discussion on Related Work
+Circuit Discovery and Attribution. Circuit-discovery methods differ primarily in how they quantify
+component importance. Intervention-based approaches estimate importance via activation replace-
+ment, including causal mediation analysis [43], ACDC [5], activation patching [26, 27], and its
+first-order approximations [33, 40, 15, 21]. Counterfactual-free [32] alternatives instead rely on
+different attribution objects: token-level propagation rules [7], causal graphs over dictionary-learned
+features [24], or analytical layer-wise decompositions [18]. SCA likewise operates without counter-
+factual prompts, but takes the cross-instance spectrum of task gradients as its attribution object.
+Geometric Structure as a Discovery Procedure. There’s a line of research leverages low-rank
+structure for mechanistic discovery. DAS [9] aligns interpretable variables with activation subspaces;
+[26, 27] write rank-one updates to install factual associations; function vectors [41] are read out
+and patched to trigger task execution; SVD-of-weights analyses [30] and inter-layer communication
+studies [29] use singular directions as objects of interpretation. Closest to our spectral framing, Ahmad
+et al. [1] apply SVD to a transformer’s pre-trained component weights and use an optimization-based
+mask to identify functionally important singular directions within components. However, in SCA, the
+SVD is taken over forward task gradients across paraphrases, not over frozen weights.
+C
+Notations and Symbols
+We summarize the mathematical notations used throughout the paper in Table 2.
+Table 2: Summary of notations used in this paper.
+Symbol
+Meaning
+fθ
+Pre-trained decoder-only language model with parameters θ.
+θ
+Model parameter vector.
+D
+Total number of model parameters.
+T
+A circuit-discovery task specified by an input distribution and metric.
+DT
+Input distribution for task T .
+x
+A task instance sampled from DT .
+LT
+Task loss used to compute gradients.
+M
+Task metric computed from next-token logits, e.g., logit difference.
+Continued on next page
+15
+
+
+Table 2: Summary of notations used in this paper. (continued)
+Symbol
+Meaning
+L
+Number of transformer layers.
+H
+Number of attention heads per layer.
+dmodel
+Residual-stream dimension.
+dhead
+Attention-head dimension.
+dmlp
+MLP hidden dimension.
+cmlp
+Number of MLP parameter units per layer; cmlp = 2 in our experiments.
+U
+Set of architecturally meaningful units, including attention heads and
+MLP projections.
+u
+A single attention-head or MLP-projection unit.
+Iu
+Parameter coordinates associated with unit u.
+du
+Number of parameters in unit u, i.e., du = |Iu|.
+ℓ(u)
+Layer index of unit u.
+τ(u)
+Type of unit u, either attn or mlp.
+Uattn
+Set of attention-head units.
+W (ℓ,h)
+V
+, W (ℓ,h)
+O
+Value and output projections of attention head (ℓ, h).
+W (ℓ)
+up , W (ℓ)
+down
+Up- and down-projection matrices of the MLP at layer ℓ.
+xi
+The i-th semantic instance.
+xi,j
+The j-th semantic-preserving paraphrase of instance xi.
+N
+Number of semantic instances.
+M
+Number of paraphrases per semantic instance.
+g(x)
+Parameter gradient ∇θLT (x; θ).
+gi,j
+Gradient for paraphrase xi,j.
+¯gi
+Instance-level mean gradient, averaged over paraphrases.
+G
+Gradient matrix whose i-th row is ¯g⊤
+i .
+Bℓ,τ
+Layer-type block containing units in layer ℓwith type τ.
+Bk
+The k-th indexed layer-type block.
+B
+Number of layer-type blocks, B = 2L.
+k(u)
+Index of the unique block containing unit u.
+IBk
+Union of parameter coordinates in block Bk.
+dk
+Number of parameters in block Bk, i.e., dk = |IBk|.
+GBk
+Block-restricted gradient matrix.
+σ(k)
+j
+j-th singular value of GBk.
+η
+Energy threshold for effective-rank truncation; we use η = 0.95.
+ρk
+Effective rank of block Bk.
+UBk
+Block-level semantic subspace from the top left singular vectors.
+idxloc
+u
+Local row indices of unit u within its block.
+˜g(k)
+i
+Row-normalized gradient of instance i restricted to block Bk.
+µBk
+Mean normalized gradient direction in block Bk.
+cons(Bk)
+Directional consistency of gradients within block Bk.
+unit_share(u)
+Parameter-normalized row energy of unit u in its block subspace.
+I(u)
+SCA importance score for unit u.
+u(r)
+Unit ranked r-th by importance.
+CK
+Top-K prefix of a unit ranking.
+t, s
+Task indices in cross-task analysis.
+U t
+Bk
+Block semantic subspace for task t.
+It(u)
+Importance score of unit u for task t.
+U t
+u
+Per-unit semantic subspace for unit u and task t.
+ρt
+u
+Effective rank of the per-unit subspace U t
+u.
+overlap(u, s, t)
+Normalized projection energy between unit-level subspaces for tasks s
+and t.
+Continued on next page
+16
+
+
+Table 2: Summary of notations used in this paper. (continued)
+Symbol
+Meaning
+bIt(u)
+Type-normalized importance of unit u for task t.
+w(u, s, t)
+Importance-weighted cross-task subspace overlap.
+F
+Task-family layout used for cross-task classification.
+withinF (u)
+Aggregated overlap of unit u within task family F.
+crossmaxF (u)
+Maximum within-family score of unit u outside family F.
+score(u)
+Aggregated cross-task overlap score for universal-unit gating.
+θuniv, θfloor
+F
+, θdom, θout, δ
+Auto-calibrated gating thresholds for universal, family-shared, and task-
+specific classification.
+Dclean
+T
+Clean prompt distribution for patching-based evaluation.
+Dcorr
+T
+Corrupted prompt distribution for patching-based evaluation.
+patchC(x′ ←x)
+Forward pass on corrupted prompt x′ with units in C patched from clean
+prompt x.
+M(fθ | C)
+Expected metric under patching with unit set C.
+rA(K)
+Recovery score of method A at top-K budget; lower is better.
+D
+Definition
+D.1
+Edge Attribution Patching
+Activation patching [44] measures the causal contribution of an internal component by replacing
+its activation with a counterfactual value drawn from a corrupted run and observing the resulting
+change in a task metric M. Let E denote the set of edges in the model’s computation graph between
+attention heads, MLPs, and the residual stream. Applied exhaustively at the edge level, this procedure
+requires one forward pass per edge, which scales poorly: even GPT-2 Small contains on the order of
+104 edges between attention heads, MLPs, and the residual stream. Edge Attribution Patching (EAP)
+and its variants approximate this effect with gradients, reducing the cost from O(|E|) forward passes
+to a small constant number of forward–backward passes.
+EAP.
+Edge Attribution Patching [40] produces a ranking of the form by approximating activation
+patching via a first-order Taylor expansion. Given a clean prompt xclean that elicits the target behavior
+and an aligned corrupted counterpart xcorr that does not, each edge u →v carries an activation au
+produced by the source unit u and consumed by the destination unit v. EAP scores this edge as
+sEAP(u →v) :=
+ acorr
+u
+−aclean
+u
+
+· ∇avM
+
+xclean,
+(9)
+where aclean
+u
+and acorr
+u
+denote the source activation under the clean and corrupted runs respectively,
+and the gradient is taken with respect to v’s input from u, evaluated at the clean forward pass.
+Equation (9) is precisely the linearization of M around aclean
+u
+: ∆M ≈∇aM · (acorr
+u
+−aclean
+u
+).
+Per-unit scores are then obtained by summing absolute edge scores over incident edges. In typical
+mechanistic interpretability tasks, M is taken to be the logit difference between a designated correct
+token and an incorrect token (e.g., the indirect vs. direct object in IOI). The total cost is two forward
+passes (clean and corrupted) and a single backward pass, regardless of |E|.
+EAP-IG.
+The integrated-gradient variant, EAP-IG [15], addresses a known failure mode of EAP:
+when the loss surface is locally flat at xclean, the single-point gradient ∇avM|xclean underestimates
+the true effect of the intervention aclean
+u
+→acorr
+u
+, even when the corresponding edge is causally
+important. EAP-IG mitigates this saturation by replacing the clean-point gradient with an average
+along the linear interpolation xcorr →xclean in input embedding space, following the integrated-
+gradients construction of Sundararajan et al. [39]:
+sEAP-IG(u →v) :=
+ acorr
+u
+−aclean
+u
+
+· 1
+m
+m
+X
+k=1
+∇avM
+
+x(k),
+(10)
+where x(k) = xcorr + k
+m
+ xclean −xcorr
+and m is the number of interpolation steps. The cost grows
+to m forward–backward passes, which remains independent of |E|.
+17
+
+
+EAP-IG-KL.
+The KL-based variant, EAP-IG-KL [15], further removes the dependence on a
+task-specific logit-difference metric by taking M to be the KL divergence between the clean and
+intervened next-token distributions,
+MKL(x) := KL
+ p( · | xclean)
+ p( · | x)
+
+.
+(11)
+This metric is well-defined for arbitrary tasks without requiring a contrastive pair of output tokens,
+and is therefore applicable in multi-answer or open-ended settings where logit difference is ill-posed
+(e.g., factual recall tasks with multiple admissible completions). It is also conceptually aligned with
+the faithfulness evaluation protocol itself, which typically measures post-ablation behavior in terms of
+KL divergence from the clean distribution; using KL as the attribution metric thus optimizes directly
+for the quantity by which circuits are subsequently judged. The trade-off is the loss of directional
+signal: KL treats all probability redistribution as equally costly, and cannot distinguish edges that
+push probability toward the correct answer from edges that push it away from incorrect ones, which
+can in some cases lead EAP-IG-KL to omit components that contribute negatively but importantly to
+task behavior [15].
+Common requirement.
+All three formulations–EAP, EAP-IG, and EAP-IG-KL–require an aligned
+corrupted counterpart xcorr as input. The quality of the resulting ranking depends critically on this
+alignment: xcorr must differ from xclean in exactly the task-relevant feature while preserving surface
+form, length, and tokenization, since otherwise the activation difference acorr
+u
+−aclean
+u
+conflates
+the target manipulation with incidental lexical noise. Constructing such counterfactual pairs is
+feasible for templated tasks like IOI or Greater-Than but becomes substantially harder for naturalistic
+or multi-step behaviors, motivating attribution methods that operate without an explicit corrupted
+reference.
+D.2
+mAP
+We rank all 144 attention heads by each method’s importance score and evaluate the ranking against
+the |GT|=26 canonical IOI heads from Wang et al. [44]. Ranking quality is summarized by mean
+Average Precision,
+mAP =
+1
+|GT|
+144
+X
+k=1
+Precision@k · ⊮
+
+u(k) ∈GT
+
+,
+(12)
+the area under the precision–recall curve, with chance level |GroundTruth|/144 ≈0.18.
+D.3
+Monte Carlo Significance Baseline
+Significance baseline.
+Even when U (a)
+u
+and U (b)
+u
+are sampled independently from the uniform
+(Haar) distribution on the Stiefel manifold, the expected overlap is positive and grows with the
+rank-to-ambient ratio: in particular, E[ovu(a, b)] = ρ(a)
+u ρ(b)
+u /(du · min(ρ(a)
+u , ρ(b)
+u )) under equal ranks.
+To control for this dimension-induced floor, we construct a non-parametric significance threshold per
+shape. For each unique triple (du, ρ(a)
+u , ρ(b)
+u ) encountered across U × [T]2, draw S = 200 pairs of
+Haar-random orthonormal frames and record their 99th-percentile overlap,
+β
+ du, ρ(a)
+u , ρ(b)
+u
+
+:= quantile0.99
+n
+ov
+ eU (s)
+a , eU (s)
+b
+oS
+s=1.
+(13)
+The pair (u, a, b) is declared significant iff ovu(a, b) > β(du, ρ(a)
+u , ρ(b)
+u ). Baselines are computed
+once per unique triple and amortized across all |U| ·
+ T
+2
+
+pair evaluations.
+E
+Extend Method
+E.1
+Paraphrase Augmentation Diagnostics
+E.1.1
+Diagnostic: Paraphrase-Augmented Signal
+To verify that paraphrase averaging in Eq. (2) isolates a task-semantic signal rather than lexical
+noise, we compute the noise-to-signal ratio (NSR) between intra-instance and inter-instance gradient
+18
+
+
+distances. For each instance i,
+d(i)
+intra :=
+1
+M(M −1)
+X
+j̸=k
+∥gi,j −gi,k∥2,
+d(i,i′)
+inter := ∥¯gi −¯gi′∥2,
+(14)
+and aggregate over the N instances:
+NSR :=
+1
+N
+P
+i d(i)
+intra
+1
+N(N−1)
+P
+i̸=i′ d(i,i′)
+inter
+.
+(15)
+E.1.2
+Diagnostic: Sign Consistency at the Parameter Level
+We complement the instance-level NSR with a parameter-coordinate-level diagnostic. Writing
+g(d)
+i,j ∈R for the d-th coordinate of gi,j (d ∈[D]), define the per-instance and mean sign-consistency
+SC(d,i) :=
+
+1
+M
+M
+X
+j=1
+sign
+ g(d)
+i,j
+ ∈[0, 1],
+SC(d) :=
+1
+N
+N
+X
+i=1
+SC(d,i).
+(16)
+Under the null of i.i.d. uniform random signs across the M = 5 paraphrases of an instance,
+E[SC(d)] = 0.375; coordinates with threshold ≥0.7 thus exhibit sign-coherence well above
+chance. Results of Augmented Signal Analysis and Sign Consistency in GPT-2 Small are shown in
+Table 3.
+Table 3: Cross-task subspace overlap metrics on GPT-2 Small.
+Task
+NSR
+dmean
+intra
+dmean
+inter
+SCmean
+Indirect Object Identification
+0.5667
+0.4336
+0.7651
+0.6157
+Greater-Than
+0.3402
+0.1905
+0.5601
+0.7279
+Greater-Than-Price
+0.5273
+0.2858
+0.5420
+0.6762
+Country-Capital
+0.2089
+0.1845
+0.8834
+0.7246
+Person-Country
+0.2949
+0.2406
+0.8157
+0.7142
+Person-Profession
+0.2929
+0.2608
+0.8905
+0.7072
+Colored Objects
+0.8095
+0.6262
+0.7736
+0.5435
+Gender Bias
+0.2899
+0.2357
+0.8129
+0.6848
+Gender Pronoun
+0.2652
+0.2257
+0.8509
+0.7033
+Subject-Verb Agreement
+0.1916
+0.1735
+0.9057
+0.7353
+SVA-Binary
+0.1318
+0.1185
+0.8985
+0.7649
+SVA-BLiMP
+0.4572
+0.4006
+0.8762
+0.6138
+E.2
+Cross-Task Analysis: Implementation Details
+This appendix provides the implementation details deferred from Section 3.2: the auto-calibration
+recipe for the gating thresholds (Appendix E.2.1), the specialized/broad refinement of the FAMILY-F
+label (Appendix E.2.2), and the family-layout robustness protocol (Appendix E.2.3). Notation follows
+Sections 2–3.2.
+E.2.1
+Auto-Calibrated Gating Thresholds
+The gates G1–G3 of Section 3.2 depend on five scalar thresholds and one null-distribution sample
+size. To avoid hand-tuning, all are derived from empirical quantiles over the unit population U,
+computed under the importance-weighted overlap w of Eq. (6).
+Quantile-based thresholds.
+For a real-valued statistic ϕ : U →R and α ∈(0, 1), let qα(ϕ) :=
+inf{c : |{u : ϕ(u) ≤c}|/|U| ≥α} denote the α-quantile of ϕ over U. The five thresholds are
+θuniv = q0.90(score),
+θfloor
+F
+= q0.95(crossmax
+F
+),
+θdom = q0.90(bIratio),
+θout = q0.50(w̸=t∗
+max),
+δ = 0.05,
+(17)
+19
+
+
+where bIratio(u) := bI t∗(u)/ maxt̸=t∗bI t(u) and w̸=t∗
+max(u) := maxt̸=t∗w(u, t∗, t) are evaluated at
+t∗= arg maxt bI t(u). The θfloor
+F
+rule guarantees by construction that any qualifying within-family
+score exceeds at least 95% of cross-family scores; the additive margin δ removes near-ties on the G2
+boundary.
+Null-distribution sample size.
+The significance test for overlap(u, s, t) in Eq. (5) compares against
+a Monte-Carlo null formed from Rnull = 1000 pairs of random orthonormal subspaces of matched
+ranks (ρs
+u, ρt
+u) in Rdu, drawn by orthonormalizing standard Gaussian matrices. The 95th percentile
+is computed empirically without distributional assumptions.
+Family-specific floor overrides.
+A small number of families exhibit naturally low cross-overlap
+with the rest of [T], which depresses crossmax
+F
+and lets G2 admit weak within-family signals. For
+such families we override θfloor
+F
+with the larger of q0.95(crossmax
+F
+) and a global floor q0.50(withinF )
+aggregated across all families; the override is reported alongside any G2 assignment.
+E.2.2
+Specialized vs. Broad Family Members
+Units classified FAMILY-F by gate G2 are further refined by intra-family magnitude. A unit u
+assigned to family F is SPECIALIZED if
+withinF (u) ≥θstrict
+F
+,
+θstrict
+F
+:= q0.99(withinF ),
+(18)
+and BROAD otherwise. The SPECIALIZED tag isolates the strongest in-family contributors—typically
+a handful of units per family—and is used in the experiments only to inspect the head of the
+within-family distribution; the headline G1–G3 labels do not depend on this refinement.
+E.2.3
+Family-Layout Robustness
+The family-membership classifier of Section 3.2 is parametrized by the family layout F. Singleton-
+as-family layouts are degenerate: a single-member family has no within-family pair, leaving withinF
+undefined. We therefore evaluate two non-degenerate layouts in parallel:
+• v1 (strict): F contains only the multi-task families specified a priori from the task taxonomy;
+tasks not belonging to any such family are family-ineligible and can only be assigned by
+gates G1, G3, or G4.
+• v2 (catch-all): F additionally pools every otherwise-orphan task into a single catch-all
+family, allowing all tasks to participate in G2 evaluation.
+For each gate’s two aggregation choices (min, mean) we re-run the classifier under both layouts,
+yielding four label assignments per unit. Units receiving the same headline label (UNIVERSAL,
+FAMILY-F for the same F, TASK-t∗for the same t∗, or MIXED) under all four configurations are
+tagged layout-stable; only layout-stable assignments enter the headline counts of Section 4, while
+layout-sensitive units are reported separately.
+F
+Tasks and Datasets
+F.1
+Per-Task Descriptions
+We construct paraphrases for eleven mechanistic-interpretability benchmarks, each available in
+matched GPT-2 and Pythia variants. For every task, each source row receives five paraphrase of pclean
+that preserve the original task semantics (the model’s required next-token prediction is unchanged)
+while varying lexical and syntactic surface form. The single exception is IOI, for which we provide
+15 paraphrases per row because we use it as a template task to study sensitivity analysis about the
+number of paraphrases M. Below, for each task, we first give the task definition, then its source and
+citation, then its clean / corrupted format with one representative example.
+F.1.1
+IOI — Indirect Object Identification
+Task.
+Given a two-name introduction followed by a transfer event, predict the indirect object —
+the name that does not repeat as the agent of the transfer.
+20
+
+
+Source.
+Interpretability in the Wild: a Circuit for Indirect Object Identification in GPT-2 Small,
+Wang et al. [44]. The dataset is released with the interpretability-wild repository accompany-
+ing that paper. Seven base templates underlie the dataset (fun, argument, went_then, thinking,
+working, after_went, got).
+Format and example.
+clean
+:
+"Then, Lauren and Laura were working at the office.
+Lauren decided to give a kiss to"
+correct_token:
+" Laura"
+corrupted
+:
+"Then, Lauren and Laura were working at the office.
+Kristen decided to give a kiss to"
+corrupted_token: " Lauren"
+The released GPT-2 / Pythia version of the dataset truncates the prompt before the indirect object;
+the answer is stored as correct_token. The corruption is implicit: the discovered IOI circuit is
+evaluated against an ABC-shuffled name set rather than a single corrupted prompt, following Wang
+et al. [44].
+F.1.2
+GB — Gendered Bias
+Task.
+Predict the gendered pronoun (“ he” / “ she”) referring to the sentence subject. The clean
+answer reflects the occupation’s stereotypical gender; the corrupted answer reflects an explicit
+gendered noun (man / woman).
+Source.
+Sentence templates of the form “The {occupation} {verb-phrase} {complementiser}”,
+derived from gender-bias evaluation work in the spirit of the WinoBias coreference benchmark [47]
+and the StereoSet stereotype benchmark [31]. The clean–corrupted contrast flips the subject from
+a stereotypically gendered occupation to a generic gendered noun, isolating the contribution of the
+occupation itself to the predicted pronoun.
+Format and example.
+clean
+: "The photographer wished that"
+<- clean (female-stereotyped)
+corrupted
+: "The man wished that"
+<- corrupted (explicit male noun)
+clean_answer
+: " she"
+corrupted_answer : " he"
+F.1.3
+GP — Gendered Pronoun
+Task.
+Predict the pronoun (“ he” / “ she”) co-referent with the named subject of the sentence.
+Source.
+Sentence templates of the form “<adverbial>, {name} {verb-phrase} {complementiser}”
+over 18 base templates, using real person names with a conventional gender association. The clean–
+corrupted contrast swaps to a name of the opposite gender, isolating gender attribution from sentence
+structure. Related to the pronoun-resolution probing work of Vig et al. [43] and the gender-bias-in-
+coreference setup of Zhao et al. [47].
+Format and example.
+clean_query
+: "After the long meeting, Ronald said that"
+<- clean (male)
+corrupted_query
+: "After the long meeting, Amy said that"
+<- corrupted (female)
+clean_completion
+: " he"
+corrupted_completion: " she"
+21
+
+
+F.1.4
+SVA — Subject-Verb Agreement
+Task.
+At the prediction position, choose between a singular-agreeing verb form and a plural-
+agreeing verb form. The evaluation aggregates probability mass over a curated pool of ∼1,100
+singular/plural verb pairs (e.g. abandons / abandon, achieves / achieve, .. ., is / are, was / were), so
+the target is a verb pool rather than a single token pair.
+Source.
+Targeted Syntactic Evaluation of Language Models, Marvin and Linzen [25]. Templates
+cover 14 syntactic groups (object-relative clauses, subject-relative clauses, sentential complements,
+prepositional phrases, etc.). The clean–corrupted contrast flips the head noun’s number while leaving
+every other token identical. The accompanying singular/plural verb pool follows the agreement-form
+list released with that work.
+Format and example.
+clean
+: "The song the ministers admire"
+<- clean (singular subject "song")
+corrupted
+: "The songs the ministers admire"
+<- corrupted (plural)
+clean_answer
+: (canonical singular form; one entry in the verb pool)
+corrupted_answer : " are" (canonical plural form; one entry in the verb pool)
+group
+: :" is" ML-obj_rel_no_comp_across_inanim_all"
+plural_meaning
+: "singular_subject"
+The released JSON stores the canonical pair “ is” / “ are” in the clean_answer / corrupted_answer
+fields for convenience; evaluation aggregates over the full singular/plural verb pool.
+F.1.5
+SVA-Binary — Subject-Verb Agreement (Binary)
+Task.
+A simplified, distractor-free variant of SVA. Predict the verb form (“ is” / “ are”) that agrees
+in number with the head noun, where the head noun is the only noun that could control agreement at
+the prediction position. The clean–corrupted contrast flips the head noun’s number; the evaluation
+metric is the logit difference between the two target tokens, logit[“ is”] −logit[“ are”].
+Source.
+A binary-target subset of Marvin and Linzen [25], restricted to the syntactic groups
+simple_agrmt and sent_comp_all, in which no relative-clause or prepositional-phrase distractor
+noun intervenes between the head noun and the agreement target. The intent is to isolate the simplest
+is/are decision and make it directly comparable in format to the binary-target tasks elsewhere in this
+benchmark (GB, GP, CO, etc.).
+Format and example.
+clean
+: "The author"
+<- clean (singular subject "author")
+corrupted
+: "The authors"
+<- corrupted (plural)
+clean_answer
+: " is"
+corrupted_answer : " are"
+group
+: "ML-simple_agrmt"
+plural_meaning
+: "singular_subject"
+F.1.6
+SVA-BLiMP — Subject-Verb Agreement (BLiMP)
+Task.
+As in SVA, but using BLiMP-style minimal pairs in which the subject’s number is flipped
+together with its determiner.
+Source.
+BLiMP: The Benchmark of Linguistic Minimal Pairs for English, Warstadt et al. [45].
+Specifically the distractor_agreement_relative_clause and related agreement groups in
+which a relative clause separates the subject from the agreement target.
+22
+
+
+Format and example.
+clean
+: "These students who loved the Borgias"
+<- clean (plural)
+corrupted
+: "This student who loved the Borgias"
+<- corrupted (singular)
+group
+: "blimp-distractor_agreement_relative_clause"
+plural_meaning
+: "plural_subject"
+F.1.7
+GT — Greater-Than
+Task.
+Given a sentence describing an event spanning years YYZZ to YY, predict any 2-digit year
+strictly greater than ZZ.
+Source.
+How does GPT-2 compute greater-than?, Hanna et al. [14]. The corrupted prompt fixes ZZ
+= 01, removing the lower-bound constraint (any 2-digit year > 01 is admissible) and thereby serving
+as the corruption baseline against which the greater-than circuit is identified.
+Format and example.
+clean
+: "The plan lasted from the year 1760 to the year 17"
+<- clean (ZZ=02)
+corrupted
+: "The plan lasted from the year 1701 to the year 17"
+<- corrupted (ZZ=01)
+correct_idx : 60
+F.1.8
+GT-Price — Greater-Than Price
+Task.
+Given “The price of that {noun} ranges from $ XXZZ to $ XX”, predict any 2-digit suffix
+strictly greater than ZZ.
+Source.
+A price-domain analogue of Greater-Than (the Year version), sharing the underlying
+numeric reasoning structure of Hanna et al. [14] but substituting a shopping context for a temporal
+one. The substitution preserves the greater-than constraint while exposing whether the discovered
+circuit transfers across domains.
+Format and example.
+clean
+: "The price of that table ranges from $ 1165 to $ 11"
+<- clean (ZZ=65)
+corrupted
+: "The price of that table ranges from $ 1101 to $ 11"
+<- corrupted (ZZ=01)
+correct_idx
+: 65
+F.1.9
+CC — Country–Capital
+Task.
+Given a capital city, predict the country it is the capital of.
+Source.
+Locating and Editing Factual Associations in GPT, Capital-name prompts following the
+factual-association probing methodology of Meng et al. [26]. The clean–corrupted contrast replaces
+the capital with a different real capital whose answer differs.
+Format and example.
+clean
+: " Ashgabat, the capital of"
+-> " Turkmenistan"
+<- clean
+corrupted
+: " Thimphu, the capital of"
+-> " Bhutan"
+<- corrupted
+capital
+: "Ashgabat"
+country
+: "Turkmenistan"
+23
+
+
+corrupted_capital
+: "Thimphu"
+corrupted_country
+: "Bhutan"
+F.1.10
+CO — Colored Objects
+Task.
+Given a small visual scene description, identify either the colour of a queried object (inventory
+style) or the object having a queried colour (QA style).
+Source.
+Object–colour binding stimuli in the BIG-Bench colored_objects task family, Beyond the
+Imitation Game: Quantifying and Extrapolating the Capabilities of Language Models [38]. Two
+formats are released:
+• CO (inventory-style) — list-then-query.
+• CO-QA (question-answering style) — descriptive sentences with a wh-question.
+In the inventory format, corruption swaps the queried object (so the predicted colour flips). In the QA
+format, corruption swaps the colour–object binding in the scene (so the answer to the same question
+is a different object).
+Format and example.
+clean (inventory): " Inventory: a white dress, a grey shelf, an orange pencil.
+Item pencil is"
+-> " orange"
+<- clean
+corrupted
+: " Inventory: a white dress, a grey shelf, an orange pencil.
+Item dress is"
+-> " white"
+<- corrupted
+clean (QA)
+: " The ruler is brown. The folder is purple.
+What is brown? It is the"
+-> " ruler"
+<- clean
+corrupted
+: " The ruler is purple. The folder is brown.
+What is brown? It is the"
+-> " folder"
+<- corrupted
+F.1.11
+PC — Person–Country
+Task.
+Given a famous person, predict their country of citizenship.
+Source.
+Sentences of the form “<prefix> {name} <verb-phrase> of/in” over 8 base templates,
+where {name} is a real person and the prediction target is a country of citizenship. The construction
+follows the factual-association probing methodology of Meng et al. [26] and Hernandez et al. [17],
+Linearity of Relation Decoding in Transformer Language Models, in which a known relation triple
+(subject, relation, object) is realised as a free-form completion prompt. The clean–corrupted contrast
+replaces the named entity with another whose citizenship differs.
+Format and example.
+clean
+: " Netanyahu was a national of"
+<- clean (Israeli politician)
+corrupted
+: " Orwell was a national of"
+<- corrupted (English author)
+clean_answer
+: " Israel"
+corrupted_answer : " England"
+template
+: "{name} was a national of"
+F.1.12
+PP — Person–Profession
+Task.
+Given a famous person, predict their profession.
+Source.
+Sentences of the form “<prefix> {name} <verb-phrase> a” over 24 base templates, where
+{name} is a real person and the prediction target is a single-token profession noun. As with PC, the
+construction follows the factual-association probing methodology of Meng et al. [26] and Hernandez
+et al. [17]. The clean–corrupted contrast replaces the named entity with another whose profession
+differs.
+24
+
+
+Format and example.
+clean
+: " From an early age, Hegel aspired to become a"
+<- clean (German philosopher)
+corrupted
+: " From an early age, Columbus aspired to become a"
+<- corrupted (Italian explorer)
+clean_answer
+: " philosopher"
+corrupted_answer : " sailor"
+template
+: "From an early age, {name} aspired to become a"
+F.2
+Paraphrase Methodology
+F.2.1
+Approach
+F.3
+Approach
+All paraphrase templates were generated by a large language model and then verified by the
+authors. Specifically, Anthropic’s Claude (Sonnet/Opus, accessed through the Claude.ai web
+interface) was prompted to produce candidate paraphrase templates for each task, given the original
+clean / corrupted stimulus and the task-specific hard invariants (last-token preservation, entity-
+count preservation, no answer-leaking vocabulary in the template frame, etc.). The model also
+generated the verification scripts that statically and dynamically check these invariants. The authors
+then manually inspected each template for fluency and semantic equivalence, edited or rejected
+templates that failed inspection, and ran the verification scripts on every generated paraphrase pair.
+Templates that did not pass all hard invariants were discarded; only templates that passed both human
+inspection and automated verification are included in the released datasets.
+The released datasets themselves are produced by deterministic template-substitution scripts
+(Python 3, no model dependencies); no paraphrase text is generated by a language model at
+runtime. Random sampling steps (e.g. selecting one of twelve discourse-setting frames in SVA /
+Country-Capital) use random.Random(42), so the released datasets are fully reproducible.
+Why a template-based release rather than runtime neural paraphrasing? Three reasons:
+1. Exact preservation of the corruption pattern. Mechanistic-interpretability evaluation
+requires that pclean and pcorrupted differ only at the entity position(s) of the original task,
+with the same flipped values as the original. A neural paraphraser used at runtime cannot
+guarantee this byte-level invariant; even strong models substitute pronouns, drop modifiers,
+or reorder constituents in ways that violate the corruption identity. Authoring templates
+once and substituting slot fillers deterministically lets us guarantee the invariant exactly.
+2. Hard-constraint verifiability. We require every paraphrase pair to satisfy a fixed set of
+hard invariants (last-token preservation, entity-count preservation, byte-identical prefix and
+suffix between pclean and pcorrupted, no answer-leaking vocabulary in the template frame).
+These invariants are statically and runtime-verifiable for fixed templates, and infeasible to
+enforce on free-form neural paraphraser outputs.
+3. Forbidden-vocabulary enforcement. Several tasks require that no answer-leaking word
+appear in the template frame: profession words for PP, country/nationality words for PC and
+CC, gendered pronouns for GB and GP, colour and object words outside the original scene
+for CO. Static forbidden-list checks are straightforward for fixed templates and difficult for
+free-form neural-paraphraser outputs.
+Every generated paraphrase pair (pclean, pcorrupted) is verified against the hard invariants in Table 4;
+generation halts with an assertion error if any invariant fails.
+H3 is enforced via byte-level partition around the entity slot, so each paraphrase decomposes as
+prefix + slot_filler + suffix and the prefix and suffix bytes are required to match exactly
+between pclean and pcorrupted. This is stricter than mere lexical identity; it eliminates any prefix/suffix
+drift that could contaminate the clean-vs-corrupted logit difference.
+25
+
+
+ID
+Invariant
+H1
+Last token of pclean equals last token of original clean (preserves prediction position).
+H2
+The critical entity (name, capital, start-year, head-noun, etc.) appears the same number of times
+in pclean as in original clean.
+H3
+pclean and pcorrupted differ ONLY at the corruption positions, with the same
+flipped values as the original.
+H4
+The template frame contains no answer-leaking vocabulary (gendered words, country words,
+profession words, etc., as appropriate per task).
+H5
+The template frame contains no third-party document-source word (narrator, journalist,
+biographer, archive, etc.) that introduces a new entity not present in the original.
+Table 4: Hard invariants verified at generation time for every paraphrase pair.
+F.3.1
+Per-Task Generation Strategy
+IOI.
+15 paraphrases per row, each ending with the literal token to. Within each of the seven base
+templates, the operations applied are:
+• Subordinate-clause fronting — “While A and B were ..., S handed a Y to”
+• It-cleft on the event clause — “It was at the X that S gave a Y to”
+• Participial / possessive NP — “Following A and B’s trip to the X, ...”
+• Sentence splitting — “A and B visited the X. S then handed a Y to”
+• Connective and verb variation — Then →Afterwards / Later / Next; gave →handed /
+passed / offered / presented
+• Light reversal — location fronting (“At the X, A and B ...”)
+GB.
+5 paraphrases per row, each preserving the original complementiser (that or because) at the
+final position:
+• Adverbial fronting — “Earlier that day, the {occupation} {verb} {comp}”
+• Evaluative adverb — “Apparently, the {occupation} {verb} {comp}”
+• It-cleft on the subject — “It was the {occupation} who {verb} {comp}”
+• Parenthetical insertion — “The {occupation}, by all accounts, {verb} {comp}”
+• Post-nominal modifier — “The {occupation} at the time {verb} {comp}”
+Gendered tokens (he, she, man, woman, etc.) are forbidden in the template frame.
+GP.
+5 paraphrases per base template (18 base templates × 5 = 90 unique paraphrase templates),
+authored by direct restructuring of the original sentence — no third-party narrators, journalists,
+archives, or other external sources are introduced. Operations:
+• Adverbial-clause synonym — “After the long meeting, ...” →“Following the long
+meeting, ...”
+• Subordinate-time recasting — “After the long meeting, ...” →“Once the long meeting
+was over, ...”
+• Prepositional-phrase recasting — “After the long meeting, . . . ” →“At the end of the long
+meeting, ...”
+• Sentence splitting — “After the long meeting, X said that” →“The long meeting was
+finally over. X said that”
+• Mid-position adverbial insertion — “X, after the long meeting, said that”
+A subset of templates uses participial or conditional restructurings.
+26
+
+
+SVA/SVA-Binary.
+5 paraphrases per row through discourse embedding. The original stimulus is
+wrapped in a matrix clause from one of twelve discourse settings (novel paragraph, news report,
+dialogue line, journal entry, screenplay direction, biographer’s account, witness statement, archival
+note, voice-over, podcast intro, narrator account, letter). For each row we deterministically sample
+one setting and produce five syntactically distinct realisations of that setting:
+• Declarative + that-complement — “The novel records that {stim}”
+• Passive + that-complement — “It is recorded in the novel that {stim}”
+• What-cleft — “What the novel records is that {stim}”
+• Adverbial fronting (no that) — “In the novel, {stim}”
+• Biclausal conditional — “If you turn the next page of the novel, you will read that {stim}”
+The original SVA contrast (head-noun number flip) is preserved exactly inside the embedded clause.
+SVA-BLiMP.
+5 surface-form perturbations per row, applied within the embedded relative clause
+and on peripheral modifiers:
+• Relative-pronoun substitution — “students who loved” →“students that loved”
+• Participial recasting — “students who loved” →“students having loved”
+• Reduced-relative recasting — “students who loved X” →“students fond of X”
+• Mid-position adverbial insertion — “These students who loved X” →“These students, in
+their youth, who loved X”
+• Determiner / quantifier alternation — “These students” →“All of these students”
+Pronouns and other number-marked elements outside the original head NP are forbidden in the
+template frame.
+GT.
+5 paraphrases per row, all retaining the literal sentence-final substring “the year YY”:
+• Declarative active SVO — “The {noun} ran from the year YYZZ until the year YY”
+• Passive PP — “The {noun} was conducted from the year YYZZ to the year YY”
+• Fronted temporal adverbial — “Beginning in the year YYZZ, the {noun} continued until
+the year YY”
+• Nominal inversion — “The duration of the {noun} spanned from the year YYZZ to the
+year YY”
+• It-cleft — “It was the {noun} that ran from the year YYZZ to the year YY”
+Template frames contain no digits, so no spurious 4-digit year or stray 2-digit YY value can leak into
+the prompt.
+GT-Price.
+5 paraphrases per row using shopping-domain verbs and frames, ending with the literal
+substring “$ XX”:
+• Declarative active SVO — “That {noun} sells from $ XXZZ up to $ XX”
+• Passive PP — “That {noun} is priced from $ XXZZ to $ XX”
+• Fronted temporal adverbial — “Starting at $ XXZZ, the price of that {noun} can reach $
+XX”
+• Nominal inversion — “The cost of that {noun} spans from $ XXZZ to $ XX”
+• It-cleft — “It is that {noun} that costs anywhere from $ XXZZ to $ XX”
+As in GT, the template frame contains no digits.
+27
+
+
+CC.
+We sample one of twelve discourse-setting extensions per row (encyclopedia, advertisement,
+auction-catalogue, journalist column, retail description, customer review, valuation report, market
+summary, e-commerce listing, appraiser’s note, gift-guide blurb, designer-brand press caption —
+drawn from a pool disjoint from SVA’s twelve settings), and produce 5 paraphrases that preserve the
+chosen setting’s semantic theme while realising five distinct sentence types. Using the encyclopedia
+setting as illustration:
+• Active declarative — “Encyclopedia sources note that {capital}, the capital of”
+• Passive — “In encyclopedia sources, {capital} is recorded as the capital of”
+• What-cleft — “What encyclopedia sources record is that {capital}, the capital of”
+• Adverbial fronting — “According to encyclopedia sources, {capital}, the capital of”
+• Biclausal conditional — “If you consult any standard reference, you will see that {capital},
+the capital of”
+All variants end with the literal substring “the capital of”. Frames contain no specific country,
+nationality, language, or currency.
+CO (inventory and QA).
+5 paraphrases per row, preserving the matrix-sentence final-position
+token and the scene-internal binding semantics:
+• Connective alternation between scene clauses — “.” →“;” →“and”
+• Question-form alternation — “What is brown?” →“Which item is brown?”
+• Determiner pattern alternation — “a white dress” →“one white dress”
+• Order alternation among scene clauses — reorder the clauses listing the objects (without
+changing the queried item)
+• Connective + question-form combined — combinations of the above
+Frames contain no extra colour, object, or location words beyond the original scene.
+PC.
+5 paraphrases per base template (8 × 5 = 40 unique paraphrase templates), authored by direct
+restructuring of the original sentence:
+• Adverbial fronting — “On legal documents, {name} was a citizen of”
+• Mid-position adverbial — “{name}, throughout life, was a citizen of”
+• Prepositional-phrase recasting — “By legal status, {name} was a citizen of”
+• Adverbial-synonym replacement — “By all accounts, {name} ...” →“As widely ac-
+knowledged, {name} ...”
+• Matrix-it / relative-clause / appositive-fronting / participial — e.g. “It is widely held that
+{name} was a citizen of”; “{name}, who was a celebrated figure, was a citizen of”; “Being a
+celebrated figure, {name} was a citizen of”
+Template frames contain no specific country, nationality, language, or continent name (a forbidden
+list of 50+ tokens), no third-party sources, and no gendered pronouns.
+PP.
+5 paraphrases per base template (24 × 5 = 120 unique paraphrase templates):
+• Adverbial fronting — “Throughout life, {name} pursued a career as a”
+• Mid-position adverbial — “{name}, by trade, worked as a”
+• Lexical synonym — “{name} dedicated their life to being a” →“{name} devoted their
+entire life to being a”
+• Prepositional-phrase recasting — “By profession, {name} was a” →“As a matter of
+profession, {name} was a”
+• Restructuring (active ↔passive, conjunction, participial, conditional) — e.g. “By most
+people, {name} is known as a”; “{name} was a celebrated figure and was a”; “If asked,
+anyone will tell you {name} was a”
+28
+
+
+Template frames contain no profession-related vocabulary (a forbidden list of all 22 dataset answer
+tokens plus 60+ near-synonyms covering academic disciplines, royal titles, military ranks, and generic
+vocational terms), no gendered pronouns, and no third-party sources.
+F.4
+Evaluation Metrics
+We evaluate circuit recovery across paraphrases using two complementary signal-magnitude metrics
+together with the three standard circuit-quality metrics from the literature.
+F.4.1
+Logit difference
+For a paraphrase pair (pclean, pcorrupted) with target tokens tclean and tcorrupted, the logit difference at the
+prediction position is
+LD(pclean) = logitpclean[tclean] −logitpclean[tcorrupted],
+LD(pcorrupted) = logitpcorrupted[tclean] −logitpcorrupted[tcorrupted].
+A correctly functioning circuit produces a positive LD(pclean) and a negative LD(pcorrupted). The
+clean-vs-corrupted spread,
+∆LD = LD(pclean) −LD(pcorrupted),
+is the canonical signal-magnitude statistic used in IOI-style circuit analysis [44]. For tasks whose
+target spans multiple tokens (e.g. multi-token country names in CC or PC), we use the first target
+token throughout, consistent with the original task releases.
+F.4.2
+Probability difference
+For tasks where unnormalised logits can be misleading (e.g. when adjacent- vocabulary tokens
+absorb probability mass disproportionately, or when prompts have very different total log-probability
+mass), we additionally report the probability difference at the prediction position. Let p(·) =
+softmax(logit(·)). Then
+PD(pclean) = ppclean[tclean] −ppclean[tcorrupted],
+PD(pcorrupted) = ppcorrupted[tclean] −ppcorrupted[tcorrupted],
+with the spread
+∆PD = PD(pclean) −PD(pcorrupted).
+Probability difference is bounded in [−1, 1] and is more directly comparable across prompts of
+different total log-probability mass than unnormalised logit difference.
+For the greater-than tasks (GT-Year, GT-Price), and SVA tasks (SVA, SVA-BLiMP) where the target
+is a set of admissible 2-digit completions rather than a single token, we use the set-aggregated
+probability-mass form following Hanna et al. [15]:
+PDGT(p) =
+X
+y > ZZ
+p[ y ] −
+X
+y ≤ZZ
+p[ y ],
+summed over all 2-digit-year (or 2-digit-suffix) tokens y admissible at the prediction position.
+F.4.3
+Per-Task Metric Applicability
+Table 5 summarises which metrics apply to each task. Tasks with a single-token contrast between
+tclean and tcorrupted (token-pair tasks) admit both ∆LD and ∆PD in their basic form. Tasks whose
+answer is a set of admissible completions (the GT family) use the set-aggregated ∆PDGT formulation
+above; for these tasks ∆LD is reported only as a single-token approximation against the immediate
+boundary token ZZ +1 vs. 01. The IOI task is reported under the canonical ∆LD between the
+indirect-object name and the subject name (both present in the prompt), as in Wang et al. [44].
+29
+
+
+Task
+Target structure
+∆LD
+∆PD
+Faith./Comp./Min.
+IOI
+token pair (IO vs. S)
+✓
+✓
+✓
+GB
+token pair (he vs. she)
+✓
+✓
+✓
+GP
+token pair (he vs. she)
+✓
+✓
+✓
+SVA
+verb pool (Vplur vs. Vsing, ∼1.1k pairs)
+approx. only
+✓(pool-agg.)
+✓
+SVA-Binary
+token pair (is vs. are)
+✓
+✓
+✓
+SVA-BLiMP
+verb pool (Vplur vs. Vsing, ∼1.1k pairs)
+approx. only
+✓(pool-agg.)
+✓
+GT
+set {y >ZZ} vs. {y ≤ZZ}
+approx. only
+✓(set-agg.)
+✓
+GT-Price
+set {y >ZZ} vs. {y ≤ZZ}
+approx. only
+✓(set-agg.)
+✓
+CC
+token pair (capital1’s country vs. capital2’s country)
+✓†
+✓†
+✓
+CO
+token pair (colour1 vs. colour2)
+✓
+✓
+✓
+CO-QA
+token pair (object1 vs. object2)
+✓
+✓
+✓
+PC
+token pair (country1 vs. country2)
+✓†
+✓†
+✓
+PP
+token pair (profession1 vs. profession2)
+✓
+✓
+✓
+Table 5: Metric applicability per task. ✓= applies in its basic form; approx. only = the single-
+token version is a boundary-token approximation; (set-agg.) = computed in the set-aggregated form
+of Hanna et al. [14]. † = first-target-token convention used when the answer is multi-token (e.g.
+Turkmenistan).
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+recovery score
+Person-Country
+(a)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+recovery score
+SVA
+(b)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+recovery score
+SVA-Binary
+(c)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+recovery score
+Gendered Pronoun
+(d)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+recovery score
+Greater-Than-Price
+(e)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+recovery score
+Person-Profession
+(f)
+SCA (ours)
+Random
+Magnitude (raw)
+Direction (raw)
+EAP
+EAP-IG
+EAP-IG-KL
+Figure 5: Recovery score rA(K) on six additional GPT-2 Small circuit-discovery tasks. For
+each method A, attention heads are ranked by importance and the top-K are patched with corrupted
+activations; rA(K) measures the residual clean–floor gap (Eq. 8). Lower is better. Gray shading:
+Random baseline mean ±1σ over 5 seeds.
+G
+More Experiment Results
+G.1
+SCA Evaluation on GPT-2 Small with More Tasks
+Figure 5 reports recovery scores rA(K) for SCA and the six baselines on the remaining six tasks:
+Person–Country, SVA, SVA-Binary, Gendered Pronoun, Greater-Than-Price, and Person–Profession.
+SCA matches the EAP family on Person–Country, SVA, and SVA-Binary. On Person–Country
+(Figure 5a), SCA descends jointly with the EAP variants and reaches near-zero recovery within
+K ∈[10, 20]. On SVA and SVA-Binary (Figures 5b, 2f), all causally grounded attribution methods—
+SCA, the three EAP variants, and Magnitude—plateau at rA(K) ≈0.25–0.35, while Direction sits
+at or above Random throughout. The shared floor across methods that disagree on ranking criterion
+indicates a property of the task and the attention-head-only evaluation budget rather than an attribution
+failure: a non-trivial fraction of the clean–floor logit gap on these subject–verb agreement tasks is not
+30
+
+
+recovered by patching attention heads alone, consistent with prior evidence that MLP sublayers carry
+substantial agreement computation [10]. Within this ceiling, SCA reaches the floor at the same K as
+the EAP-IG variants.
+A modest gap appears on Gendered Pronoun, Greater-Than-Price, and Person–Profession. On
+these three tasks (Figures 5d, 5e, 5f), SCA reaches the floor but with a small K-offset relative to
+EAP-IG and EAP-IG-KL: SCA passes through rA ≈0.2 at K ≈20–40, while the EAP-IG variants
+pass the same value at K ≈5–15. The gap is most visible on Gendered Pronoun, where SCA exhibits
+a brief plateau around K ∈[10, 40] before resuming descent. We do not read this as a refutation of
+the method—all three curves still fall well below the Random band and reach near-zero by K ≈60,
+and SCA achieves this without requiring counterfactual prompt pairs—but it does mark an honest
+boundary: edge-level activation attribution with integrated gradients enjoys an advantage on tasks
+where the relevant computation is concentrated in a small number of specific edges, whereas SCA’s
+subspace estimator distributes sensitivity across cross-instance geometry and pays a small cost in
+ranking sharpness on such tasks. We return to this trade-off in Appendix A.
+The Magnitude/Direction ablation pattern is robust across all twelve tasks. On every panel of
+Figure 5, Magnitude and Direction underperform both SCA and the EAP family, with Direction at or
+above the Random band on five of the six panels. Combined with the main text, this gives twelve out
+of twelve tasks on which the first-moment reductions of the same per-paraphrase gradient input fail
+to recover EAP-comparable rankings, while block-wise SVD on that same input does—supporting
+the claim that cross-instance subspace geometry, not gradient magnitude or direction, is the operative
+signal in SCA.
+Two findings worth emphasizing. The cross-task evidence supports two claims that the family-level
+similarity matrix alone could not establish.
+Pronoun resolution has no dedicated family-level circuit. The Gendered Coreference cluster would
+suggest a coreference family with its own machinery. However, across any of our multi-classifier
+configurations, the top-10 importance units for the three pronoun tasks contain no member of the
+putative family. Instead, the units that drive these tasks are drawn from SVA-specialized heads,
+GT-specialized heads, CC-readers, and Universal infrastructure—suggesting that pronoun resolution
+in GPT-2 Small is compositional rather than dedicated, assembled from binding, retrieval, and routing
+machinery built for other purposes.
+The SVA-specialized circuit causally supports pronoun tasks. Direct evidence for the compositional
+account comes from the SVA specialized 4-head set: in addition to lifting its three target tasks
+(z ∈[4.4, 8.9]), it produces a substantially larger lift on GP (z = +60.4) and GB (z = +25.1).
+Ablating the SVA-binding mechanism damages pronoun tasks more than it damages SVA itself. We
+interpret this as evidence that the SVA circuit is repurposed for pronoun–antecedent binding, with
+the same heads being read out under different downstream projections—a concrete instance of the
+sign-agnostic, projection-dependent nature of gradient-based importance discussed in Section 3. This
+pattern—a single mechanical primitive recruited by multiple syntactic-semantic tasks—would be
+invisible to per-task analyses and is a direct consequence of the cross-task framing.
+G.2
+Case Study: IOI on GPT-2 Small
+G.2.1
+Gradient Analysis
+Before running block discovery and SVD, we validate two upstream assumptions of SCA on the IOI
+testbed: (i) that paraphrase-conditioned gradients carry a recoverable instance-level signal above the
+noise floor, and (ii) that sign-consistency (SC) filtering yields a well-separated semantic dimension
+subset.
+Noise-to-signal ratio (NSR).
+We compute the NM × NM cosine similarity matrix Cij =
+⟨˜gi, ˜gj⟩/(∥˜gi∥∥˜gj∥) over N=100 IOI instances and M=5 paraphrases each, where ˜g denotes the
+per-(instance, paraphrase) parameter gradient flattened across all attention and MLP weights. As
+shown in Figure 6a, IOI yields NSR = 0.567. Within-instance blocks (along the diagonal) are visibly
+darker than the across-instance background, confirming a real paraphrase-invariant signal. However,
+the elevated background indicates a non-trivial common gradient direction dominated by early-layer
+backpropagation magnitude and shared task structure; this motivates the SC filter, which removes
+coordinates that fluctuate in sign across instances.
+31
+
+
+0
+100
+200
+300
+400
+500
+Gradient vector index j
+0
+100
+200
+300
+400
+500
+Gradient vector index i
+Gradient cosine similarity  (NM=500)
+NSR =0.567
+-0.12
+0.05
+0.22
+0.40
+0.57
+(a)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Sign Consistency  SC(d)
+0
+20
+40
+60
+80
+100
+CDF (%)
+SC cumulative distribution
+semantic (20.0%)
+CDF
+threshold τ=0.70
+noise frac = 80.0%
+(b)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Sign Consistency  SC(d)
+0
+1.5M
+3.0M
+4.5M
+6.0M
+Count
+Dimension-wise SC distribution
+semantic =17,021,897 (20.0% of D=84,934,656)
+Noise
+Semantic
+threshold τ=0.70
+(c)
+Figure 6: Gradient cosine similarity matrix on IOI in GPT-2 Small (NM=500 vectors, N=100
+instances ×M=10 paraphrases). Within-instance blocks along the diagonal are systematically darker
+than the background, but the off-diagonal mass remains elevated, yielding NSR = 0.567. This
+motivates the dimension-wise sign consistency filter, which removes the common gradient direction.
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+Layer
+0.3
+0.4
+0.5
+0.6
+Cosine sim. to type-mean
+Attention
+MLP
+(a)
+L0
+L1
+L2
+L3
+L4
+L5
+L6
+L7
+L8
+L9
+L10
+L11
+Transformer layer  (attn left  ∙  MLP right)
+10−5
+10−4
+5e-06
+2e-05
+5e-05
+0.0002
+Unit subspace share within block
+Attention head
+MLP unit
+group mean
+(b)
+Figure 7: Decomposition of the consistency-weighted importance I(u) on the IOI task in GPT-2
+small. (a) Per-block layer-type consistency cons(Bℓ,τ). (b) Per-unit subspace share unit_share(u)
+within each block Bℓ,τ.
+Sign consistency separates semantic from noise dimensions.
+Sign consistency measures per
+dimension, the average within-instance agreement of gradient signs across paraphrases. Coordinates
+whose signs are genuinely paraphrase-invariant approach SC(d) →1; purely noisy coordinates
+approach the chance level SC(d) →0.5 as M →∞.
+Figure 6b shows the empirical SC distribution on IOI. We observe a clear bimodal structure: a
+near-Gaussian noise mode centered at SC ≈0.58 (mildly elevated above the random-sign baseline of
+0.5, consistent with the residual common gradient direction visible in the Gram heatmap), and a long
+right tail of semantic dimensions extending to SC = 1. We retain dimensions with SC(d) ≥τ = 0.70,
+which selects 17,021,897 coordinates (20.0% of D); the threshold sits at the valley between the
+two modes, and the corresponding CDF (Fig. 6c) confirms that the inflection lies in the [0.65, 0.75]
+window.
+G.2.2
+SCA Discoverd Circuit
+Geometric and directional structure of the IOI circuit.
+Figure 7 decomposes I(u) into its two
+factors. Panel (b) shows that unit_share(u), as a purely geometric separation, is dominated by
+attention units at every depth: late-layer heads (ℓ∈{9, 10, 11}) attain the largest within-block shares
+(top heads ≈1.4×10−4, group means 3–4×10−5). Panel (a) provides the complementary layer-level
+signal: cons(Bℓ,τ) peaks near 0.60 at ℓ∈{6, 7, 8} for both component types, indicating maximal
+cross-instance directional coherence in mid-network blocks. The product I(u) = cons · unit_share
+therefore concentrates importance in mid- to late-layer attention units: consistent with the name-mover
+and S-inhibition heads identified for the IOI circuit by Wang et al. [44].
+32
+
+
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention heads)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Metric value
+ |GT|=26
+Recall@K
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention heads)
+−0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+ |GT|=26
+Precision@K
+SCA (ours) (mAP=0.694)
+Magnitude (raw) (mAP=0.237)
+EAP (mAP=0.859)
+EAP-IG-KL (mAP=0.882)
+SCA (ours) (mAP=0.694)
+Magnitude (raw) (mAP=0.237)
+EAP (mAP=0.859)
+EAP-IG-KL (mAP=0.882)
+Random (mAP=0.208±0.04)
+Direction (raw) (mAP=0.196)
+EAP-IG (mAP=0.888)
+Figure 8: Top-K retrieval of canonical IOI attention heads in GPT-2 small. All 144 attention heads
+are ranked by each method’s importance score and evaluated against the "Ground Truth" (|GT|=26)
+canonical IOI heads from Wang et al. [44]. Panels show Recall@K (left) and Precision@K (right)
+as K sweeps over [1, 144]. SCA outperforms gradient-based baselines without using counterfac-
+tual prompt pairs; the counterfactual-based EAP family achieves the highest mAP (definition in
+Appendix D.2.)
+Retrieval evaluation against canonical IOI heads.
+Figure 8 yields three observations. (i) SCA
+matches the strongest baseline at the top of the ranking: SCA and EAP-IG both recover 10/26
+canonical heads in their top-10 slices, with Precision@K ≈1.0 for the leading positions in both
+methods, indicating that pure paraphrase-driven spectral attribution identifies a comparably faithful
+set of heads to clean–corrupted attribution patching for IOI. (ii) SCA is preferentially sensitive to
+late-stage decision heads. Among canonical IOI categories, SCA ranks Name Mover heads at mean
+position 2.3 (versus 6.3 for EAP-IG) and S-Inhibition heads at 5.8 (versus 6.8), reflecting that the
+block-wise SVD basis emphasizes mid- to late-layer attention units that carry the largest geometric
+share of the task gradient. (iii) The remaining mAP gap (0.694 vs 0.86–0.89) is concentrated in
+the mid-range K ∈[15, 50], where EAP recovers Induction and Duplicate-Token heads that SCA’s
+purely gradient-geometric criterion does not isolate. We do not claim like-for-like superiority over
+the counterfactual-supervised EAP family on single-task retrieval; SCA’s distinct contribution is the
+cross-task subspace structure analyzed in Section 4.5, which the EAP family does not provide.
+G.3
+Transferable Experiment: Pythia-160M
+G.3.1
+SCA Recovery Score Evaluation
+Figure 9 extends the recovery-score analysis to Pythia-160M on twelve tasks. Panels (a–f) show tasks
+on which SCA tracks the EAP family closely; panels (g–l) show three distinct failure modes that we
+discuss in turn.
+SCA performs comparably EAP family on six tasks (a–f).
+On Person–Country (d), Country–
+Capital (e), and IOI (f), SCA descends jointly with the EAP variants and reaches near-zero recovery
+within K ∈[10, 30], reproducing the GPT-2 Small result. On SVA (a) and SVA-Binary (c), all causally
+grounded methods—SCA, the three EAP variants, and Magnitude—share a floor of rA ≈0.2–0.3,
+mirroring the attention-only evaluation ceiling observed on GPT-2 Small (Figure 2 and Figure 5);
+within this ceiling SCA reaches the floor at the same K as EAP-IG. SVA-BLiMP (b) does not
+exhibit the same ceiling on this model—all methods descend to zero—and SCA reaches the floor by
+K ≈40, slightly behind the EAP family (K ≈10). Across the six panels, Magnitude and Direction
+underperform both SCA and the EAP family, consistent with the GPT-2 Small ablation.
+Stair-step descent on gender- and profession-related tasks (g–i).
+On Gender Bias (g), Gendered
+Pronoun (h), and Person–Profession (i), SCA exhibits a stair-step trajectory: it passes rA ≈0.4–0.5
+within K ≈5–10 but plateaus before resuming descent around K ≈30–50, while EAP-IG and
+EAP-IG-KL pass through the same value monotonically and reach the floor by K ≈20. We attribute
+33
+
+
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+recovery score
+SVA
+(a)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+1.2
+recovery score
+SVA-BLiMP
+(b)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+recovery score
+SVA-Binary
+(c)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+recovery score
+Person-Country
+(d)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+recovery score
+Country-Capital
+(e)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+−0.2
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+recovery score
+IOI
+(f)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+recovery score
+Gender Bias
+(g)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+recovery score
+Gendered Pronoun
+(h)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+recovery score
+Person-Profession
+(i)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+−1.0
+−0.5
+0.0
+0.5
+1.0
+1.5
+recovery score
+Greater-Than
+(j)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+−0.5
+0.0
+0.5
+1.0
+1.5
+2.0
+recovery score
+Greater-Than-Price
+(k)
+0
+20
+40
+60
+80
+100
+120
+140
+K (top-K attention units affected)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+1.2
+recovery score
+Colored Objects
+(l)
+SCA (ours)
+Random
+Magnitude (raw)
+Direction (raw)
+EAP
+EAP-IG
+EAP-IG-KL
+Figure 9: Recovery score rA(K) on twelve Pythia-160M circuit-discovery tasks. For each method
+A, attention heads are ranked by importance and the top-K are patched with corrupted activations;
+rA(K) measures the residual clean–floor gap (Eq. 8). Lower is better. Gray shading: Random
+baseline mean ±1σ over 5 seeds.
+this gap to the gradient-noise regime on Pythia-160M. Per-dimension sign-consistency analysis on this
+model yields a heavy-tailed SC distribution: a primary mode near SC ≈0.38 accounts for roughly
+80% of parameter dimensions, with a substantial right tail of high-consistency dimensions extending
+to SC ≥0.9. The semantic signal is therefore present but more diluted than on GPT-2 Small, and
+the unfiltered SVD spectrum is correspondingly more susceptible to noise directions becoming top
+components on tasks whose circuit-level gradient signal is weaker in absolute magnitude. Tasks (g–i)
+appear to fall in this regime, while tasks (a–f) carry sufficient signal to dominate the SVD spectrum
+even under the heavier noise floor. All three SCA curves still reach near-zero by K ≈60 and remain
+below the Random band throughout. Appendix A discusses applying a more aggressive SC threshold
+on high-NSR models as a concrete extension to address this regime.
+34
+
+
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+0.35
+0.40
+Similarity
+Greater-Than
+Greater-Than$
+SVA
+SVA-Binary
+SVA-BLiMP
+Gender Bias
+Gender Pronoun
+Colored Objects
+IOI
+Person-Profession
+Country-Capital
+Person-Country
+0.60
+0.65
+0.70
+0.75
+0.80
+0.85
+Distance  (1 − similarity)
+Greater-Than
+Greater-Than$
+SVA
+SVA-Binary
+SVA-BLiMP
+Gender Bias
+Gender Pronoun
+Colored Objects
+IOI
+Person-Profession
+Country-Capital
+Person-Country
+  cut = 0.82
+Task family:
+  Numeric Comparison
+  Subject-Verb Agreement
+  Factual Recall
+  Gendered Coreference
+  Singletons
+Figure 10: Cross-task similarity on 12 Pythia-160M tasks. Heatmap (Left): pairwise similarity,
+diagonal masked; vertical band marks family. Dendrogram (Right): average-linkage on d = 1 −
+similarity, branches colored by family when all leaves agree.
+Greater-Than family: evaluation-metric instability, not an attribution failure (j, k).
+On
+Greater-Than (j) and Greater-Than-Price (k), every attribution method—SCA, the three EAP variants,
+Magnitude, and Direction—produces curves with rA values outside the canonical [0, 1] range, with
+excursions to rA > 1.5 or rA < −0.5 at intermediate K. The Random baseline shows the same
+instability (gray shading spans a comparable range), ruling out an attribution-specific failure. We
+attribute this to the recovery-score normalization (Eq. 8): on these task families the clean–floor logit
+gap on Pythia-160M is small, which makes the ratio rA numerically ill-conditioned and amplifies
+seed-level variance into large excursions. We observe stable Greater-Than curves on GPT-2 Small
+(Figure 2c), supporting the small-denominator diagnosis. We report these panels for completeness
+rather than as a comparative claim; disambiguating attribution quality from metric instability on the
+Greater-Than family would require either a model with a larger clean–floor gap or an alternative
+faithfulness metric robust to small denominators.
+Colored Objects: an isolated noisy descent (l).
+On Colored Objects, SCA reaches the floor by
+K ≈40 but with a noticeably noisier trajectory at small K, including a brief dip and recovery before
+K = 10, while the EAP family descends cleanly. Colored Objects descends cleanly on GPT-2 Small
+(Figure 2b) and we have no analogous behavior on the other eleven tasks here, so we treat this as
+a single noise-level observation rather than a systematic limitation; we do not have a principled
+diagnosis at this point.
+G.3.2
+Cross-task Analysis
+Family structure replicates with one re-assignment. Despite the noisier gradient regime docu-
+mented in Appendix G.3.1, the spectral similarity matrix on Pythia-160M (Figure 10) recovers a
+family decomposition nearly identical to GPT-2 Small at the same cut threshold of 0.82: Numeric
+Comparison (GT, GT$), Subject–Verb Agreement (SVA, SVA-Bi, SVA-BLi), Factual Recall (CC,
+PC), and Gendered Coreference (GB, GP), with CO, IOI, and Person–Profession remaining as
+singletons. The one re-assignment relative to GPT-2 Small is Person–Profession, which grouped with
+the Gendered Coreference pair on GPT-2 Small but separates here— indicating that Pythia-160M
+encodes profession-attribute retrieval as a distinct computation from gender coreference. The within-
+family blocks are visibly weaker than on GPT-2 Small (peak similarity ≈0.4 vs. ≈0.6), consistent
+with the elevated noise floor on this model, but family boundaries remain sharp enough to survive the
+cut.
+Universal infrastructure migrates from early to mid-late layers. The most striking architectural
+contrast with GPT-2 Small is the location and causal status of Universal heads (Figure 11). On GPT-2
+Small, layers L0–L2 are densely populated by causally validated Universal heads associated with
+induction and early positional routing [35]. On Pythia-160M, layers L0–L4 are completely empty of
+any task or family assignment; the Universal set instead concentrates at L9–L10 with marginal valida-
+35
+
+
+Table 6: Cross-task subspace lift across candidate component sets (alternative configuration). Each
+row is a candidate set of Pythia-160M components (attention heads + MLPs); each column is one of
+12 evaluation tasks. Values are mean lift in target-token logit difference when the residual stream is
+projected onto the candidate’s weighted unit-SVD subspace. |S| is the number of components in the
+set. Bold indicates positive effect with lift ≥0.25. Significance vs. size-matched Monte-Carlo null:
+* |z|≥2, † |z|≥3, ‡ |z|≥5. Task abbreviations: GT = Greater-Than, GT$ = Greater-Than-Price, SVA
+= Subject–Verb Agreement, SVA-Bi = SVA-Binary, SVA-BLi = SVA-BLiMP, CO = Color–Object,
+CC = Country–Capital, PC = Person–Country, IOI = Indirect Object Identification, PP = Person–
+Pronoun, GB = Gender Bias, GP = Gendered Pronoun.
+Set
+|S|
+GT
+GT$
+SVA
+SVA-Bi
+SVA-BLi
+CO
+CC
+PC
+IOI
+PP
+GB
+GP
+Universal
+9
+−0.04
+0.34
+−0.04
+−0.01
+−0.10
+−0.05
+0.16
+0.18* −0.15
+−0.05
+0.96
+0.57
+GTspeca
+1
+0.63
+0.08
+−0.28
+−0.24
+−0.41
+−0.05
+−0.03
+−0.21
+0.12
+−0.03
+0.39
+0.10
+GTbroad-4b
+4
+0.58
+0.35
+0.41
+0.35
+0.26
+−0.12
+−0.21
+−0.20
+−0.15
+−0.04
+−1.27
+−0.61
+GTbroad-mlpc
+1
+0.55
+0.35
+0.57
+0.52
+0.50
+0.06
+−0.03
+−0.06
+0.05
+0.10
+−0.87
+−0.38
+GTall
+5
+0.85
+0.71*
+0.40
+0.32
+0.17
+0.12
+−0.10
+−0.22
+0.18
+0.14
+−0.97
+−0.50
+SVAbroadd
+3
+0.67
+0.39
+0.71
+0.60
+0.68
+−0.05
+−0.23
+−0.29
+−0.05
+−0.06
+−1.64
+−0.72
+Country
+1
+0.03
+−0.02
+−0.03
+−0.04
+−0.05
+−0.01
+0.02
+0.00
+−0.02
+−0.03
+−0.27
+−0.10
+TSGT
+5
+1.01†
+0.19
+−0.23
+−0.24
+−0.36
+−0.20
+−0.18
+−0.15
+0.37* −0.08
+−0.51
+−0.19
+TSPC
+1
+0.03
+−0.02
+−0.03
+−0.04
+−0.05
+0.01
+0.30‡
+0.39‡
+0.00
+0.04
+−0.27
+−0.10
+TSIOI
+2
+0.00
+0.03
+−0.01
+−0.01
+0.00
+−0.02
+−0.06
+−0.07
+−0.05
+−0.03
+−0.08
+−0.04
+TSCO
+1
+0.03
+−0.02
+−0.03
+−0.04
+−0.05
+−0.01
+−0.02
+−0.01
+−0.02
+−0.03
+−0.27
+−0.10
+Random-22
+22
+0.46
+−0.06
+0.12
+0.13
+0.31
+0.57
+−0.26
+−0.30
+0.00
+0.12
+2.12
+0.73
+a GTspec collapses GT_specialized_1.
+b GTbroad-4 collapses GT_broad_top4.
+c GTbroad-mlp collapses GT_broad_mlps_top4.
+d SVAbroad collapses SVA_all.
+tion (L9H0, L9H3, L9H5, L9H9 ablation-validated; L10H1, L10H5, L10H7, L10H9, L7H11 marginal).
+Causally, Table 6 shows that this 9-head set produces appreciable positive lift only on GB (+0.96)
+and GP (+0.57) and yields no significance markers on any task; the size-controlled Random baseline
+matches or exceeds these values on the same gender tasks. We interpret this not as absence of univer-
+sal infrastructure on Pythia-160M but as the combination of (i) Pythia’s documented architectural
+and training-distribution differences from GPT-2 shifting routing computation downstream, and (ii)
+the heavier gradient-noise floor on this model making subspace projection a less discriminating probe
+at the broad Universal scale.
+Family- and task-specific circuits with graded fidelity. We highlight five findings, each cross-
+validated against ablation lift in Table 6.
+(i) Numeric Comparison is broad and MLP-mediated, in sharp contrast to GPT-2’s narrow attention
+circuit. Where GPT-2 Small concentrated GT computation in two attention heads, Pythia-160M
+distributes the same family across five ablation-validated GT-specific attention heads (L5H0, L5H9,
+L7H6, L8H6, L8H9) plus an MLP component (GTbroad-mlp at L10/L11 down). The combined TSGT
+set yields the strongest in-family GT signal in the table (+1.01† on GT) with mild positive spillover
+onto IOI (+0.37∗). The MLP unit alone produces substantial lift on the GT family (+0.55/ + 0.35
+on GT/GT$) and on the entire SVA family (+0.57/ + 0.52/ + 0.50), identifying it as a shared
+agreement/comparison MLP rather than a GT-specialized one. This MLP-mediated, cross-family
+pattern is absent on GPT-2 Small and represents the largest qualitative divergence between the two
+models in our analysis.
+(ii) Factual Recall localizes to a single highly specific attention head. The TSPC entry (L9H4) yields
+ablation lift of +0.30‡ on CC and +0.39‡ on PC, with |z|<1 on every other task. This is the cleanest
+task-specific reader in the Pythia table and mirrors the extreme localization of Factual Recall observed
+on GPT-2 Small.
+(iii) Layer 11 attention hosts a clean family-level readout. Six L11 attention heads carry family
+or task labels: two Numeric Comparison (L11H0, L11H3), one Factual Recall (L11H1), one IOI
+task-specific (L11H8), and two Subject–Verb Agreement (L11H7, L11H11). Combined with the
+L10/L11 MLPs carrying SVA (up) and Numeric Comparison (down) signal, L11 functions as an
+36
+
+
+Attention heads
+MLP
+H0
+H1
+H2
+H3
+H4
+H5
+H6
+H7
+H8
+H9
+H10
+H11
+up
+down
+L0
+L1
+L2
+L3
+L4
+L5
+GT
+GT
+L6
+L7
+GT
+L8
+GT
+GT
+L9
+PC
+IOI
+L10
+CO
+L11
+IOI
+Universal
+Numeric Comparison
+Subject-Verb Agreement
+Factual Recall
+Gendered Coreference
+Task-specific
+Unassigned
+Ablation-validated  (|z|≥3)
+Marginal  (above control max)
+Figure 11: Unit-level cross-task circuit in
+Pythia-160M. A unit is colored Universal
+when it ranks among the top-importance units
+in a majority of tasks; Family-shared when
+its importance concentrates within one fam-
+ily of related tasks, and task-specific when
+it is uniquely required by a single task; Task-
+specific markers carry that task’s abbreviation.
+An orange outline marks unit that pass caucal
+validation |z|≥2.5 and yellow means |z|≥3.
+Grey dots denote units not assigned to any
+role at our discovery threshold.
+Table 7: Sensitivity of SCA to the paraphrase count M on the canonical IOI circuit. Reported values
+are mean ± std over three seeds. Best per-column results are highlighted in red; the selected operating
+point M=5 is shaded. K=26 is the matched-budget point where P@K ≡R@K.
+M
+mAP
+P@10
+R@10
+P@20
+R@20
+P@26
+R@26
+P@30
+R@30
+P@50
+R@50
+2
+0.6770±0.0037 0.9667±0.0577 0.3718±0.0222 0.6833±0.0289 0.5256±0.0222 0.5769±0.0000 0.5769±0.0000 0.5444±0.0192 0.6282±0.0222 0.3400±0.0000 0.6538±0.0000
+3
+0.6689±0.0193 0.9667±0.0577 0.3718±0.0222 0.6500±0.0500 0.5000±0.0385 0.5897±0.0222 0.5897±0.0222 0.5444±0.0192 0.6282±0.0222 0.3533±0.0231 0.6795±0.0444
+5
+0.6601±0.0327 0.9333±0.0577 0.3590±0.0222 0.6500±0.0500 0.5000±0.0385 0.6154±0.0000 0.6154±0.0000 0.5444±0.0192 0.6282±0.0222 0.3533±0.0231 0.6795±0.0444
+8
+0.6670±0.0151 0.9000±0.0000 0.3462±0.0000 0.6667±0.0289 0.5128±0.0222 0.6026±0.0444 0.6026±0.0444 0.5444±0.0192 0.6282±0.0222 0.3533±0.0231 0.6795±0.0444
+10 0.6529±0.0085 0.9000±0.0000 0.3462±0.0000 0.6500±0.0000 0.5000±0.0000 0.5769±0.0000 0.5769±0.0000 0.5444±0.0192 0.6282±0.0222 0.3467±0.0115 0.6667±0.0222
+12 0.6579±0.0104 0.9000±0.0000 0.3462±0.0000 0.6667±0.0289 0.5128±0.0222 0.5769±0.0000 0.5769±0.0000 0.5444±0.0192 0.6282±0.0222 0.3533±0.0231 0.6795±0.0444
+15 0.6506±0.0141 0.8667±0.0577 0.3333±0.0222 0.6500±0.0000 0.5000±0.0000 0.5769±0.0000 0.5769±0.0000 0.5444±0.0192 0.6282±0.0222 0.3533±0.0231 0.6795±0.0444
+interpretable family-level integration stage that has no equally clean counterpart in our GPT-2
+Small visualization—suggesting Pythia-160M consolidates family-typed computation into a narrower
+readout band.
+(iv) Agreement/comparison subspaces are anti-aligned with gender tasks. Every row in Table 6 that
+produces in-family positive lift on GT or SVA also produces the largest negative lifts in the table
+on gender tasks: GTbroad-4 (GB −1.27, GP −0.61), GTbroad-mlp (GB −0.87, GP −0.38), SVAbroad
+(GB −1.64, GP −0.72). This pattern is consistent across attention- and MLP-based projections and
+appears only weakly on GPT-2 Small, suggesting that on Pythia-160M the agreement/comparison
+subspace shares a parameter direction whose suppression actively amplifies gender-token prediction.
+(v) Two task-specific cohorts produce null lift, marking a boundary of the discovery procedure. TSIOI
+and TSCO both produce |lift|<0.1 across all twelve tasks including their target, despite the underlying
+heads passing the discovery importance threshold. These are the same two singleton tasks where the
+cross-task similarity matrix shows the weakest within-task structure (Figure 10). Combined with
+the recovery-score behavior in Appendix G.3.1, this indicates that on Pythia-160M these two tasks
+have weakly localized circuits at the granularity of unit projections: the discovery procedure flags
+candidate units, but no compact projection direction recovers their causal effect under ablation.
+Summary. Cross-task analysis on Pythia-160M reproduces the qualitative consistent structure
+observed on GPT-2 Small—family decomposition, existence of universal infrastructure, single-head
+localization of Factual Recall, ablation validity of recovered GT-specific circuits—while revealing
+four model-specific properties absent on GPT-2 Small: late-layer rather than early-layer Universal
+placement, distributed rather than narrow GT computation, MLP-mediated cross-family sharing
+between agreement and numeric comparison, and a graded fidelity that degrades on the most weakly
+localized singleton tasks under the heavier gradient-noise regime.
+G.4
+Sensitivity Analysis
+G.4.1
+The number of Paraphrase M
+Validation on canonical IOI circuit.
+We validate SCA against the canonical IOI circuit char-
+acterized by Wang et al. [44] in GPT-2 Small. The circuit specifies |GT|=26 canonical attention
+heads—spanning name-mover, S-inhibition, duplicate-token, induction, and previous-token roles—
+out of 144 total heads (12 layers × 12 heads). We score every head with its SCA importance I(u)
+37
+
+
+Table 8: Local sensitivity of the unit classification to ±20% perturbations of each threshold. Entries
+are the number of unit-level label flips relative to the default classification, out of 168 units. Bold
+marks the only threshold with non-trivial sensitivity under the mean criterion adopted as reference.
+criterion = mean
+criterion = min
+Threshold
+Default
+±20% Range
+−20%
++20%
+−20%
++20%
+θuniv
+0.20
+[0.16, 0.24]
+36
+16
+9
+4
+θfloor
+F
+0.10
+[0.08, 0.12]
+0
+1
+2
+5
+δ
+0.05
+[0.04, 0.06]
+3
+2
+2
+2
+θdom
+0.30
+[0.24, 0.36]
+0
+0
+1
+0
+θout
+0.15
+[0.12, 0.18]
+0
+0
+0
+0
+(Algorithm. 1), rank all 144 heads, and report Precision@K and Recall@K against the ground-truth
+set, together with mean Average Precision (mAP). Note that K=26 is the matched-budget operating
+point: when K equals |GT|, P@K ≡R@K holds identically and the metric reflects overall retrieval
+quality without favoring either side of the precision–recall trade-off.
+Sensitivity to the paraphrase count M.
+The paraphrase count M controls how aggressively
+per-instance lexical noise is suppressed in ¯gi =
+1
+M
+P
+j gi,j (Eq. 2); the residual noise decays
+as O(M −1/2) while the task-invariant component is preserved. Table 7 reports mAP and Preci-
+sion/Recall at K ∈{10, 20, 26, 30, 50} for M ∈{2, 3, 5, 8, 10, 12, 15}, with mean ± standard
+deviation over three seeds. The pipeline is robust across the full sweep: mAP varies only within
+[0.6506, 0.6770], and the three smallest settings (M=2, 3, 5) are statistically indistinguishable on
+mAP given the observed seed-level standard deviations. Larger M values exhibit a mild but consistent
+degradation, suggesting that beyond a small number of paraphrases, additional surface-form variants
+no longer add task-relevant gradient diversity.
+Choice of M=5.
+We adopt M=5 as the operating point for all subsequent experiments. The choice
+is justified along three axes. (i) Matched-budget retrieval: M=5 attains the highest P@26 =
+R@26 = 0.6154 across the sweep, outperforming M=2 (0.5769) by roughly four percentage points
+at the operating point that best summarizes retrieval quality. (ii) Negligible loss elsewhere: the mAP
+gap to M=2 (the global mAP maximum) is 0.0169, well within one standard deviation of M=5
+(σ = 0.0327), and M=5 ties for the best P@50 and R@50. (iii) Gradient sample budget: with
+N=100 instances, M=5 produces N · M = 500 per-paraphrase gradient vectors, 2.5× the supply
+available at M=2. This larger sample budget directly benefits the downstream block-wise SVD
+(Eq. 4), where the effective rank ρk and the quality of the recovered semantic subspace UBk both
+improve with the number of independent gradient observations, and is essential for the cross-task
+subspace overlap analysis in Section 4.5 where sample-size limitations would otherwise compound
+across tasks. Settings M=2, 3 would yield comparable IOI retrieval quality but underprovision the
+spectral analysis; settings M ≥8 trade retrieval quality for a sample budget that the block-wise SVD
+cannot meaningfully exploit (since rank(GBk) ≤N bounds the usable spectral dimension regardless
+of M). M=5 thus sits at the Pareto frontier of retrieval accuracy and gradient sample budget.
+G.4.2
+Thresholds in Unit-classification
+Methodology.
+We assess the robustness of the unit-classification rule of Section 3.2 to its
+five thresholds {θuniv, θfloor
+F
+, δ, θdom, θout} through three complementary analyses. The study
+uses the consistency_share importance variant on the 168-unit × 12-task cross-task tensor
+in GPT-2 Small, with family layout F
+= {GT, SVA} where GT = {gt, gt_price} and
+SVA = {sva, sva_binary, sva_blimp}; the remaining seven tasks contribute to score(u) and
+to arg maxt bI t(u) but are not eligible for family-specific labels. All sweeps are evaluated under both
+the strict (min) and lenient (mean) within-pair aggregation criteria.
+First, a one-dimensional sweep varies each threshold across a 30–40 point grid covering its data-
+relevant range (θuniv ∈[0.00, 0.30], θfloor
+F
+∈[0.05, 0.50], δ ∈[−0.05, 0.30], θdom ∈[0.10, 0.55],
+θout ∈[0.05, 0.50])—while holding the other four at their defaults (0.20, 0.10, 0.05, 0.30, 0.15).
+Second, two two-dimensional sweeps on 25 × 25 grids probe joint dependencies: θfloor
+F
+× δ charac-
+38
+
+
+0.00
+0.05
+0.10
+0.15
+0.20
+θuniv
+0
+10
+20
+30
+40
+50
+60
+Unit count
+(a) θuniv
+0.1
+0.2
+0.3
+0.4
+0.5
+θ floor
+F
+0
+20
+40
+60
+80
+100
+120
+Unit count
+(b) θfloor
+F
+−0.05
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+δ
+0
+20
+40
+60
+80
+100
+Unit count
+(c) δ
+0.1
+0.2
+0.3
+0.4
+0.5
+θdom
+0
+10
+20
+30
+40
+50
+60
+Unit count
+(d) θdom
+0.1
+0.2
+0.3
+0.4
+0.5
+θout
+0
+10
+20
+30
+40
+50
+60
+Unit count
+(e) θout
+Universal
+Family-GT
+Family-SVA
+Task-specific
+Mixed
+Figure 12: One-dimensional sensitivity sweeps of the five classification thresholds. Each panel
+sweeps a single threshold across its data-relevant range while holding the other four at their defaults;
+the dashed vertical line marks the default value used in the main results. Curves give the unit
+count assigned to each of the five classification outcomes (Universal, Family-GT, Family-SVA, Task-
+specific, Mixed) under the mean criterion. All five thresholds yield piecewise-monotone, plateau-rich
+curves at their defaults, with θdom and θout being essentially flat across the swept range.
+−0.05
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+δ  (margin)
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+0.35
+0.40
+θ floor
+F
+Universal
+27
+28
+29
+30
+31
+32
+33
+(a) Universal
+−0.05
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+δ  (margin)
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+0.35
+0.40
+θ floor
+F
+Family-GT
+20
+30
+40
+50
+60
+(b) Family-GT
+−0.05
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+δ  (margin)
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+0.35
+0.40
+θ floor
+F
+Family-SVA
+10
+20
+30
+40
+50
+60
+70
+(c) Family-SVA
+−0.05
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+δ  (margin)
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+0.35
+0.40
+θ floor
+F
+Family total
+20
+40
+60
+80
+100
+120
+(d) Family total
+Figure 13: Joint sensitivity to the family-rule thresholds θfloor
+F
+and δ. Each panel reports the
+unit count for one classification outcome over a 25 × 25 grid of the family within-floor and the
+margin parameter, with all other thresholds held at default. The red × marks the default (θfloor
+F
+, δ) =
+(0.10, 0.05). Smooth diagonal contours and the absence of cliffs around the default indicate that the
+family classification is robust to small joint perturbations of these two thresholds; the default sits on a
+high plateau for Family-GT and a moderate plateau for Family-SVA. Criterion: mean; importance:
+consistency_share.
+terises the conjunctive admission region inside the family rule, and θuniv × δ tests cross-rule coupling
+between the universal and family stages of the cascade. Third, a local perturbation analysis applies
+±10% and ±20% shifts to each threshold individually and records both per-category count changes
+and the number of unit-level label flips relative to the default classification.
+Baseline classification and per-threshold sensitivity.
+At the default thresholds, the mean criterion
+produces a balanced partition (UNIVERSAL: 30, FAMILY-GT: 64, FAMILY-SVA: 60, TASK-SPECIFIC:
+0, MIXED: 14), whereas the min criterion is dominated by FAMILY-GT (97) and starves FAMILY-
+SVA (8), reflecting that within-pair overlaps in GT are geometrically larger than in SVA (q75 = 0.36
+versus 0.29); the mean partition is adopted as the reference. Under ±20% perturbation on the
+mean criterion, four of the five thresholds (θfloor
+F
+, δ, θdom, θout) shift at most 3 of 168 units (1.8%);
+the universal threshold θuniv is the sole exception, with a ±20% perturbation flipping 36 units
+(21%) primarily between UNIVERSAL and the family/mixed categories (Table 8). The min criterion
+39
+
+
+−0.05
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+δ  (margin)
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+0.35
+0.40
+θuniv
+Universal
+0
+20
+40
+60
+80
+100
+120
+140
+160
+(a) Universal
+−0.05
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+δ  (margin)
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+0.35
+0.40
+θuniv
+Family-GT
+0
+10
+20
+30
+40
+50
+60
+70
+(b) Family-GT
+−0.05
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+δ  (margin)
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+0.35
+0.40
+θuniv
+Family-SVA
+0
+10
+20
+30
+40
+50
+60
+70
+80
+(c) Family-SVA
+−0.05
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+δ  (margin)
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+0.35
+0.40
+θuniv
+Family total
+0
+20
+40
+60
+80
+100
+120
+140
+160
+(d) Family total
+Figure 14: Cross-rule coupling between θuniv and δ. Joint sweep of the universal threshold
+(Rule 1) and the family margin (Rule 2) shows near-orthogonal dependence: the universal panel
+exhibits horizontal bands governed primarily by θuniv, whereas the family panels exhibit vertical
+bands governed primarily by δ. The two thresholds therefore operate near-independently across
+the cascade. Red × marks the default (θuniv, δ) = (0.20, 0.05). Criterion: mean; importance:
+consistency_share.
+concentrates its residual sensitivity in θuniv (9 flips at −20%) and θfloor
+F
+(5 flips at +20%), both at first-
+order universal/family boundaries. The remaining thresholds—δ, θdom, and θout—act as essentially
+binary gates whose chosen values lie far from any unit’s decision boundary; in particular, θout is
+inactive on this dataset under both criteria, indicating that task-specific assignment is bottlenecked by
+θdom and the stability of arg maxt bI t(u) rather than by the outside-overlap cap.
+Plateau structure and robust ranges.
+The one-dimensional curves (Fig. 12) split the five thresholds
+into two regimes. Four of the five—θfloor
+F
+, δ, θdom, and θout—contribute negligibly to classification
+sensitivity within the ±20% neighborhood of their defaults: the θdom and θout panels are flat across
+the swept range, and ±20% perturbations of θfloor
+F
+or δ shift at most 3 of 168 units (Table 8). The
+universal threshold θuniv is the sole exception and exhibits genuine sensitivity: as it increases from 0
+to 0.30, unit assignments smoothly migrate from UNIVERSAL toward FAMILY-GT, FAMILY-SVA,
+and MIXED. Crucially, this migration is structured: FAMILY-GT and FAMILY-SVA each retain
+at least 57 and 45 units, respectively, across the ±20% range [0.16, 0.24] around the default, and
+the relative ordering FAMILY-GT ≥FAMILY-SVA holds throughout this neighborhood. The two-
+dimensional sweeps (Figs. 13, 14) corroborate this picture. The θfloor
+F
+× δ heatmap (Fig. 13) exhibits
+a smooth diagonal ridge along which family counts decay gradually, with the default (0.10, 0.05) on
+a high plateau for FAMILY-GT and a moderate plateau for FAMILY-SVA. The θuniv × δ heatmap
+(Fig. 14) shows that universal counts vary primarily along the θuniv axis (horizontal bands) and family
+counts primarily along δ (vertical bands), so the two thresholds operate near-independently. The
+five-dimensional threshold space therefore decomposes into a family-identification subspace, on
+which the classification is highly stable, and a universal-vs-family axis along which θuniv smoothly
+modulates the universal count without disrupting the family structure. Since the central claim of this
+analysis concerns the family decomposition rather than the absolute size of the UNIVERSAL set, the
+reported classification is robust in the relevant sense.
+H
+Computational Resources.
+We report the hardware, per-run wall-clock time, and the asymptotic complexity of each stage of the
+pipeline so that the resource footprint can be estimated for any choice of model, scope, or dataset
+size. Throughout, adopted from main text, let N denote the number of instances, M the number of
+paraphrases per instance, D the number of parameters in the analysed scope (e.g. all attention output
+projections, or attention plus MLP), K the number of discovered parameter blocks, dk the size of
+block k (with P
+k dk = D), du the size of a single attention or MLP unit, and ρB ≤N the effective
+rank of block B.
+• Hardware. A single workstation node with six NVIDIA RTX A6000 GPUs (48 GB VRAM
+each), two AMD EPYC 7543 CPUs (64 physical cores in total), and 503 GiB of system
+memory. Each run uses a single GPU; the remaining GPUs are used for embarrassingly
+parallel sweeps over tasks.
+40
+
+
+• Device split. Only the per-instance forward and backward passes used to extract gradients
+run on the GPU; all downstream linear algebra (gradient accumulation, Gram construction,
+block discovery, and SVD) runs on the host CPU. This split is dictated by memory rather
+than compute: the averaged gradient buffer alone reaches tens of gigabytes, exceeding single-
+GPU memory; and for the small instance counts considered here (N ≤100), the Gram
+and SVD stages are bandwidth-bound, so host execution incurs no meaningful slowdown
+relative to a GPU implementation.
+• Headline configurations and wall-clock time. We report two settings, both with N=100,
+M=5, sequence length 256, and scope = attention output projections plus MLP weights:
+– GPT-2 Small (D ≈8.4 × 107). End-to-end run: 1.5–3 minutes; peak GPU memory
+1–2 GB; peak resident host memory ∼50 GB, plus ∼80 GB of memory-mapped scratch
+on tmpfs.
+– Pythia-160M (D ≈1.3 × 108). End-to-end run: 2.5–5 minutes; peak GPU memory
+2–3 GB; peak resident host memory ∼75 GB, plus ∼130 GB of memory-mapped
+scratch on tmpfs.
+• Gradient collection dominates wall-clock time. Cost is O(NM · Tfb) forward–backward
+passes, where Tfb depends on model size and sequence length (∼30–50 ms per pass for
+GPT-2 Small at sequence length 256 in bf16 on an A6000). Persistent CPU memory is
+dominated by three buffers: a per-instance averaged gradient buffer (4ND bytes, fp32);
+a per-instance sign-coherence buffer (ND bytes, int8); and the full normalized gradient
+matrix (2NMD bytes, fp16, transparently backed by a memory-mapped file on tmpfs
+when it exceeds 4 GB). The dense Gram matrix over paraphrases adds 4(NM)2 bytes. For
+the headline configuration (D ≈8.4 × 107), these account for ∼34 GB, ∼8 GB, ∼84 GB
+(memory-mapped), and ∼1 MB respectively, all comfortably within the host’s 503 GiB of
+RAM.
+• Downstream stages are substantially cheaper. Diagnostics (Noise-to-Signal Ratio and
+Sign Coherence) cost O(N 2M 2 + ND) on CPU and complete in seconds. Block discovery
+via kernel alignment costs O(n2
+unitsN 2 + N 2D) with peak memory 4 nunitsN 2 bytes for
+the stacked kernel tensor. Block-wise SVD via the Gram trick costs O(DN 2 + KN 3)
+along the fast path that reuses the cached averaged gradients. Per-unit weighted SVD costs
+O
+ P
+u duρ2
+B
+
+and is negligible in both time and memory.
+• Scaling to larger models. Host memory for the averaged gradient buffer grows linearly in
+D, and becomes the binding constraint well before GPU memory does. For Pythia-1B-class
+models (D ∼9 × 108) the buffer alone would require ∼360 GB and must be disabled;
+in that regime the SVD stage falls back to a slow path that recomputes KMN additional
+backward passes, trading wall-clock time for host memory.
+• Knobs for reducing the resource footprint. (i) Narrowing the analysed scope (e.g. restrict-
+ing to attention output projections excludes MLP parameters and reduces D by roughly an
+order of magnitude on GPT-2 Small); (ii) chunking the Gram accumulation to trade peak
+host memory against per-step overhead without changing the asymptotic cost.
+Table 9: Per-stage compute budget for the two headline configurations.
+Wall-clock figures are measured on a single NVIDIA RTX A6000.
+Stage
+Asymptotic cost
+Device
+Gradient collection
+O(NM · Tfb)
+GPU + CPU
+Gram assembly
+O(NM 2D)
+CPU
+Diagnostics
+O(N 2M 2 + ND)
+CPU
+Block discovery
+O(n2
+unitsN 2 + N 2D)
+CPU
+Block-wise SVD (fast path)
+O(DN 2 + KN 3)
+CPU
+Per-unit weighted SVD
+O
+ P
+u duρ2
+B
+
+CPU
+41

@@ -1,0 +1,5821 @@
+Bridging the Gap between Continual Learning and Test-Time Adaptation with
+Domain Preview
+Fr´ed´eric Li Combeau1†
+Nicolas Michel2†
+Toshihiko Yamasaki3
+1Sorbonne University
+2Mercari
+3The University of Tokyo
+†Work done at The University of Tokyo
+Abstract
+Domain shift is a major problem for training machine
+learning models. While Continual Learning (CL) assumes
+distribution shift during training and Continual Test-Time
+Adaptation (CTTA) considers new domains at test time, se-
+tups that require explicit online adaptation to domain shift
+during both phases remain under-explored.
+We propose
+continual learning with domain preview (CL-P), a new com-
+bination of CL and TTA where both train and test data suf-
+fer from distribution shift. The training phase of CL-P is
+analogous to domain-incremental learning while the testing
+phase consists of a TTA phase on a future domain (which we
+call preview), and an evaluation phase on all seen domains.
+The model must then adapt to new domains at train and test
+time. In this paper, we evaluate mainstream CL and TTA
+methods that adapt only at train or test time, as well as their
+naive combination. Experimentally, TTA heavily damages
+the domain on which the CL method has just trained and
+increases forgetting. Notably, this damage mostly comes
+from the BatchNorm statistics shared by all domains. In
+that sense, we propose DOSE (Dosing by Online Statistics
+of Each domain), which allows a seamless combination of
+any CL and TTA methods by adaptive domain inference at
+test time, where the adaptation is applied to each image in
+proportion to the probability that it comes from the preview
+domain. Through extensive experiments with ResNet and
+ViT backbones, various combinations of CL and TTA base-
+line methods and datasets considering diverse domains, we
+show that DOSE matches or improves on CL methods alone
+in all 24 settings and on the naive combination in all but
+one. The code is provided in the supplementary material.
+1. Introduction
+Continual learning (CL) and test-time adaptation (TTA) are
+well-established paradigms in machine learning. Usually
+studied separately, they both tackle the more generic prob-
+lem of domain shift. In domain-incremental CL, a model
+trains on a sequence of labeled domains and is evaluated on
+how well it retains what it has learned. In continual TTA
+(CTTA), a pretrained model adapts online to a changing
+stream of unlabeled data [30, 31, 51]. However, in real-
+world applications, a model can face both kinds of shift.
+An image classifier, for example, may start receiving im-
+ages from a new camera before anyone has labeled them,
+while images from earlier cameras keep coming in. Until
+these labels arrive, the same deployed model must classify
+the images of every camera, so that its accuracy on the new
+camera and on the earlier ones matters during this delay,
+and not only after the next training phase.
+We introduce continual learning with domain preview
+(CL-P) to study how CL and TTA methods interact in this
+situation (Fig. 1). Specifically, each task consists of three
+phases. During the training phase, the model is trained on
+a labeled domain with any CL method. During the preview
+phase, it receives an unlabeled stream from the domain it
+will train on next, and can adapt to it online with any TTA
+method [33, 34, 49]. Finally, during the evaluation phase,
+the adapted model is evaluated on all domains seen so far,
+including the preview one. Similarly to label delay [10],
+data thus arrive before their labels, except that the delay
+here spans a whole domain.
+On the one hand, CL methods alone have to rely on gen-
+eralization when they encounter the preview domain, since
+they have yet to train on that domain. Naturally, their per-
+formance on the preview domain stays far below what they
+reach once they have trained on this domain with labels
+(Tab. 1). On the other hand, TTA methods can use the un-
+labeled preview immediately. While they improve accuracy
+on the preview domain, applying the adapted model to ev-
+ery image can drastically reduce performance on the do-
+main the model has just trained on. The direct combination
+of CL and TTA methods (CL + TTA) therefore helps on the
+preview domain, at the cost of accelerated forgetting across
+tasks.
+Experimentally, we find that most of this damage comes
+from the BatchNorm statistics, which are shared by all do-
+mains and re-estimated by TTA methods on the preview.
+1
+arXiv:2611.29905v1  [cs.LG]  23 Nov 2026
+
+
+Figure 1. Continual learning with domain preview. Top: CL trains on labeled domains in sequence and is evaluated on all seen domains.
+Middle: CTTA adapts a trained model to a stream of unlabeled domains and is evaluated on this stream. Bottom: our setup consists of three
+phases per task, namely training on a labeled domain, preview, where the model adapts online to the unlabeled next domain, and evaluation
+on all domains seen so far.
+Notably, in our setup, the training phase and the preview
+each contain images of a single domain, so the statistics of
+every domain can be recorded separately. Therefore, we
+propose DOSE (Dosing by Online Statistics of Each do-
+main), which decides for each test image how much of the
+preview adaptation to use. Specifically, DOSE compares a
+few statistics of the early-layer features of the image with
+the statistics recorded for every domain seen so far, and
+weights the adaptation by the probability that the image
+comes from the preview. Our contributions are as follows:
+• We introduce continual learning with domain preview, a
+setup that brings online supervised continual learning and
+test-time adaptation into the same sequence of tasks.
+• We analyze the strengths and limitations of CL and TTA
+methods as well as their naive combination in our setup,
+and show that most of the damage of TTA comes from
+shared normalization statistics.
+• We propose DOSE, a plug-in that estimates whether each
+image comes from the preview domain and weights the
+TTA update accordingly.
+• We evaluate DOSE on six benchmarks with ResNet and
+ViT backbones, four CL methods and 20 TTA methods,
+and show that it matches or improves on the CL method
+alone in all 24 settings and on CL + TTA in all but one.
+2. Related work
+Continual
+learning.
+In
+domain-incremental
+learn-
+ing [47],
+regularization [23, 27],
+replay [4, 6] and
+prompt-based methods [43, 52, 53] limit forgetting, but
+assume that the labels of a domain are available when it is
+first met. Label delay [10] relaxes this assumption in online
+CL, but its unlabeled data are the latest batches of the same
+stream, so that the effect of adapting to a new domain on
+the domains already learned is not measured.
+Test-time data in continual learning.
+DoSAPP [42] in-
+terleaves supervised sessions with unsupervised ones on test
+data from classes already seen, while ARC [7] corrects at
+test time the bias of the classifier towards recent classes.
+Both use test-time data to retain the past, not to adapt to a
+domain that has not been trained on yet (Supp. Tab. 4).
+(Continual) test-time adaptation.
+TTA adapts a source
+model to unlabeled target batches. It re-estimates normal-
+ization statistics [26, 41], minimizes entropy [49], filters
+samples [33, 34], adjusts the classifier [2, 22] or restricts the
+updated layers [25]. Continual TTA [3, 11, 15, 24, 30, 31,
+35, 38, 51, 55] adapts to a sequence of target domains and
+fights error accumulation, while prompt- and adapter-based
+variants [14, 29, 56] add extra parameters. These methods
+are evaluated on the domain currently streamed, and some-
+times on the source domain [33], but never on a sequence
+of trained domains that a CL method keeps updating. Most
+of them also normalize with the statistics of the test batch,
+so their predictions depend on how a batch is composed, as
+NOTE [15] shows. ReservoirTTA [48] routes each test sam-
+ple to one of several adapted models by online clustering of
+style features, but all its domains are adapted from a fixed
+source model and never trained on with labels.
+2
+
+
+Per-domain normalization and experts.
+Keeping nor-
+malization statistics per domain is a known remedy for do-
+main shift. DSBN [5] needs the domain of each test im-
+age, AdaBN [26] re-estimates the statistics on one target
+domain and UnMix-TNS [46] mixes several statistics per
+image within one domain. In domain-incremental learning,
+S-Prompts [52] infers the domain of a test image from fea-
+ture centroids and other methods select a domain expert by
+test-time training [45], but all of them learn each domain
+from its labels before it is evaluated. Continual unsuper-
+vised domain adaptation [8, 40, 44] adapts to a sequence of
+unlabeled domains offline, with no later supervised task.
+3. Continual learning with domain preview
+In this section, we recall the CL and CTTA setups, then
+show how our setup, continual learning with domain pre-
+view (CL-P), combines them and why it requires its own
+evaluation protocol.
+3.1. Setup
+Preliminaries.
+Throughout this paper, a domain refers to
+a distribution of images sharing the same label space but dif-
+fering in appearance or content, such as images corrupted
+by fog, paintings, or images taken by a specific camera.
+In domain-incremental learning (DIL), a learner encoun-
+ters domains 0, 1, . . . , T sequentially. At each task t, it is
+trained on the labeled set Dtr
+t and then evaluated on held-
+out sets Dte
+j of all domains j ≤t. In contrast, continual
+TTA (CTTA) considers a trained model that adapts online to
+a stream of unlabeled batches whose domain changes over
+time, and evaluates it on this stream. We call a batch single-
+domain when all its images come from the same domain,
+and mixed when its images come from several domains.
+Continual learning with domain preview lies in between
+these two paradigms, where each task consists of three
+phases (see Fig. 1).
+Training phase.
+During the training phase, the learner is
+trained on Dtr
+t with any CL method, as in DIL. Its batches
+are single-domain, unless the CL method replays images of
+older domains from a buffer, in which case they are mixed.
+Preview phase.
+During the preview phase, the learner re-
+ceives an unlabeled stream Du
+t+1 from domain t+1, which
+the next task will train on, and it can adapt to this stream
+with any TTA method. The preview thus lets the model
+adapt to a new domain as soon as its first images arrive,
+instead of waiting for their labels. Notably, all preview im-
+ages come from this single new domain, so that the preview
+batches are single-domain, which is exactly what TTA usu-
+ally assumes. However, we consider that TTA methods are
+only applied during the preview phase. The motivations be-
+hind this restriction are twofold: 1) TTA methods require
+additional computation at test time, which we consider lim-
+ited in an online setup, and 2) TTA methods require test
+data to come from one unique domain which does not dif-
+fer significantly from the training domain (see [31, 34, 46]
+and Sec. 4), which cannot be guaranteed outside the preview
+phase.
+Evaluation phase.
+Finally, during the evaluation phase,
+the learner is evaluated on all trained domains j ≤t as
+well as on the preview images, before the labels of domain
+t+1 arrive. Since the domain of a test image is unknown
+in real-world scenarios, the evaluation batches are mixed
+(Sec. 3.2).
+Online data.
+As in online CL with label delay [10], im-
+ages arrive faster than they can be labeled. Each training
+image is presented once in the CL stream, with replay al-
+lowed for buffer-based methods. Each preview stream is
+processed in one pass, and each preview batch is predicted
+upon arrival1. Some TTA implementations additionally re-
+visit unlabeled source training images to initialize auxiliary
+statistics (Supp. Sec. C.1). Evaluation labels and the do-
+main identities of evaluation images are unavailable. The
+boundaries of the training and preview phases are known,
+and each preview contains only the next domain.
+3.2. Evaluation protocols
+BatchNorm statistics.
+A BatchNorm layer [21] normal-
+izes each channel of its input with a mean and a variance,
+then applies a learned affine map. During training, it nor-
+malizes with the statistics of the current batch and keeps a
+running average of them, which it stores and uses at test
+time. Therefore, the stored statistics of a network describe
+the data it was trained on, and every domain is normalized
+with them. On networks with BatchNorm, most TTA meth-
+ods re-estimate the normalization statistics on the test data,
+which brings most of their gain [41, 49]. In our setup, TTA
+thus replaces the statistics shared by all trained domains
+with those of the preview. Therefore, we consider two pro-
+tocols, which differ in the statistics used to normalize the
+evaluation images.
+Test-batch protocol.
+In the test-batch protocol, which is
+common in TTA, each image is normalized with the statis-
+tics of its evaluation batch, so that its prediction depends on
+the other images of the batch. While each batch holds a sin-
+gle domain in CTTA, the domain of a test image is unknown
+1Several passes over the preview or storing it would turn it into offline
+source-free adaptation [28]. Three training epochs per task give the same
+gains (Supp. Sec. H.11).
+3
+
+
+in real-world scenarios. Therefore, each evaluation batch in
+our setup is drawn from the shuffled union of all evaluated
+sets (Supp. Sec. B), and its statistics mix several domains,
+which can make this usual TTA strategy counter-productive.
+Batch-independent
+protocol.
+Moreover,
+normalizing
+with the evaluation batch is itself a form of adaptation to
+the test data. In contrast, our main batch-independent pro-
+tocol forbids this for all methods. In particular, the naive
+combination of CL and TTA methods (CL + TTA), which
+predicts every image with the network adapted during the
+preview, normalizes with the statistics estimated during the
+preview. In that sense, no prediction depends on the rest
+of its batch, and mixed and single-domain batches give the
+same score. We report both protocols, and every method is
+always given the same statistics.
+3.3. Metrics
+The ultimate objective is to maximize performance on all
+seen domains, namely the training and preview domains.
+Score.
+Therefore, as usual in CL, we average the ac-
+curacy over all domains seen so far, which here include
+the preview domain. In particular, all domains, including
+the preview one, are evaluated after the preview with the
+same model, unlike the online accuracy usually reported
+in CTTA. This score measures post-preview performance
+rather than prediction accuracy when each image first ar-
+rives.
+Online preview accuracy is reported separately in
+Supp. Fig. 4, and held-out preview-domain evaluation is re-
+ported in Supp. Tab. 22. Let aj(t) be the accuracy on Dte
+j
+after the preview of task t, and n(t) the accuracy on Du
+t+1
+after adaptation. The score of a run is then
+A = 1
+T
+T −1
+X
+t=0
+1
+t + 2
+ X
+j≤t
+aj(t) + n(t)
+
+.
+(1)
+Old and new accuracy.
+To disentangle stability and plas-
+ticity, we decompose the accuracy into its old part (the
+trained domains) and its new part (the preview domain).
+Forgetting and latest-domain damage.
+As usual in CL,
+the forgetting of a trained domain is the drop of its accu-
+racy between the end of its task and the last task, aver-
+aged over the trained domains. Finally, to measure how
+the preview affects freshly learned knowledge, we define
+the latest-domain damage as at(t) −a⋆
+t , where a⋆
+t is the ac-
+curacy on domain t right after its training phase. In other
+words, this is the immediate forgetting caused by the adap-
+tation during the preview.
+Table 1. CL and TTA methods do not combine well out of the
+box. Accuracy (%) of a ResNet trained with FT (no buffer) or
+ER (buffer of 200 images), averaged over the six benchmarks of
+Sec. 6.1, with mixed evaluation batches. No TTA: the CL method
+alone. +TTA: the naive combination, where the network adapted
+by a TTA method during the preview predicts every image. Each
++TTA and DOSE number is the median over the TTA methods
+run on each benchmark that keep every core component (up to 18,
+Supp. Sec. C.1). Old, new: accuracy on the trained and preview
+domains. Dmg.: latest-domain damage (Sec. 3.3), in points. Forg.:
+forgetting, the drop of a trained domain between the end of its
+task and the last task. Oracle: +TTA when each evaluation batch
+holds a single domain and is normalized with its own statistics
+(two TTA methods). Trained: the preview domain once trained on
+with labels.
+FT (no buffer)
+ER (200 images)
+old
+new
+dmg.
+forg.
+old
+new
+dmg.
+forg.
+no TTA 50.6 30.4
+–
+34.1 65.9 43.2
+–
+11.5
++TTA
+39.3 56.4 −27.5 36.6 42.3 55.7 −25.2 32.9
+DOSE
+58.6 55.1
+−0.5
+24.6 65.7 55.1
+−0.2
+11.8
+Oracle
+64.7 56.7
+−0.6
+10.9 64.7 55.9
+−2.6
+11.1
+Trained
+71.5
+71.1
+4. Limitations of existing approaches in CL-P
+In this section, we analyze how existing CL and TTA meth-
+ods, as well as their naive combination, behave in our setup.
+We describe the main trends here, while Sec. 6 introduces
+the benchmarks and gives the detailed results. Table 1 sum-
+marizes these trends on ResNets.
+Since the conclusions
+hold for most TTA methods, each of its numbers is the me-
+dian over the TTA methods we run that keep every core
+component, then averaged over six benchmarks, rather than
+the result of a single combination of CL and TTA methods.
+CL methods ignore the preview domain.
+Naturally, CL
+methods are never exposed to the preview domain during
+training, and they keep their weights unchanged during the
+preview phase.
+In that sense, they do not adapt to the
+preview and rely solely on their generalization capabilities
+when evaluated on the preview domain. As a result, CL
+methods alone stay far below on the preview domain what
+they reach once they have trained on it with labels (Tab. 1).
+While ViTs generalize better across domains, this gap re-
+mains large (Supp. Sec. G.1).
+TTA damages the trained domains.
+While various TTA
+strategies exist, the main idea is generally to adapt the nor-
+malization statistics (such as those of BatchNorm) or some
+model weights, using the unlabeled test data. In our setup,
+TTA is applied during the preview phase, where it updates
+the model on the fly for the preview domain. Specifically,
+when the adapted network is then used for every image with
+4
+
+
+the statistics estimated on the preview, the accuracy on the
+preview domain rises sharply (Tab. 1). While this is espe-
+cially beneficial for this domain, it comes at the cost of per-
+formance on the previously learned domains, and above all
+on the domain just learned, while forgetting also increases.
+The cause is that all domains share the BatchNorm statistics
+(Sec. 3.2). TTA methods re-estimate them on the preview,
+and an old image normalized with the statistics of another
+domain is misclassified. This is usually referred to as for-
+getting of the source domain in CTTA [33, 51], except that
+here it affects what the CL method has just learned. As a
+result, naively combining CL and TTA methods performs
+worse than the CL methods alone on average, even though
+it improves on the preview domain (see Sec. 6.2 for a de-
+tailed comparison).
+Test-batch statistics are not a solution.
+Since the dam-
+age comes from the BatchNorm statistics, a naive fix is to
+normalize each evaluation batch with its own statistics, as
+TTA methods do on their test stream [41, 49]. Old images
+then bring the statistics of their own domains, which re-
+duces the damage a lot without removing it (Supp. Tab. 9).
+However, this adapts to the evaluation data (Sec. 3.2), and
+statistics estimated from a mixed batch fit no domain in par-
+ticular, so that the same model scores clearly higher with
+single-domain batches (Supp. Tab. 29), whose composition
+cannot be chosen in practice.
+Separate statistics would remove most of the damage.
+Interestingly, most of the damage of TTA comes from nor-
+malizing the images of every domain with the statistics of
+a single domain, namely those that TTA estimated on the
+preview. Specifically, when each evaluation batch holds a
+single domain and is normalized with its own statistics (Or-
+acle), each image is normalized with the statistics of its own
+domain. In that case, the naive combination barely damages
+the domain just learned, and memory-free CL forgets about
+as little as a ViT, which keeps no domain statistics (Oracle
+in Tab. 1). While test images cannot be sorted by domain
+in practice, the training phase and the preview of our setup
+each contain a single domain.
+Limitations.
+Overall, two limitations remain. On the one
+hand, the domain of a test image is unknown, so that the
+naive combination adapts every image. On the other hand,
+all domains share a single network, whose statistics and pa-
+rameters only fit one domain at a time. Therefore, a method
+for our setup should infer the domain of each image without
+labels, and give each image the statistics and parameters of
+its domain, without storing images.
+5. DOSE: Dosing by Online Statistics of Each
+domain
+In this section, we present Dosing by Online Statistics of
+Each domain (DOSE) which builds onto the analysis of
+Section 4. The main motivation is to find an efficient in-
+ference policy that allows leveraging TTA methods without
+interfering with the CL training scheme that can easily be
+plugged into the pipeline. To do so, DOSE combines a do-
+main detector, described in Sec. 5.1, which infers the do-
+main of each test image, and an adaptive model, described
+in Sec. 5.2, which sets the statistics and parameters used for
+each image from those learned by CL and TTA and from
+the detected domain. An overview of the methodology is
+given in Figure 2.
+5.1. Domain detection
+By definition of our setup (Sec. 3.1), the training phase and
+the preview each hold a single domain, so that the statistics
+measured during each of them describe one domain. We
+consider two kinds of domain shift. On the one hand, low-
+level shifts, such as a new camera or a change of weather,
+change the statistics of the pixels. On the other hand, se-
+mantic shifts, such as paintings instead of photos, change
+the content of the images, which appears in the statistics of
+their features. Therefore, for each image x, DOSE computes
+a vector s(x) that captures both, namely the channel means
+and log-variances of the network input, for the pixels, and
+of the output of the first block (ResNet first stage, ViT patch
+embedding) of a frozen copy of the initial network, for the
+features. The recorded statistics of a domain are the mean
+and variance of s(x) over its training images, or over the
+preview stream, which form a diagonal Gaussian of a few
+kilobytes. The copy is frozen because the trained network
+changes at every task, so that statistics recorded at one task
+would no longer describe its features at a later task.
+For a test image x, DOSE then infers the domain from the
+recorded statistics. Under a uniform prior over the recorded
+domains (the preview, the latest domain t and every older
+one), the posterior is
+P(d | x) =
+exp ℓd(x)
+P
+d′ exp ℓd′(x),
+λ(x) = P(preview | x),
+(2)
+where ℓd is the log-likelihood of s(x) under the recorded
+statistics of domain d. Nothing is calibrated and no label is
+read. Every domain keeps its recorded statistics, since an
+old image that resembles neither the latest domain nor the
+preview must still be recognized as old.
+5.2. Dosing the adaptation
+Since all domains share a single network (Sec. 4), DOSE as-
+sembles for each test image the network of its domain from
+what CL and TTA have learned. While the TTA method
+5
+
+
+(a) Training on task t
+(b) Preview of domain t+1
+(c) Evaluation of any image
+y
+domain t
+CL
+θtr
+frozen
+block
+recorded
+statistics
+of domain t
+bank
+BN statistics
+of each domain
+(no buffer)
+bank check - last 200 images
+y test
+bank
+none
+sign test
+at 5%
+keep or drop
+?
+unlabeled
+TTA
+θad
+recorded
+statistics
+BatchNorm
+statistics
+prototypes
+one online pass
+x
+frozen
+block
+preview t
+· · ·
+0
+posterior over the
+recorded statistics:
+λ = P(preview | x)
+layer
+preview’s statistics,
+TTA’s parameters
+trained domains’ statistics,
+mixed by the posterior
++
+×λ
+×(1−λ)
+every BatchNorm layer
+head
++ λ·prototypes
+ˆy
+λ ≈0: emphasize the trained-domain branch.
+λ ≈1: emphasize the preview-domain branch.
+Figure 2. DOSE. (a) During training, the frozen first block of the initial network gives the recorded statistics of domain t, while a bank
+stores the BatchNorm statistics of each domain for memory-free CL. (b) TTA adapts online, while DOSE records the statistics of the
+preview and builds prototypes from the predictions of TTA. (c) For any image, the posterior over the recorded statistics gives λ, which
+weighs the branch of the preview and the prototypes.
+adapts online on the preview, DOSE keeps the BatchNorm
+statistics (µP, σ2
+P) that it estimates on the stream and the
+affine parameters (γad, βad) that it fits under them. For an
+activation h of x, each BatchNorm layer then returns
+λ BN
+ h; µP, σ2
+P, γad, βad
+
++ (1 −λ) BN
+ h; P
+k qk(µk, σ2
+k), γtr, βtr
+
+,
+(3)
+where (γtr, βtr) are the affine parameters of θtr, (µk, σ2
+k)
+are the statistics of the trained domain k, and the weights
+qk = P(k | x)/(1 −λ) mix them by moment match-
+ing, because old domains also differ from each other. In
+Eq. (3), λ = 0 selects the trained-domain BatchNorm
+branch, whereas λ = 1 selects the preview-domain branch.
+These endpoints do not generally reproduce CL alone or
+CL + TTA for the complete system because of the statistics
+bank, shared parameter changes, and prototype correction.
+Statistics and affine parameters are dosed together, because
+TTA fitted γad, βad under the statistics of the preview. The
+dose is soft, so that no threshold is needed. Since DOSE
+keeps θtr for this branch, the next task starts from θtr, so
+that TTA changes the predictions of DOSE but never the net-
+work that the CL method keeps training (Supp. Sec. H.2).
+Statistics of the trained domains.
+The second branch of
+Eq. (3) needs the statistics of each trained domain. The
+latest domain uses the statistics stored in θtr during its
+training phase. With a replay buffer, the training batches
+are mixed, so that these statistics remain a mixture of all
+trained domains and also serve the older ones. Without a
+buffer, they follow the latest domain only, while normal-
+izing the older domains with the statistics of the preview
+instead, as CL + TTA does, makes their accuracy collapse
+(Supp. Tab. 21). Therefore, without a buffer, DOSE keeps
+a bank, namely a copy of the mean and variance of every
+BatchNorm channel of θtr at the end of each training phase.
+It stores no image, only these two numbers per channel and
+per trained domain. However, the bank can become out-
+dated. Unlike the recorded statistics, which come from a
+frozen network, it describes the activations of the trained
+network, which the CL method keeps updating after task k.
+The images of domain k then no longer match the statistics
+stored for them, and where the recorded statistics cannot
+separate the domains, always keeping the bank can score
+below the CL method alone. Therefore, a bank check de-
+cides at each task whether to keep the bank. Since storing
+labeled images would break memory-free CL, it follows the
+test-then-train scheme of online CL, where each of the last
+200 training images of the task is first predicted with and
+without the bank, then trained on. The bank is dropped only
+if it is significantly less accurate, under an exact one-sided
+sign test at 5% on the images that exactly one of the two
+classifies correctly. No image is kept, and 200 is the size of
+the replay buffer of our experiments (Sec. 6.1).
+Parameters outside BatchNorm.
+TTA methods also
+change parameters outside BatchNorm, such as the Layer-
+Norm layers [1] of a ViT or the convolution weights [3, 51],
+which can damage the old domains. With a replay buffer,
+a shared-parameter check predicts the buffer images after
+each preview with these changes either shared by every im-
+age or dosed like the statistics, and doses them only if this
+is significantly more accurate under the same test. Without
+a buffer, the changes are shared as in CL + TTA.
+Classifier of the preview domain.
+The preview domain
+has no classifier of its own yet, so DOSE builds class pro-
+totypes µc online from the stream, as the class sums of
+the features of the preview images weighted by their prior-
+corrected soft labels [39]. They get the weight of the branch
+of the preview in the head, log p + λ cos(z, µc)/τ with
+τ = 0.05, and matter most on ViTs (Tab. 3).
+6
+
+
+Table 2. Score A (Eq. (1), %) of the CL method alone (no TTA), CL + TTA and DOSE. +TTA and Ours: medians over the TTA im-
+plementations that keep every core component of the original method (18 on ResNets and 13 on ViTs, 8 and 6 on C100-C and IN-C,
+Supp. Sec. C.1, every method and the strict single-pass ones in Supp. Tab. 11). +TTA uses the statistics estimated during the preview, and
+no method reads the evaluation batch. Bold: best method.
+ResNet, FT
+ResNet, ER
+ViT-B/16, FT
+ViT-B/16, ER
+no TTA
++TTA
+Ours
+no TTA
++TTA
+Ours
+no TTA
++TTA
+Ours
+no TTA
++TTA
+Ours
+C100-C
+48.6
+44.0
+60.7
+64.7
+46.3
+65.9
+65.6
+66.5
+67.0
+69.0
+69.1
+69.5
+C100-TF
+49.7
+48.5
+66.4
+63.1
+51.6
+68.9
+73.4
+73.8
+74.6
+75.2
+75.7
+76.4
+C20
+63.7
+64.1
+63.9
+68.1
+68.1
+68.6
+76.9
+77.0
+77.9
+79.1
+79.2
+79.9
+DomainNet
+39.1
+37.2
+43.5
+51.1
+39.3
+51.1
+62.8
+62.7
+63.4
+63.9
+64.0
+64.7
+Inet-TF
+42.1
+40.7
+76.7
+70.8
+42.7
+80.0
+95.7
+95.8
+96.1
+96.0
+95.9
+96.3
+IN-C
+17.1
+15.3
+22.3
+31.8
+15.9
+34.3
+50.7
+52.6
+52.8
+56.4
+56.7
+57.3
+Mean
+43.4
+41.6
+55.6
+58.3
+44.0
+61.4
+70.8
+71.4
+72.0
+73.3
+73.4
+74.0
+6. Experiments
+6.1. Experimental setup
+Benchmarks.
+Since no existing benchmark provides the
+three disjoint sets of each domain (Sec. 3.1), we build
+six benchmarks (Supp. Tab. 8 and Sec. F) that cover the
+two kinds of shift of Sec. 5.1.
+Low-level shifts change
+the statistics of the pixels, which is what TTA was de-
+signed for. C100-C and IN-C follow the 15 corruptions
+of CTTA [17, 51] on CIFAR-100 and ImageNet (14 tasks),
+while C100-TF and Inet-TF (on Imagenette) start from
+clean images, followed by five strong corruptions (5 tasks).
+Semantic shifts change the content of the images, as in
+domain-incremental CL. C20 changes the sub-class of each
+of the 20 super-classes of CIFAR-100 at every task, while
+DomainNet [36] changes the style across six domains. On
+ViTs, we also use ImageNet-R [19] and ImageNet-A [20].
+Backbones and CL methods.
+As backbones, we use
+ResNets (a ResNeXt-29 and a ResNet-50), whose Batch-
+Norm layers are the source of the damage of Sec. 4, and a
+ViT-B/16, which uses LayerNorm. The main CL methods
+are experience replay with a buffer of 200 images (ER) [6],
+a strong baseline of online CL, and fine-tuning without any
+buffer (FT, memory-free), for applications that cannot store
+images (Supp. Sec. E). We select one CL learning rate per
+backbone on validation streams of other benchmarks, which
+share neither the images nor the kind of shift of the evalu-
+ated one, and keep it fixed during evaluation (Supp. Sec. D),
+unlike online CL that adapts it [32]. TTA settings and im-
+plementation changes are detailed in Supp. Sec. C.
+TTA methods.
+We run 20 TTA methods using implemen-
+tations adapted to CL-P, with method-specific changes doc-
+umented in Supp. Sec. C.1. Tables 1 and 2 report the median
+over the 18 implementations (13 on ViTs) that keep every
+core component of the original method, and the other anal-
+yses average Tent [49] and ROID [31], which are typical
+(Supp. Sec. G).
+Baselines.
+We compare DOSE with two baselines that use
+the same CL and TTA methods. The CL method alone (no
+TTA in the tables) ignores the preview and predicts every
+image with the network θtr that it has trained. The naive
+combination CL + TTA (+TTA in the tables) runs the TTA
+method during the preview, predicts every image with the
+adapted network, as TTA methods are usually deployed, and
+starts the next task from this network, while DOSE starts it
+from θtr (Sec. 5.2).
+Protocol.
+Unless stated otherwise, we use the batch-
+independent protocol, and every evaluation batch mixes
+all evaluated domains (Sec. 3.2).
+All numbers are aver-
+aged over 5 seeds, and gains are tested with a paired t-test
+(Supp. Tab. 10).
+6.2. Main results
+The naive combination is worse than ignoring the pre-
+view.
+Table 2 gives the scores, and Supp. Sec. G.1 gives
+the numbers behind the trends of Sec. 4.
+On ResNets,
+CL + TTA is below the CL method alone by 1.8 points with-
+out memory and by 14.3 points with a buffer (Tab. 2), and
+it is below in 11 of the 24 settings, although TTA raises the
+preview domain by up to 26 points (Tab. 1). In contrast,
+DOSE is at least as good as the CL method alone in 24 of 24
+settings, by 7.7 points on ResNets and 0.9 points on ViTs
+on average, and above CL + TTA in 23 settings, by 15.7
+and 0.6 points. Method by method, it is at least as good as
+CL + TTA in 280 of 304 pairs of method and setting, and the
+medians over TTA methods in Tab. 2 are never more than
+0.1 points below the CL method alone. Individual combina-
+tions can perform substantially worse: on C100-C with ViT
+and CoTTA, DOSE is 62.6 points below CL alone with FT
+and 9.7 points below it with ER (Supp. Tab. 15). Taking the
+median over methods for each seed, the gain is significant
+(p < 0.05, paired t-test) in 21 of 24 settings against the CL
+7
+
+
+method alone and in 23 against CL + TTA (Supp. Tab. 10).
+The appendix also gives the test-batch protocol, held-out
+and balanced scores, other CL methods and segmentation
+(Supp. Tabs. 22, 23 and 29 and Secs. H.4 and H.5).
+Where the gain comes from.
+DOSE without a TTA
+method (Supp. Tab. 19) applies the recorded statistics, the
+bank and the prototypes to the network that TTA never
+adapted, which amounts on ResNets to per-domain Batch-
+Norm with the inferred domain. It gives 3.7 of the 7.7 points
+that DOSE gains over the CL method alone on ResNets (up
+to 20.4 on Inet-TF without memory), and TTA adds the
+other 4.0 (up to 14.2), while on ViTs the two parts give
+0.4 and 0.5 points. TTA provides an additional gain on av-
+erage, although the benefit depends on the method and set-
+ting. Hard dosing with the inferred domain performs within
+0.1 points of soft dosing in our ablation (Tab. 3). These
+results support domain-specific statistics and routing as im-
+portant components, but do not establish a substantial ad-
+vantage of soft over hard dosing. TTA lowers DOSE in two
+settings, by at most 0.4 points. Notably, Continual Nor-
+malization [37], a BatchNorm-aware CL method, does not
+replace the recorded statistics (Supp. Tab. 36).
+Memory-free CL gains the most.
+Without storing any
+image, FT with DOSE reaches 76.7 on Inet-TF and 66.4 on
+C100-TF, above ER alone with its replay buffer (70.8 and
+63.1), since the recorded statistics and the bank give each
+domain its own statistics. More generally, the gain follows
+what TTA can learn, with 10.9 points on corruptions and 2.2
+on the style shift of DomainNet on ResNets. On C20, whose
+sub-class domains the recorded statistics cannot separate,
+the bank check drops the bank, and DOSE achieves accuracy
+close to the CL method alone (63.9 against 63.7 without
+memory).
+ViTs show smaller aggregate gains in our setting.
+On
+ViTs, TTA barely changes the score of the CL method
+alone (+0.6 and +0.1 points), while DOSE gains 0.7 to 1.0
+points on every type of shift and ties it on ImageNet-R and
+ImageNet-A (Supp. Tab. 24). Although TTA gains up to 15
+points on corrupted previews, the preview only weighs 0.17
+to 0.29 of the score (Supp. Sec. H.9). DOSE runs at 840 to
+2,900 images/s on ResNets (CL + TTA: 1,250 to 4,300) and
+260 to 269 on ViTs (265 to 275, Supp. Tab. 25).
+6.3. Ablations
+In Table 3, we present an ablation of our proposed approach
+by changing one part of DOSE at a time.
+Domain detection.
+Without knowing the domain, DOSE
+matches per-domain BatchNorm given the true domain
+Table 3. Ablations. Score of DOSE, then the difference of each
+variant to it in points (Tent and ROID, ER and FT averaged, paired
+by seed). Gray: within 0.5 points. TF/Inet: C100-TF and Inet-TF.
+Further ablations are reported in Supp. Tab. 20.
+ResNet
+ViT-B/16
+variant
+TF/Inet
+DN
+C20 TF/Inet/C20
+DN
+DOSE (score)
+73.1
+47.6
+66.3
+83.9
+64.2
+Domain detection
+only the latest domain’s recorded statistics
+−8.3
++1.7 +0.2
++0.1
++0.2
+statistics recorded on θtr, every layer
+−1.1
++0.1 −0.1
++0.3
++0.3
+statistics recorded on the frozen last block
+−2.0
++0.7
+0.0
++0.4
++0.3
+true domain given (oracle)
+−0.3
+−0.7 +0.2
++0.5
++0.4
+Adaptive model
+hard dose (per-domain BatchNorm)
+0.0
+0.0
+−0.1
+0.0
+0.0
+no bank
+−6.4
+−1.3
+0.0
+0.0
+0.0
+bank always, without bank check
++0.3
+−1.2 −2.5
+0.0
+0.0
+no prototype head
+−0.2
+−0.2 −0.3
+−0.6
+−0.6
+within 0.7 points, while keeping only the recorded statis-
+tics of the latest domain costs 8.3 points on C100-TF and
+Inet-TF, since old images are then taken for the preview.
+Adaptive model.
+Without a buffer, removing the bank
+costs 5.9 points on C100-TF and 19.6 on Inet-TF, while al-
+ways keeping it, without the bank check, costs 4.9 points on
+C20, which then falls below the CL method alone.
+7. Limitations and conclusion
+Limitations.
+This work presents an attempt at combining
+CL and TTA. However, the proposed setup could be ex-
+panded further. Namely, we only studied the online case,
+with one epoch of training and one pass over a preview
+of a few thousand images per task. This limitation is even
+more apparent with ViTs, as TTA gains increase with pre-
+view length (Supp. Fig. 3), or the number of adaptation up-
+dates. Moreover, while the bank stores no image, the bank
+check that decides whether to use it relies on the last 200
+training images of each task, which are not selected and
+only come from the latest domain. It can therefore drop a
+bank that would help the older domains, and it cannot see
+damage that appears on older domains only, as in memory-
+free segmentation. In addition, DOSE assumes that the pre-
+view only holds the new domain. This allows us to isolate
+domain-specific statistics, but future setups should consider
+multi-domain previews. Fortunately, DOSE remains com-
+petitive even in such scenarios as we briefly explored in ap-
+pendix Supp. Sec. H.8. Where domains differ by content
+rather than appearance, the recorded statistics cannot sep-
+arate them, and DOSE may offer little benefit over the CL
+method alone. Finally, DOSE only fixes how TTA is com-
+bined with CL, and it does not change how the CL method
+itself forgets. Future work should investigate how to pro-
+vide an end-to-end method that does both TTA and CL.
+8
+
+
+Conclusion.
+In this work, we introduced CL-P, a new
+setup that aims to combine CL and TTA. In real-world ap-
+plications, a model can see the next domain before its labels
+arrive. TTA methods can use this preview, but on backbones
+where every domain shares the BatchNorm statistics it costs
+the domains the CL method has just learned. DOSE con-
+trols adaptation using estimated domain membership and
+improves aggregate performance in most evaluated settings.
+Longer previews, sample selection for mixed previews and
+recorded statistics that see content shifts are the next steps.
+LLM Usage Statement
+We used an LLM to produce part of the code that was fully
+reviewed. In the paper, the LLM was used to write a place-
+holder text in order to organize the sections but was fully
+rewritten. Finally, an LLM was used to format the result
+tables.
+References
+[1] Jimmy Lei Ba, Jamie Ryan Kiros, and Geoffrey E. Hin-
+ton. Layer normalization. arXiv preprint arXiv:1607.06450,
+2016.
+[2] Malik Boudiaf, Romain Mueller, Ismail Ben Ayed, and
+Luca Bertinetto. Parameter-free online test-time adaptation.
+In IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), pages 8334–8343, 2022.
+[3] Dhanajit Brahma and Piyush Rai. A probabilistic framework
+for lifelong test-time adaptation. In IEEE/CVF Conference
+on Computer Vision and Pattern Recognition (CVPR), pages
+3582–3591, 2023.
+[4] Pietro Buzzega, Matteo Boschini, Angelo Porrello, Davide
+Abati, and Simone Calderara. Dark experience for general
+continual learning: A strong, simple baseline. In Advances in
+Neural Information Processing Systems (NeurIPS), vol. 33,
+pages 15920–15930, 2020.
+[5] Woong-Gi Chang, Tackgeun You, Seonguk Seo, Suha Kwak,
+and Bohyung Han. Domain-specific batch normalization for
+unsupervised domain adaptation. In IEEE/CVF Conference
+on Computer Vision and Pattern Recognition (CVPR), pages
+7346–7354, 2019.
+[6] Arslan Chaudhry, Marcus Rohrbach, Mohamed Elhoseiny,
+Thalaiyasingam Ajanthan, Puneet K. Dokania, Philip H. S.
+Torr, and Marc’Aurelio Ranzato. On tiny episodic memo-
+ries in continual learning. arXiv preprint arXiv:1902.10486,
+2019.
+[7] Haoran Chen, Micah Goldblum, Zuxuan Wu, and Yu-Gang
+Jiang.
+Adaptive retention & correction: Test-time train-
+ing for continual learning. In International Conference on
+Learning Representations (ICLR), 2025.
+[8] Wonguk Cho, Jinha Park, and Taesup Kim.
+Comple-
+mentary domain adaptation and generalization for unsuper-
+vised continual domain shift learning.
+In IEEE/CVF In-
+ternational Conference on Computer Vision (ICCV), pages
+11408–11418, 2023.
+[9] Francesco Croce, Maksym Andriushchenko, Vikash Se-
+hwag, Edoardo Debenedetti, Nicolas Flammarion, Mung
+Chiang, Prateek Mittal, and Matthias Hein. RobustBench: A
+standardized adversarial robustness benchmark. In Proceed-
+ings of the Neural Information Processing Systems Track on
+Datasets and Benchmarks, vol. 1, 2021.
+[10] Botos Csaba, Wenxuan Zhang, Matthias M¨uller, Ser-Nam
+Lim, Mohamed Elhoseiny, Philip Torr, and Adel Bibi. Label
+delay in online continual learning. In Advances in Neural
+Information Processing Systems (NeurIPS), vol. 37, pages
+119976–120012, 2024.
+[11] Mario D¨obler, Robert A. Marsden, and Bin Yang. Robust
+mean teacher for continual and gradual test-time adaptation.
+In IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), pages 7704–7714, 2023.
+[12] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov,
+Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner,
+Mostafa Dehghani, Matthias Minderer, Georg Heigold, Syl-
+vain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image is
+worth 16x16 words: Transformers for image recognition at
+scale. In International Conference on Learning Representa-
+tions (ICLR), 2021.
+[13] Karl B. Dyer, Robert Capo, and Robi Polikar. COMPOSE: A
+semisupervised learning framework for initially labeled non-
+stationary streaming data. IEEE Transactions on Neural Net-
+works and Learning Systems (TNNLS), 25(1):12–26, 2014.
+[14] Yunhe Gao, Xingjian Shi, Yi Zhu, Hao Wang, Zhiqiang
+Tang, Xiong Zhou, Mu Li, and Dimitris N. Metaxas. Vi-
+sual prompt tuning for test-time domain adaptation. arXiv
+preprint arXiv:2210.04831, 2022.
+[15] Taesik Gong, Jongheon Jeong, Taewon Kim, Yewon Kim,
+Jinwoo Shin, and Sung-Ju Lee.
+NOTE: Robust continual
+test-time adaptation against temporal correlation.
+In Ad-
+vances in Neural Information Processing Systems (NeurIPS),
+vol. 35, pages 27253–27266, 2022.
+[16] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun.
+Deep residual learning for image recognition.
+In IEEE
+Conference on Computer Vision and Pattern Recognition
+(CVPR), pages 770–778, 2016.
+[17] Dan Hendrycks and Thomas Dietterich. Benchmarking neu-
+ral network robustness to common corruptions and perturba-
+tions. In International Conference on Learning Representa-
+tions (ICLR), 2019.
+[18] Dan Hendrycks, Norman Mu, Ekin D. Cubuk, Barret Zoph,
+Justin Gilmer, and Balaji Lakshminarayanan. AugMix: A
+simple data processing method to improve robustness and
+uncertainty. In International Conference on Learning Repre-
+sentations (ICLR), 2020.
+[19] Dan Hendrycks, Steven Basart, Norman Mu, Saurav Kada-
+vath, Frank Wang, Evan Dorundo, Rahul Desai, Tyler Zhu,
+Samyak Parajuli, Mike Guo, Dawn Song, Jacob Steinhardt,
+and Justin Gilmer. The many faces of robustness: A critical
+analysis of out-of-distribution generalization. In IEEE/CVF
+International Conference on Computer Vision (ICCV), pages
+8320–8329, 2021.
+[20] Dan Hendrycks, Kevin Zhao, Steven Basart, Jacob Stein-
+hardt, and Dawn Song. Natural adversarial examples. In
+IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), pages 15257–15266, 2021.
+9
+
+
+[21] Sergey Ioffe and Christian Szegedy. Batch normalization:
+Accelerating deep network training by reducing internal co-
+variate shift. In International Conference on Machine Learn-
+ing (ICML), PMLR, vol. 37, pages 448–456, 2015.
+[22] Yusuke Iwasawa and Yutaka Matsuo.
+Test-time classifier
+adjustment module for model-agnostic domain generaliza-
+tion. In Advances in Neural Information Processing Systems
+(NeurIPS), vol. 34, pages 2427–2440, 2021.
+[23] James Kirkpatrick, Razvan Pascanu, Neil Rabinowitz, Joel
+Veness, Guillaume Desjardins, Andrei A. Rusu, Kieran
+Milan, John Quan, Tiago Ramalho, Agnieszka Grabska-
+Barwinska, Demis Hassabis, Claudia Clopath, Dharshan Ku-
+maran, and Raia Hadsell.
+Overcoming catastrophic for-
+getting in neural networks.
+Proceedings of the National
+Academy of Sciences (PNAS), 114(13):3521–3526, 2017.
+[24] Jae-Hong Lee and Joon-Hyuk Chang.
+Continual momen-
+tum filtering on parameter space for online test-time adapta-
+tion. In International Conference on Learning Representa-
+tions (ICLR), 2024.
+[25] Yoonho Lee, Annie S. Chen, Fahim Tajwar, Ananya Kumar,
+Huaxiu Yao, Percy Liang, and Chelsea Finn. Surgical fine-
+tuning improves adaptation to distribution shifts. In Inter-
+national Conference on Learning Representations (ICLR),
+2023.
+[26] Yanghao Li, Naiyan Wang, Jianping Shi, Xiaodi Hou, and
+Jiaying Liu. Adaptive batch normalization for practical do-
+main adaptation. Pattern Recognition, 80:109–117, 2018.
+[27] Zhizhong Li and Derek Hoiem. Learning without forgetting.
+IEEE Transactions on Pattern Analysis and Machine Intelli-
+gence (TPAMI), 40(12):2935–2947, 2018.
+[28] Jian Liang, Dapeng Hu, and Jiashi Feng. Do we really need
+to access the source data? Source hypothesis transfer for un-
+supervised domain adaptation. In International Conference
+on Machine Learning (ICML), PMLR, vol. 119, pages 6028–
+6039, 2020.
+[29] Jiaming Liu, Senqiao Yang, Peidong Jia, Renrui Zhang,
+Ming Lu, Yandong Guo, Wei Xue, and Shanghang Zhang.
+ViDA: Homeostatic visual domain adapter for continual test
+time adaptation. In International Conference on Learning
+Representations (ICLR), 2024.
+[30] Sarthak Kumar Maharana, Baoming Zhang, and Yunhui
+Guo. PALM: Pushing adaptive learning rate mechanisms for
+continual test-time adaptation. In AAAI Conference on Artifi-
+cial Intelligence (AAAI), vol. 39, no. 18, pages 19378–19386,
+2025.
+[31] Robert A. Marsden, Mario D¨obler, and Bin Yang. Univer-
+sal test-time adaptation through weight ensembling, diversity
+weighting, and prior correction. In IEEE/CVF Winter Con-
+ference on Applications of Computer Vision (WACV), pages
+2543–2553, 2024.
+[32] Nicolas Michel, Maorong Wang, Jiangpeng He, and Toshi-
+hiko Yamasaki.
+From offline to online memory-free and
+task-free continual learning via fine-grained hypergradients.
+Transactions on Machine Learning Research (TMLR), 2026.
+[33] Shuaicheng Niu, Jiaxiang Wu, Yifan Zhang, Yaofo Chen,
+Shijian Zheng, Peilin Zhao, and Mingkui Tan. Efficient test-
+time model adaptation without forgetting. In International
+Conference on Machine Learning (ICML), PMLR, vol. 162,
+pages 16888–16905, 2022.
+[34] Shuaicheng Niu, Jiaxiang Wu, Yifan Zhang, Zhiquan Wen,
+Yaofo Chen, Peilin Zhao, and Mingkui Tan. Towards stable
+test-time adaptation in dynamic wild world. In International
+Conference on Learning Representations (ICLR), 2023.
+[35] Junyoung Park, Jin Kim, Hyeongjun Kwon, Ilhoon Yoon,
+and Kwanghoon Sohn. Layer-wise auto-weighting for non-
+stationary test-time adaptation. In IEEE/CVF Winter Con-
+ference on Applications of Computer Vision (WACV), pages
+1403–1412, 2024.
+[36] Xingchao Peng, Qinxun Bai, Xide Xia, Zijun Huang, Kate
+Saenko, and Bo Wang. Moment matching for multi-source
+domain adaptation. In IEEE/CVF International Conference
+on Computer Vision (ICCV), pages 1406–1415, 2019.
+[37] Quang Pham, Chenghao Liu, and Steven C. H. Hoi. Contin-
+ual normalization: Rethinking batch normalization for online
+continual learning. In International Conference on Learning
+Representations (ICLR), 2022.
+[38] Ori Press, Steffen Schneider, Matthias K¨ummerer, and
+Matthias Bethge.
+RDumb: A simple approach that ques-
+tions our progress in continual test-time adaptation. In Ad-
+vances in Neural Information Processing Systems (NeurIPS),
+vol. 36, pages 39915–39935, 2023.
+[39] Marco Saerens, Patrice Latinne, and Christine Decaestecker.
+Adjusting the outputs of a classifier to new a priori probabili-
+ties: A simple procedure. Neural Computation, 14(1):21–41,
+2002.
+[40] Antoine Saporta, Arthur Douillard, Tuan-Hung Vu, Patrick
+P´erez, and Matthieu Cord. Multi-head distillation for contin-
+ual unsupervised domain adaptation in semantic segmenta-
+tion. In IEEE/CVF Conference on Computer Vision and Pat-
+tern Recognition Workshops (CVPRW), pages 3750–3759,
+2022.
+[41] Steffen Schneider, Evgenia Rusak, Luisa Eck, Oliver Bring-
+mann, Wieland Brendel, and Matthias Bethge. Improving
+robustness against common corruptions by covariate shift
+adaptation. In Advances in Neural Information Processing
+Systems (NeurIPS), vol. 33, pages 11539–11551, 2020.
+[42] Vaibhav Singh, Rahaf Aljundi, and Eugene Belilovsky.
+Dual-phase continual learning: Supervised adaptation meets
+unsupervised retention. Transactions on Machine Learning
+Research (TMLR), 2026.
+[43] James Seale Smith, Leonid Karlinsky, Vyshnavi Gutta, Paola
+Cascante-Bonilla, Donghyun Kim, Assaf Arbelle, Rameswar
+Panda, Rogerio Feris, and Zsolt Kira. CODA-Prompt: Con-
+tinual decomposed attention-based prompting for rehearsal-
+free continual learning. In IEEE/CVF Conference on Com-
+puter Vision and Pattern Recognition (CVPR), pages 11909–
+11919, 2023.
+[44] Haopeng Sun, Yingwei Zhang, Lumin Xu, Sheng Jin, Ping
+Luo, Chen Qian, Wentao Liu, and Yiqiang Chen. Unsuper-
+vised continual domain shift learning with multi-prototype
+modeling. In IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR), pages 10131–10141, 2025.
+[45] Jonathan Swinnen and Tinne Tuytelaars. Remembering by
+reconstructing: Domain incremental learning with test-time
+10
+
+
+training on video streams. arXiv preprint arXiv:2605.31108,
+2026.
+[46] Devavrat Tomar, Guillaume Vray, Jean-Philippe Thiran, and
+Behzad Bozorgtabar.
+Un-mixing test-time normalization
+statistics: Combatting label temporal correlation. In Inter-
+national Conference on Learning Representations (ICLR),
+2024.
+[47] Gido M. van de Ven, Tinne Tuytelaars, and Andreas S. To-
+lias. Three types of incremental learning. Nature Machine
+Intelligence, 4(12):1185–1197, 2022.
+[48] Guillaume Vray, Devavrat Tomar, Xufeng Gao, Jean-
+Philippe Thiran, Evan Shelhamer, and Behzad Bozorgtabar.
+ReservoirTTA: Prolonged test-time adaptation for evolving
+and recurring domains. In Advances in Neural Information
+Processing Systems (NeurIPS), vol. 38, pages 70718–70764,
+2025.
+[49] Dequan Wang, Evan Shelhamer, Shaoteng Liu, Bruno Ol-
+shausen, and Trevor Darrell. Tent: Fully test-time adaptation
+by entropy minimization.
+In International Conference on
+Learning Representations (ICLR), 2021.
+[50] Maorong Wang, Nicolas Michel, Ling Xiao, and Toshihiko
+Yamasaki.
+Improving plasticity in online continual learn-
+ing via collaborative learning.
+In IEEE/CVF Conference
+on Computer Vision and Pattern Recognition (CVPR), pages
+23460–23469, 2024.
+[51] Qin Wang, Olga Fink, Luc Van Gool, and Dengxin Dai. Con-
+tinual test-time domain adaptation. In IEEE/CVF Conference
+on Computer Vision and Pattern Recognition (CVPR), pages
+7191–7201, 2022.
+[52] Yabin Wang, Zhiwu Huang, and Xiaopeng Hong. S-Prompts
+learning with pre-trained transformers: An Occam’s razor
+for domain incremental learning.
+In Advances in Neural
+Information Processing Systems (NeurIPS), vol. 35, pages
+5682–5695, 2022.
+[53] Zifeng Wang, Zizhao Zhang, Chen-Yu Lee, Han Zhang,
+Ruoxi Sun, Xiaoqi Ren, Guolong Su, Vincent Perot, Jen-
+nifer Dy, and Tomas Pfister. Learning to prompt for continual
+learning. In IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR), pages 139–149, 2022.
+[54] Senqiao Yang, Jiarui Wu, Jiaming Liu, Xiaoqi Li, Qizhe
+Zhang, Mingjie Pan, Yulu Gan, Zehui Chen, and Shanghang
+Zhang. Exploring sparse visual prompt for domain adaptive
+dense prediction. In AAAI Conference on Artificial Intelli-
+gence (AAAI), vol. 38, no. 15, pages 16334–16342, 2024.
+[55] Longhui Yuan, Binhui Xie, and Shuang Li. Robust test-time
+adaptation in dynamic scenarios. In IEEE/CVF Conference
+on Computer Vision and Pattern Recognition (CVPR), pages
+15922–15932, 2023.
+[56] Yunbei Zhang, Akshay Mehra, Shuaicheng Niu, and Jihun
+Hamm. DPCore: Dynamic prompt coreset for continual test-
+time adaptation.
+In International Conference on Machine
+Learning (ICML), PMLR, vol. 267, pages 75757–75778,
+2025.
+11
+
+
+Supplementary material
+This appendix compares our setup with the closest ones (Sec. A), lists every component of DOSE with its settings and cost
+(Sec. B), how the baselines are run (Sec. C), the selection of the CL learning rates (Sec. D), the datasets (Sec. F) and complete
+results (Sec. G). All numbers are percentages unless stated otherwise; “score” is A of Eq. (1). The tables are generated from
+the runs by the released scripts.
+A. Comparison with related setups
+Table 4 compares CL-P with the setups that are the closest to ours. On the one hand, CTTA, continual unsupervised domain
+adaptation and initially labeled streams adapt to new domains without labels, but they never receive the labels of these
+domains, so that no CL method trains on them afterwards. On the other hand, label delay, DoSAPP and ARC combine
+supervised training with unlabeled data. However, in label delay, the unlabeled data are the latest batches of the same stream,
+and the model is evaluated on these batches only. In DoSAPP and ARC, the unlabeled data come from classes already seen,
+and they serve to retain the past. Therefore, CL-P is the only setup where the unlabeled data come from a whole domain that
+the model will train on next, and where the adapted model is evaluated on every trained domain as well as on this domain.
+Table 4. Setups close to ours. Labeled: data used for supervised training. Unlabeled: data the model adapts to without labels. Labels later:
+whether these data are labeled afterwards. Evaluation: data on which the reported accuracy is measured. Class-inc.: class-incremental.
+Setup
+Labeled
+Unlabeled
+Labels later
+Adaptation
+Evaluation
+Domain-incremental
+CL [47]
+sequence of domains
+none
+n/a
+n/a
+all seen domains
+CTTA [31, 51]
+source domain only
+stream of new domains
+never
+online
+current stream
+Continual
+UDA [8, 40, 44]
+source domain only
+sequence of new
+domains
+never
+offline, several
+epochs
+seen domains
+Initially labeled
+streams [13]
+first batch only
+drifting stream
+never
+online
+current stream
+Label delay [10]
+same stream, d steps
+late
+latest batches of the
+stream
+after d steps
+online
+latest batch
+DoSAPP [42]
+sequence of tasks
+(class-inc.)
+test data of current and
+seen tasks
+never
+unsupervised phase
+after each task
+all seen tasks
+ARC [7]
+sequence of tasks
+(class-inc.)
+test data of seen classes
+never
+at test time
+all seen classes
+CL-P (ours)
+sequence of domains
+next domain, before its
+labels
+at the next
+task
+online, before
+training on it
+all seen domains,
+including the preview one
+B. Components, settings and costs of DOSE
+CL training. ER with a reservoir buffer of 200 images (FT: none), one epoch per task, training batch 10, replay batch 64,
+Adam without weight decay; learning rate 3·10−5 (ResNet), 10−5 (ViT), selected on validation (Sec. D), CODA-Prompt
+10−3 (official); ViT: gradient checkpointing, inputs resized to 224. DER++: α = 0.1, β = 0.5. TTA stream batch size
+100 (ResNet; DomainNet 64) or 64 (ViT); evaluation batch 100 / 64 / 32.
+Hardware. The experiments ran on NVIDIA A4500, RTX 2080 SUPER, RTX 3080, RTX 5070, RTX A1000 and RTX PRO
+6000 GPUs with PyTorch 2.6 to 2.8. Systems that are compared share the configuration and the seeds of their runs.
+Preview pass. The TTA method is re-initialized from θtr(t) and run online, one pass over the shuffled preview, with its
+official optimizer (Sec. C).
+Recorded statistics (domain posterior). Frozen copy of the initial network, pruned to its first block (ResNet first stage, ViT
+patch embedding). Per image, the moment vector s(x): channel means and log-variances of the network input and of
+the output of this block. The recorded statistics of a domain are the running mean and variance of s(x) (parallel update
+of Chan et al.) over its images: a trained domain’s over its last 1000 training images, accumulated during its training
+stream with a no-gradient forward; the preview’s over the preview stream, on the forward the prototype step already
+runs, prequentially. Posterior: diagonal Gaussians, uniform prior over the preview, the latest domain and every older
+domain (--dose-rule posterior --dose-sensors stem0 --dose-domains all).
+12
+
+
+Dosing (BatchNorm). Equation (3) in every BatchNorm layer, per image: the preview’s statistics (exponential average
+during the preview, momentum 0.1) with the adapted affine parameters, against the trained domains’ statistics mixed
+by moment matching (mixture mean and variance) with θtr’s affine parameters. Trained domains’ statistics: latest
+domain, θtr’s stored statistics; older domains with a buffer, the current stored statistics; without a buffer, the bank:
+θtr’s stored statistics at the end of each domain’s task, two numbers per channel (0.2 MB per domain on a ResNet-50)
+(--dose-split bn --dose-bank verify).
+Dosing (head and other changes). Class prototypes built online during the preview (C × (d+1) numbers, prior-corrected
+soft labels), added as log p + λ cos(z, µc)/τ, τ = 0.05, on every network. Changes of the TTA method outside Batch-
+Norm: shared, or dosed per image after the shared-parameter check (module by module: convolutions and linear layers
+by their output interpolation, LayerNorm and GroupNorm by the interpolation of the two affine maps; otherwise the
+log-probabilities of θtr and of the dosed network mixed with λ) (--dose-shared verify).
+Bank check and shared-parameter check (online). No image outlives its stream; both checks use 200 images, the size of
+ER’s buffer (--dose-check online --dose-check-images 200). Bank (memory-free CL, tasks t ≥1):
+during the last 200 images of domain t’s training stream, each batch is scored before the optimizer step that trains on
+it, in eval mode, by the current network with every BatchNorm normalizing with the posterior mixture of the trained
+domains’ statistics (the recorded statistics of the latest domain, built on this stream, against those of the older domains;
+the latest domain’s statistics are the stored ones, an older domain’s come from the bank) and with the stored statistics
+alone; two hit counts are kept, and the decision applies to the task’s deployment. Shared changes (when the TTA
+method changed tensors outside BatchNorm): after the preview, the deployed network with those changes shared or
+dosed scores the replay buffer (its images in storage order, at most 200); without a buffer the changes are shared. An
+option is dropped (the bank) or switched (dosed) only if the alternative is significantly more accurate: exact one-sided
+sign test on the discordant images, level 5%. The decisions hold for the task.
+Test-batch protocol. Single-domain batches: every BatchNorm layer on the batch’s statistics with the adapted affine pa-
+rameters (--route-adapted-bn batch --route-trained-bn full). Mixed batches, memory-free: θtr’s
+branch normalizes each old image with a flat-top kernel average of its batch neighbours’ moments (bandwidth: median
+distance to the B/8-th nearest neighbour), shrunk towards the pooled old images with a pseudo-count of one batch, and
+with the latest domain’s stored statistics in proportion of its posterior (--dose-protocol official).
+θtr. Stored as a diff of the tensors the TTA method changed (exact; tested), including the BatchNorm statistics that Tent,
+EATA, SAR and ROID strip; a full copy when the structure changes (RoTTA, NOTE, ViDA, DePT, DPCore, DAS) or a
+container owns a changed tensor (CoTTA’s ViT position embedding).
+Next task. Training resumes from θtr, the network before TTA, which DOSE keeps for its trained branch (--train-from
+snapshot). From the adapted network, as in CL + TTA, is an ablation, which changes the score by at most 0.4 points
+on the benchmarks of Tab. 3, but costs up to 14.1 points on C100-C without memory (Sec. H.2). Conversely, giving
+CL + TTA the same start does not close the gap. We also scored CL + TTA reset to θtr after each preview, so that the CL
+method trains exactly as alone and CL + TTA only changes the network it deploys. Over the 950 runs behind Tab. 2 in
+which this variant was logged (525 on ResNets and 425 on ViTs, not logged for Norm, ReservoirTTA and some methods
+with a buffer), it scores 45.2 on ResNets and 67.2 on ViTs, against 45.4 and 69.0 for CL + TTA from its adapted network
+and 58.3 and 70.1 for DOSE, which is above it in 90% of these runs. In the test-batch protocol, DOSE uses the same
+test-batch statistics as the baseline (item above).
+Overhead at test time. One pass through the frozen first block per image, the per-image mixing of every BatchNorm layer,
+and, when the shared changes are dosed and cannot be split by module, a second forward pass of θtr. During the preview:
+one extra forward pass per batch (recorded statistics, BatchNorm statistics and prototypes on the same forward).
+C. How the baselines are run
+We implement the TTA methods using their official code where available and their published descriptions otherwise. Opti-
+mizer settings are listed in Tab. 5, and implementation changes are detailed in Sec. C.1. The 20 methods are Tent, EATA,
+SAR, ROID, CoTTA, RDumb, RoTTA, PETAL, NOTE, LAW, CMF, Surgical, PALM, LCoTTA, POEM, DePT, DPCore,
+ViDA, DAS, and Norm, and we also run ReservoirTTA around Tent, EATA, SAR, and ROID. The main tables report the
+median over the implementations that keep every core component of the original method, namely all of them except PETAL,
+ViDA, DePT, DPCore, DAS and POEM (Sec. C.1), and Tab. 11 gives it over every method. The adapted network is deployed
+as in the official code, so Tent, EATA, SAR, ROID, and CoTTA normalize with the statistics of the test batch, and no method
+13
+
+
+gets recalibrated statistics. DER++ replays logits as in the original paper. CODA-Prompt uses the official prefix-tuning
+prompts without a buffer, with a frozen pretrained ViT and prompt components learned per domain.
+C.1. Implementation details of the TTA methods
+Each implementation is integrated into one module of our framework and checked against available official code or the
+published equations. The algorithmic code is unchanged, except for the changes below. SAR, Tent, Norm, LAW, and PALM
+need none of the method-specific ones.
+The official code assumes a single adaptation phase on a fixed source model. Four changes are therefore common to all
+methods.
+Reset. At each preview, the method restarts from the network that the CL method has just trained, θtr(t). Its source, anchor,
+and teacher copies, its optimizer state, and its memories are re-initialized from this network.
+Source data. Some methods read source data: EATA for its Fisher information, POEM for its protector, and ReservoirTTA
+for its style statistics. They read, without labels, the training images of the domain the network was just trained on, at
+the start of each preview. These additional source-data accesses are exceptions to a strict single-pass protocol.
+Next task. When the next task keeps the adaptation (CL + TTA, and DOSE in the ablation of Tab. 31), it starts from the
+network that the method deploys. For CoTTA, PETAL, RoTTA and ViDA, this is the teacher and not the internal
+student. On a ViT, CoTTA’s student collapses during a preview while its teacher does not, and starting from the student
+would train the collapse into the CL model.
+Class count. Some entropy margins are hard-coded for the 1000 classes of ImageNet (0.4 ln 1000). This is above the maxi-
+mum entropy of 10 to 100 classes and would disable the filter, so we set them to 0.4 ln C (EATA, RDumb, LCoTTA and
+POEM). The redundancy margins of EATA and RDumb use the official value for the class count (0.4 for 10 classes, 0.1
+for 100 and 0.05 for 1000), log-interpolated to 0.264 for the 20 classes of C20.
+Method-specific changes:
+RDumb. The official code is ResNet-only. On a ViT, our port adapts the LayerNorm affine parameters, as Tent and EATA
+do. Its reset target is the network at the start of each preview.
+ROID, CMF. Our ROID normalizes by the actual batch size instead of the configured one, and builds its augmentations at
+the true input resolution. CMF shares the same port and loss code, and its DomainNet WeightNorm branch is not used.
+PETAL. No SWAG checkpoint exists for our backbones. Its mean model is therefore the network before the preview and
+its covariance is one, so its penalty becomes 1
+2λ∥θ −θanchor∥2, which is negligible at the official λ = 10−8. We also
+clamp a quantile index where the official code reads past the end of an array when the percentile is 1.
+RoTTA. Its robust BatchNorm replaces BatchNorm at the first adaptation step, because doing it at construction would erase
+the pretrained statistics before CL training. It is converted back to standard BatchNorm before the next task, with the
+adapted statistics and affine parameters.
+NOTE. The source model is trained with instance-aware BatchNorm from the start, as NOTE requires. The official code
+predicts one image at a time. We predict a batch at once in evaluation mode, which gives the same predictions, and
+insert its images in the memory in order.
+Surgical. It adapts the first block, the choice of its paper for input-level shifts.
+LCoTTA. The subspace is updated at every batch. The official 50 or 100 batches assume domains of about 780 batches,
+while ours have 8 to 20, so the subspace would never be built.
+ViDA. No ViDA checkpoint pre-trained on the source exists for our backbones, so the adapters start from zero. Its numbers
+are therefore not directly comparable to those of its paper.
+DPCore. The prompt is added to the first patch tokens instead of prepended, so that it is the identity at zero. Its source
+statistics come from the training images of the latest domain.
+DePT. No official code is released. Our port follows the paper: prompt tuning on a frozen ViT, pseudo-labels from memory-
+bank prototypes, and a filter on agreement and confidence. An L2 pull of the prompt stands in for its hierarchical
+regularizer.
+14
+
+
+DAS. It is run on ViTs only, as in the official configurations. Its labeled source batch is drawn from the replay buffer of the
+CL method, the only labeled data the setup holds, so it runs with ER only. The official method draws it instead from
+a knowledge base of class images generated beforehand with Stable Diffusion, which our setup does not have. We use
+fp32 instead of mixed precision.
+ReservoirTTA. It wraps Tent, EATA, SAR and ROID as in the official variants. Its style threshold comes from at least 1,000
+batch styles of the training images of the latest domain, and the reservoir is rebuilt at each preview.
+POEM. Its protector uses the entropies of the unadapted network on 2,000 unlabeled training images of the latest domain,
+while the official code holds out 25% of a source validation set.
+For DOSE, the hooks that record the statistics are re-attached to the network a method deploys before each recorded forward
+pass, because PETAL and RoTTA create their teacher at their first adaptation step.
+Table 5. Optimizers (SGD: momentum 0.9; b = batch size). ImageNet-scale: Imagenette, DomainNet, ImageNet-R/A. The other hyperpa-
+rameters (margins, thresholds, augmentations: 32 views, 8 on 224-pixel datasets) are the official ones; src/tta/factory.py cites the
+source of each value. Tent on CIFAR: 10−3, as in the CoTTA code [51], while the PALM benchmark configuration [30] uses 2·10−5.
+Method
+CIFAR datasets
+ImageNet-scale datasets
+Tent
+Adam 10−3
+SGD 2.5·10−4
+EATA, SAR, ROID, CMF
+Adam 10−3
+SGD 2.5·10−4
+CoTTA
+Adam 10−3
+SGD 10−2
+RoTTA, PETAL
+Adam 10−3
+Adam 10−3
+LAW, PALM, NOTE
+Adam 5·10−5, 5·10−4, 10−4
+same
+LCoTTA
+SGD 1.5·10−4 (ViT 5·10−4)
+same
+ViDA
+Adam 3·10−4 (adapters 10−6)
+SGD 5·10−7 (2·10−7)
+DPCore, DePT, DAS
+10−2, 10−3, Adam 10−5
+same
+Tent, EATA, SAR on ViT
+SGD 0.001 b/64 for every dataset
+D. Selection of the CL learning rates
+No test image is used. For every domain, 10% of its training images are held out and never trained on; those of domain t
+play the role of Dte
+t and those of domain t+1 of the preview. The last task is dropped. Learning rates can also be tuned
+online during the stream, for instance with hypergradients [32], which we do not use. We run the CL method alone for each
+rate with seed 0 (Tab. 6). The rate of each benchmark is the best average validation score over other benchmarks, which
+share neither its images nor its kind of shift (Tab. 7), so that its own domains take no part in the choice, and it is then fixed
+during evaluation. Every benchmark gets 3·10−5 on ResNets and 10−5 on ViTs, which is also the best average over all five
+benchmarks.
+Table 6. CL learning rate, the CL method alone, seed 0, validation score. Selected: 3·10−5 (ResNet), 10−5 (ViT). Validation accuracies
+on the CIFAR benchmarks are inflated because the RobustBench ResNet was trained on the CIFAR-100 training images from which the
+held-out images come.
+ResNet, validation 10−5 3·10−5 10−4 3·10−4
+CIFAR-100-C
+89.4
+88.3
+77.2
+50.0
+CIFAR-100-TF
+93.0
+91.3
+82.5
+58.6
+CIFAR-20
+68.4
+72.7
+70.1
+58.3
+Imagenette-TF
+92.1
+93.0
+91.3
+82.0
+DomainNet
+41.4
+48.6
+42.9
+29.3
+average
+76.9
+78.8
+72.8
+55.6
+ViT, validation
+3·10−6 10−5 3·10−5 10−4
+CIFAR-100-C
+52.4
+65.9
+63.5
+46.7
+CIFAR-100-TF
+75.5
+80.8
+75.2
+60.3
+CIFAR-20
+79.2
+78.6
+73.1
+60.1
+DomainNet
+53.3
+61.5
+59.2
+42.6
+Imagenette-TF
+100.0
+99.5
+98.4
+91.8
+average
+72.1
+77.3
+73.9
+60.3
+Separate development domains.
+A selection that only leaves the evaluated benchmark out gives the same rates (Tab. 7).
+The development benchmarks are the other benchmarks of this paper, scored on their held-out validation images, and no
+benchmark outside the paper was used. On ResNets, the rate is shared by the ResNeXt-29 of the CIFAR benchmarks and the
+ResNet-50 of the others, so that C100-C and C100-TF get the rate selected with a ResNet-50 on DomainNet.
+15
+
+
+Table 7. CL learning rate selected for each benchmark on separate development benchmarks only (best average validation score of Tab. 6).
+Development benchmarks share neither the images nor the kind of shift of the evaluated one. Leave one out: every other benchmark.
+ResNet
+ViT-B/16
+Evaluated
+Development benchmarks
+separate
+leave one out
+separate
+leave one out
+C100-C, C100-TF
+DomainNet
+3·10−5
+3·10−5
+10−5
+10−5
+C20
+Imagenette-TF, DomainNet
+3·10−5
+3·10−5
+10−5
+10−5
+Inet-TF, IN-C
+CIFAR-20, DomainNet
+3·10−5
+3·10−5
+10−5
+10−5
+DomainNet
+the four others
+3·10−5
+3·10−5
+10−5
+10−5
+E. Backbones and CL methods
+On C100-TF and C100-C we use the AugMix ResNeXt-29 [18] from RobustBench [9]. On Inet-TF, DomainNet, IN-C
+and C20 we use the torchvision ImageNet ResNet-50 [16], with CIFAR images upsampled to 112 pixels. C20 needs a
+backbone that has never seen the fine classes of CIFAR-100. The ViT is a ViT-B/16 [12] from timm. The CL methods
+are experience replay with a buffer of 200 images (ER), fine-tuning without any buffer (FT, memory-free), DER++ [4] and
+CODA-Prompt [43]. Each task is trained for one epoch with Adam. The learning rates, 3·10−5 for ResNets and 10−5 for
+ViTs, are selected on validation, and CODA-Prompt keeps its own 10−3.
+F. Datasets
+We use six domain-incremental benchmarks with a fixed label space. C100-TF and Inet-TF (Imagenette) have 5 tasks each:
+a clean domain followed by corrupted ones, generated once per image with the official code for Cifar100-C and ImageNet-
+C [17] at severity 5. C100-C (14 tasks) uses the 15 corruptions of CIFAR-100-C. Each domain has its own fifteenth of the
+CIFAR-100 training images, corrupted with the official generator. Its preview and evaluation images are disjoint halves of
+the released test images, which every corruption reuses as in all CIFAR-100-C benchmarks. C20 (4 tasks) uses the 20 super-
+classes of CIFAR-100. Each task uses a different fine class of every super-class, so the shift is semantic rather than statistical.
+DomainNet [36] (5 tasks) uses the 100 most frequent classes over clipart, infograph, painting, quickdraw, real and sketch, a
+shift of style. IN-C (14 tasks) uses the 15 corruptions of ImageNet-C at severity 5. On ViTs we also use ImageNet-R [19]
+and ImageNet-A [20] (200 classes), whose test sets are about ten times smaller. Table 8 gives the number of images per
+task. The training images of a task are labeled and seen once. The preview is the unlabeled stream that TTA adapts to, and
+the evaluation set holds the held-out images of a domain. Training, preview and evaluation images never overlap, under any
+corruption.
+Data splits.
+For each domain, training, preview and evaluation images form three separate sets. In particular, the preview
+stream of domain t+1 and the labeled training set of task t+1 are two disjoint sets of images of the same domain. The next
+task thus trains on the preview domain, but never on the preview images themselves, so that their evaluation does not depend
+on what the next task learns.
+Table 8. Images per task. Training images are labeled, preview images are not, and the evaluation set of a domain is scored at every later
+task. ImageNet-R and ImageNet-A (ViT only) also add a corruption at each task. DomainNet caps each class, and some classes have fewer
+images in some domains.
+shift
+tasks
+classes
+training
+preview
+eval.
+images
+per class
+C100-TF
+corruption
+5
+100
+10,000
+100
+1,000
+1,000
+Inet-TF
+corruption
+5
+10
+≈1,900
+≈190
+≈390
+≈390
+C100-C
+corruption
+14
+100
+3,333
+33
+5,000
+2,000
+IN-C
+corruption
+14
+1,000
+25,000
+25
+20,000
+5,000
+C20
+sub-class
+4
+20
+10,000
+500
+1,000
+1,000
+DomainNet
+style
+5
+100
+≤10,000
+≤100
+≤2,000
+≤1,000
+ImageNet-R
+rendition
+5
+200
+4,800
+24
+600
+600
+ImageNet-A
+adversarial
+5
+200
+1,200
+6
+150
+150
+16
+
+
+C100-TF, Inet-TF: the clean data followed by corrupted copies (gaussian noise, defocus blur, snow, brightness and
+contrast for C100-TF, and gaussian noise, defocus blur, brightness, contrast and shot noise for Inet-TF); each image of a
+domain is corrupted once with the official CIFAR-C / ImageNet-C generator at severity 5 and cached; the images of a domain
+are a fixed per-class chunk of the data, disjoint across domains and across training, preview and evaluation. C100-C: 14 tasks;
+domain d of the training set is the CIFAR-100 training images whose position in their class is d mod 15 (≈3,333 images),
+corrupted by the official generator; evaluation: even indices of the released CIFAR-100-C test set of corruption t; preview:
+odd indices of corruption t+1 (the same 5,000 images under every corruption, as in every CIFAR-C CTTA benchmark; an
+evaluated image is never in a stream). C20: task i trains on fine-class slot i of every super-class and the preview shows slot
+i+1. DomainNet: the 100 classes with most images over the six domains, official train/test splits, 100 training, 10 evaluation
+and 20 preview images per class and domain. ImageNet-R / ImageNet-A (ViT only): 200 classes, every fifth image per
+class held out for evaluation and preview, the rest for training, cut into 5 consecutive chunks, each chunk corrupted (domain
+0 clean) as for Inet-TF; we report them on ViTs only, since the ResNet at 112 pixels reaches only 2 to 19% on them.
+G. Complete results
+Standard deviations and seeds.
+All numbers are means over 5 seeds. For the entries of DOSE in Tab. 2, the standard
+deviation over seeds (of the per-seed median over TTA methods) has a median of 0.3 and a maximum of 1.7 points (ViT FT,
+C100-C).
+G.1. Why the baselines fall short
+This subsection gives the numbers behind the trends of Sec. 4, from Tabs. 1 and 9. On ResNets, the CL methods alone only
+reach 30.4% on the preview domain without memory and 43.2% with a buffer, while the same domain reaches 71 to 72% once
+it has been trained on with labels (Tab. 1). While ViTs generalize better across corruptions, the gap still remains 18 points
+(63 to 65% against 82%, Tab. 9). With TTA, the accuracy on the preview domain rises to 56% (+26.0 and +12.5 points), but
+the old domains drop by 11 and 24 points, and the domain just learned by 25 to 28 points (up to 65 on Inet-TF). Forgetting
+also rises, from 34.1 to 36.6 points without memory and from 11.5 to 32.9 with a buffer. This forgetting is measured on the
+deployed network at the last task, so that it includes the damage of the adapted network on the old domains. Before TTA, the
+network forgets 32.9 points without memory and 9.0 with a buffer, against 33.5 and 12.2 for the CL method alone (seed 0 of
+Tent, SAR, EATA and ROID on the six benchmarks). With test-batch statistics, the damage falls to about 8 points without
+memory and 4 with a buffer, and with a buffer the old domains remain below the CL method alone (62.6 against 65.9). In
+contrast, on single-domain test batches (Oracle), CL + TTA only loses 0.6 points on the domain just learned without memory
+and 2.6 with a buffer, and the forgetting of memory-free CL drops from 34 to 10.9 points, close to that of a ViT (11.6).
+G.2. Every benchmark
+Table 9 splits the score of every benchmark into its old part, its new part and the latest-domain damage, and Tab. 10 tests the
+gains of Tab. 2 over seeds. Both take the median over the TTA methods of Tab. 2, as Tab. 2 and Tab. 1 do.
+17
+
+
+Table 9. Old domains, preview domain and latest-domain damage, every benchmark (accuracy and points, mixed batches, median
+over the TTA methods of Tab. 2, per column; “–”: the two protocols coincide on ViTs). +TTA: CL + TTA with its own statistics (batch-
+independent); +TTAbatch: with the test batch’s (test-batch protocol; on ViTs both coincide). Table 1 averages the ResNet rows.
+Old domains
+Preview domain
+Latest-domain damage
+no TTA +TTA
++TTAbatch Ours no TTA +TTA
++TTAbatch Ours no TTA +TTA
++TTAbatch Ours
+ResNet, FT
+C100-C
+49.1
+40.0
+57.8
+60.1
+45.8
+68.7
+63.3
+66.5
+0
+−22.0
+−9.4
+−0.6
+C100-TF
+59.6
+41.5
+64.9
+67.5
+32.7
+69.2
+61.2
+67.9
+0
+−31.7
+−6.1
+−0.2
+C20
+75.9
+76.0
+76.2
+75.7
+43.8
+44.7
+44.6
+44.7
+0
+0
+0
+−0.3
+DomainNet
+47.4
+39.6
+51.3
+48.7
+24.4
+39.7
+38.6
+37.5
+0
+−20.5
+−5.3
+−1.3
+Inet-TF
+53.7
+26.9
+75.1
+79.4
+19.3
+75.1
+62.8
+74.8
+0
+−64.7
+−9.1
+−0.1
+IN-C
+18.2
+11.7
+21.0
+20.5
+16.2
+40.7
+32.6
+39.2
+0
+−26.4
+−17.5
+−0.8
+ResNet, ER
+C100-C
+65.8
+42.7
+62.1
+65.6
+57.4
+67.5
+63.8
+65.1
+0
+−16.5
+−3.1
+−0.1
+C100-TF
+71.1
+46.1
+68.6
+70.7
+49.2
+68.0
+60.8
+66.9
+0
+−26.5
+−2.6
+0
+C20
+81.1
+80.8
+80.6
+81.3
+46.0
+45.9
+45.6
+47.1
+0
+−0.8
+−0.9
+−0.1
+DomainNet
+59.5
+42.1
+55.7
+58.6
+38.1
+40.3
+40.2
+40.6
+0
+−21.4
+−4.8
+−0.8
+Inet-TF
+83.5
+29.3
+80.6
+83.5
+48.1
+75.1
+65.4
+75.5
+0
+−62.6
+−4.4
+0
+IN-C
+34.4
+12.8
+27.7
+34.3
+20.4
+37.3
+31.2
+35.2
+0
+−23.4
+−6.5
+−0.2
+ViT-B/16, FT C100-C
+65.9
+66.3
+–
+66.7
+64.2
+68.2
+–
+68.5
+0
+−0.6
+–
+−0.2
+C100-TF
+78.4
+78.4
+–
+78.4
+67.0
+68.2
+–
+69.9
+0
+−0.1
+–
+0
+C20
+89.6
+89.6
+–
+89.4
+54.1
+54.6
+–
+56.8
+0
+0
+–
+0
+DomainNet
+69.8
+69.8
+–
+69.5
+53.7
+53.6
+–
+56.1
+0
+0
+–
+−0.3
+Inet-TF
+97.5
+97.4
+–
+97.3
+93.0
+93.2
+–
+94.3
+0
+0
+–
+0
+IN-C
+51.6
+51.9
+–
+52.0
+48.7
+58.3
+–
+56.0
+0
+−2.2
+–
+−1.5
+ViT-B/16, ER C100-C
+69.5
+69.3
+–
+69.5
+66.1
+69.0
+–
+69.5
+0
+−0.3
+–
+−0.1
+C100-TF
+80.5
+80.5
+–
+80.5
+68.0
+69.1
+–
+71.4
+0
+−0.1
+–
+0
+C20
+91.9
+92.1
+–
+91.8
+55.9
+56.1
+–
+60.4
+0
+0
+–
+0
+DomainNet
+71.2
+71.3
+–
+71.1
+53.7
+54.2
+–
+57.0
+0
+0
+–
+−0.2
+Inet-TF
+97.6
+97.7
+–
+97.7
+93.7
+93.1
+–
+94.1
+0
+0
+–
+0
+IN-C
+57.9
+56.5
+–
+57.2
+50.2
+58.7
+–
+56.9
+0
+−1.9
+–
+−1.4
+Table 10. Paired differences over seeds (batch-independent protocol, mixed batches). For each seed, the median over the TTA methods
+of Tab. 2 of the gain of DOSE over the CL method alone and over CL + TTA, then its mean over seeds and, in brackets, the 95% confidence
+interval of this mean (Student t with n −1 degrees of freedom). Each mean is over n = 5 seeds. ∗: p < 0.05, one-sided paired t-test.
+ResNet, FT
+ResNet, ER
+ViT-B/16, FT
+ViT-B/16, ER
+−no TTA
+−+TTA
+−no TTA
+−+TTA
+−no TTA
+−+TTA
+−no TTA
+−+TTA
+C100-C
++12.2 [+11.5, +12.9]∗
++16.5 [+16.1, +16.8]∗
++1.1 [+1.0, +1.2]∗
++19.5 [+19.3, +19.6]∗
++1.4 [+0.9, +1.9]∗
++0.7 [+0.5, +0.9]∗
++0.5 [+0.1, +0.9]∗
++0.5 [+0.2, +0.8]∗
+C100-TF
++16.7 [+16.4, +17.0]∗
++17.9 [+17.3, +18.5]∗
++5.8 [+5.3, +6.3]∗
++17.4 [+16.6, +18.1]∗
++1.2 [+0.6, +1.7]∗
++0.6 [+0.3, +0.8]∗
++1.2 [+0.8, +1.6]∗
++0.7 [+0.5, +1.0]∗
+C20
++0.1 [−0.3, +0.5]
+−0.2 [−0.5, +0.1]
++0.4 [±0.0, +0.8]∗
++0.5 [−0.1, +1.0]∗
++1.0 [+0.4, +1.6]∗
++1.0 [+0.5, +1.5]∗
++0.8 [+0.4, +1.2]∗
++0.7 [+0.1, +1.3]∗
+DomainNet
++4.4 [+3.3, +5.4]∗
++6.0 [+5.5, +6.6]∗
+±0.0 [−0.4, +0.3]
++11.8 [+11.3, +12.3]∗
++0.6 [+0.4, +0.9]∗
++0.7 [+0.6, +0.8]∗
++0.8 [+0.7, +1.0]∗
++0.7 [+0.6, +0.8]∗
+Inet-TF
++34.2 [+32.9, +35.6]∗
++35.8 [+35.4, +36.1]∗
++9.1 [+8.2, +10.0]∗
++37.2 [+36.5, +38.0]∗
++0.4 [−0.1, +0.9]∗
++0.3 [+0.1, +0.5]∗
++0.2 [−0.1, +0.5]
++0.3 [+0.1, +0.4]∗
+IN-C
++5.2 [+5.0, +5.4]∗
++6.8 [+6.5, +7.1]∗
++2.4 [+2.2, +2.7]∗
++18.3 [+18.1, +18.4]∗
++2.0 [+1.8, +2.1]∗
++0.5 [+0.4, +0.7]∗
++0.9 [+0.7, +1.1]∗
++0.5 [+0.2, +0.7]∗
+G.3. Every TTA method
+Subsets of TTA methods.
+Some implementations miss or replace a core component of the original method, and some read
+training images again at the start of each preview, which a strict single-pass protocol excludes (Sec. C.1). Table 2 therefore
+takes the median over the implementations that keep every core component, namely all except PETAL (no SWAG posterior),
+ViDA (no source-pretrained adapters), DePT (no official code, an L2 pull instead of its regularizer), DPCore (prompt added
+instead of prepended), DAS (images of the replay buffer instead of a knowledge base of generated images) and POEM
+(protector on training images). Table 11 gives the same medians over every method and over the strict single-pass methods,
+on the same runs and seeds. Over every method, DOSE is at least as good as the CL method alone in 24 of the 24 settings
+and above CL + TTA in 22. Without the methods that read training or buffer images again (EATA, POEM, DPCore, DAS and
+ReservoirTTA), it is at least as good in 24 and above in 22. Every mean stays within 0.5 points of Tab. 2.
+18
+
+
+Table 11. Table 2 over other sets of TTA methods (score, %, medians over the methods of each set, same runs and seeds). Top: every
+method (9 to 20 per setting). Bottom: strict single pass, without EATA, POEM, DPCore, DAS and ReservoirTTA, which read training or
+buffer images again during the preview (6 to 14 per setting). Table 2 itself uses the implementations that keep every core component (6 to
+18 per setting). Bold: best method.
+ResNet, FT
+ResNet, ER
+ViT-B/16, FT
+ViT-B/16, ER
+no TTA
++TTA
+Ours
+no TTA
++TTA
+Ours
+no TTA
++TTA
+Ours
+no TTA
++TTA
+Ours
+Every TTA method
+C100-C
+48.6
+44.2
+60.7
+64.7
+45.2
+65.8
+65.6
+66.0
+66.5
+69.0
+68.8
+69.3
+C100-TF
+49.7
+48.5
+66.4
+63.1
+51.6
+68.9
+73.4
+73.8
+74.3
+75.2
+75.6
+76.3
+C20
+63.7
+64.1
+63.9
+68.1
+68.1
+68.6
+76.9
+77.0
+77.8
+79.1
+79.2
+79.9
+DomainNet
+39.1
+37.2
+43.5
+51.1
+39.3
+51.1
+62.8
+62.7
+63.3
+63.9
+64.0
+64.6
+Inet-TF
+42.1
+40.7
+76.7
+70.8
+42.7
+80.0
+95.7
+95.8
+96.1
+96.0
+95.9
+96.2
+IN-C
+17.1
+15.3
+22.4
+31.8
+15.7
+34.3
+50.7
+51.4
+51.3
+56.4
+56.4
+57.1
+Mean
+43.4
+41.7
+55.6
+58.3
+43.8
+61.4
+70.8
+71.1
+71.6
+73.3
+73.3
+73.9
+Strict single pass: no method reads training or buffer images again
+C100-C
+48.6
+43.7
+60.7
+64.7
+45.2
+65.8
+65.6
+66.0
+66.3
+69.0
+68.9
+69.2
+C100-TF
+49.7
+48.0
+66.2
+63.1
+51.4
+68.9
+73.4
+73.7
+74.1
+75.2
+75.5
+76.2
+C20
+63.7
+64.1
+63.8
+68.1
+68.0
+68.5
+76.9
+76.8
+77.8
+79.1
+79.2
+79.9
+DomainNet
+39.1
+37.3
+43.8
+51.1
+39.5
+51.1
+62.8
+62.7
+63.4
+63.9
+63.9
+64.6
+Inet-TF
+42.1
+40.8
+76.8
+70.8
+42.7
+79.9
+95.7
+95.7
+96.0
+96.0
+95.9
+96.1
+IN-C
+17.1
+15.3
+22.3
+31.8
+15.7
+34.3
+50.7
+52.0
+51.3
+56.4
+56.5
+57.1
+Mean
+43.4
+41.5
+55.6
+58.3
+43.7
+61.4
+70.8
+71.2
+71.5
+73.3
+73.3
+73.9
+Every method.
+Table 12 gives the gain of DOSE over CL + TTA for every TTA method in our protocol, and Tab. 2 reports
+its medians over the methods that keep every core component. Tent and ROID, which the analyses average, are typical of the
+other methods. Over the settings of Tab. 2, the gain of DOSE over CL + TTA is 0.1 points above the median over every method
+with Tent and 0.2 points below it with ROID. Tables 13 to 15 compare DOSE with CL + TTA in the test-batch protocol, with
+ER, with FT and on the corruption benchmarks. Of the 20 TTA methods, DAS, DePT, DPCore and ViDA only run on ViTs,
+while Norm, NOTE, PALM, RoTTA and Surgical only run on ResNets, so that 16 methods run on ResNets and 15 on ViTs.
+Every method was also run in the test-batch protocol, on every benchmark where it runs in ours (Tab. 12, “–”: not run).
+Notably, a ViT has no BatchNorm statistics, so that its two protocols coincide, and its test-batch columns repeat those of
+Tab. 12. The comparison is split over four tables. Table 13 gives ER on C100-TF, Inet-TF and DomainNet for ResNets,
+and on C100-TF, C20, Inet-TF and DomainNet for ViTs. Table 14 gives FT, as well as ER on ResNet C20. Table 15 gives
+C100-C and IN-C, where nine methods run, except Tent and ROID. Tent and ROID are given on every benchmark in Tabs. 9
+and 29. Over these tables, with ER, DOSE is at least as good as CL + TTA in the test-batch protocol in 165 of 168 pairs
+of method and benchmark, including ReservoirTTA [48] around Tent, EATA, SAR and ROID, with a median gain of +3.2
+points on ResNets and +0.6 on ViTs in Tab. 13. Its three losses are PALM [30] on ResNet DomainNet and C20 (−0.3 and
+−0.8) and EATA on ViT IN-C (−0.1). Without a buffer, DOSE is at least as good in 104 of 148 pairs. On ResNets, it is at
+least as good on C100-TF and Inet-TF with every method, but it falls below on DomainNet with every method, on C20 with
+16 of 18 methods, and on C100-C and IN-C with about half of them, where test-batch statistics recover what memory-free
+CL has lost. Table 16 gives what each method gains on the preview of a ViT, and Tab. 17 the scores at ten times the official
+TTA learning rate. With ER, DOSE is above the CL method alone in 103 of the 122 pairs of Tab. 13. In 12 others, the TTA
+method itself damages the network (CL + TTA loses up to 12 points), and DOSE recovers part of the loss.
+19
+
+
+Table 12. DOSE −CL + TTA for every TTA method, in our batch-independent protocol (score, points; mixed batches; top: ResNets,
+bottom: ViT-B/16; “–”: not run on this benchmark). Table 2 gives the medians of these columns.
+FT
+ER
+C100-C C100-TF
+C20
+DN
+Inet-TF IN-C C100-C C100-TF
+C20
+DN
+Inet-TF
+IN-C
+CMF
++16.0
++17.6
+−0.4 +4.8
++35.5
++9.7
++16.2
++16.7
++0.4 +10.5
++37.8
++21.2
+CoTTA
++16.7
++19.0
+−0.2 +7.0
++36.2
++6.4
++21.0
++18.4
++0.5 +12.1
++37.2
++16.9
+EATA
++16.4
++18.6
+−0.2 +6.3
++36.1
++7.4
++17.3
++17.7
++0.4 +11.6
++37.6
++18.5
+LAW
+–
++19.1
+−1.1 +5.7
++36.3
+–
+–
++18.1
++0.5 +11.1
++37.6
+–
+LCoTTA
+–
++19.0
+−0.1 +6.9
++36.3
+–
+–
++18.3
++0.6 +11.9
++37.2
+–
+Norm
++17.5
++19.2
+−0.3 +7.0
++36.1
++6.6
++23.2
++18.4
++0.6 +12.2
++37.3
++18.0
+NOTE
+–
++0.3
++0.2 −0.1
++0.8
+–
+–
++0.2
+±0.0
++0.1
++0.6
+–
+PALM
+–
++17.7
+−0.9 +1.7
++35.6
+–
+–
++16.9
+−0.6
++9.0
++36.2
+–
+PETAL
+–
++3.3
+−0.2 −1.3
++6.5
+–
+–
++3.3
++0.8
++1.8
++4.9
+–
+POEM
++15.2
++19.0
+−0.2 +6.3
++35.9
++8.9
++20.7
++18.5
++0.6 +12.0
++37.5
++20.6
+RDumb
+–
++18.9
+−0.2 +6.6
++36.0
+–
+–
++18.1
++0.4 +11.5
++37.6
+–
+ROID
++15.6
++17.4
+−0.1 +4.7
++35.9
++8.7
++15.8
++16.9
++0.4 +10.4
++37.5
++19.8
+RoTTA
+−0.7
+−0.1
++0.5 +0.3
+−0.3
++0.4
++23.0
++21.2
+±0.0 +10.5
++27.0
++18.7
+SAR
++16.9
++17.8
+−0.2 +6.8
++36.2
++6.6
++18.5
++16.8
++0.5 +12.1
++37.2
++17.6
+Surgical
+–
++17.4
+−3.8 −6.4
++37.6
+–
+–
++18.9
++2.6 +14.0
++39.7
+–
+Tent
++18.7
++17.2
+−0.2 +6.9
++35.4
++7.0
++20.6
++17.0
++0.6 +11.9
++37.6
++18.0
+Reservoir+EATA
+–
++17.9
+−0.8 +5.9
++35.4
+–
+–
++17.4
++0.7 +12.0
++36.8
+–
+Reservoir+ROID
+–
++17.7
+−1.2 +5.8
++35.5
+–
+–
++16.6
++0.2 +11.8
++37.2
+–
+Reservoir+SAR
+–
++17.8
+−0.1 +6.2
++35.9
+–
+–
++16.7
++0.5 +12.1
++37.2
+–
+Reservoir+Tent
+–
++17.5
+±0.0 +6.4
++35.8
+–
+–
++17.1
++0.5 +12.2
++37.0
+–
+FT
+ER
+C100-C C100-TF
+C20
+DN
+Inet-TF IN-C C100-C C100-TF
+C20
+DN
+Inet-TF IN-C
+CMF
++1.5
++0.6
++0.8 +0.5
++0.1
++1.1
++0.4
++0.8
++0.7 +0.9
++0.6
++0.8
+CoTTA
+−0.4
+±0.0
++1.0 +0.7
++0.3
+−9.0
++56.5
++0.6
++0.9 +0.9
++0.2
+−1.6
+DAS
+–
+–
+–
+–
+–
+–
+–
++0.3
+±0.0 +0.1
++0.2
+–
+DePT
+–
++0.7
++1.0 +0.6
++0.4
+–
+–
++0.6
++0.6 +0.6
+±0.0
+–
+DPCore
++0.3
++0.7
++0.9 +0.6
++0.3
+±0.0
++0.5
++0.6
++0.7 +0.7
++0.2
++0.1
+EATA
++0.6
++0.5
++1.2 +0.7
++0.3
++0.9
++0.3
++0.8
++0.7 +0.7
++0.2
++0.9
+LAW
+–
++0.9
++0.5 +1.2
++0.7
+–
+–
++0.7
++1.0 +1.8
++0.5
+–
+LCoTTA
+–
++0.4
++1.0 +0.6
++0.2
+–
+–
++0.4
++0.6 +0.9
++0.1
+–
+PETAL
+–
++0.8
++1.5 −0.3
++0.2
+–
+–
++2.1
++2.0 +5.2
+±0.0
+–
+POEM
++0.5
++0.5
++1.3 +2.2
++0.4
++1.1
++0.3
++0.8
++0.7 +1.0
++0.4
++8.7
+RDumb
+–
++0.4
++1.0 +0.7
++0.3
+–
+–
++0.8
++0.7 +0.7
++0.1
+–
+ROID
++1.8
++0.8
++1.1 +0.6
++0.1
++0.6
++0.5
++0.6
++0.7 +0.6
++0.6
++0.4
+SAR
++0.3
++0.3
++0.7 +0.7
++0.4
++0.5
++0.5
++0.8
++0.9 +0.8
++0.2
++0.2
+Tent
++0.2
++0.5
++0.9 +0.6
++0.3
+±0.0
++0.2
++0.6
++0.9 +0.7
++0.2
++1.1
+ViDA
+−2.4
++1.2
++1.0 +0.5
++0.3
++0.2
++6.2
++0.8
++0.8 +0.6
++0.2
++0.1
+Reservoir+EATA
+–
++0.8
++0.8 +0.9
++0.1
+–
+–
++0.7
++0.4 +0.7
++0.5
+–
+Reservoir+ROID
+–
++0.6
++1.0 +0.6
++0.7
+–
+–
++0.7
++0.6 +0.6
++0.1
+–
+Reservoir+SAR
+–
++1.0
++1.0 +0.6
++0.3
+–
+–
++0.9
++0.7 +0.6
++0.4
+–
+Reservoir+Tent
+–
++0.9
++0.8 +0.6
++0.5
+–
+–
++0.6
++0.6 +0.7
++0.2
+–
+20
+
+
+Table 13. DOSE −CL + TTA for every TTA method (score, points; ER, mixed batches; DOSE in the batch-independent protocol,
+CL + TTA in the test-batch one; “–”: not applicable). For CoTTA, PETAL, RoTTA and ViDA, both systems start each task from the
+deployed teacher. DOSE is at least as good in 121 of 122 entries.
+ResNet (ER)
+ViT-B/16 (ER)
+C100-TF
+Inet-TF
+DomainNet
+C100-TF
+C20
+Inet-TF
+DomainNet
+CMF
++2.7
++4.9
++1.7
++0.9
++0.8
++0.6
++0.7
+CoTTA
++3.2
++5.0
++1.9
++0.6
++0.9
++0.2
++0.9
+DAS
+–
+–
+–
++0.3
+±0.0
++0.2
++0.1
+DePT
+–
+–
+–
++0.6
++0.6
+±0.0
++0.6
+DPCore
+–
+–
+–
++0.6
++0.7
++0.2
++0.7
+EATA
++3.1
++4.8
++1.9
++0.8
++0.7
++0.2
++0.7
+LAW
++3.3
++5.2
++1.6
++0.7
++1.0
++0.5
++1.8
+LCoTTA
++3.3
++4.9
++1.9
++0.4
++0.6
++0.1
++0.9
+Norm
++3.4
++4.8
++1.9
+–
+–
+–
+–
+NOTE
++0.1
++0.7
++0.1
+–
+–
+–
+–
+PALM
++2.9
++3.4
+−0.4
+–
+–
+–
+–
+PETAL
++3.2
++4.9
++1.8
++2.1
++2.0
+±0.0
++5.2
+POEM
++3.3
++5.1
++2.0
++0.6
++1.0
++0.4
++0.9
+RDumb
++3.3
++4.8
++1.8
++0.8
++0.7
++0.1
++0.7
+RoTTA
++20.9
++27.5
++10.5
+–
+–
+–
+–
+SAR
++2.8
++4.8
++1.9
++0.8
++0.9
++0.2
++0.8
+Surgical
++3.9
++6.7
++8.3
+–
+–
+–
+–
+ViDA
+–
+–
+–
++0.8
++0.8
++0.2
++0.6
+Reservoir+EATA
++2.7
++5.0
++1.9
++0.7
++0.4
++0.5
++0.7
+Reservoir+ROID
++3.0
++4.3
++1.3
++0.7
++0.6
++0.1
++0.6
+Reservoir+SAR
++2.9
++5.0
++1.9
++0.9
++0.7
++0.4
++0.6
+Reservoir+Tent
++3.0
++5.0
++1.9
++0.6
++0.6
++0.2
++0.7
+21
+
+
+Table 14. DOSE −CL + TTA for every TTA method, with FT (and ER on C20; score, points; mixed batches; DOSE in the batch-
+independent protocol, CL + TTA in the test-batch one; “–”: not applicable). Gray: DOSE below the CL method alone. DOSE is at least as
+good as CL + TTA in 103 of 138 entries and as the CL method alone in 111. Without a buffer on DomainNet, the test-batch protocol gives
+CL + TTA about 2 points.
+ResNet (FT)
+ResNet (ER)
+ViT-B/16 (FT)
+C100-TF
+Inet-TF
+DomainNet
+C20
+C20
+C100-TF
+C20
+Inet-TF
+CMF
++3.1
++6.2
+−3.1
+−0.2
++0.6
++0.6
++0.8
++0.1
+CoTTA
++3.3
++6.4
+−1.6
+±0.0
++0.8
+±0.0
++1.0
++0.3
+DePT
+–
+–
+–
+–
+–
++0.7
++1.0
++0.4
+DPCore
+–
+–
+–
+–
+–
++0.7
++0.9
++0.3
+EATA
++3.4
++6.7
+−2.0
+−0.2
++0.7
++0.5
++1.2
++0.3
+LAW
++3.4
++6.2
+−2.6
+−1.1
++0.6
++0.9
++0.5
++0.7
+LCoTTA
++3.6
++6.5
+−1.6
+−0.3
++0.7
++0.4
++1.0
++0.2
+Norm
++3.7
++6.5
+−1.6
+−0.4
++0.8
+–
+–
+–
+NOTE
++0.3
++0.8
+−0.1
++0.2
+±0.0
+–
+–
+–
+PALM
++3.1
++4.0
+−6.0
+−2.3
+−0.7
+–
+–
+–
+PETAL
++3.2
++6.5
+−1.4
+−0.1
++0.8
++0.8
++1.5
++0.2
+POEM
++3.5
++6.4
+−2.2
+−1.6
++0.7
++0.4
++0.7
++0.3
+RDumb
++3.6
++6.4
+−1.8
+−0.3
++0.6
++0.4
++1.0
++0.3
+RoTTA
+−0.1
+−0.3
++0.3
++0.4
++0.3
+–
+–
+–
+SAR
++3.1
++6.4
+−1.7
+−0.3
++0.8
++0.3
++0.7
++0.4
+Surgical
++6.1
++10.4
+−11.3
+−5.6
++0.9
+–
+–
+–
+ViDA
+–
+–
+–
+–
+–
++1.2
++1.0
++0.3
+Reservoir+EATA
++3.2
++6.3
+−2.4
+−0.8
++0.9
++0.8
++0.8
++0.1
+Reservoir+ROID
++3.8
++5.7
+−2.8
+−1.2
++0.7
++0.6
++1.0
++0.7
+Reservoir+SAR
++3.3
++6.2
+−2.4
+−0.3
++0.7
++1.0
++1.0
++0.3
+Reservoir+Tent
++3.2
++6.2
+−2.3
+−0.2
++0.7
++0.9
++0.8
++0.5
+22
+
+
+Table 15. Seven TTA methods per backbone on the corruption benchmarks (score, points; mixed batches; DOSE in the batch-
+independent protocol, CL + TTA in the test-batch one; Tent and ROID in Tabs. 9 and 29). Without a buffer on C100-C, CL + TTA with
+test-batch statistics is 9 to 11 points above DOSE with EATA, SAR and CMF, as for Tent and ROID in Tab. 2.
+ResNet
+ViT-B/16
+C100-C
+IN-C
+C100-C
+IN-C
+FT
+ER
+FT
+ER
+FT
+ER
+FT
+ER
+DOSE −CL + TTA
+CMF
++2.3
++3.3
++5.0 +14.0
++1.5
++0.4
++1.1 +0.8
+CoTTA
++0.2
++1.2
+−1.7
++2.8
+−0.4
++56.5 −9.0 −1.6
+DPCore
+–
+–
+–
+–
++0.3
++0.5
+±0.0 +0.1
+EATA
++2.4
++3.6
++0.7
++6.9
++0.6
++0.3
++0.9 +0.9
+Norm
++0.7
++1.9
+−1.1
++4.1
+–
+–
+–
+–
+POEM
+−1.2
++1.5
++1.1
++8.9
++0.2
++0.4
+±0.0 +4.9
+RoTTA
+−1.0
++23.6 +0.4 +18.7
+–
+–
+–
+–
+SAR
++3.9
++5.7
+−0.9
++5.2
++0.3
++0.5
++0.5 +0.2
+ViDA
+–
+–
+–
+–
+−2.4
++6.2
++0.2 +0.1
+DOSE −no TTA
+CMF
++12.6
++1.3
++4.9
++2.3
++3.0
++1.4
++3.2 +1.1
+CoTTA
++12.4
++1.0
++5.8
++2.5
+−62.6
+−9.7
+−7.2 −1.5
+DPCore
+–
+–
+–
+–
+−0.1
++0.3
+−0.6 −0.6
+EATA
++12.2
++1.2
++5.7
++2.9
++1.8
++0.6
++3.2 +1.2
+Norm
++12.0
++0.6
++4.8
++1.9
+–
+–
+–
+–
+POEM
++11.2
++1.0
++1.9
+−2.2
++0.7
++0.2
+−0.5 −3.7
+RoTTA
+−7.6
+±0.0
+−1.7
++2.0
+–
+–
+–
+–
+SAR
++12.1
++1.2
++5.3
++2.6
++1.0
++0.3
++1.2 +0.7
+ViDA
+–
+–
+–
+–
+−9.6
+−3.1
+±0.0 +0.1
+Table 16. Gain of each TTA method on the preview of a ViT (ER, CL + TTA, mixed batches, 5 seeds): accuracy of the adapted network
+on the preview stream after the pass minus the accuracy before adaptation, in points; “–”: not run. Bottom: the methods built for ViTs that
+learn new parameters (prompts, adapters).
+C100-C
+C100-TF
+IN-C
+C20
+DomainNet
+Inet-TF
+Tent
++1.6
++0.8
++5.2
+±0.0
+−0.2
++0.1
+EATA
+–
++2.1
++13.9
++0.1
++0.8
++0.1
+SAR
+–
++0.9
++7.2
+±0.0
+−0.2
+±0.0
+ROID
++6.2
++5.9
++9.8
++1.1
++1.0
+−0.3
+CMF
+–
++6.0
++12.8
++1.1
++1.1
+−0.7
+DAS
+–
++6.2
+–
++2.5
++1.4
++2.2
+DPCore
+–
++0.6
+–
+−0.5
+−0.2
+−0.1
+DePT
+–
+±0.0
+–
+±0.0
+±0.0
+±0.0
+ViDA
+–
++0.2
+–
+−0.6
+±0.0
+±0.0
+23
+
+
+Table 17. TTA learning rate ×10: score of CL + TTA/ DOSE (ER, mixed batches). CL + TTA: test-batch protocol, next task from the
+network it deploys (its teacher for CoTTA), 5 seeds; DOSE: batch-independent protocol, next task from θtr, 5 seeds. DOSE is above
+CL + TTA in 23 of 25 pairs and at least as good as the CL method alone in 16.
+ResNet
+ViT-B/16
+C100-TF
+Inet-TF
+C100-TF
+C20
+Inet-TF
+no TTA
+63.1
+70.8
+75.2
+79.1
+96.0
+CoTTA
+65.4 / 68.0
+74.9 / 80.0
+1.6 / 56.1
+5.9 / 59.2
+91.4 / 93.4
+EATA
+44.0 / 59.1
+75.5 / 80.2
+76.5 / 77.0
+79.4 / 79.4
+96.3 / 96.4
+ROID
+42.4 / 59.8
+73.1 / 78.4
+73.1 / 75.6
+74.5 / 76.5
+93.3 / 92.8
+SAR
+30.7 / 57.6
+75.3 / 80.0
+75.8 / 76.6
+78.8 / 79.9
+95.7 / 96.2
+Tent
+28.3 / 57.4
+75.2 / 79.9
+75.9 / 76.4
+78.6 / 79.3
+96.2 / 96.4
+Table 18. TTA learning rate ÷10: same setting as Tab. 17 with the official rate divided by ten, score of CL + TTA/ DOSE (ER, mixed
+batches, 5 seeds). DOSE is above CL + TTA in 25 of 25 pairs and at least as good as the CL method alone in 25.
+ResNet
+ViT-B/16
+C100-TF
+Inet-TF
+C100-TF
+C20
+Inet-TF
+no TTA
+63.1
+70.8
+75.2
+79.1
+96.0
+CoTTA
+65.4 / 68.8
+75.0 / 79.9
+75.1 / 75.8
+79.4 / 80.1
+95.9 / 96.2
+EATA
+65.6 / 68.9
+75.0 / 80.1
+75.4 / 76.1
+79.4 / 80.0
+95.9 / 96.5
+ROID
+65.7 / 68.8
+75.0 / 79.9
+75.7 / 76.7
+79.3 / 80.7
+95.8 / 96.3
+SAR
+65.5 / 68.9
+74.9 / 79.9
+75.3 / 76.2
+79.1 / 80.0
+96.0 / 96.1
+Tent
+65.5 / 68.9
+75.1 / 79.9
+75.2 / 76.0
+79.1 / 80.1
+95.9 / 96.2
+G.4. Ablations and stored statistics
+Table 20 gives every variant of DOSE on every benchmark, of which Tab. 3 keeps the most informative ones. Table 21 shows
+why CL + TTA cannot simply keep the statistics it estimated during TTA: applying the statistics of the preview to every image
+collapses the old domains, whichever way they are recorded.
+Notably, a hard dose, namely per-domain BatchNorm with the inferred domain, scores the same as the soft dose within 0.1
+points. The posterior finds the domain of 97% of the Inet-TF images, but only 27% for the sub-class domains of C20, where
+chance is 25% (Fig. 5). At the last task, the bank check keeps the bank on Inet-TF and drops it on C20. The shared-parameter
+check doses the changes of RoTTA [55], Surgical [25] and PETAL [3] in 86, 62 and 10% of the runs, while it shares those of
+every other method.
+Table 19 gives DOSE without a TTA method on every benchmark of Tab. 2. The preview is then only used for the recorded
+statistics of the new domain and for the prototypes, which the unadapted network builds from its own predictions, while the
+images of the new domain keep the BatchNorm statistics of θtr.
+Table 19. DOSE without a TTA method (score A, %, 5 seeds): the recorded statistics, the bank and the prototypes on the network that
+TTA never adapted. No TTA and Ours: as in Tab. 2. Bold: best.
+ResNet, FT
+ResNet, ER
+ViT-B/16, FT
+ViT-B/16, ER
+no
+TTA
+w/o TTA
+method
+Ours
+no
+TTA
+w/o TTA
+method
+Ours
+no
+TTA
+w/o TTA
+method
+Ours
+no
+TTA
+w/o TTA
+method
+Ours
+C100-C
+48.6
+58.2
+60.7
+64.7
+64.8
+65.9
+65.6
+66.0
+67.0
+69.0
+69.3
+69.5
+C100-TF
+49.7
+56.0
+66.4
+63.1
+63.4
+68.9
+73.4
+73.8
+74.6
+75.2
+75.9
+76.4
+C20
+63.7
+63.9
+63.9
+68.1
+68.5
+68.6
+76.9
+77.5
+77.9
+79.1
+80.0
+79.9
+DomainNet
+39.1
+42.3
+43.5
+51.1
+51.5
+51.1
+62.8
+63.3
+63.4
+63.9
+64.7
+64.7
+Inet-TF
+42.1
+62.5
+76.7
+70.8
+71.7
+80.0
+95.7
+96.1
+96.1
+96.0
+96.1
+96.3
+IN-C
+17.1
+19.2
+22.3
+31.8
+31.8
+34.3
+50.7
+50.8
+52.8
+56.4
+56.4
+57.3
+Mean
+43.4
+50.4
+55.6
+58.3
+58.6
+61.4
+70.8
+71.3
+72.0
+73.3
+73.7
+74.0
+24
+
+
+Table 20. Ablations, every cell (score difference to DOSE, points, mixed batches, Tent/ROID, paired by seed).
+ResNet
+ViT-B/16
+C100-TF
+Inet-TF
+C20
+DomainNet
+C100-TF
+Inet-TF
+C20
+DomainNet
+FT
+ER
+FT
+ER
+FT
+ER
+FT
+ER
+FT
+ER
+FT
+ER
+FT
+ER
+FT
+ER
+Records and posterior
+only the latest domain’s recorded statistics
+−5.6 −4.1 −13.1 −10.4 +0.3 +0.1 +3.6 −0.3 +0.2
+0.0
++0.1
+0.0
++0.1 +0.1 +0.3
+0.0
+statistics recorded on θtr, first layer
+−4.4 −0.7
+−0.2
+−0.1
+−0.3 +0.2 +0.4 −0.6 −0.1
+0.0
++0.1
+0.0
++0.4 +0.8 +0.2
++0.1
+statistics recorded on θtr, first quarter
+−2.4 −1.7
+−1.0
+−0.3
+−0.5 −0.1 +0.2 −1.2 +0.1 +0.1 +0.1
+0.0
++0.7 +0.9 +0.3
++0.1
+statistics recorded on θtr, every layer
+−2.0 −1.6
+−0.7
+−0.2
+−0.1 −0.1 +1.2 −1.0 +0.1 +0.1 +0.1
+0.0
++0.8 +1.0 +0.4
++0.2
+typicality rule, not the posterior
+−7.0 −2.2
+−3.9
+−1.1
++0.5 −0.1 +2.8 −0.7 −0.1 +0.1
+0.0
+0.0
++1.0 +1.1 +0.6
++0.4
+true domain given (oracle)
+−0.9 −0.6
++0.1
+0.0
++0.1 +0.2 −0.5 −0.8 +0.1 −0.1 +0.1
+0.0
++1.3 +1.4 +0.4
++0.4
+Dose
+statistics only, affine shared
+−0.5 −1.1
++0.2
+0.0
++0.4 +0.1 −0.1 −1.5 +0.4 +0.3 −0.1 −0.1 +1.1 +0.9 +0.1
++0.1
+every tensor that TTA changed
++1.4
+0.0
++0.1
+0.0
++0.1
+0.0
++3.4
+0.0
+−0.4 −0.1
+0.0
+0.0
+−0.3 −0.1 −0.2
+−0.1
+Bank and bank check
+no bank
+−5.9
+0.0
+−19.6
+0.0
+0.0
+0.0
+−2.5 −0.1 −0.1
+0.0
++0.1
+0.0
+−0.1
+0.0
+0.0
+−0.1
+bank always, without bank check
++1.0
+0.0
+0.0
++0.1
+−4.9
+0.0
+−2.3 −0.1
+0.0
+0.0
++0.1
+0.0
+−0.3 +0.1
+0.0
+−0.1
+Prototype head
+no prototype head
+−0.4 −0.1
+−0.2
+−0.1
+−0.5 −0.1 −0.1 −0.2 −0.6 −0.7 −0.1 −0.2 −1.1 −0.8 −0.6
+−0.7
+Next task
+next task from the adapted network (as CL + TTA) −0.3
+0.0
++0.1
+0.0
+−0.4
+0.0
+−0.1 −0.1
+0.0
+−0.1 +0.1
+0.0
+−0.3 −0.1
+0.0
+−0.1
+Table 21. CL + TTA with statistics recorded during TTA instead of those of the evaluation batch (ResNet, mixed): applying the statistics
+of the preview to every image collapses the old domains.
++TTA (test batch)
++TTA, stored stats
+recorded, EMA
+recorded, exact
+recorded, all previews
+Ours
+FT
+C100-TF
+63.1
+49.9
+47.6
+48.3
+57.0
+68.4
+C20
+64.4
+63.9
+–
+64.3
+62.3
+64.6
+Inet-TF
+70.4
+42.5
+41.0
+41.3
+53.2
+77.7
+DomainNet
+46.2
+38.6
+37.9
+37.9
+43.3
+47.0
+ER
+C100-TF
+65.9
+62.8
+51.2
+51.6
+62.2
+68.8
+C20
+67.9
+68.2
+–
+68.3
+65.5
+68.7
+Inet-TF
+75.1
+70.7
+42.2
+42.6
+57.5
+80.1
+DomainNet
+49.6
+49.4
+40.2
+40.2
+45.5
+51.5
+G.5. Held-out images, other CL methods and other benchmarks
+Table 22 scores the preview domain on held-out images that were never in the stream. Table 23 replaces ER and FT by
+DER++ and CODA-Prompt, and Tab. 24 gives ImageNet-R and ImageNet-A on ViTs. With DER++ [4], which adds to
+replay a distillation of the logits stored with the buffer images, DOSE scores highest among the configurations in Tab. 23.
+The reference comes from the same run of DOSE, where the next task starts from θtr, so that TTA never changes what
+DER++ keeps training. DER++ alone is an independent DER++ run that never uses TTA during the sequence, and it agrees
+with the reference within 0.3 points. With CODA-Prompt [43], which learns prompts on a frozen ViT without any buffer,
+DOSE is above CODA-Prompt with TTA on all four benchmarks (+0.3 to +0.9), and above CODA-Prompt alone on three
+(−0.4 on DomainNet). Notably, Continual Normalization [37], which adapts BatchNorm to online CL by adding a per-image
+GroupNorm before every BatchNorm layer, remains below DOSE (53.5 against 58.7, Sec. H.12).
+25
+
+
+Table 22. Held-out preview domain: score with the preview domain scored on held-out images never in the stream, and the accuracy of
+DOSE on the preview domain on the stream and on held-out images. Bold: best of the systems without test-batch statistics; DOSE is best
+or tied in 23 of 24 settings.
+Score, preview domain held out
+Preview domain, DOSE
+no TTA +TTA
++TTAbatch Ours stream
+held-out
+ResNet, FT
+C100-C
+49.4
+43.5
+57.8
+62.1
+67.9
+68.8
+C100-TF
+49.1
+51.6
+63.8
+68.5
+68.7
+66.8
+C20
+63.7
+64.5
+64.6
+64.1
+44.9
+42.9
+DomainNet
+36.2
+34.7
+44.7
+42.0
+37.9
+33.3
+Inet-TF
+43.6
+43.5
+70.5
+76.6
+74.9
+73.9
+IN-C
+17.6
+15.1
+22.8
+23.1
+40.3
+40.4
+ResNet, ER
+C100-C
+65.0
+47.3
+62.6
+66.1
+67.9
+68.6
+C100-TF
+62.9
+55.1
+66.6
+69.1
+68.1
+66.3
+C20
+67.8
+67.7
+67.6
+68.2
+46.9
+44.6
+DomainNet
+49.3
+36.9
+48.4
+49.5
+41.5
+38.0
+Inet-TF
+67.4
+45.7
+73.4
+78.6
+76.0
+73.6
+IN-C
+32.2
+15.6
+28.2
+34.8
+38.0
+38.1
+ViT-B/16, FT C100-C
+65.6
+66.2
+67.1
+70.4
+70.8
+C100-TF
+72.7
+74.4
+74.9
+72.5
+70.7
+C20
+75.5
+76.0
+77.2
+57.1
+55.7
+DomainNet
+61.5
+61.8
+62.3
+56.4
+52.8
+Inet-TF
+95.7
+95.7
+95.9
+94.2
+93.9
+IN-C
+51.2
+52.3
+52.5
+56.1
+55.4
+ViT-B/16, ER C100-C
+68.8
+69.4
+69.7
+71.7
+72.2
+C100-TF
+74.6
+76.1
+76.6
+73.3
+71.8
+C20
+77.6
+77.8
+78.9
+58.5
+56.6
+DomainNet
+62.2
+62.4
+63.0
+56.7
+52.8
+Inet-TF
+95.8
+95.7
+96.0
+94.1
+93.8
+IN-C
+56.8
+57.0
+57.7
+57.8
+57.4
+Table 23. Other CL methods (score, mixed batches, Tent/ROID, 5 seeds). Reference: for DER++, the network immediately before each
+preview within a run of DOSE, which may retain effects of TTA from earlier tasks; for CODA-Prompt, the standalone run without TTA.
+DER++ alone: an independent run of DER++ that never uses TTA during the whole sequence, within 0.3 points of the reference. +TTA:
+CL + TTA with its own statistics (batch-independent); +TTAbatch (gray): with the evaluation batch’s statistics (test-batch protocol; on ViTs
+both coincide).
+CL method
+Benchmark
+Reference
+DER++ alone
++TTA
++TTAbatch
+Ours
+DER++ (ResNet)
+C100-TF
+62.2
+62.2
+52.1
+66.7
+69.1
+Inet-TF
+68.0
+67.7
+42.7
+74.6
+77.8
+DomainNet
+50.1
+50.1
+41.6
+50.1
+50.7
+DER++ (ViT-B/16)
+C100-TF
+76.5
+76.4
+77.5
+77.5
+78.0
+C20
+80.2
+80.2
+80.4
+80.4
+81.1
+Inet-TF
+96.4
+96.4
+96.6
+96.6
+96.9
+DomainNet
+66.2
+66.3
+66.3
+66.3
+66.9
+CODA-Prompt (ViT-B/16)
+C100-TF
+75.3
+–
+75.3
+75.3
+76.2
+C20
+76.2
+–
+76.4
+76.4
+77.0
+Inet-TF
+95.6
+–
+96.1
+96.1
+96.4
+DomainNet
+62.9
+–
+61.9
+61.9
+62.6
+26
+
+
+Table 24. ImageNet-R / ImageNet-A (ViT, Tent/ROID, 5 seeds). With 1 to 3 preview images per class, the prototypes are weak, and TTA
+has little to give.
+no TTA
++TTA
+DOSE
+DOSE without TTA
+FT
+IN-A
+28.0
+27.9
+27.9
+27.9
+FT
+IN-R
+66.3
+66.3
+66.5
+66.2
+ER
+IN-A
+28.7
+28.7
+28.5
+28.8
+ER
+IN-R
+66.2
+66.1
+66.3
+66.2
+G.6. Preview length and cost
+From 500 to 5000 preview images on C100-C, the TTA gain on the preview grows from 7.5 to 10.5 points on ResNets and
+from 2.2 to 5.8 points on ViTs (Fig. 3). The official SAR code [34] shows the same effect on ImageNet-C with a ViT-B/16
+and batches of 64. Averaged over four blur corruptions, its online accuracy is 38.2% after 5,000 images and 51.1% after the
+50,000 images of the usual protocol (Tent: 38.1 and 51.0). After 5,000 images, our implementations give the same accuracy
+(38.3 and 38.0). Table 25 gives the test-time cost of DOSE.
+500
+1000
+2500
+5000
+0
+5
+10
+preview length (images; 64 per update)
+gain (points)
+ResNet
+ViT
+ResNet (score)
+ViT (score)
+Figure 3. Preview length (C100-C, ER, DOSE with Tent/ROID, 5 seeds). Solid: accuracy of the adapted network on the preview domain
+after the pass minus before it. Dashed: score of DOSE minus the score of the same network before the preview.
+Table 25. Test-time cost: forward time of the deployed system per image (ms), measured on one RTX A4500 with nothing else running,
+after the preview of the last task without a buffer, the costliest point of a run (every trained domain has its recorded statistics and a bank
+entry; domains: number of trained domains). Each row uses the architecture, input size, evaluation batch size (mixed) and number of
+classes of its benchmark. No TTA: θtr with its stored statistics. +TTA: CL + TTA with the statistics estimated during the preview. DOSE
+includes the frozen first block, the posterior, the dosed BatchNorm layers and the prototype head. Per-domain BatchNorm with the inferred
+domain costs the same as DOSE (1.46 and 1.60 times CL + TTA on ResNet-50 and ResNeXt-29). The last two columns give the throughput
+in images per second (1000 divided by the time per image). Times are measured with the released implementation, separately from the
+runs.
+input
+domains
+no TTA
++TTA
+Ours
+Ours / +TTA
++TTA (img/s)
+Ours (img/s)
+ResNet
+C100-C
+32 px
+14
+0.24
+0.24
+0.40
+1.67×
+4 167
+2 500
+C100-TF
+32 px
+5
+0.24
+0.24
+0.39
+1.62×
+4 167
+2 564
+C20
+112 px
+4
+0.23
+0.23
+0.34
+1.46×
+4 348
+2 941
+DomainNet
+224 px
+5
+0.80
+0.80
+1.17
+1.46×
+1 250
+855
+Inet-TF
+112 px
+5
+0.23
+0.23
+0.34
+1.46×
+4 348
+2 941
+IN-C
+224 px
+14
+0.80
+0.80
+1.19
+1.48×
+1 250
+840
+ViT-B/16
+C100-C
+224 px
+14
+3.62
+3.63
+3.72
+1.02×
+275
+269
+C100-TF
+224 px
+5
+3.67
+3.68
+3.74
+1.02×
+272
+267
+C20
+224 px
+4
+3.70
+3.71
+3.77
+1.01×
+270
+265
+DomainNet
+224 px
+5
+3.73
+3.74
+3.80
+1.01×
+267
+263
+Inet-TF
+224 px
+5
+3.76
+3.76
+3.81
+1.01×
+266
+262
+IN-C
+224 px
+14
+3.77
+3.77
+3.85
+1.02×
+265
+260
+27
+
+
+G.7. Per-task results
+As is usual in continual TTA, Tabs. 26 and 27 give the accuracy at every task of C100-C and IN-C, and Tab. 28 the mIoU at
+every task of Cityscapes →ACDC. Task t trains on domain t and previews domain t+1, whose name heads the column.
+On IN-C, the CL method alone often falls to chance on the preview corruption, for instance on defocus blur after impulse
+noise or on contrast after brightness: the stored statistics of one corruption do not fit the next. TTA recovers 17 to 25 points
+on the preview, and DOSE keeps this gain (38.0 against 37.5 with ER, 40.3 against 41.0 with FT). On the trained domains,
+CL + TTA collapses as soon as a noise is followed by a blur, while DOSE stays within 0.1 points of the CL method alone
+with ER and 2.3 points above it with FT. IN-C is also hard for the CL method alone itself. Each task gives 25 labeled images
+per class, trained for one epoch, and without a buffer the stored statistics follow the latest corruption, so the older ones fall to
+about 11%. On C100-C, TTA gains 10 to 23 points on the preview, and DOSE keeps all but 1 to 3 of them while matching or
+beating the CL method alone on the trained domains. In segmentation, TTA gains little on the preview conditions except at
+night, and BN Stats Adapt and Tent lose 5 to 7 points on fog. With ER, DOSE keeps the trained conditions at the level of the
+CL method alone. Without a buffer, it loses on them in the tasks where its bank check keeps an outdated bank.
+Table 26. C100-C per task (ResNeXt-29, accuracy, mixed batches, Tent and ROID averaged). +TTA: CL + TTA with the statistics
+estimated during the preview. +TTAbatch (gray): with the statistics of each test batch, the usual protocol of continual TTA.
+task t (previewed domain)
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+mean
+shot impul defoc glass motn zoom snow frost fog
+brit contr elast pixel jpeg
+FT, previewed domain n(t)
+CL alone
+65.9
+62.3
+55.2
+8.9
+55.6
+71.6
+23.8 63.1 42.2 51.7 35.1 33.4 27.5 44.8 45.8
++TTA
+67.9
+67.5
+74.0
+63.5
+71.7
+74.0
+69.0 69.7 67.9 74.8 72.7 66.2 71.4 63.3 69.6
++TTAbatch
+67.2
+67.2
+67.7
+60.1
+66.0
+68.7
+63.1 65.1 59.1 71.4 49.2 62.0 62.7 61.4 63.6
+DOSE
+66.4
+67.8
+74.3
+62.8
+71.7
+74.2
+68.9 68.4 67.9 67.6 73.5 58.8 70.2 58.0 67.9
+FT, trained domains, mean of aj(t)
+CL alone
+65.8
+67.4
+64.1
+28.1
+50.7
+46.2
+40.0 51.3 52.8 47.6 50.7 35.6 48.8 38.2 49.1
++TTA
+65.7
+62.8
+6.2
+43.9
+31.8
+31.6
+37.0 38.8 39.6 40.4 29.5 43.4 39.1 45.2 39.6
++TTAbatch
+65.4
+64.2
+59.4
+58.6
+55.3
+55.1
+55.3 56.4 55.0 53.4 54.8 53.0 51.9 52.3 56.4
+DOSE
+65.7
+66.1
+61.1
+63.4
+62.0
+63.8
+62.8 63.2 62.7 61.0 51.7 60.3 50.0 46.7 60.0
+ER, previewed domain n(t)
+CL alone
+66.5
+62.3
+57.4
+52.5
+65.9
+71.7
+50.7 63.8 49.1 63.6 51.1 56.4 37.8 55.1 57.4
++TTA
+67.8
+67.1
+73.0
+61.7
+70.7
+72.7
+67.6 68.7 66.5 73.6 71.2 63.7 69.8 62.3 68.3
++TTAbatch
+66.6
+65.2
+68.5
+58.1
+68.5
+71.4
+61.3 66.1 57.9 70.0 55.6 60.8 59.2 61.1 63.6
+DOSE
+66.7
+67.5
+73.8
+62.3
+71.0
+73.3
+68.1 68.5 66.5 69.0 72.7 60.6 69.8 61.3 67.9
+ER, trained domains, mean of aj(t)
+CL alone
+65.8
+67.0
+66.5
+67.4
+66.0
+66.6
+66.8 65.8 65.8 64.2 65.5 64.6 64.9 63.4 65.8
++TTA
+65.4
+62.0
+6.1
+51.4
+37.8
+31.9
+43.4 47.2 43.8 45.6 35.4 50.5 47.0 51.4 44.2
++TTAbatch
+64.9
+64.1
+62.0
+64.8
+62.3
+62.9
+63.2 62.7 61.1 60.6 60.9 61.0 59.9 59.4 62.1
+DOSE
+66.0
+67.1
+66.4
+67.2
+65.8
+66.6
+66.5 65.5 65.3 64.2 65.2 64.5 64.8 63.2 65.6
+28
+
+
+Table 27. IN-C per task (ResNet-50, severity 5, accuracy, mixed batches, Tent and ROID averaged). Rows as in Tab. 26. With 1,000
+classes, 0.1% is chance. It is a collapse of the predictions, not of the evaluation: at task 2 of the run of seed 0 without memory, one class
+receives 19% of all predictions of the CL method alone, against 1% at task 0, because the stored statistics of impulse noise do not fit
+defocused images. Re-estimating the statistics on the same images, as TTA does, brings them back to 28.5%.
+task t (previewed domain)
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+mean
+shot impul defoc glass motn zoom snow frost fog
+brit contr elast pixel jpeg
+FT, previewed domain n(t)
+CL alone
+35.7
+35.4
+0.1
+3.7
+14.1
+31.8
+2.1
+25.3
+8.4
+7.4
+0.6
+0.4
+28.6 33.0 16.2
++TTA
+44.7
+43.2
+28.5
+35.0
+38.3
+44.1
+37.3 36.4 44.9 53.9 29.8 44.0 48.0 45.4 41.0
++TTAbatch
+43.7
+42.3
+20.3
+26.8
+27.1
+33.6
+23.8 28.2 27.0 46.6 10.0 31.1 40.4 38.5 31.4
+DOSE
+42.8
+39.4
+28.6
+32.7
+35.7
+42.5
+39.0 37.3 46.1 51.0 32.8 41.9 48.4 46.2 40.3
+FT, trained domains, mean of aj(t)
+CL alone
+43.5
+44.0
+42.5
+11.0
+11.2
+15.8
+18.7
+8.5
+11.8
+9.7
+11.4
+5.0
+11.0 11.1 18.2
++TTA
+40.4
+43.0
+0.1
+3.2
+9.4
+12.9
+1.9
+5.7
+4.9
+6.8
+1.9
+6.0
+7.3
+11.7 11.1
++TTAbatch
+40.5
+43.7
+23.5
+18.2
+17.3
+17.0
+15.2 16.7 15.1 13.3 16.3 14.4 16.2 17.0 20.3
+DOSE
+43.3
+43.3
+42.6
+16.9
+15.2
+15.3
+18.8 14.6 13.8 15.3 11.4 13.9 11.0 11.3 20.5
+ER, previewed domain n(t)
+CL alone
+34.5
+37.6
+0.1
+5.6
+15.9
+28.4
+3.5
+22.9 17.2 31.1
+3.7
+14.9 34.5 35.2 20.4
++TTA
+44.1
+42.3
+27.6
+32.4
+34.9
+39.0
+33.3 31.6 40.3 49.7 24.8 39.9 44.7 40.9 37.5
++TTAbatch
+42.9
+41.2
+19.8
+26.5
+29.4
+35.8
+21.5 28.3 27.9 40.4
+7.9
+29.5 39.8 37.7 30.6
+DOSE
+42.3
+40.2
+27.9
+31.1
+34.4
+38.5
+35.9 33.9 42.8 50.0 27.2 40.0 46.0 42.5 38.0
+ER, trained domains, mean of aj(t)
+CL alone
+43.3
+44.3
+44.0
+40.5
+36.2
+34.2
+33.5 32.3 32.0 29.1 28.0 29.5 27.5 27.6 34.4
++TTA
+39.1
+42.8
+0.1
+5.2
+9.7
+13.8
+3.2
+9.7
+5.1
+8.9
+1.7
+9.3
+9.0
+16.0 12.4
++TTAbatch
+39.1
+42.7
+23.1
+30.5
+26.2
+26.8
+24.5 26.3 19.8 21.3 20.3 21.7 21.8 21.4 26.1
+DOSE
+43.3
+44.3
+44.0
+40.4
+36.1
+34.0
+33.6 32.3 31.9 28.9 27.8 29.4 27.4 27.2 34.3
+Table 28. Cityscapes →ACDC per task (DeepLabV3+ R50, mIoU, 5 seeds). Left: the preview condition. Right: the mean over the
+trained domains (Cityscapes and the conditions trained so far). +TTA: CL + TTA with the statistics estimated during the preview.
+previewed condition, task t
+trained domains (mean), task t
+0 fog 1 night 2 rain 3 snow mean
+0
+1
+2
+3
+mean
+FT
+CL alone
+61.0
+17.2
+39.2
+50.0
+41.8
+74.5 57.4 49.9 52.9
+58.7
+BN adapt, +TTA
+54.2
+25.9
+47.7
+53.1
+45.2
+62.8 32.5 49.4 49.2
+48.5
+BN adapt, DOSE
+53.9
+26.3
+46.6
+51.4
+44.5
+74.5 58.5 40.1 52.6
+56.4
+Tent, +TTA
+56.2
+27.0
+48.2
+51.9
+45.8
+62.1 30.8 48.5 47.1
+47.1
+Tent, DOSE
+55.8
+27.8
+47.1
+52.5
+45.8
+74.5 53.5 47.0 48.8
+56.0
+CoTTA, +TTA
+64.0
+19.1
+41.9
+52.5
+44.4
+74.6 59.4 51.0 55.7
+60.2
+CoTTA, DOSE
+64.0
+17.9
+41.9
+51.3
+43.8
+74.6 58.0 44.9 54.7
+58.1
+ER CL alone
+62.4
+20.8
+47.6
+54.4
+46.3
+75.7 71.4 59.5 61.2
+66.9
+BN adapt, +TTA
+55.7
+31.7
+54.0
+55.9
+49.3
+63.5 57.5 55.8 56.5
+58.3
+BN adapt, DOSE
+55.5
+31.7
+52.7
+56.1
+49.0
+75.7 71.0 59.8 61.0
+66.9
+Tent, +TTA
+56.5
+31.0
+54.3
+54.7
+49.1
+62.2 54.3 53.4 54.5
+56.1
+Tent, DOSE
+56.3
+31.4
+53.5
+55.0
+49.0
+75.7 71.6 59.4 61.2
+67.0
+CoTTA, +TTA
+64.6
+23.5
+50.9
+55.5
+48.6
+75.7 71.8 61.2 61.6
+67.6
+CoTTA, DOSE
+64.6
+23.3
+50.4
+55.4
+48.4
+75.7 71.8 59.6 61.7
+67.2
+29
+
+
+H. Additional analyses
+H.1. Same statistics for every method
+Since TTA methods are usually evaluated with the statistics of the test batch, which our main protocol forbids, we check that
+the gain of DOSE does not come from the protocol. In Tab. 29, every method gets the same statistics. With the statistics of
+each evaluation batch, which mixes all evaluated domains (Sec. 3.2), DOSE is above CL + TTA by 4.4 points without memory
+and 3.6 with a buffer. On single-domain batches (Oracle), CL + TTA scores 7.0 points more without memory and 2.7 with
+a buffer than on mixed ones, with the same model. In that case, DOSE reduces to CL + TTA with the prototype head and
+is at most 0.6 points below it in all 12 settings, and up to 1.4 above. Without memory, DOSE with its own statistics stays
+below the Oracle, by up to 13.7 points on IN-C, because single-domain batches hand CL + TTA fresh statistics of every old
+domain, which memory-free CL cannot keep. With a buffer, DOSE is at most 0.5 points below it. UnMix-TNS [46], built for
+correlated labels within one domain, is below CL + TTA with batch statistics in all 12 settings, and below DOSE in all 12.
+Table 29. Protocols (ResNet, score averaged over the six benchmarks, Tent and ROID). Each row says where the statistics come from and
+how batches are formed, and both methods get the same statistics. UnMix-TNS runs around ROID. On the same ROID runs, CL + TTA
+scores 42.9/45.4 (batch-independent) and 54.4/58.0 (test-batch), and DOSE 55.8/61.6 (FT/ER).
+FT
+ER
+statistics
+batches
+CL + TTA DOSE CL + TTA DOSE
+evaluation batch mixed
+53.9
+58.3
+58.0
+61.6
+evaluation batch single-domain
+60.9
+61.2
+60.7
+61.3
+preview (ours)
+either
+41.9
+55.8
+44.4
+61.6
+UnMix-TNS around ROID, components frozen
+41.7
+43.4
+UnMix-TNS around ROID, components adapting (test batch)
+47.1
+49.2
+no TTA (CL method alone)
+43.4
+58.3
+H.2. Why the next task starts from θtr
+With the next task from the adapted network, as in CL + TTA, DOSE on C100-C without memory reaches 60 to 61 points
+with Norm, CoTTA and POEM, but 41 to 50 with Tent, RoTTA, SAR, CMF, ROID and EATA (Tab. 31). RoTTA changes
+the structure of the network, so that without a buffer its changes are shared and DOSE equals CL + TTA. With the five other
+methods, the older domains collapse right after the preview, from the second task on. With ROID, domains 0 and 1 fall to
+14.9% after the preview of task 2, against 56.1% with Tent at the rate of the PALM benchmark (2·10−5), while their posterior
+weight on the preview is about 3% with every method and the latest domain is unaffected. The damage therefore comes from
+the statistics that the bank gives the older domains. These five methods adapt with a learning rate of 10−3 on CIFAR, and
+C100-C has the longest preview of the CIFAR benchmarks (5,000 images, against 1,000 for C100-TF). The next task then
+carries their larger change, and the statistics stored in the bank for the older domains no longer match their activations. The
+bank check cannot see it, since it scores images of the latest domain only, which the bank barely affects. Therefore, DOSE
+starts the next task from θtr (Sec. 5.2). Table 30 changes one choice at a time, at the official rates. Starting the next task
+from θtr removes the collapse, and the three methods then score 60.3 to 60.9, above DOSE without a TTA method (58.2). A
+preview of 1,000 images removes more than half of it (54.8 to 56.5). Without the bank, the older domains no longer collapse
+at task 2, but memory-free CL then forgets them over the following tasks, as without DOSE.
+30
+
+
+Table 30. C100-C without memory (ResNeXt-29, 5 seeds, official rates: 10−3 for Tent, ROID and EATA). A: score. Old 0-1: accuracy
+on domains 0 and 1 right after the preview of task 2. Adapted: the next task starts from the adapted network, as in CL + TTA. From θtr: the
+setting of Tab. 2. Preview 1,000: 1,000 random images of each preview, next task from the adapted network. No bank: --dose-bank
+off, next task from the adapted network.
+ROID
+EATA
+Tent
+A
+old 0-1
+A
+old 0-1
+A
+old 0-1
+adapted
+47.5
+14.9
+48.3
+21.7
+43.4
+10.2
+from θtr
+60.9
+56.9
+60.4
+56.0
+60.3
+57.3
+preview 1,000
+55.1
+41.7
+56.5
+48.6
+54.8
+45.3
+no bank
+48.0
+55.0
+48.2
+54.4
+46.6
+54.2
+Both starts on C100-C and IN-C.
+Table 31 compares the two starts with every TTA method of Tab. 2, with and without
+memory, with Tent at 10−3 on both sides, on the same runs and seeds. Starting from θtr needs no additional storage, since
+DOSE already keeps what TTA changed as a difference to θtr. On ResNets without memory, it brings the median on C100-C
+from 48.3 to 60.7, above DOSE without a TTA method (58.2), and on IN-C from 21.4 to 22.3. The other cells change by 0.0
+to +1.4 points. Method by method, it is at least as good in 45 of the 56 pairs of method and setting, while CoTTA on ViTs
+loses 8.6 points on IN-C without memory. CL + TTA keeps the adapted start, as TTA methods are usually deployed.
+Table 31. Next task from the adapted network or from θtr (score of DOSE, %, medians over the TTA methods of Tab. 2, mixed batches).
+Adapted: the next task starts from the adapted network, as in CL + TTA. θtr: as in Tab. 2. Tent at 10−3 on both sides, 5 seeds per method
+(3 for Norm). Last row: methods for which θtr is at least as good, over both benchmarks.
+ResNet, FT
+ResNet, ER
+ViT-B/16, FT
+ViT-B/16, ER
+adapted
+θtr
+adapted
+θtr
+adapted
+θtr
+adapted
+θtr
+C100-C
+48.3
+60.7
+64.5
+65.9
+66.7
+67.0
+69.5
+69.5
+IN-C
+21.4
+22.3
+33.5
+34.3
+52.5
+52.8
+56.7
+57.3
+methods, θtr ≥adapted
+13 / 16
+13 / 16
+9 / 12
+10 / 12
+H.3. TTA learning rate and cost
+Every TTA method keeps its official learning rate, which its authors tuned on their own benchmarks and backbones (for Tent
+on CIFAR, the value of the CoTTA code, Tab. 5). In our setup, the preview domain has no labels before its task, so that this
+rate cannot be tuned, and it may be too large for a new backbone, benchmark or CL method. Notably, a too large learning
+rate can make the TTA method collapse on the preview, and CL + TTA then predicts every image with the collapsed network.
+Therefore, we test how each method copes with a wrong learning rate by multiplying the official one by ten (Tab. 17). In that
+case, several methods collapse under CL + TTA, such as CoTTA on ViT C100-TF (1.6), while DOSE stays above CL + TTA
+in 23 of 25 pairs and above the CL method alone in 16. A smaller rate does not protect CL + TTA either, since its damage on
+ResNets comes from the statistics of the preview and not from the size of the update: on C100-C, Tent at 2·10−5 instead of
+10−3 gives 43.8 against 42.0 without memory and 43.0 against 45.2 with a buffer. It only helps the adapted start of DOSE,
+which scores 60.3 against 45.0 without memory, whereas the start from θtr scores 60.7 at 10−3 (Sec. H.2). Regarding cost,
+DOSE adds one pass through the frozen first block per image. At the last task, an image costs 1.46 to 1.67 times the forward
+time of CL + TTA on ResNets and 1.01 to 1.02 times on ViTs (Tab. 25).
+H.4. Stability against plasticity
+The score A averages the accuracy over all domains seen so far. Wang et al. [50] note that the average accuracy of continual
+learning mostly rewards stability, and that plasticity needs its own measure. The same holds for A, where the preview
+domain weighs only 1/(t+2) at task t. Table 32 therefore reports a balanced score B = 1
+2(old + new), which gives the
+preview domain the same weight as all trained domains together. Under B, the gains of DOSE grow. On average over the
+six benchmarks, DOSE is above the CL method alone by 15.8 and 5.7 points on ResNets (FT and ER) and by 1.7 points
+on ViTs with both, against 10.0, 2.8, 0.8 and 0.5 points under A. DOSE is at least as good as the CL method alone in all
+24 settings and as CL + TTA in 22 of them. CL + TTA with test-batch statistics is above DOSE only on three memory-free
+ResNet benchmarks (C100-C, DomainNet and C20).
+31
+
+
+Table 32. Balanced score B = 1
+2(old + new) (%, mixed batches, median over the TTA methods of Tab. 2). Old is the mean accuracy on
+the trained domains and new the accuracy on the preview domain, both averaged over tasks. Columns and systems are those of Tab. 2, and
+bold marks the best system that uses no statistic of the evaluation batch.
+C100-C C100-TF C20 DomainNet Inet-TF IN-C Mean
+ResNet, FT
+no TTA
+47.4
+46.2
+59.8
+35.9
+36.5
+17.2
+40.5
++TTA
+54.4
+55.3
+60.3
+39.5
+51.0
+26.1
+47.8
++TTAbatch
+60.3
+63.0
+60.4
+44.9
+69.0
+26.6
+54.0
+Ours
+63.7
+67.8
+60.1
+43.3
+77.1
+30.6
+57.1
+ResNet, ER
+no TTA
+61.6
+60.1
+63.6
+48.8
+65.8
+27.4
+54.5
++TTA
+55.0
+57.2
+63.4
+41.2
+52.4
+24.8
+49.0
++TTAbatch
+62.5
+64.6
+63.1
+48.0
+72.9
+29.4
+56.8
+Ours
+65.4
+68.9
+64.2
+49.6
+79.5
+34.8
+60.4
+ViT-B/16, FT no TTA
+65.1
+72.7
+71.8
+61.7
+95.2
+50.1
+69.4
++TTA
+67.3
+73.2
+72.1
+61.6
+95.3
+55.3
+70.8
+Ours
+67.5
+74.2
+73.3
+62.8
+95.8
+53.9
+71.2
+ViT-B/16, ER no TTA
+67.8
+74.2
+73.9
+62.5
+95.6
+54.0
+71.3
++TTA
+69.1
+74.8
+74.0
+62.7
+95.4
+57.7
+72.3
+Ours
+69.6
+76.0
+76.1
+64.0
+96.0
+57.3
+73.2
+H.5. Semantic segmentation: Cityscapes →ACDC
+From Cityscapes to the ACDC conditions (Tab. 33), DeepLabV3+ shows the BatchNorm problem of ResNets. With ER,
+DOSE keeps the score of the CL method alone with every TTA method, while BN Stats Adapt and Tent cost CL + TTA 5 to
+7 points. With FT, DOSE gains 3 to 5 points over CL + TTA with these two but stays below the CL method alone, and loses
+1.8 points with CoTTA, as its bank restores outdated statistics (Sec. G.7). On SegFormer-B5, which uses LayerNorm, TTA
+barely harms the trained conditions, as on ViTs, and DOSE keeps the gain of SVDP (+0.6 points over the CL method alone).
+Table 33. Cityscapes →ACDC (score, mIoU %, DeepLabV3+ with a ResNet-50 and SegFormer-B5). +TTA uses the statistics estimated
+during the preview. Tent is the original method on DeepLabV3+, and on SegFormer, whose only BatchNorm layers are in its head, the
+version released with the official CoTTA code [51] for this benchmark, which adapts the affine parameters of every normalization layer.
+DOSE without prototypes (see text). –: not run.
+DeepLabV3+ (BatchNorm)
+SegFormer-B5 (LayerNorm)
+FT
+ER
+FT
+ER
+no TTA
+52.8
+60.0
+65.8
+66.1
+TTA
++TTA DOSE +TTA DOSE +TTA DOSE +TTA DOSE
+BN adapt
+46.9
+50.2
+55.1
+60.3
+65.7
+65.9
+65.7
+66.0
+Tent
+46.3
+51.7
+53.5
+60.5
+65.7
+65.8
+66.0
+66.0
+CoTTA
+54.8
+53.0
+61.2
+60.9
+–
+–
+–
+–
+SVDP
+–
+–
+–
+–
+66.7
+66.4
+67.0
+66.7
+We apply the same protocol to dense prediction. The network is DeepLabV3+ with a ResNet-50 backbone, which uses
+BatchNorm, initialized from the official mmsegmentation Cityscapes weights. It is trained task after task on Cityscapes
+and then on the ACDC conditions fog, night and rain, for one epoch each with SGD on crops of 512 × 512 pixels, and
+ER keeps 200 images. Each task previews the next condition on its test split, whose 500 images per condition have no
+public labels. The score is the mIoU over 19 classes on the validation split of every trained domain and of the preview one,
+averaged over domains and tasks. Images are used at half resolution. BN Stats Adapt, Tent and CoTTA, the three baselines
+of the Cityscapes-to-ACDC experiment of CoTTA, follow its official code, with one image per step. Its Tent keeps the
+network in evaluation mode, adapts the affine parameters of every normalization layer and minimizes the cross-entropy of
+its own predictions. CoTTA averages its teacher over 7 scales and their flips. This Tent was written for SegFormer, whose
+BatchNorm layers are only in its head. On DeepLabV3+ we therefore also run the original Tent, which normalizes each
+test image with its own statistics and minimizes the entropy, as in our classification experiments. CoTTA keeps the stored
+statistics, so its two protocols coincide. We also run SegFormer-B5, the network of the Cityscapes-to-ACDC benchmark of
+CoTTA, with the official mmsegmentation Cityscapes weights. Its encoder uses LayerNorm, and its only BatchNorm layers
+32
+
+
+are the five of its head. It is trained with AdamW at a tenth of its official rate, as DeepLabV3+ with SGD. On SegFormer
+we run BN Stats Adapt, Tent and SVDP [54], a recent method with official code for this benchmark. SVDP adds sparse
+learnable prompts to the most uncertain pixels of the input. We use the settings of its official run (prompts on 0.1% of the
+pixels, learning rate 10−4), and each image is predicted with prompts placed on its own uncertainty, as in the official code.
+Its prompt map is defined for the size of the ACDC images, so we resize it for Cityscapes images. DOSE is unchanged,
+except that it has no prototype head and that its two checks compare images by pixel accuracy. The prototype head would
+keep one prototype per class, the mean feature of the preview pixels weighted by their predicted probability of that class, and
+score every pixel against these prototypes. We tested it, and it lowers the score in 13 of the 14 settings of Tab. 33, by 1.0
+point on average and mostly on the preview condition. We therefore leave it out. We use 5 seeds. With the Tent of CoTTA’s
+code on DeepLabV3+, CL + TTA scores 51.2 with FT and 58.5 with ER, and DOSE 50.8 and 59.9. This Tent leaves the
+statistics untouched, so there is little for DOSE to dose. On SegFormer, with BN Stats Adapt and Tent, CL + TTA and DOSE
+stay within 0.4 points of the CL method alone in our protocol (Tab. 33). With the statistics of each test image instead, BN
+Stats Adapt costs 0.7 points without a buffer and 1.4 with one. The five BatchNorm layers of the head are all that DOSE can
+dose. SVDP changes every weight and adds prompts. It raises the preview condition by 2.8 points over the CL method alone
+without hurting the trained ones, with and without a buffer, and DOSE stays within 0.3 points of CL + TTA (66.4 and 66.7
+against 66.7 and 67.0).
+H.6. Along a long stream
+Figure 4 follows the two sequences of 14 domains task by task, with ER and Tent. On the trained domains (A), DOSE follows
+the CL method alone, which itself declines on ImageNet-C as CL forgets. CL + TTA falls about 20 points below it at the third
+domain with the statistics of the test batch, and it collapses with its own statistics. On the preview domain (B), DOSE keeps
+the online accuracy of TTA during the preview, far above the CL method alone. It thus uses the adaptation without paying for
+it on the trained domains. With NOTE on C100-C (5 seeds), DOSE ties CL + TTA (54.8 against 54.8), and both are 10 points
+below the CL method alone (64.7). NOTE replaces every BatchNorm layer by its own instance-aware normalization, and
+DOSE changes little around it, as for NOTE in Tab. 13. On IN-C, DOSE is 1.1 points above CL + TTA (24.1 against 23.0),
+and both stay far below the CL method alone (31.8).
+0
+10
+20
+30
+40
+(A) trained domains (%)
+ImageNet-C, ResNet-50
+CL alone (5 seeds)
+CL + TTA (test-batch statistics) (5 seeds)
+CL + TTA (its own statistics) (5 seeds)
+CL + TTA + DOSE (5 seeds)
+10
+20
+30
+40
+50
+60
+70
+(A) trained domains (%)
+C100-C, ResNeXt-29
+2
+4
+6
+8
+10
+12
+14
+round (domains trained)
+0
+10
+20
+30
+40
+50
+(B) preview domain, online (%)
+2
+4
+6
+8
+10
+12
+14
+round (domains trained)
+40
+45
+50
+55
+60
+65
+70
+(B) preview domain, online (%)
+Figure 4. Along the 14-domain streams (ER, Tent, mixed batches). (A) Accuracy on the trained domains after each preview. (B) Online
+accuracy on the preview domain during its stream. Each preview batch is predicted before the adaptation on that batch: Tent predicts
+it, normalized with its own statistics, then updates on it. DOSE and CL + TTA share these online predictions, and the CL method alone
+predicts with its unchanged network.
+33
+
+
+H.7. What the recorded statistics see
+Figure 5 projects the vectors s(x) of the training images of each domain, computed on the network input and the frozen first
+block. Corruptions and styles form separate clusters. The sub-class domains of C20 overlap, which is why the bank check
+drops the bank and DOSE performs similarly to the CL method alone there (Sec. 5). We fit the posterior of Sec. 5 on half of
+the images of each domain. It finds the domain of the other half for 97% of the images on Inet-TF, 79% on C100-TF and
+66% on DomainNet, but only 27% on C20, where chance is 25%.
+C100-TF  (domain acc. 79%)
+clean
+gaussian noise
+defocus blur
+snow
+brightness
+Inet-TF  (domain acc. 97%)
+clean
+gaussian noise
+defocus blur
+brightness
+contrast
+DomainNet  (domain acc. 66%)
+clipart
+infograph
+painting
+quickdraw
+real
+C20  (domain acc. 27%)
+sub-class 1
+sub-class 2
+sub-class 3
+sub-class 4
+Figure 5. The domains as seen by the recorded statistics. t-SNE of the vectors s(x) (channel means and log-variances of the input and
+of the frozen first block) for 300 training images per domain. In parentheses is the domain accuracy of the posterior on held-out images.
+H.8. Stress test: a preview mixed with trained domains
+Our protocol spends the preview on the next domain, as in a targeted rollout where the data of the next task is collected.
+Adapting to an uncurated stream in which recurring and new domains mix is the problem of general continual TTA, such
+as NOTE [15], RoTTA [55] or ReservoirTTA [48], which DOSE can wrap (Tab. 13). We nevertheless evaluate this harder
+case. We add to each preview as many images of the trained domains as it holds, in equal shares per domain, so that half of
+the stream is old. They come from the halves of the held-out sets that the task does not score. The preview domain is still
+scored on its own images. Such a stream changes what TTA learns. CL + TTA gains up to 24 points, but not from the new
+domain: its statistics now also describe the trained domains, which it sees again. The recorded statistics and the BatchNorm
+statistics of the preview, in turn, describe a mixture. DOSE can however use its recorded statistics during the preview. With
+the filter, an image that the recorded statistics of a trained domain explain better than those of the preview so far is left out of
+the TTA update, the preview’s record and its statistics. This is the posterior of Sec. 5 with the images seen so far, so it needs
+no threshold. The filter starts after 100 images. Table 34 gives the scores (Tent and ROID, ER and FT, 5 seeds). With half old
+images, DOSE stays the best system on TF/Inet and on C100-C (62.6 against 54.4 for CL + TTA). On DomainNet and C20, it
+falls 1.4 and 0.6 points below CL + TTA, which profits from seeing old images again, and the filter does not help there. The
+filter drops 83% of the old images but also 33% of the new ones (5 seeds). On the pure preview, it drops 26% of the images
+(6% on Inet-TF, 59% on C20) and costs at most 0.5 points. A ViT keeps no domain statistics that old images could pull
+toward a mixture. With half old images, CL + TTA and DOSE move by at most 0.6 points on ViTs, and DOSE stays above
+CL + TTA. Mixed previews on ResNets thus call for a sample-selection or stream-clustering step in front of DOSE, which we
+leave to future work.
+34
+
+
+Table 34. A preview that is half old images (score A, Tent and ROID, ER and FT, 5 seeds; a ViT has no BatchNorm statistics, so its two
+CL + TTA protocols coincide). Pure: the protocol of the paper. Half old: each preview also holds as many images of the trained domains.
+The filter leaves out of the TTA update the images that the recorded statistics of a trained domain explain better than those of the preview.
+ResNet
+ViT-B/16
+preview
+system
+TF/Inet
+C100-C
+DN
+C20
+TF/Inet
+C20
+pure
+no TTA
+56.4
+56.7
+45.1
+65.9
+85.1
+78.0
++TTA
+46.3
+45.8
+39.1
+66.2
+85.8
+78.3
++TTAbatch
+68.8
+59.9
+47.9
+66.1
+–
+–
+DOSE
+73.1
+63.5
+47.6
+66.3
+86.3
+79.2
+DOSE + filter
+73.1
+63.3
+47.2
+65.8
+86.2
+79.0
+half old
++TTA
+69.3
+54.4
+48.9
+67.0
+86.0
+78.9
++TTAbatch
+69.9
+54.7
+48.1
+66.4
+–
+–
+DOSE
+71.5
+62.6
+47.5
+66.4
+86.4
+79.5
+DOSE + filter
+72.6
+63.1
+46.9
+65.9
+86.2
+79.4
+H.9. ViT gains and preview length
+On ViTs, the prompt and adapter methods built for them (DPCore, DePT and ViDA) move the preview by less than 1 point in
+6 to 78 updates. The methods that adapt LayerNorm with stronger losses (ROID, CMF, DAS and EATA) gain 6 to 14 points
+on corrupted previews (Tab. 16) and lose at most 1.8 points on the trained domains. Yet the score rises by at most 3.7 points,
+because the preview weighs only 0.17 (IN-C) to 0.29 (C100-TF) of it. The gain of TTA follows the amount of preview data.
+Over every TTA method and without memory, its median on the preview is 7.9 points on IN-C (20,000 preview images), 2.8
+on C100-C (5,000), 0.9 on C100-TF (1,000) and 0.3 on Inet-TF (about 400). On C100-C, the gain grows from 2.2 to 5.8
+points between 500 and 5,000 images (Fig. 3), and the official SAR code on ImageNet-C reaches 51% after the 50,000 images
+of the usual protocol, against 38% after 5,000 (Sec. G.6). Longer previews provide both more images and more adaptation
+updates; these experiments do not isolate their respective effects. Labeled data is scarce too. IN-C and C100-C give 25 and
+33 labeled images per class and task (Tab. 8), and the CL method alone scores lowest on them.
+H.10. Dosing what TTA changes on a ViT
+A ViT has no domain statistics, and TTA methods change its LayerNorm parameters, prompts or adapters. DOSE shares
+these changes unless the shared-parameter check doses them (Sec. 5). On ViTs, dosing every changed tensor by λ changes
+the score by −0.1 and −0.2 points (Tab. 3). The reason is that these changes barely hurt the trained domains of a ViT, by at
+most 2.4 points on the domain just learned (Tab. 9), so there is little to protect. On C100-C and IN-C, where TTA gains most
+on ViTs, dosing every changed tensor costs 0.9 and 0.7 points (1.3 without a buffer), so sharing remains the better default.
+The prototypes, in contrast, need their weight λ on ViTs. We gave them a weight of one on every image (Tent/ROID,
+5 seeds). They then gain up to 1.4 points on C20 and C100-C, where the trained and preview domains look alike. On
+ImageNet-R and ImageNet-A they lose 0.3 to 1.6 points in each setting (37 of 40 runs), mostly on the trained domains, and
+on ImageNet-A they fall below the CL method alone. Averaged over the seven benchmarks, the gain is only 0.2 points. The
+weight λ keeps the prototypes off the images of the trained domains, and this is what makes them safe.
+H.11. Three training epochs per task
+Table 35 trains every task for three epochs instead of one, with everything else unchanged (ER, Tent/ROID, 5 seeds). On
+average, the CL method alone gains at most 0.7 points. DOSE stays above the CL method alone by 4.2 points on ResNets
+and 0.9 on ViTs, against 4.0 and 1.1 with one epoch. It stays above CL + TTA by 17.1 and 0.7 points, against 16.5 and 0.6.
+The single epoch of our protocol therefore does not create the gain of DOSE.
+35
+
+
+Table 35. One against three CL epochs per task (score, ER, mixed batches, mean of Tent and ROID, 5 seeds). +TTA: CL + TTA with its
+own statistics.
+1 epoch
+3 epochs
+no TTA
++TTA
+DOSE
+no TTA
++TTA
+DOSE
+ResNet
+C100-TF
+63.1
+52.1
+69.1
+61.7
+50.3
+68.6
+ResNet
+C20
+68.1
+68.1
+68.6
+67.0
+66.9
+67.1
+ResNet
+DomainNet
+51.1
+40.2
+51.3
+52.9
+42.1
+53.3
+ResNet
+Inet-TF
+70.8
+42.5
+80.1
+71.4
+42.3
+80.8
+ResNet
+Mean
+63.3
+50.7
+67.3
+63.3
+50.4
+67.4
+ViT-B/16
+C100-TF
+75.2
+76.6
+77.2
+75.7
+76.6
+77.4
+ViT-B/16
+C20
+79.1
+79.4
+80.2
+78.7
+78.8
+79.5
+ViT-B/16
+DomainNet
+63.9
+64.2
+64.8
+66.0
+66.1
+66.9
+ViT-B/16
+Inet-TF
+96.0
+95.8
+96.2
+96.4
+95.8
+96.4
+ViT-B/16
+Mean
+78.5
+79.0
+79.6
+79.2
+79.3
+80.1
+H.12. BatchNorm-aware CL
+On ResNets, the damage of TTA comes from the BatchNorm statistics that all domains share (Sec. 4). Therefore, we also
+run two CL variants that change how BatchNorm is used, with everything else unchanged (ER and FT, Tent/ROID, 5 seeds).
+Continual Normalization (CN) [37] applies a GroupNorm without affine parameters (32 groups) before every BatchNorm
+layer of the pretrained network. Cumulative statistics (Cum.) replace the running average of BatchNorm by the average over
+every training batch so far. Since Cum. only changes how the CL training estimates the statistics, we run it as the CL method
+alone.
+Without memory, CN raises the CL method alone from 43.4 to 50.2 points, while with a buffer it is 1.5 points below
+BatchNorm (56.8 against 58.3, see Tab. 36). Cum. is below CN in both cases. Notably, CN makes CL + TTA less harmful,
+but it does not remove the damage. With a buffer, TTA still lowers the accuracy on the trained domains from 57.9 to 47.9
+points on DomainNet and from 31.8 to 21.2 on IN-C, and DOSE brings it back to 56.9 and 31.7. On CN, DOSE is at least as
+good as CN alone in 21 of 24 pairs of TTA method and setting, and as CN with TTA in 20. Overall, DOSE on BatchNorm
+remains the best system. It is at least as good as the better of CN and Cum. alone in 24 of 24 pairs, and scores 58.7 against
+53.5 for CN alone on average.
+Table 36. BatchNorm-aware CL (ResNet, score, mixed batches, mean of Tent and ROID, 5 seeds). BatchNorm: the runs of Tab. 2 with
+these two TTA methods, which therefore differ from its medians. Cum.: cumulative BatchNorm statistics. CN: Continual Normalization.
++TTA: CL + TTA with its own statistics. Bold marks the best system.
+FT
+ER
+BatchNorm
+Cum.
+CN
+BatchNorm
+Cum.
+CN
+no TTA +TTA Ours no TTA no TTA +TTA Ours no TTA +TTA Ours no TTA no TTA +TTA Ours
+C100-C
+48.6
+43.8
+61.0
+55.0
+54.8
+53.1
+54.8
+64.7
+47.7
+65.9
+60.6
+61.0
+56.0
+61.7
+C100-TF
+49.7
+49.3
+66.6
+54.5
+58.3
+60.8
+62.7
+63.1
+52.1
+69.1
+61.3
+62.9
+63.1
+66.0
+C20
+63.7
+64.3
+64.1
+58.9
+61.2
+61.7
+60.6
+68.1
+68.1
+68.6
+61.3
+64.8
+65.1
+65.2
+DomainNet
+39.1
+38.0
+43.8
+41.8
+39.9
+40.2
+42.1
+51.1
+40.2
+51.3
+46.9
+49.6
+43.5
+49.9
+Inet-TF
+42.1
+41.2
+76.8
+55.0
+65.5
+68.2
+74.4
+70.8
+42.5
+80.1
+66.9
+72.3
+70.8
+75.8
+IN-C
+17.1
+14.5
+22.3
+10.4
+21.6
+19.9
+23.0
+31.8
+15.4
+34.3
+14.2
+30.5
+22.9
+31.8
+Mean
+43.4
+41.8
+55.8
+45.9
+50.2
+50.6
+52.9
+58.3
+44.3
+61.6
+51.9
+56.8
+53.6
+58.4
+H.13. Online against offline adaptation
+One could also use the preview offline, with several passes of self-supervised learning over the stored images. Our setup
+excludes this because it keeps the images, and it also costs far more. For each preview domain, Tab. 37 gives the FLOPs,
+time and energy of one online pass of TTA over the preview, of what DOSE adds to it, and of SimCLR and DINO over the
+stored preview.
+36
+
+
+Table 37. Compute per preview domain. FLOPs of the forward and backward passes, counted with the FLOP counter of PyTorch on
+convolutions and matrix products. Time and energy (NVML counter) on one RTX A4500 with nothing else running, measured over 10
+steps and scaled to the whole preview. SimCLR uses two views, batches of 256 (C100-C) and 64 (IN-C, to fit in memory) and a projection
+head 2048-2048-128. DINO uses 2 global and 6 local crops, a teacher forward pass and a head to 65 536 outputs. DOSE adds 6.7 to 7.5%
+of FLOPs and 5 to 12% of time and energy to TTA during the preview, while the offline methods cost 18 to 416 times as much and keep
+the preview. Peak memory: 1.8 and 5.8 GB for CL + TTA and DOSE, 14.0 and 11.5 GB for SimCLR, 6.9 and 9.7 GB for DINO (C100-C
+and IN-C).
+C100-C (ResNeXt-29, 5,000 images)
+IN-C (ResNet-50, 20,000 images)
+stores the
+TFLOPs
+time (s)
+energy (kJ)
+TFLOPs
+time (s)
+energy (kJ)
+preview
+CL + TTA: one online pass over the preview (Tent)
+42.3
+5.8
+1.17
+486.0
+51.4
+9.89
+no
+DOSE: the same pass + frozen first block and moments, no gradient
+45.5
+6.3
+1.23
+518.4
+57.6
+11.0
+no
+SimCLR, 10 epochs
+847.7
+115.3
+22.6
+9,725.5
+1,031.6
+203.1
+yes
+SimCLR, 100 epochs
+8,477.3
+1,153.1
+225.7
+97,254.5
+10,316.0
+2,031.1
+yes
+DINO, 10 epochs
+1,756.6
+256.6
+48.4
+18,604.6
+2,316.5
+458.9
+yes
+DINO, 100 epochs
+17,565.9
+2,566.2
+483.7
+186,046.1
+23,165.2
+4,589.0
+yes
+H.14. Why CODA-Prompt is not above DER++
+CODA-Prompt learns each new domain as well as FT. However, it has no buffer and a single shared classifier head, so it
+forgets across domains like FT. Its published gains are for class-incremental learning, with logit masking and many more
+epochs per task, which our single-epoch domain-incremental protocol does not use.
+37
