@@ -1,0 +1,2536 @@
+1
+Progressive Reliable Supervision for
+Black-Box Universal Domain Adaptation
+Jing Li, Zhe Zhang, Huateng Sun, Yuhui Yang, Wanli Xue, Xu Cheng, Fan Shi, Jianhua Zhang,
+Qinghua Hu, Senior Member, IEEE, and Shengyong Chen, Senior Member, IEEE
+Abstract—Black-Box
+Universal
+Domain
+Adaptation
+(B2-
+UniDA) aims to adapt a target model to an unlabeled target
+domain under arbitrary label-space relationships, while neither
+source data nor source-model parameters are accessible during
+adaptation. Under such restrictive information access, reliable
+target supervision is unavailable, while predictions from the
+black-box source model can be unreliable due to source bias and
+domain shifts. To address this challenge, we propose Progressive
+Reliable Supervision (PReS), which progressively establishes and
+refines reliable target supervision by coordinating complementary
+knowledge from the black-box source model, foundation models,
+and the evolving target model. PReS first identifies reliable known
+samples by exploiting semantic consistency under diffusion-based
+perturbations and cross-model consensus between the black-
+box source model and CLIP. It then estimates the sample-
+wise reliability of the two predictors and adaptively integrates
+their complementary predictions to construct reliable pseudo
+labels. The resulting supervision is exploited asymmetrically to
+encourage confident and discriminative predictions for reliable
+known samples while maintaining uncertain yet locally consistent
+predictions for potential unknown samples. As adaptation pro-
+ceeds, the emerging target-domain knowledge is further leveraged
+to refine both the pseudo labels and the known/unknown sample
+partition, forming a closed-loop process in which supervision
+construction and target adaptation mutually reinforce each other.
+Extensive experiments on multiple benchmark datasets under
+diverse label-space relationships demonstrate that PReS achieves
+state-of-the-art or highly competitive performance under the
+restrictive B2-UniDA setting.
+Index Terms—Black-box universal domain adaptation, pro-
+gressive reliable supervision, foundation models, vision-language
+models, diffusion models, image classification.
+I. INTRODUCTION
+U
+NSUPERVISED domain adaptation (UDA) [1]–[3] aims
+to transfer knowledge from a labeled source domain to an
+unlabeled target domain under distribution shifts. Conventional
+UDA typically assumes an identical label space between
+the two domains, i.e., Ys = Yt, corresponding to closed-
+set domain adaptation (CDA) [4]–[6]. In real-world appli-
+cations, however, diverse category shifts give rise to partial
+domain adaptation (PDA) [7]–[10], open-set domain adapta-
+tion (OSDA) [11]–[13], and open-partial domain adaptation
+(OPDA) [14], [15]. Universal domain adaptation (UniDA) [16]
+unifies these settings by only assuming the existence of shared
+classes between the source and target domains. Nevertheless,
+J. Li, Z. Zhang, H. Sun, Y. Yang, W. Xue, X. Cheng, F. Shi, J. Zhang,
+and S. Chen are with the School of Computer Science and Engineering,
+Tianjin University of Technology, Tianjin 300384, China (jing li@tju.edu.cn;
+zzhe0124@stud.tjut.edu.cn; xuewanli@email.tjut.edu.cn; xu.cheng@ieee.org;
+zjh@ieee.org; sy@ieee.org ). Qinghua Hu is with the School of Artificial In-
+telligence, Tianjin University, Tianjin 300350, China (huqinghua@tju.edu.cn).
+UniDA requires access to labeled source data during adap-
+tation, which may be infeasible due to privacy, security, and
+transmission constraints.
+Source-free universal domain adaptation (SF-UniDA) [17]–
+[19] relaxes this requirement by performing adaptation with
+a pre-trained source model without accessing source data.
+However, exposing the source model may still raise privacy
+and intellectual-property concerns. Black-box universal do-
+main adaptation (B2-UniDA) [20] further restricts source-
+side information by allowing access to neither source data
+nor source-model parameters; only prediction outputs can be
+obtained by querying the black-box source model. Together
+with unknown label-space relationships, these restrictions lead
+to a fundamental challenge: reliable target supervision is
+unavailable during adaptation.
+Existing B2-UniDA methods primarily derive target super-
+vision from black-box source-model predictions [20]–[22].
+However, these predictions suffer from source bias under
+domain shifts and are particularly unreliable for target-private
+samples absent from the source label space. Directly using
+them for pseudo-labeling or known/unknown separation can
+therefore propagate erroneous supervision. Although existing
+methods employ confidence-based sample selection, target
+label-space estimation, or specialized adaptation criteria, effec-
+tive B2-UniDA still requires constructing trustworthy supervi-
+sion from limited and imperfect information and progressively
+improving it during adaptation.
+Foundation models [23] offer complementary knowledge
+for addressing this challenge. Vision-language models such as
+CLIP [24] provide generalizable semantic knowledge, while
+diffusion models [25], [26] provide generative priors for pro-
+ducing semantically consistent visual variations. This yields a
+useful complementarity: the black-box source model provides
+task-specific but source-biased knowledge, foundation models
+provide generalizable but task-agnostic priors, and the target
+model progressively acquires target-domain knowledge during
+adaptation. Coordinating these knowledge sources therefore
+provides a promising way to construct and progressively refine
+reliable target supervision.
+Motivated by this insight, we propose Progressive Reliable
+Supervision (PReS), which progressively constructs and refines
+reliable target supervision by coordinating complementary
+knowledge throughout adaptation. PReS first identifies reliable
+known samples by accumulating semantic-consistency and
+cross-model-consensus evidence, and then constructs their
+pseudo labels by adaptively integrating the black-box source-
+model and CLIP predictions according to sample-wise relia-
+bility. The resulting supervision enables asymmetric learning
+arXiv:2611.32474v1  [cs.CV]  24 Nov 2026
+
+
+2
+that encourages confident and discriminative predictions for
+reliable known samples while maintaining uncertain yet locally
+consistent predictions for potential unknown samples. As the
+target model acquires target-domain knowledge, its predictions
+are used to refine the pseudo labels and the known/unknown
+partition, forming a closed-loop adaptation process.
+Our main contributions are summarized as follows:
+• We propose PReS, a progressive reliable-supervision
+framework for B2-UniDA that coordinates complemen-
+tary knowledge from the black-box source model, foun-
+dation models, and the evolving target model to construct
+and progressively refine reliable target supervision.
+• We develop a reliable supervision construction mech-
+anism that identifies reliable known samples through
+diffusion-based semantic consistency and cross-model
+consensus, and adaptively constructs their pseudo labels
+according to the sample-wise reliability of the black-box
+source-model and CLIP predictions.
+• We introduce asymmetric target learning and progres-
+sive supervision refinement to effectively exploit and
+continuously improve the constructed supervision. The
+emerging target-domain knowledge is fed back to refine
+both pseudo labels and the known/unknown partition,
+forming a mutually reinforcing adaptation process.
+• Extensive experiments on multiple benchmark datasets
+under diverse label-space relationships demonstrate that
+PReS achieves state-of-the-art or competitive perfor-
+mance under the restrictive B2-UniDA setting.
+The rest of this paper is organized as follows. Section
+II reviews related work. Section III presents the problem
+formulation and PReS. Section IV reports the experiments,
+and Section V concludes the paper.
+II. RELATED WORK
+A. Universal Domain Adaptation
+Universal domain adaptation (UniDA) addresses domain
+adaptation without assuming a specific relationship between
+the source and target label spaces. UAN [16] estimates sample
+transferability through instance-level weighting, while subse-
+quent studies focus on known/unknown separation and target
+representation learning. DANCE [27] exploits neighborhood
+clustering to promote discriminative target representations, and
+OVANet [28] performs unknown detection through one-vs-all
+classifiers. More recently, CCCOP [29] incorporates cross-
+domain category context optimization and learnable textual
+prompts for category-shift adaptation. Despite their effective-
+ness, these methods require access to labeled source data
+during adaptation.
+B. Source-Free Universal Domain Adaptation
+Recent SFDA studies have explored various aspects of
+target adaptation, including high-order target structural rela-
+tions through hypergraph learning [30] and adversarial robust-
+ness under source-free constraints [31]. Source-free univer-
+sal domain adaptation (SF-UniDA) [17], [32], [33] performs
+adaptation using a pre-trained source model and unlabeled
+target data without accessing source data. UMAD [32] ad-
+dresses source-free adaptation under universal category shifts,
+while LEAD [18] exploits singular-value decomposition to
+characterize transferable and domain-specific components for
+known/unknown separation. GLC++ [19] exploits target neigh-
+borhood structure through contrastive affinity learning, and
+EGRS [34] estimates embedding shifts through perturbations
+and progressively refines target prototypes. Nevertheless, these
+methods still require access to the parameters and internal rep-
+resentations of the source model, whereas B2-UniDA exposes
+only its prediction interface.
+C. Black-Box Universal Domain Adaptation
+Black-box universal domain adaptation (B2-UniDA) [20]
+allows access to neither source data nor source-model param-
+eters during adaptation. UB2DA [20] decomposes adaptation
+into intra-class discrimination and out-of-class detection and
+identifies potential unknown samples according to prediction
+uncertainty. ADU [22] modulates supervision according to
+black-box prediction confidence, although it mainly considers
+scenarios involving target-private classes. GSS [21] develops
+a sample-selection strategy for known/unknown separation
+without a manually predefined threshold. Since these meth-
+ods primarily derive task-specific supervision from black-box
+predictions, reliable target supervision remains difficult to
+establish when such predictions are corrupted by domain shifts
+or target-private samples.
+Different from these approaches, PReS coordinates comple-
+mentary knowledge from the black-box source model, foun-
+dation models, and the evolving target model to progressively
+construct and refine reliable supervision throughout adaptation.
+D. Foundation Models for Domain Adaptation
+Foundation models [23] pretrained on large-scale data pro-
+vide rich prior knowledge for downstream visual tasks. Vision-
+language models such as CLIP [24] learn transferable visual-
+semantic representations from large-scale image-text data,
+while subsequent models such as BLIP [35], Flamingo [36],
+and FLAVA [37] further demonstrate the generalization capa-
+bilities of multimodal pretraining. Recent studies have further
+exploited such vision-language priors for domain adaptation,
+e.g., by coordinating textual and visual prompt tuning for
+domain alignment [38] or progressively integrating teacher and
+student predictions to refine target pseudo-labels [39]. Such
+semantic priors complement the task-specific but potentially
+source-biased predictions of a black-box source model.
+Diffusion models [25] provide another form of external
+prior through their strong generative capabilities. Stable Diffu-
+sion [26], in particular, can generate diverse visual variations
+while preserving high-level semantic content. PReS exploits
+these complementary priors for reliable supervision construc-
+tion: CLIP provides semantic knowledge for cross-model
+consensus and reliability-aware pseudo-label generation, while
+Stable Diffusion provides semantic-preserving perturbations
+for evaluating prediction consistency.
+
+
+3
+Fig. 1: Overview of the proposed PReS framework for B2-UniDA. PReS progressively constructs sample- and label-level
+supervision from complementary knowledge sources, performs asymmetric target learning, and exploits the emerging target-
+domain knowledge to refine the supervision throughout adaptation. Solid and dashed arrows denote the forward adaptation
+flow and progressive feedback, respectively. Only the adapted target model is required during inference.
+III. METHOD
+A. Problem Definition
+B2-UniDA considers a highly restricted adaptation setting
+where only an unlabeled target domain Dt = {xi}Nt
+i=1, xi ∈
+X t, and prediction outputs obtained by querying a black-box
+source model fs are available. Neither the source data nor the
+architecture and parameters of fs are accessible. Let Ys and
+Yt denote the source and target label spaces, respectively, with
+|Ys| = C. We define the shared, source-private, and target-
+private label spaces as
+Y = Ys ∩Yt,
+Y
+s = Ys \ Yt,
+Y
+t = Yt \ Ys.
+(1)
+Following UniDA, we assume Ys∩Yt̸ = ∅, without imposing
+any additional relationship between Ys and Yt.
+The objective is to learn a target model ft using only the
+target samples and black-box predictions, such that samples
+from the shared label space Y are correctly classified, while
+those from the target-private label space Y
+t are recognized as
+a single unknown class.
+B. Method Overview
+The overall framework of our proposed Progressive Re-
+liable Supervision (PReS) is illustrated in Fig. 1. Under
+the B2-UniDA setting, reliable target supervision is unavail-
+able, while the accessible knowledge sources exhibit com-
+plementary strengths and limitations. The black-box source
+model provides task-specific but source-biased knowledge,
+foundation models offer generalizable but task-agnostic priors,
+and the target model can progressively acquire target-domain
+knowledge but is unreliable at the beginning of adaptation.
+PReS coordinates these complementary knowledge sources to
+progressively establish reliable supervision during adaptation.
+Our framework consists of four stages. First, Reliable
+Known Sample Discovery identifies reliable known samples
+through diffusion-based semantic consistency and cross-model
+consensus. Second, Reliability-aware Pseudo-label Generation
+adaptively integrates the black-box source-model and CLIP
+predictions according to their sample-wise reliability. Third,
+Asymmetric Target Learning exploits the resulting supervision
+according to the distinct roles of reliable known and potential
+unknown samples. Finally, Progressive Supervision Refinement
+leverages the emerging target-domain knowledge to refine both
+pseudo labels and the known/unknown sample partition.
+These stages form a closed-loop adaptation process: com-
+plementary external knowledge first establishes reliable super-
+vision to facilitate target adaptation, while the emerging target
+knowledge is subsequently fed back to refine the supervision
+itself. Consequently, supervision construction and target adap-
+tation mutually reinforce each other throughout training.
+C. Reliable Known Sample Discovery (Stage 1)
+Under the B2-UniDA setting, predictions from the black-
+box source model are inevitably affected by domain shift and
+therefore cannot be directly adopted as reliable supervision.
+We identify reliable known samples by progressively accu-
+mulating two complementary sources of reliability evidence.
+Specifically, reliable known samples are expected to exhibit
+stable predictions under semantic-preserving perturbations and
+consistent semantic understanding across complementary vi-
+sion models. Accordingly, we first construct semantic consis-
+tency evidence through Diffusion-based Semantic Consistency
+Verification and then further validate candidate known samples
+
+
+4
+using cross-model consensus evidence through Cross-model
+Consensus Verification (CCV).
+1) Diffusion-based Semantic Consistency Verification: We
+first evaluate whether the source-model prediction of a target
+sample remains stable under semantic-preserving perturba-
+tions. Unlike conventional image augmentations that mainly
+introduce predefined low-level appearance variations, diffu-
+sion models can generate visually diverse yet semantically
+consistent images, making them more suitable for evaluating
+semantic prediction consistency.
+Specifically, each target sample xi is fed into a diffusion
+pipeline together with a fixed text prompt [26]. The positive
+prompt is defined as “preserve original content and struc-
+ture, sharp focus, fine texture details, natural lighting”, while
+the negative prompt suppresses “blurriness, noise, artifacts,
+changes in content or composition, and stylized distortions”.
+Under these constraints, the diffusion model generates a
+semantic-preserving counterpart xdif
+i
+.
+The black-box source model fs is then queried to predict
+both xi and xdif
+i
+, yielding the corresponding predictive prob-
+ability vectors ˆyi ∈RC and ˆydif
+i
+∈RC, respectively. When
+arg maxc ˆyi,c = arg maxc ˆydif
+i,c , the sample is retained as a
+candidate known sample; otherwise, it is regarded as a poten-
+tial unknown sample. Since the resulting candidate known set
+may still contain false positives owing to source-domain bias,
+we further verify these samples using complementary semantic
+knowledge from CLIP.
+2) Cross-model Consensus Verification: For each candidate
+known sample, CLIP produces the predictive probability vec-
+tor ˜yi ∈RC. The sample is accepted as a reliable known
+sample only when the predictions of the black-box source
+model and CLIP agree, i.e., arg maxc ˆyi,c = arg maxc ˜yi,c.
+Otherwise, the sample is regarded as a potential unknown
+sample and is assigned to the unknown-sample set.
+After the two successive verification stages, the reliable
+known-sample set and unknown-sample set are respectively
+defined as
+Skno = {xkno
+i
+}Nkno
+i=1 ,
+(2)
+and
+Sunk = {xunk
+i
+}Nunk
+i=1 ,
+(3)
+where Nkno and Nunk denote the numbers of reliable known
+samples and potential unknown samples, respectively.
+D. Reliability-aware Pseudo-label Generation (Stage 2)
+Although Skno contains reliable known samples, their pre-
+dicted classes may still be incorrect due to source-domain bias
+of the black-box source model and the limited task-specific
+discrimination of CLIP. Since the two predictors provide
+complementary task-specific and general semantic knowledge,
+we estimate their sample-wise reliability and adaptively fuse
+their predictions to construct reliable label-level supervision.
+1) Prediction Reliability Estimation: For each known sam-
+ple xkno
+i
+∈Skno, ˆyi and ˜yi denote the predictive probability
+vectors produced by the black-box source model and CLIP,
+respectively. To uniformly characterize their prediction relia-
+bility, we consider a generic predictive probability vector
+qi = [q1
+i , . . . , qC
+i ],
+qc
+i ≥0,
+C
+X
+c=1
+qc
+i = 1.
+(4)
+A reliable prediction typically concentrates its probability
+mass on a small number of classes, whereas an ambiguous
+prediction is more uniformly distributed. We therefore employ
+the Gini coefficient [40], [41] to quantify probability concen-
+tration as a sample-wise prediction reliability measure.
+Let q(1)
+i
+≤q(2)
+i
+≤· · · ≤q(C)
+i
+denote the elements of qi
+sorted in ascending order. We define the normalized Gini-
+based prediction reliability as
+RG(qi) =
+C
+C −1
+ 
+1 −2
+C
+X
+c=1
+q(c)
+i
+C −c + 1
+2
+C
+!
+.
+(5)
+Since the standard Gini coefficient of a C-dimensional proba-
+bility vector ranges from 0 to (C−1)/C, the factor C/(C−1)
+normalizes RG(qi) to [0, 1], eliminating the dependence of its
+maximum value on the number of classes. A uniform distri-
+bution yields RG(qi) = 0, indicating maximum predictive
+ambiguity, whereas a one-hot distribution yields RG(qi) = 1,
+indicating maximum probability concentration. Accordingly,
+RG(ˆyi) and RG(˜yi) quantify the sample-wise reliability of
+the black-box source model and CLIP, respectively.
+2) Reliability-aware Prediction Fusion: Rather than using
+fixed fusion weights, we determine the contribution of each
+predictor according to its relative reliability for each target
+sample. Specifically, the reliability-aware weight assigned to
+the black-box source model is defined as
+ws
+i =
+RG(ˆyi) + ϵ
+RG(ˆyi) + RG(˜yi) + 2ϵ,
+(6)
+where ϵ is a small positive constant introduced for numerical
+stability. The corresponding weight for CLIP is defined as
+wc
+i = 1 −ws
+i . The reliability-aware fused prediction is then
+obtained as
+¯yi = ws
+i ˆyi + wc
+i ˜yi.
+(7)
+Thus, the predictor with higher sample-wise reliability
+contributes more strongly to the fused prediction, adaptively
+exploiting the complementary knowledge of the black-box
+source model and CLIP. For each xkno
+i
+∈Skno, ¯yi provides
+label-level supervision for subsequent target adaptation.
+E. Asymmetric Target Learning (Stage 3)
+The preceding stages partition target samples into reliable
+known samples Skno and potential unknown samples Sunk,
+which require distinct learning objectives. Reliable known
+samples should provide discriminative supervision for learning
+shared classes, whereas potential unknown samples should not
+be forced toward any source class. Accordingly, we encourage
+reliable known samples to be confident and discriminative,
+while maintaining uncertain yet locally consistent predictions
+for potential unknown samples.
+
+
+5
+1) Known-sample Knowledge Transfer: For each known
+sample xkno
+i
+∈Skno, let ˆy′
+i = ft(xkno
+i
+) denote the predictive
+probability vector produced by the target model. To transfer
+the reliable supervision encoded in the fused prediction ¯yi, we
+employ the knowledge distillation loss [42]
+Lkd = Exkno
+i
+∈SknoDKL (¯yi ∥ˆy′
+i) ,
+(8)
+where DKL(· ∥·) denotes the KL divergence.
+To encourage confident predictions while preserving class
+diversity, we further introduce information maximization reg-
+ularization [43], [44]:
+Lim = H
+
+Exkno
+i
+∈Skno ˆy′
+i
+
+−Exkno
+i
+∈SknoH (ˆy′
+i) ,
+(9)
+where H(·) denotes the Shannon entropy. Maximizing the first
+term promotes diversity in the overall predictive class dis-
+tribution, while minimizing the second encourages confident
+predictions for individual samples. The overall objective for
+reliable known samples is
+Lkn = Lkd −Lim,
+(10)
+which is minimized during training.
+2) Unknown-sample Uncertainty Regularization: For po-
+tential unknown samples xunk
+i
+∈Sunk, no reliable class-
+specific supervision is available. We therefore encourage high
+predictive uncertainty over the source classes through the
+negative entropy loss
+Lem =
+1
+Nunk
+Nunk
+X
+i=1
+C
+X
+c=1
+ˆy′
+i,c log ˆy′
+i,c,
+(11)
+where ˆy′
+i,c denotes the probability predicted by ft that the i-th
+unknown sample belongs to the c-th source class. Minimizing
+Lem maximizes predictive entropy, discouraging confident
+assignment of potential unknown samples to source classes.
+Since entropy maximization does not explicitly enforce
+local prediction smoothness, we further introduce Mixup-
+based consistency regularization. Given xunk
+i
+, xunk
+j
+∈Sunk,
+we define
+Mixλ(a, b) = λa + (1 −λ)b,
+(12)
+where λ ∼Beta(0.3, 0.3). The Mixup consistency loss is
+formulated as
+Lmix = Exunk
+i
+,xunk
+j
+∈SunkEλ∼Beta(0.3,0.3)
+DKL
+
+Mixλ
+ ˆy′
+i, ˆy′
+j
+  ft
+ Mixλ(xunk
+i
+, xunk
+j
+)
+
+.
+(13)
+This objective encourages locally consistent predictions for
+potential unknown samples under input interpolation.
+The overall objective for potential unknown samples is
+Lunk = βLem + γLmix,
+(14)
+where β and γ control the contributions of entropy maximiza-
+tion and consistency regularization, respectively.
+F. Progressive Supervision Refinement (PSR, Stage 4)
+The supervision constructed in the preceding stages is ini-
+tially derived from the black-box source model and foundation
+models and therefore remains imperfect under domain shift. As
+adaptation proceeds, the target model progressively acquires
+target-domain knowledge, making its predictions increasingly
+informative for refining the supervision. Accordingly, after an
+initial adaptation period of t epochs, we exploit the emerging
+target knowledge to progressively refine both the pseudo labels
+and the known/unknown sample partition.
+1) Pseudo-label Refinement (PLR): To progressively incor-
+porate target-domain knowledge into label-level supervision,
+we update the pseudo label ¯yi using the target prediction ˆy′
+i
+through EMA. Specifically, at the end of each epoch after
+the initial t training epochs, the pseudo label of each known
+sample is updated as
+¯yi ←ρ ¯yi + (1 −ρ) ˆy′
+i,
+(15)
+where ρ denotes the EMA momentum coefficient and is em-
+pirically set to 0.9. This update gradually incorporates target-
+specific knowledge while retaining the reliable information in
+the existing pseudo label, with temporal smoothing reducing
+the influence of potentially noisy instantaneous predictions.
+2) Sample Partition Refinement (SPR):
+To refine the
+sample-level supervision, starting from the (t + 1)-th epoch,
+we replace the black-box source model with the target model
+only in Cross-model Consensus Verification, while keeping
+Diffusion-based Semantic Consistency Verification unchanged.
+Specifically, the first verification stage continues to identify
+candidate known samples according to the consistency be-
+tween ˆyi and ˆydif
+i
+produced by the black-box source model.
+For each candidate known sample, the target prediction ˆy′
+i
+is then used in place of ˆyi to evaluate its consensus with
+the CLIP prediction ˜yi. Before each subsequent training
+epoch, the cached semantic-consistency evidence is reused,
+while Cross-model Consensus Verification is updated using
+the target-model predictions to refine Skno and Sunk.
+As the partition evolves, previously potential unknown
+samples may be newly admitted into Skno. For each newly
+discovered known sample, we initialize its pseudo label by
+re-applying Reliability-aware Pseudo-label Generation, where
+the black-box source-model and CLIP predictions are fused
+according to their sample-wise reliability using equation (7).
+Samples that remain in Skno retain their progressively refined
+pseudo labels from previous epochs. Thus, every sample in
+the updated known set is equipped with label-level supervision
+before subsequent target-model optimization.
+G. Training and Inference
+The target model is jointly optimized over the reliable
+known and potential unknown samples as
+ˆft = arg min
+ft
+(Lkn + Lunk) ,
+(16)
+where Lkn and Lunk are defined in Eqs. (10) and (14),
+respectively. The complete training procedure is summarized
+in Algorithm 1.
+
+
+6
+Algorithm 1 Training Procedure of PReS
+Input: Unlabeled target domain Dt = {xi}Nt
+i=1; query access
+to fs; target model ft; CLIP and diffusion models; β, γ,
+T, and t.
+Output: Adapted target model ˆft.
+1: Perform Stage 1 to obtain Skno and Sunk.
+2: Perform Stage 2 to initialize ¯yi for each xkno
+i
+∈Skno.
+3: for epoch = 1 to T do
+4:
+if epoch > t then
+5:
+Store Sold
+kno ←Skno and perform SPR to update Skno
+and Sunk.
+6:
+Initialize ¯yi via Eq. (7) for each xkno
+i
+∈Skno \Sold
+kno.
+7:
+end if
+8:
+Compute Lkn and Lunk via Eqs. (10) and (14), respec-
+tively.
+9:
+Update ft by minimizing Lkn + Lunk.
+10:
+if epoch > t then
+11:
+Perform PLR via Eq. (15).
+12:
+end if
+13: end for
+14: return ˆft.
+TABLE I: Class splits of each dataset under different domain
+adaptation scenarios. Y, Y
+s, and Y
+t denote the shared label
+set between the source and target domains, the source private
+label set, and the target private label set, respectively.
+Dataset
+Class Split (Y/Ys/Yt)
+OPDA
+OSDA
+PDA
+Office-31
+10/10/11
+10/0/11
+10/21/0
+Office-Home
+10/5/50
+25/0/40
+25/40/0
+VisDA
+6/3/3
+6/0/6
+6/6/0
+DomainNet
+150/50/145
+-
+-
+During inference, only the adapted target model
+ˆft is
+required. Following GLC [45], we use normalized Shannon
+entropy to quantify predictive uncertainty:
+H(xi) = −
+1
+log C
+C
+X
+c=1
+ˆy′
+i,c log ˆy′
+i,c.
+(17)
+The final prediction is determined as
+y(xi) =
+
+
+
+unknown,
+H(xi) ≥w,
+argmax
+c∈{1,...,C}
+ˆy′
+i,c,
+H(xi) < w,
+(18)
+where w denotes the uncertainty threshold for unknown-class
+detection.
+IV. EXPERIMENTS
+A. Setup
+Datasets and Adaptation Scenarios: We evaluate PReS
+on four widely used domain adaptation benchmarks: Office-
+31 [48], Office-Home [49], VisDA [50], and DomainNet [51].
+Office-31 contains 4,652 images from 31 categories across
+Amazon (A), Webcam (W), and DSLR (D), forming six
+bidirectional adaptation tasks. Office-Home contains approx-
+imately 15,500 images from 65 categories across Art (Ar),
+Clipart (Cl), Product (Pr), and Real-World (Rw), forming
+12 adaptation tasks. VisDA contains over 152,000 synthetic
+and 55,000 real images from 12 categories, with Synthetic
+(S) →Real (R) as the adaptation task. DomainNet contains
+approximately 600,000 images from 345 categories across six
+domains; following previous studies, we use Painting (P), Real
+(R), and Sketch (S) for evaluation.
+We consider four adaptation scenarios with different source-
+target label-space relationships: open-partial domain adapta-
+tion (OPDA), open-set domain adaptation (OSDA), partial
+domain adaptation (PDA), and closed-set domain adaptation
+(CDA). Table I summarizes the corresponding class splits.
+Evaluation
+Metrics: Following previous UniDA stud-
+ies [21], [52], we report classification accuracy for CDA and
+PDA, where no target-private classes exist. For OSDA and
+OPDA, we adopt the H-score to jointly evaluate known-class
+classification and unknown-class recognition:
+H = 2 Acckno · Accunk
+Acckno + Accunk
+,
+(19)
+where Acckno denotes the mean per-class accuracy over the
+shared classes, and Accunk denotes the accuracy of recogniz-
+ing target-private samples as unknown.
+Comparison Methods: We compare PReS with repre-
+sentative UniDA, SF-UniDA, and B2-UniDA methods. The
+UniDA methods include UAN [16], DANCE [27], DCC [46],
+OVANet [28], and CCCOP [29]; the SF-UniDA methods in-
+clude UMAD [32], LEAD [18], GLC++ [19], EGRS [34], and
+ESBN [47]; and the B2-UniDA methods include UB2DA [20],
+ADU [22], and GSS [21]. The reported results are collected
+from the original publications or, when applicable, from
+LEAD [18], GLC++ [19], and ADU [22]. Note that ADU
+considers only OSDA and OPDA rather than the general B2-
+UniDA setting. Since existing B2-UniDA studies generally do
+not report reproducible PDA and CDA results, we additionally
+use Source-Only (SO), which directly applies the pretrained
+source model to target samples without adaptation, as the B2-
+UniDA baseline for these settings.
+Implementation Details : All experiments are implemented
+in PyTorch [53]. Following previous B2-UniDA studies [21],
+we use an ImageNet-pretrained ResNet-50 [54], [55] as the
+backbone. The source model is trained with cross-entropy loss
+and subsequently accessed only through black-box queries
+during adaptation. Both source-model training and target-
+model adaptation use SGD with a learning rate of 10−2,
+momentum of 0.9, weight decay of 5×10−4, and batch size of
+64. We adopt CLIP ViT-B/32 and Stable Diffusion v1.5 [26] as
+the foundation models. The refinement starting epoch t is set to
+5. The hyperparameters β and γ in Eq. (14) are set to 0.3 and
+0.1, respectively, except for DomainNet, where they are set to
+0.025 and 0.01. We set ϵ = 10−6 in Eq. (6) and the uncertainty
+threshold ω = 0.55 in Eq. (18), following GLC [45].
+B. Experimental Results
+Results for OPDA: Tables II and III report the OPDA results
+on the four benchmarks. PReS achieves the best average H-
+
+
+7
+TABLE II: H-score (%) comparison under OPDA on Office-31, VisDA, and DomainNet. Italic, underlined, and bold denote
+the best UniDA, SF-UniDA, and B2-UniDA results, respectively. ‘–’ denotes unavailable results.
+Type
+Method
+Office-31 (10/10/11)
+VisDA (6/3/3)
+DomainNet (150/50/145)
+A→D
+A→W
+D→A
+D→W
+W→A
+W→D
+Avg.
+S→R
+P→R
+P→S
+R→P
+R→S
+S→P
+S→R
+Avg.
+UniDA
+UAN [16]
+59.7
+58.6
+60.1
+70.6
+60.3
+71.4
+63.5
+34.8
+41.9
+39.1
+43.6
+38.7
+38.9
+43.7
+41.0
+DANCE [27]
+78.6
+71.5
+79.9
+91.4
+72.2
+87.9
+80.3
+42.8
+21.0
+37.0
+47.3
+46.7
+27.7
+21.0
+33.5
+DCC [46]
+88.5
+78.5
+70.2
+79.3
+75.9
+88.6
+80.2
+43.0
+56.9
+43.7
+50.3
+43.3
+44.9
+56.2
+49.2
+OVANet [28]
+84.1
+79.3
+78.5
+94.3
+83.5
+95.8
+85.9
+48.1
+55.4
+45.8
+52.1
+44.8
+46.3
+54.5
+49.8
+CCCOP [29]
+-
+-
+-
+-
+-
+-
+-
+76.7
+69.2
+54.2
+55.5
+54.5
+56.1
+70.2
+60.0
+SF-UniDA
+UMAD [32]
+86.9
+88.3
+90.9
+95.9
+90.0
+98.0
+91.7
+55.1
+53.4
+39.5
+44.1
+37.6
+40.5
+52.3
+44.6
+LEAD [18]
+85.4
+85.0
+86.3
+90.9
+86.2
+93.1
+87.8
+76.6
+59.9
+46.1
+51.3
+45.0
+45.9
+56.3
+50.8
+GLC++ [19]
+81.7
+85.3
+89.7
+91.5
+88.1
+92.6
+88.2
+75.3
+62.8
+50.5
+55.0
+50.5
+49.0
+60.9
+54.8
+EGRS [34]
+82.2
+87.9
+91.1
+92.0
+89.7
+92.9
+89.3
+76.7
+-
+-
+-
+-
+-
+-
+-
+ESBN [47]
+85.3
+83.9
+86.9
+94.0
+87.3
+94.6
+88.7
+78.1
+-
+-
+-
+-
+-
+-
+-
+B2-UniDA
+SO
+86.3
+71.0
+33.0
+69.1
+43.4
+81.9
+64.1
+41.2
+63.9
+46.7
+53.2
+46.3
+38.0
+55.7
+50.6
+UB2DA [20]
+80.9
+78.2
+92.6
+92.6
+89.4
+87.9
+86.9
+45.2
+57.1
+47.2
+54.8
+44.0
+41.4
+51.5
+49.3
+ADU [22]
+87.5
+85.2
+87.0
+94.4
+83.8
+90.5
+88.1
+48.7
+59.8
+47.8
+52.5
+46.6
+42.7
+56.4
+51.0
+GSS [21]
+81.1
+80.9
+91.4
+92.0
+88.1
+89.4
+87.1
+43.5
+59.1
+46.7
+52.1
+45.0
+43.9
+55.2
+50.3
+PReS(ours)
+89.5
+90.7
+89.7
+92.8
+91.4
+93.1
+91.2
+66.5
+54.9
+56.8
+59.5
+56.2
+56.8
+66.2
+58.4
+TABLE III: H-score (%) comparison under OPDA on Office-Home. Italic, underlined, and bold denote the best UniDA, SF-
+UniDA, and B2-UniDA results, respectively.
+Type
+Method
+Office-Home (10/5/50)
+Ar→Cl
+Ar→Pr
+Ar→Rw
+Cl→Ar
+Cl→Pr
+Cl→Rw
+Pr→Ar
+Pr→Cl
+Pr→Rw
+Rw→Ar
+Rw→Cl
+Rw→Pr
+Avg.
+UniDA
+UAN [16]
+51.6
+51.7
+54.3
+61.7
+57.6
+61.9
+50.4
+47.6
+61.5
+62.9
+52.6
+65.2
+56.6
+DANCE [27]
+61.0
+60.4
+64.9
+65.7
+58.8
+61.8
+73.1
+61.2
+66.6
+67.7
+62.4
+63.7
+63.9
+DCC [46]
+58.0
+54.1
+58.0
+74.6
+70.6
+77.5
+64.3
+73.6
+74.9
+81.0
+75.1
+80.4
+70.2
+OVANet [28]
+61.7
+77.3
+77.9
+69.7
+69.2
+75.7
+70.6
+58.2
+79.2
+76.8
+63.0
+79.0
+71.6
+CCCOP [29]
+69.8
+88.9
+90.0
+84.3
+85.6
+88.2
+79.3
+70.6
+89.5
+84.3
+72.0
+86.5
+82.5
+SF-UniDA
+UMAD [32]
+58.7
+77.1
+85.4
+70.0
+67.6
+76.3
+69.0
+56.8
+83.0
+79.5
+62.0
+80.8
+72.2
+LEAD [18]
+62.7
+78.1
+86.4
+70.6
+76.3
+83.4
+75.3
+60.6
+86.2
+75.4
+60.7
+83.7
+75.0
+GLC++ [19]
+69.0
+78.8
+90.0
+70.1
+81.2
+86.1
+78.8
+57.9
+89.2
+81.3
+54.2
+87.0
+77.0
+EGRS [34]
+74.5
+80.8
+90.2
+71.6
+83.1
+90.1
+77.7
+54.8
+89.8
+81.0
+63.6
+86.5
+78.6
+ESBN [47]
+64.7
+78.4
+89.0
+71.7
+74.0
+80.0
+76.5
+62.0
+87.5
+76.5
+65.1
+82.4
+75.7
+B2-UniDA
+SO
+48.8
+64.1
+77.1
+48.6
+62.0
+60.8
+44.0
+31.9
+66.9
+65.4
+45.0
+74.6
+57.4
+UB2DA [20]
+60.9
+69.6
+76.3
+74.4
+69.2
+76.5
+74.5
+60.3
+76.2
+74.1
+62.0
+71.1
+70.4
+ADU [22]
+61.2
+72.7
+77.9
+70.3
+72.5
+77.3
+75.9
+62.0
+84.7
+73.2
+64.1
+74.9
+72.2
+GSS [21]
+67.9
+83.2
+86.4
+76.4
+76.6
+85.5
+77.6
+65.2
+87.0
+78.7
+67.6
+82.1
+77.9
+PReS(ours)
+66.5
+75.2
+84.2
+82.4
+77.9
+84.0
+82.8
+67.7
+84.8
+81.5
+68.2
+75.5
+77.6
+score among B2-UniDA methods on Office-31, VisDA, and
+DomainNet, with 91.2%, 66.5%, and 58.4%, respectively. In
+particular, on VisDA and DomainNet, PReS outperforms GSS
+by 23.0 and 8.1 percentage points and ADU by 17.8 and 7.4
+points, respectively. On Office-Home, PReS achieves 77.6%,
+only 0.3 points below GSS, while obtaining the best B2-
+UniDA results on 6 of the 12 transfer tasks. Despite the more
+restrictive source-side access, PReS also remains competitive
+with UniDA and SF-UniDA methods, e.g., achieving 91.2%
+versus the best SF-UniDA result of 91.7% on Office-31 and
+58.4% versus the best UniDA result of 60.0% on DomainNet.
+Results for OSDA: Table IV reports the OSDA results.
+PReS achieves the best performance among B2-UniDA meth-
+ods on all three benchmarks, with H-scores of 71.4%, 90.8%,
+and 69.2% on Office-Home, Office-31, and VisDA, respec-
+tively. Compared with ADU, these results correspond to im-
+provements of 0.3, 2.7, and 18.4 percentage points. PReS
+is also competitive with methods having stronger source-
+side access, outperforming all compared SF-UniDA meth-
+ods on Office-Home and achieving results close to the best
+UniDA/SF-UniDA methods on Office-31.
+Results for PDA: Table V reports the PDA results. PReS
+achieves accuracies of 79.2%, 96.4%, and 80.3% on Office-
+Home, Office-31, and VisDA, respectively, improving over SO
+by 16.5, 9.2, and 21.7 percentage points. It outperforms all
+compared SF-UniDA methods on Office-Home and Office-31
+and is within 0.6 and 0.4 points of the best UniDA results,
+respectively. On VisDA, PReS surpasses all compared UniDA
+and SF-UniDA methods, exceeding their best results by 5.2
+and 4.1 points, respectively.
+Results for CDA: As shown in Table VI, PReS remains
+effective when the source and target label spaces are identical.
+It achieves accuracies of 72.3% and 86.2% on Office-Home
+and Office-31, improving over SO by 8.2 and 8.1 percentage
+points, respectively. On Office-Home, PReS also outperforms
+all compared SF-UniDA methods and approaches the best
+UniDA result (72.3% vs. 73.8%).
+Overall, PReS performs consistently across diverse label
+shifts under B2-UniDA and remains competitive with methods
+accessing source data or source-model parameters.
+C. Ablation Study
+1) Ablation on Reliable Known Sample Discovery: We first
+evaluate the two successive verification mechanisms in Reli-
+able Known Sample Discovery. For Diffusion-based Semantic
+Consistency Verification, we replace the diffusion-generated
+semantic-preserving perturbations with conventional augmen-
+tations (Conv. Aug.), including random scaling, horizontal
+
+
+8
+TABLE IV: H-score (%) comparison under OSDA on Office-Home, Office-31, and VisDA. Italic, underlined, and bold denote
+the best UniDA, SF-UniDA, and B2-UniDA results, respectively.
+Type
+Method
+Office-Home (25/0/40)
+Office-31 (10/0/11)
+VisDA (6/0/6)
+Ar→Cl
+Ar→Pr
+Ar→Rw
+Cl→Ar
+Cl→Pr
+Cl→Rw
+Pr→Ar
+Pr→Cl
+Pr→Rw
+Rw→Ar
+Rw→Cl
+Rw→Pr
+Avg.
+Avg.
+Avg.
+UniDA
+UAN [16]
+34.7
+22.4
+9.4
+38.9
+22.9
+21.8
+47.4
+39.7
+30.9
+34.4
+35.8
+22.0
+30.0
+55.1
+51.9
+DANCE [27]
+6.5
+9.0
+9.9
+20.4
+10.4
+9.2
+28.4
+12.8
+12.6
+14.2
+7.9
+13.2
+12.9
+79.8
+67.5
+DCC [46]
+56.1
+67.5
+66.7
+49.6
+66.5
+64.0
+55.8
+53.0
+70.5
+61.6
+57.2
+71.9
+61.7
+72.7
+59.6
+OVANet [28]
+59.3
+66.9
+68.1
+61.0
+64.3
+66.4
+60.5
+53.9
+68.0
+68.2
+59.6
+65.4
+63.4
+90.0
+58.4
+CCCOP [29]
+66.9
+74.6
+78.5
+69.5
+78.8
+80.2
+70.1
+62.2
+79.3
+71.9
+64.4
+77.9
+71.8
+92.5
+75.2
+SF-UniDA
+UMAD [32]
+53.6
+63.4
+73.1
+54.3
+64.7
+66.7
+58.2
+53.5
+71.0
+67.3
+54.2
+72.5
+62.7
+92.2
+66.8
+LEAD [18]
+60.7
+70.8
+76.5
+61.0
+68.6
+70.8
+65.5
+59.8
+74.2
+64.8
+57.7
+75.8
+67.2
+90.3
+74.2
+GLC++ [19]
+65.2
+72.9
+78.6
+61.7
+71.9
+74.2
+63.2
+65.3
+76.5
+67.4
+65.9
+77.7
+70.1
+91.4
+73.1
+EGRS [34]
+67.2
+72.0
+78.6
+60.3
+70.3
+75.4
+63.7
+64.0
+76.9
+66.1
+64.6
+78.3
+69.8
+89.3
+73.3
+ESBN [47]
+59.7
+79.0
+72.6
+57.6
+75.0
+69.6
+65.6
+50.2
+77.8
+62.8
+57.4
+77.1
+67.0
+91.8
+73.6
+B2-UniDA
+SO
+48.1
+59.4
+73.2
+41.8
+53.5
+56.0
+40.0
+29.9
+63.4
+61.8
+45.3
+69.9
+53.5
+57.0
+41.3
+UB2DA [20]
+65.5
+70.4
+75.5
+67.8
+69.3
+74.4
+71.2
+56.7
+75.0
+70.7
+63.3
+69.8
+69.1
+87.1
+48.1
+ADU [22]
+66.0
+70.5
+77.4
+72.2
+70.1
+75.0
+69.0
+63.6
+76.1
+73.4
+64.1
+75.2
+71.1
+88.1
+50.8
+PReS(ours)
+63.8
+73.1
+78.1
+70.8
+72.6
+76.9
+71.2
+62.3
+79.5
+72.5
+62.2
+73.5
+71.4
+90.8
+69.2
+TABLE V: Accuracy (%) comparison under PDA on Office-Home, Office-31, and VisDA. Italic, underlined, and bold denote
+the best UniDA, SF-UniDA, and B2-UniDA results, respectively.
+Type
+Method
+Office-Home (25/40/0)
+Office-31 (10/21/0)
+VisDA (6/6/0)
+Ar→Cl
+Ar→Pr
+Ar→Rw
+Cl→Ar
+Cl→Pr
+Cl→Rw
+Pr→Ar
+Pr→Cl
+Pr→Rw
+Rw→Ar
+Rw→Cl
+Rw→Pr
+Avg.
+Avg.
+Avg.
+UniDA
+DANCE [27]
+53.6
+73.2
+84.9
+70.8
+67.3
+82.6
+70.0
+50.9
+84.8
+77.0
+55.9
+81.8
+71.1
+86.0
+73.7
+DCC [46]
+54.2
+47.5
+57.5
+83.8
+71.6
+86.2
+63.7
+65.0
+75.2
+85.5
+78.2
+82.6
+70.9
+93.3
+72.4
+OVANet [28]
+50.9
+71.2
+80.2
+60.9
+61.1
+69.3
+61.1
+45.4
+77.6
+72.2
+52.7
+77.6
+65.0
+89.4
+58.5
+CCCOP [29]
+66.7
+84.5
+88.4
+84.9
+82.0
+87.8
+73.9
+66.2
+87.9
+79.3
+69.8
+85.6
+79.8
+96.8
+75.1
+SF-UniDA
+UMAD [32]
+51.2
+66.5
+79.2
+63.1
+62.9
+68.2
+63.3
+56.4
+75.9
+74.5
+55.9
+78.3
+66.3
+89.5
+68.5
+LEAD [18]
+58.2
+83.1
+87.0
+70.5
+75.4
+83.3
+73.7
+50.4
+83.7
+78.3
+58.7
+83.2
+73.8
+95.5
+75.3
+GLC++ [19]
+58.1
+79.6
+89.3
+74.8
+72.2
+80.6
+76.6
+42.0
+83.2
+78.5
+60.8
+85.2
+73.4
+94.1
+75.8
+EGRS [34]
+58.7
+78.2
+89.5
+75.4
+73.1
+81.8
+76.4
+61.7
+83.4
+79.2
+62.9
+85.6
+75.5
+94.0
+75.7
+ESBN [47]
+56.0
+76.6
+86.5
+71.8
+71.4
+84.3
+73.2
+45.6
+83.6
+80.6
+52.0
+84.6
+72.2
+95.5
+76.2
+B2-UniDA
+SO
+45.5
+69.0
+80.8
+56.5
+58.8
+66.8
+61.6
+37.6
+76.9
+72.8
+46.4
+79.5
+62.7
+87.2
+58.6
+PReS(ours)
+63.2
+88.0
+88.4
+78.3
+84.5
+85.9
+80.6
+61.7
+87.9
+79.8
+62.8
+88.8
+79.2
+96.4
+80.3
+TABLE VI: Accuracy (%) comparison under CDA on Office-Home and Office-31. Italic, underlined, and bold denote the best
+UniDA, SF-UniDA, and B2-UniDA results, respectively.
+Type
+Method
+Office-Home (65/0/0)
+Office-31 (31/0/0)
+Ar→Cl
+Ar→Pr
+Ar→Rw
+Cl→Ar
+Cl→Pr
+Cl→Rw
+Pr→Ar
+Pr→Cl
+Pr→Rw
+Rw→Ar
+Rw→Cl
+Rw→Pr
+Avg.
+Avg.
+UniDA
+UAN [16]
+45.0
+63.6
+71.2
+51.4
+58.2
+63.2
+52.6
+40.9
+71.0
+63.3
+48.2
+75.4
+58.7
+84.4
+DANCE [27]
+54.3
+75.9
+78.4
+64.8
+72.1
+73.4
+63.2
+53.0
+79.4
+73.0
+58.2
+82.9
+69.1
+85.5
+DCC [46]
+35.4
+61.4
+75.2
+45.7
+59.1
+62.7
+43.9
+30.9
+70.2
+57.8
+41.0
+77.9
+55.1
+87.4
+OVANet [28]
+48.6
+68.6
+76.1
+58.2
+66.0
+68.9
+55.9
+44.7
+75.9
+68.9
+52.0
+79.8
+63.6
+82.6
+CCCOP [29]
+59.8
+83.1
+84.8
+68.1
+81.8
+80.7
+69.7
+59.6
+83.4
+73.7
+59.9
+86.6
+73.8
+93.2
+SF-UniDA
+UMAD [32]
+47.7
+64.6
+73.0
+58.8
+64.7
+68.1
+58.2
+47.4
+74.2
+69.2
+52.7
+77.9
+63.1
+81.4
+GLC++ [19]
+53.5
+77.0
+80.3
+65.7
+79.6
+78.7
+65.6
+56.1
+81.6
+71.5
+58.5
+84.0
+71.0
+88.4
+EGRS [34]
+55.3
+77.5
+80.1
+66.4
+78.3
+79.2
+65.3
+55.8
+81.4
+71.2
+57.7
+83.5
+71.0
+89.0
+B2-UniDA
+SO
+46.0
+70.5
+77.4
+62.2
+70.1
+75.0
+59.0
+43.6
+76.1
+68.4
+50.1
+70.2
+64.1
+78.1
+PReS(ours)
+55.5
+82.5
+83.2
+69.1
+81.1
+81.7
+68.9
+53.2
+82.8
+71.0
+54.6
+84.5
+72.3
+86.2
+TABLE VII: Ablation results of Reliable Known Sample
+Discovery under OPDA and OSDA. “Conv. Aug.” replaces
+diffusion-based semantic-preserving perturbations with con-
+ventional augmentations, while “w/o CCV” removes Cross-
+model Consensus Verification.
+Scenario
+Method
+Office-31
+Office-Home
+VisDA
+DomainNet
+OSDA
+PReS
+90.8
+71.4
+69.2
+-
+PReS w/ Conv. Aug.
+90.3
+71.0
+68.3
+-
+PReS w/o CCV
+88.6
+68.2
+68.6
+-
+OPDA
+PReS
+91.2
+77.6
+66.5
+58.4
+PReS w/ Conv. Aug.
+90.4
+77.4
+64.9
+57.4
+PReS w/o CCV
+90.1
+75.5
+65.3
+54.0
+flipping, and random cropping. As shown in Table VII, PReS
+consistently outperforms this variant under both OPDA and
+OSDA. Under OPDA, the improvements are 0.8, 0.2, 1.6, and
+1.0 percentage points on Office-31, Office-Home, VisDA, and
+DomainNet, respectively. This indicates that diffusion-based
+60.0
+65.0
+70.0
+75.0
+80.0
+85.0
+90.0
+Pr→Ar
+Pr→Cl
+Pr→Rw
+Rw→Ar
+Rw→Cl
+Rw→Pr
+Avg.
+H-score (%)
+Tasks
+only Src
+only CLIP
+average
+PReS
+Fig. 2: Ablation results of Reliability-aware Pseudo-label Gen-
+eration on Office-Home under OPDA. “only Src” and “only
+CLIP” use predictions from the black-box source model and
+CLIP alone, respectively, while “average” equally averages
+their predictions.
+
+
+9
+TABLE VIII: Ablation results of Asymmetric Target Learning
+under OPDA. Values denote the average H-score (%) on each
+dataset. ‘✓’ and ‘–’ indicate that the corresponding loss is
+included and excluded, respectively.
+Lkd
+Lim
+Lem
+Lmix
+Office-31
+Office-Home
+VisDA
+-
+✓
+✓
+✓
+5.3
+13.3
+7.0
+✓
+-
+✓
+✓
+77.4
+67.3
+60.5
+✓
+✓
+-
+✓
+90.9
+72.7
+64.1
+✓
+✓
+✓
+-
+90.3
+76.4
+54.0
+✓
+✓
+✓
+✓
+91.2
+77.6
+66.5
+60.0
+65.0
+70.0
+75.0
+80.0
+85.0
+90.0
+Pr→Ar
+Pr→Cl
+Pr→Rw
+Rw→Ar
+Rw→Cl
+Rw→Pr
+Avg.
+H-score (%)
+Tasks
+w/o SPR
+w/o PLR
+w/o PSR
+PReS
+Fig. 3: Ablation results of Progressive Supervision Refinement
+(PSR) on Office-Home under OPDA. “w/o SPR” and “w/o
+PLR” disable SPR and PLR, respectively, while “w/o PSR”
+disables both.
+perturbations provide more informative semantic consistency
+evidence than conventional image transformations, benefiting
+from their ability to introduce diverse appearance variations
+while preserving semantic content.
+We further remove Cross-model Consensus Verification
+(CCV) while keeping the remaining components unchanged.
+This consistently degrades performance, with reductions of
+1.1–4.4 points under OPDA and 0.6–3.2 points under OSDA.
+These results demonstrate that the generalizable semantic
+knowledge of CLIP provides complementary reliability evi-
+dence to the task-specific but source-biased black-box predic-
+tions, enabling more reliable known-sample discovery.
+2) Ablation on Reliability-aware Pseudo-label Generation:
+We compare PReS with three alternative pseudo-label genera-
+tion strategies: using only the black-box source predictions
+(only Src), using only CLIP predictions (only CLIP), and
+equally averaging the two predictions (average). As shown
+in Fig. 2, the two predictors exhibit complementary strengths
+across transfer tasks, while simple averaging improves the
+average H-score to 77.2%, compared with 77.0% and 76.5%
+for only Src and only CLIP, respectively. By further accounting
+for their sample-wise reliability, PReS achieves the highest
+average H-score of 77.6%. These results validate the comple-
+mentarity of the two knowledge sources and the effectiveness
+of reliability-aware fusion.
+3) Ablation on Asymmetric Target Learning: To evaluate
+the learning objectives in Asymmetric Target Learning, we
+individually remove each loss term under OPDA. As shown
+in Table VIII, removing Lkd causes the largest performance
+degradation, confirming the importance of transferring the
+constructed label-level supervision to the target model. Re-
+moving Lim reduces the H-score by 13.8, 10.3, and 6.0 points
+on Office-31, Office-Home, and VisDA, respectively, demon-
+strating the benefit of jointly promoting prediction confidence
+and class diversity. Both Lem and Lmix also contribute to
+unknown-sample learning, with the latter yielding a particu-
+larly large gain of 12.5 points on VisDA. Overall, these results
+support the asymmetric learning principle of encouraging
+confident and discriminative predictions for reliable known
+samples while maintaining uncertain yet locally consistent
+predictions for potential unknown samples.
+4) Ablation on Progressive Supervision Refinement: We
+evaluate Pseudo-label Refinement (PLR) and Sample Partition
+Refinement (SPR) using three variants: w/o SPR, w/o PLR, and
+w/o PSR, where the last disables both refinement mechanisms.
+As shown in Fig. 3, enabling PLR alone improves the average
+H-score from 75.8% to 76.1%, while enabling SPR alone
+improves it to 77.3%. Jointly employing PLR and SPR further
+increases the H-score to 77.6%. These results demonstrate
+that both mechanisms contribute to progressive supervision
+refinement and are complementary when used jointly.
+D. Visualization
+1) Feature Visualization: Fig. 4 presents t-SNE [56] visu-
+alizations of target features learned by the source-only (SO)
+model and PReS under OPDA. Compared with SO, PReS
+produces more structured feature distributions, with shared-
+class samples forming more compact clusters and being more
+clearly separated from target-private samples. This consistent
+pattern across both transfer tasks indicates that PReS learns
+more discriminative target representations under domain and
+category shifts.
+2) Discriminative Region Visualization: Fig. 5 presents
+Grad-CAM [57] visualizations of PReS and three comparison
+methods on VisDA target samples. Compared with the other
+methods, PReS generally exhibits more concentrated activation
+on object-relevant regions and less attention to irrelevant back-
+grounds, indicating that the adapted target model relies more
+strongly on semantically relevant visual cues for classification.
+E. Parameter Sensitivity
+PReS introduces β and γ in Eq. (14) to balance Lem and
+Lmix, respectively. We vary β from 0.15 to 0.40 and γ from
+0.02 to 0.18 on Office-31 under OPDA, while fixing the other
+hyperparameter to its default value. As shown in Fig. 6, de-
+spite task-wise variations, the average H-score remains stable,
+ranging from 90.6% to 91.2% for β and from 90.8% to 91.2%
+for γ. We therefore set β = 0.3 and γ = 0.1 by default.
+We further evaluate the refinement starting epoch t, which
+determines when target-domain knowledge begins to partici-
+pate in Progressive Supervision Refinement. With 15 training
+epochs, we vary t over {1, 3, 5, 7, 9, 11, 13}. As shown in
+Fig. 7, the average H-score varies only from 91.0% to 91.2%,
+demonstrating low sensitivity to the refinement starting point.
+We set t = 5 by default.
+
+
+10
+(a) SO (D→A)
+(b) PReS (D→A)
+(c) SO (Pr→Rw)
+(d) PReS (Pr→Rw)
+Fig. 4: t-SNE visualization of target features learned by SO and PReS for D→A on Office-31 and Pr→Rw on Office-Home
+under OPDA. Colored and black points represent samples from the shared and target-private classes, respectively. (Best viewed
+in color and zoomed in.)
+Raw Image 
+SO 
+GLC
+LEAD 
+Ours
+Class
+“bicycle”
+“horse”
+“knife”
+Fig. 5: Grad-CAM visualization of discriminative regions
+on VisDA target samples for the source-only (SO) model,
+GLC, LEAD, and PReS. Higher activation indicates greater
+contribution to model predictions.
+(a) Task-wise sensitivity to β
+90.0
+90.2
+90.4
+90.6
+90.8
+91.0
+91.2
+91.4
+0.15
+0.20
+0.25
+0.30
+0.35
+0.40
+H-score (%)
+β
+(b) Average sensitivity to β
+(c) Task-wise sensitivity to γ
+90.0
+90.2
+90.4
+90.6
+90.8
+91.0
+91.2
+91.4
+0.02
+0.06
+0.10
+0.14
+0.18
+H-score (%)
+γ
+(d) Average sensitivity to γ
+Fig. 6: Sensitivity of PReS to β and γ on Office-31 under
+OPDA. Subfigures (a) and (c) show task-wise H-scores, while
+(b) and (d) show the corresponding averages.
+F. Computational Complexity
+We
+analyze
+the
+additional
+computational
+complexity
+of PReS beyond standard target-model optimization. Be-
+fore adaptation, Stable Diffusion generates one semantic-
+preserving counterpart for each target sample, while the black-
+90.5
+90.6
+90.7
+90.8
+90.9
+91.0
+91.1
+91.2
+91.3
+91.4
+91.5
+1
+3
+5
+7
+9
+11
+13
+H-score (%)
+t
+Fig. 7: Sensitivity of PReS to the refinement starting epoch t
+on Office-31 under OPDA.
+box source model and CLIP provide predictions for supervi-
+sion construction. Diffusion generation and semantic consis-
+tency verification are performed only once, with the gener-
+ated samples and consistency evidence cached for subsequent
+adaptation. Computing the normalized Gini reliability requires
+O(NtC log C) due to probability sorting, while prediction
+fusion and other prediction-level operations require O(NtC).
+During adaptation, the dominant computation remains the
+forward and backward propagation of the target model. The
+prediction-level objectives and EMA-based pseudo-label re-
+finement incur O(NtC) overhead, while Mixup consistency
+requires additional forward passes on mixed samples. Af-
+ter epoch t, Sample Partition Refinement reuses the cached
+semantic-consistency evidence and updates only Cross-model
+Consensus Verification using target predictions, without rerun-
+ning Stable Diffusion or repeating black-box queries. Overall,
+excluding one-time auxiliary-model inference and standard
+target-model optimization, PReS introduces linear overhead in
+Nt, except for the O(NtC log C) Gini reliability computation.
+V. CONCLUSION
+In this paper, we proposed Progressive Reliable Supervi-
+sion (PReS) for B2-UniDA to address the lack of reliable
+target supervision under restricted source-side access and
+unknown label-space relationships. PReS coordinates comple-
+mentary knowledge from the black-box source model, foun-
+
+
+11
+dation models, and the evolving target model to progressively
+construct and refine reliable target supervision. Specifically,
+reliable sample- and label-level supervision is first estab-
+lished from complementary external knowledge and exploited
+through asymmetric target learning. The emerging target-
+domain knowledge is then fed back to refine both pseudo
+labels and the known/unknown sample partition, forming a
+closed-loop adaptation process. Extensive experiments across
+multiple benchmarks and diverse label-space relationships
+demonstrate the effectiveness of PReS under the restrictive
+B2-UniDA setting.
+REFERENCES
+[1] L. Zhang and X. Gao, “Transfer adaptation learning: A decade survey,”
+IEEE Transactions on Neural Networks and Learning Systems, vol. 35,
+no. 1, pp. 23–44, 2022. I
+[2] J. Li, Z. Qu, and X. Yin, “Domain-invariant feature enhancement domain
+adaptation for cross-scene road damage detection,” IEEE Transactions
+on Circuits and Systems for Video Technology, 2025. I
+[3] S. Ben-David, J. Blitzer, K. Crammer, A. Kulesza, F. Pereira, and
+J. W. Vaughan, “A theory of learning from different domains,” Machine
+learning, vol. 79, no. 1, pp. 151–175, 2010. I
+[4] Y. Ganin and V. Lempitsky, “Unsupervised domain adaptation by back-
+propagation,” in International conference on machine learning. PMLR,
+2015, pp. 1180–1189. I
+[5] M. Long, Y. Cao, J. Wang, and M. Jordan, “Learning transferable
+features with deep adaptation networks,” in International conference on
+machine learning.
+PMLR, 2015, pp. 97–105. I
+[6] S. Cui, S. Wang, J. Zhuo, C. Su, Q. Huang, and Q. Tian, “Gradually
+vanishing bridge for adversarial domain adaptation,” in Proceedings of
+the IEEE/CVF conference on computer vision and pattern recognition,
+2020, pp. 12 455–12 464. I
+[7] J. Zhang, Z. Ding, W. Li, and P. Ogunbona, “Importance weighted
+adversarial nets for partial domain adaptation,” in Proceedings of the
+IEEE conference on computer vision and pattern recognition, 2018, pp.
+8156–8164. I
+[8] Z. Cao, M. Long, J. Wang, and M. I. Jordan, “Partial transfer learning
+with selective adversarial networks,” in Proceedings of the IEEE confer-
+ence on computer vision and pattern recognition, 2018, pp. 2724–2732.
+I
+[9] Z. Cao, K. You, M. Long, J. Wang, and Q. Yang, “Learning to
+transfer examples for partial domain adaptation,” in Proceedings of the
+IEEE/CVF conference on computer vision and pattern recognition, 2019,
+pp. 2985–2994. I
+[10] M. Lan, M. Meng, J. Yu, and J. Wu, “Learning to discover knowledge:
+A weakly-supervised partial domain adaptation approach,” IEEE Trans-
+actions on Image Processing, vol. 33, pp. 4090–4103, 2024. I
+[11] K. Saito, S. Yamamoto, Y. Ushiku, and T. Harada, “Open set domain
+adaptation by backpropagation,” in Proceedings of the European con-
+ference on computer vision (ECCV), 2018, pp. 153–168. I
+[12] J. Li, L. Yang, Q. Wang, and Q. Hu, “Wdan: A weighted discriminative
+adversarial network with dual classifiers for fine-grained open-set do-
+main adaptation,” IEEE Transactions on Circuits and Systems for Video
+Technology, vol. 33, no. 9, pp. 5133–5147, 2023. I
+[13] Z. Zeng, Y. Zhang, and J. Wang, “Kabon: Knowledge aggregation with
+vision-language model for black-box open-set domain adaptation,” in
+ICASSP 2025-2025 IEEE International Conference on Acoustics, Speech
+and Signal Processing (ICASSP).
+IEEE, 2025, pp. 1–5. I
+[14] P. Panareda Busto and J. Gall, “Open set domain adaptation,” in
+Proceedings of the IEEE international conference on computer vision,
+2017, pp. 754–763. I
+[15] Q. Li, Y. Wen, J. Zheng, Y. Zhang, and H. Fu, “Hyunida: Breaking
+label set constraints for universal domain adaptation in cross-scene
+hyperspectral image classification,” IEEE Transactions on Geoscience
+and Remote Sensing, vol. 62, pp. 1–15, 2024. I
+[16] K. You, M. Long, Z. Cao, J. Wang, and M. I. Jordan, “Universal domain
+adaptation,” in Proceedings of the IEEE/CVF conference on computer
+vision and pattern recognition, 2019, pp. 2720–2729. I, II-A, IV-A, II,
+III, IV, VI
+[17] J. N. Kundu, N. Venkat, R. V. Babu et al., “Universal source-free domain
+adaptation,” in Proceedings of the IEEE/CVF conference on computer
+vision and pattern recognition, 2020, pp. 4544–4553. I, II-B
+[18] S. Qu, T. Zou, L. He, F. R¨ohrbein, A. Knoll, G. Chen, and C. Jiang,
+“Lead: Learning decomposition for source-free universal domain adap-
+tation,” in Proceedings of the IEEE/CVF conference on computer vision
+and pattern recognition, 2024, pp. 23 334–23 343. I, II-B, IV-A, IV-A,
+II, III, IV, V
+[19] S. Qu, T. Zou, F. R¨ohrbein, C. Lu, G. Chen, D. Tao, and C. Jiang,
+“Glc++: Source-free universal domain adaptation through global-local
+clustering and contrastive affinity learning,” IEEE Transactions on
+Pattern Analysis and Machine Intelligence, 2025. I, II-B, IV-A, IV-A,
+II, III, IV, V, VI
+[20] B. Deng, Y. Zhang, H. Tang, C. Ding, and K. Jia, “On universal black-
+box domain adaptation,” arXiv preprint arXiv:2104.04665, 2021. I, II-C,
+II-C, IV-A, II, III, IV
+[21] Q. He and M. Deng, “Gradient-based sample selection for black-box
+universal domain adaptation,” in Proceedings of the AAAI Conference
+on Artificial Intelligence, vol. 39, no. 16, 2025, pp. 17 114–17 122. I,
+II-C, IV-A, IV-A, IV-A, II, III
+[22] Y. Lai, G. Li, H. Liang, J. Zheng, and Z. Ye, “Adu: Adaptive detection of
+unknown categories in black-box domain adaptation,” in Proceedings of
+the IEEE/CVF conference on computer vision and pattern recognition,
+2025, pp. 30 588–30 598. I, II-C, IV-A, IV-A, II, III, IV
+[23] R. Bommasani, D. A. Hudson, E. Adeli, R. Altman, S. Arora, S. von
+Arx, M. S. Bernstein, J. Bohg, A. Bosselut, E. Brunskill et al.,
+“On the opportunities and risks of foundation models,” arXiv preprint
+arXiv:2108.07258, 2021. I, II-D
+[24] A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal,
+G. Sastry, A. Askell, P. Mishkin, J. Clark et al., “Learning transferable
+visual models from natural language supervision,” in International
+conference on machine learning.
+PmLR, 2021, pp. 8748–8763.
+I,
+II-D
+[25] J. Sohl-Dickstein, E. Weiss, N. Maheswaranathan, and S. Ganguli,
+“Deep unsupervised learning using nonequilibrium thermodynamics,” in
+International conference on machine learning.
+pmlr, 2015, pp. 2256–
+2265. I, II-D
+[26] R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer, “High-
+resolution image synthesis with latent diffusion models,” in Proceedings
+of the IEEE/CVF conference on computer vision and pattern recognition,
+2022, pp. 10 684–10 695. I, II-D, III-C1, IV-A
+[27] K. Saito, D. Kim, S. Sclaroff, and K. Saenko, “Universal domain
+adaptation through self supervision,” Advances in neural information
+processing systems, vol. 33, pp. 16 282–16 292, 2020. II-A, IV-A, II,
+III, IV, V, VI
+[28] K. Saito and K. Saenko, “Ovanet: One-vs-all network for universal do-
+main adaptation,” in Proceedings of the ieee/cvf international conference
+on computer vision, 2021, pp. 9000–9009. II-A, IV-A, II, III, IV, V, VI
+[29] B. Zhou, L. Liu, C. Fan, and Z. Zhao, “Cross-domain class context
+optimization for universal domain adaptation,” IEEE Transactions on
+Circuits and Systems for Video Technology, 2025. II-A, IV-A, II, III,
+IV, V, VI
+[30] J. Jiang, Q. Lv, Y. Li, Y. Du, J. Dong, S. Chen, and H. Yu, “Hg-sfda: Hy-
+pergraph learning meets source-free unsupervised domain adaptation,”
+IEEE Transactions on Image Processing, vol. 34, pp. 7542–7557, 2025.
+II-B
+[31] Y. Xiao, P. Wei, G. Wang, C. Liu, and L. Lin, “Robust source-free
+domain adaptation from non-robust source models,” IEEE Transactions
+on Image Processing, vol. 35, pp. 2350–2363, 2026. II-B
+[32] J. Liang, D. Hu, J. Feng, and R. He, “Umad: Universal model adaptation
+under domain and category shift,” arXiv preprint arXiv:2112.08553,
+2021. II-B, II-B, IV-A, II, III, IV, V, VI
+[33] Z. Wang, J. Guo, X. Sun, Y. Luo, and A. Chen, “Double-boundary
+awareness of shared categories for source-free universal domain adap-
+tation,” Neurocomputing, p. 131473, 2025. II-B
+[34] Y. Lu, Y. Lan, H. Yang, Z. Lai, and X. Li, “Exploring generic knowledge
+and reactivating source model for source-free universal domain adapta-
+tion,” IEEE Transactions on Multimedia, 2026. II-B, IV-A, II, III, IV,
+V, VI
+[35] J. Li, D. Li, C. Xiong, and S. Hoi, “Blip: Bootstrapping language-image
+pre-training for unified vision-language understanding and generation,”
+in International conference on machine learning.
+PMLR, 2022, pp.
+12 888–12 900. II-D
+[36] J.-B. Alayrac, J. Donahue, P. Luc, A. Miech, I. Barr, Y. Hasson, K. Lenc,
+A. Mensch, K. Millican, M. Reynolds et al., “Flamingo: a visual
+language model for few-shot learning,” Advances in neural information
+processing systems, vol. 35, pp. 23 716–23 736, 2022. II-D
+[37] A. Singh, R. Hu, V. Goswami, G. Couairon, W. Galuba, M. Rohrbach,
+and D. Kiela, “Flava: A foundational language and vision alignment
+
+
+12
+model,” in Proceedings of the IEEE/CVF conference on computer vision
+and pattern recognition, 2022, pp. 15 638–15 650. II-D
+[38] C. Cui, Z. Liu, S. Gong, L. Zhu, C. Zhang, and H. Liu, “When
+adversarial training meets prompt tuning: Adversarial dual prompt tuning
+for unsupervised domain adaptation,” IEEE Transactions on Image
+Processing, vol. 34, pp. 1427–1440, 2025. II-D
+[39] Y. Wang, M. Huang, X. Deng, Y. Xie, and X. Li, “Progressive hybrid
+pseudo-labeling for unsupervised domain adaptation with ascending low-
+rank adaptation,” IEEE Transactions on Image Processing, vol. 35, pp.
+7332–7346, 2026. II-D
+[40] O. Stark, “A note on sen’s representation of the gini coefficient: Revision
+and repercussions,” The Journal of Economic Inequality, vol. 22, pp.
+1061–1067, 2024. III-D1
+[41] I. Eliazar, “Beautiful gini,” METRON, vol. 82, pp. 293–313, 2024. III-D1
+[42] G. Hinton, O. Vinyals, and J. Dean, “Distilling the knowledge in a neural
+network,” arXiv preprint arXiv:1503.02531, 2015. III-E1
+[43] J. Liang, D. Hu, and J. Feng, “Do we really need to access the source
+data? source hypothesis transfer for unsupervised domain adaptation,”
+in International conference on machine learning.
+PMLR, 2020, pp.
+6028–6039. III-E1
+[44] A. Krause, P. Perona, and R. Gomes, “Discriminative clustering by
+regularized information maximization,” Advances in neural information
+processing systems, vol. 23, 2010. III-E1
+[45] S. Qu, T. Zou, F. R¨ohrbein, C. Lu, G. Chen, D. Tao, and C. Jiang,
+“Upcycling models under domain and category shift,” in Proceedings of
+the IEEE/CVF conference on computer vision and pattern recognition,
+2023, pp. 20 019–20 028. III-G, IV-A
+[46] G. Li, G. Kang, Y. Zhu, Y. Wei, and Y. Yang, “Domain consensus
+clustering for universal domain adaptation,” in Proceedings of the
+IEEE/CVF conference on computer vision and pattern recognition, 2021,
+pp. 9757–9766. IV-A, II, III, IV, V, VI
+[47] J. Li, H. Su, B. Wang, Y. Min, M. Wang, N. Yin, S. Wang, and J. Guo,
+“Esbn: Estimation shift of batch normalization for source-free universal
+domain adaptation,” in Proceedings of the Thirty-Fourth International
+Joint Conference on Artificial Intelligence, 2025, pp. 1386–1394. IV-A,
+II, III, IV, V
+[48] K. Saenko, B. Kulis, M. Fritz, and T. Darrell, “Adapting visual category
+models to new domains,” in European conference on computer vision.
+Springer, 2010, pp. 213–226. IV-A
+[49] H. Venkateswara, J. Eusebio, S. Chakraborty, and S. Panchanathan,
+“Deep hashing network for unsupervised domain adaptation,” in Pro-
+ceedings of the IEEE conference on computer vision and pattern
+recognition, 2017, pp. 5018–5027. IV-A
+[50] X. Peng, B. Usman, N. Kaushik, J. Hoffman, D. Wang, and K. Saenko,
+“Visda: The visual domain adaptation challenge,” arXiv preprint
+arXiv:1710.06924, 2017. IV-A
+[51] X. Peng, Q. Bai, X. Xia, Z. Huang, K. Saenko, and B. Wang, “Moment
+matching for multi-source domain adaptation,” in Proceedings of the
+IEEE/CVF international conference on computer vision, 2019, pp. 1406–
+1415. IV-A
+[52] B. Fu, Z. Cao, M. Long, and J. Wang, “Learning to detect open classes
+for universal domain adaptation,” in European conference on computer
+vision.
+Springer, 2020, pp. 567–583. IV-A
+[53] A. Paszke, S. Gross, S. Chintala, G. Chanan, E. Yang, Z. DeVito, Z. Lin,
+A. Desmaison, L. Antiga, and A. Lerer, “Automatic differentiation in
+pytorch,” 2017. IV-A
+[54] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning for image
+recognition,” in Proceedings of the IEEE conference on computer vision
+and pattern recognition, 2016, pp. 770–778. IV-A
+[55] J. Deng, W. Dong, R. Socher, L.-J. Li, K. Li, and L. Fei-Fei, “Imagenet:
+A large-scale hierarchical image database,” in 2009 IEEE conference on
+computer vision and pattern recognition.
+Ieee, 2009, pp. 248–255.
+IV-A
+[56] L. Van der Maaten and G. Hinton, “Visualizing data using t-sne.” Journal
+of machine learning research, vol. 9, no. 11, 2008. IV-D1
+[57] R. R. Selvaraju, M. Cogswell, A. Das, R. Vedantam, D. Parikh, and
+D. Batra, “Grad-cam: Visual explanations from deep networks via
+gradient-based localization,” in Proceedings of the IEEE international
+conference on computer vision, 2017, pp. 618–626. IV-D2

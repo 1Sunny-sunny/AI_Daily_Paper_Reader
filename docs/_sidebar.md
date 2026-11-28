@@ -1,6 +1,13 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-11-28 <!--dpr-date:20261128-->
+    * <a class="dpr-sidebar-brief-link" href="#/202611/28/README">📝 今日简报</a>
+    * 精读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202611/28/2611.33309v1-neurorefine-six-head-mlp-content-conditioning-and-qwen-refinement-for-faithful-fmri-decoding" data-sidebar-item="{&quot;title&quot;: &quot;NeuroRefine: Six-Head MLP Content Conditioning and Qwen Refinement for Faithful fMRI Decoding&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2611.33309v1-neurorefine-six-head-mlp-content-conditioning-and-qwen-refinement-for-faithful-fmri-decoding&quot;, &quot;score&quot;: &quot;9.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;fMRI到图像重建的内容条件化&quot;}">NeuroRefine: Six-Head MLP Content Conditioning and Qwen Refinement for Faithful fMRI Decoding</a>
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202611/28/2611.32474v1-progressive-reliable-supervision-for-black-box-universal-domain-adaptation" data-sidebar-item="{&quot;title&quot;: &quot;Progressive Reliable Supervision for Black-Box Universal Domain Adaptation&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2611.32474v1-progressive-reliable-supervision-for-black-box-universal-domain-adaptation&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;黑盒通用领域自适应方法&quot;}">Progressive Reliable Supervision for Black-Box Universal Domain Adaptation</a>
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202611/28/2611.34494v1-the-monge-optimal-transport-barycenter-problem-with-adaptive-features" data-sidebar-item="{&quot;title&quot;: &quot;The Monge Optimal Transport Barycenter Problem with Adaptive Features&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2611.34494v1-the-monge-optimal-transport-barycenter-problem-with-adaptive-features&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sr&quot;}], &quot;evidence&quot;: &quot;自适应特征的Monge最优传输重心可作跨天神经解码的域适应&quot;}">The Monge Optimal Transport Barycenter Problem with Adaptive Features</a>
   * 2026-11-27 <!--dpr-date:20261127-->
     * <a class="dpr-sidebar-brief-link" href="#/202611/27/README">📝 今日简报</a>
     * 精读区

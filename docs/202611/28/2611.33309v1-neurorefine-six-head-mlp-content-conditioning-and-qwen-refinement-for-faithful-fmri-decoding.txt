@@ -1,0 +1,943 @@
+NEUROREFINE: SIX-HEAD MLP CONTENT CONDITIONING
+AND QWEN REFINEMENT FOR FAITHFUL FMRI DECODING
+Runqi Xu1,2
+Vince Calhoun2
+1Georgia State University, Biology Department, Atlanta, GA, USA 30303
+2(TReNDS) Translational Research in Neuroimaging and Data Science Center
+Georgia State University, Georgia Institute of Technology & Emory University
+vcalhoun@gsu.edu
+ABSTRACT
+Reconstructing seen images from fMRI has advanced through diffusion models,
+but the current state-of-the-art Brain-IT pipeline still has a lossy bottleneck: its
+low-level branch outlines the figure well, yet the diffusion model that follows fre-
+quently mispaints colour, object identity and layout. We move one step backward
+and condition the refiner directly on the fMRI-derived low-level image, using six
+one-hidden-layer MLP heads (scene, main-subject category, count, colour, object,
+layout) to predict the content prompt that guides a frozen Qwen-Image-Edit-2511
+model. On the 930 shared NSD concepts, scored with Brain-IT’s own metric code
+on the same ground truth, NeuroRefine reaches a CLIP image cosine of 0.755
+against 0.735 for Brain-IT enhanced and produces markedly sharper images, while
+the saturated 2-way identification is unchanged. The low-level image supplies an
+explicit spatial prior rather than a lossless layout: refinement trades some layout
+agreement (0.541 against 0.638) for semantic fidelity and texture. We then show
+that the standard panel is multi-factor: a high PixCorr can coexist with a com-
+pletely different content, so we read the low-level and semantic factors separately
+and quantify where they disagree. Finally, we trace the cortical sources of the
+prompt heads across subjects and report their causal lesion profile and the fMRI
+noise ceiling. Direction errors are left to future work.
+Project page: https://MX-Qulin.github.io/NeuroRefine.
+1
+INTRODUCTION
+Reconstructing visual experience from brain activity measured with fMRI is a key challenge with
+broad implications for both neuroscience and brain–computer interfaces (Scotti et al., 2023; Beliy
+et al., 2026). Such reconstructions may provide a window into visual perception in the brain, en-
+able the study of visual imagery, and assist in assessing disorders of consciousness. In a typical
+decoding setting, subjects view natural images while their brain activity is recorded with functional
+Magnetic Resonance Imaging (fMRI), producing paired data of images and their corresponding brain
+responses; the task is to reconstruct the perceived image from new (test) fMRI signals (Fig. 1).
+Early work mapped fMRI signals to handcrafted image features, which were then used for image
+reconstruction.
+Subsequent studies employed deep learning and, more recently, diffusion mod-
+els, which substantially improved visual quality (Ozcelik & VanRullen, 2023; Takagi & Nishimoto,
+2023). Yet current methods often lack faithfulness to the actual seen images: they deviate in structural
+aspects (e.g., position, colour) and sometimes distort the semantic content, because the reliance on
+generative priors can produce realistic images even with limited guidance from brain activity (Beliy
+et al., 2026).
+A central limitation is the caption bottleneck. Modern pipelines first predict a semantic description
+(a caption) from fMRI and then generate an image with a text-to-image model; Brain-IT additionally
+refines the result with SDXL (Beliy et al., 2026). The caption, however, is lossy: it discards colour,
+exact object identity and spatial layout. Whatever the caption does not express cannot be recovered
+by the generator.
+1
+arXiv:2611.33309v1  [eess.IV]  24 Nov 2026
+
+
+Figure 1: Reconstruction of seen image by NeuroRefine. Each pair shows the seen image (left) and
+our reconstruction (right), using the full NSD dataset (40 hours) for subject 1. The low-level branch supplies
+a spatial prior, six one-hidden-layer MLP heads predict the content prompt, and the frozen Qwen-Image-Edit-
+2511 refiner restores texture, colour and sharpness.
+In this work, we introduce NeuroRefine, a refinement stage on top of Brain-IT’s pipeline. NeuroRe-
+fine moves one step backward: instead of conditioning the refiner on a caption, we condition it on
+the low-level image and on a content prompt predicted by six one-hidden-layer MLP heads. The
+low-level image supplies an explicit spatial prior that the caption compresses away, so the frozen
+generative model acts as a sharpener rather than as a scene generator.
+On the 930 shared NSD concepts, NeuroRefine improves semantic fidelity and sharpness over Brain-
+IT enhanced, at the cost of some layout agreement, and it replicates across subjects (Sec. 4).
+Our approach starts from the coarse arrangement of the low-level initialization while restoring sharp-
+ness and object identity. It reads the full fsaverage vertex vector with six one-hidden-layer MLP heads
+and pairs them with a frozen Qwen-Image-Edit-2511 refiner — and we evaluate it with Brain-IT’s
+own metric code on the same ground truth, so that every number is directly comparable.
+We make four contributions.
+Head-derived conditioning. We give the refiner an explicit spatial prior that a caption cannot carry,
+by conditioning it on the low-level image derived from fMRI, and we supply the missing content with
+six one-hidden-layer MLP heads. We validate this choice with a generator held fixed, so the gain is
+attributable to the conditioning signal and not to a stronger model (Sec. 4.3).
+A frozen Qwen refiner. We replace Brain-IT’s SDXL enhancement with a frozen Qwen-Image-
+Edit-2511 (Wu et al., 2025) refiner. Scored with Brain-IT’s own metric code on identical ground
+truth, this improves the semantic fidelity and the sharpness of the reconstructions while leaving the
+saturated 2-way identification unchanged (table 1).
+A discussion of the metric panel. We show that the standard panel is multi-factor: a high PixCorr
+can coexist with a completely different content. We therefore measure the relation between the low-
+level and semantic factors, quantify where they disagree, and report each factor separately instead of
+collapsing them into one ranking (Sec. 5.1).
+A neurophysiological account. We characterise the representations produced by these six MLP
+content heads on the fsaverage surface: which cortical networks carry each property (scene, main-
+subject category, count, colour, object, layout), and how far the attribution is causally load-bearing.
+The account combines surface maps, a causal lesion test, the repeat-trial noise ceiling, and a spin-null
+test of cross-subject agreement, so that the semantic readout is not a black box (Sec. 5.2).
+2
+
+
+2
+RELATED WORK
+Reconstruction quality has improved rapidly since deep generative models were introduced. Early
+decoding mapped fMRI to handcrafted image features and then inverted them, and was limited to
+simple stimuli. Deep networks replaced the handcrafted features: MindEye (Scotti et al., 2023)
+predicts CLIP and VAE embeddings and decodes with a diffusion prior, Brain-Diffuser (Ozcelik &
+VanRullen, 2023) pairs a low-level and a semantic pathway, and Takagi & Nishimoto (Takagi &
+Nishimoto, 2023) map voxels to Stable Diffusion latents. Later work adds structure and semantics in
+different ways: DREAM (Xia et al., 2024a) reverses the visual system hierarchically, UMBRAE (Xia
+et al., 2024b) unifies decoding across subjects and tasks, NeuroVLA (Shen et al., 2024) couples
+reconstruction with language interaction, MindBridge (Wang et al., 2024) transfers across subjects
+with a shared encoder, NeuroPictor (Huo et al., 2024) conditions diffusion on multiple fMRI-derived
+controls, MindEye2 (Scotti et al., 2024) shares a subject-invariant backbone, and MindTuner (Gong
+et al., 2025) tunes the generator with a visual-fingerprint prior. Brain-IT (Beliy et al., 2026) maps
+functionally similar voxels into clusters shared across subjects, predicts localised features, and adds
+an SDXL refinement stage; table 1 lists their reported numbers next to ours. Across this literature the
+pattern in table 1 is consistent: PixCorr is highest for the method with the blurriest output, the 2-way
+identification metrics saturate for every strong model, and the remaining headroom is in semantic
+and perceptual fidelity. Our contribution is orthogonal to all of these methods — we change what
+the refinement stage is conditioned on, which leaves the semantic stage interchangeable.
+Generative priors and refinement.
+Diffusion priors improved realism but can also reduce faith-
+fulness, because a powerful generator produces a plausible image even from weak guidance. Two
+remedies appear in the literature: more guidance (extra labels, extra subjects, better captions) and
+stronger conditioning (image-to-image rather than text-to-image). Brain-IT takes the first route when
+it refines with SDXL conditioned on its own reconstruction, but the SDXL stage they release is text-
+free image-to-image with a weak preservation bias, and its metric effect is negligible (table 1). We
+take the second route with a stronger editing model and an explicit preservation instruction, and we
+show with a fixed generator that the gain is attributable to the conditioning signal (Sec. 4.3).
+Semantic decoding and the caption bottleneck.
+Most pipelines compress all voxels into a sin-
+gle global embedding (Scotti et al., 2023; Beliy et al., 2026), although visual information is dis-
+tributed across distinct but interconnected regions; spatial voxel groupings (Brain-IT clusters, Mind-
+Eye2 subject-invariant backbones) mitigate this but still predict a global representation. Whatever
+the representation, the text-to-image step that follows it is lossy: a caption cannot carry position,
+exact colour or object identity, and the generator fills the gap with its own prior. Our result is a
+direct measurement of that loss: with the same generator and the same semantic content, replacing
+the caption by the image raises CLIP image cosine and improves layout agreement relative to the
+caption-conditioned arm (Fig. 4 and table 2).
+Evaluation.
+The standard panel has two known failure modes: pixel metrics reward blur, and 2-way
+identification saturates for every strong model (Beliy et al., 2026; Scotti et al., 2023). We demonstrate
+both effects with controlled perturbations in Sec. 5.1 and therefore report CLIP image cosine as the
+headline content metric. This is not a new metric — it is the quantity that the reported 2-way decision
+thresholds — but reporting it explicitly makes the differences between strong methods visible.
+Cross-subject transfer and data eﬀiciency.
+Sharing components across subjects improves data
+eﬀiciency; Brain-IT reports meaningful reconstructions with about one hour of subject data. We
+separate the two axes: the readout (which needs subject data) and the generator (which does not,
+because it is frozen). Table 6 shows that the “1 h” regime is reproduced only when the readout
+is initialised from other subjects: from scratch, 250 images sit below the trivial mean-image prior,
+whereas with transfer they already exceed it.
+3
+METHOD
+Our NeuroRefine pipeline reconstructs an image from fMRI in two stages (Fig. 2). The first stage
+produces a low-level image that provides a coarse spatial prior, together with a compact content
+description. The second stage refines the image using a frozen editor conditioned on both signals.
+The low-level branch follows Brain-IT (Beliy et al., 2026); the editor is Qwen-Image-Edit-2511 (Wu
+3
+
+
+Figure 2: Overview of NeuroRefine. fMRI betas (39,548 fsaverage surface vertices) feed two path-
+ways. (A) Low-level / spatial pathway: a per-subject VGG feature readout trained with InfoNCE
+predicts multi-layer VGG features, which a Deep Image Prior inverts into a low-level image that sup-
+plies the coarse spatial layout. (B) Content pathway: six independent MLP heads (scene, subject,
+count, colour, object, layout; 1024 units, GELU, dropout 0.3) predict structured content that is as-
+sembled into a content prompt. The frozen Qwen-Image-Edit-2511 editor takes the low-level image
+as an image condition and the content prompt as text, and returns a 1024 × 1024 reconstruction (20
+steps, cfg 4.0). Unlike Brain-IT (Beliy et al., 2026), which conditions its SDXL refiner on a caption,
+NeuroRefine conditions the refiner on the low-level image itself. Lower panels: head attribution on
+the surface and the evaluation protocol.
+et al., 2025), used frozen. Keeping the low-level branch fixed lets us attribute the change to the
+conditioning signal rather than to a stronger generator.
+3.1
+LOW-LEVEL BRANCH
+Voxel input.
+The input is the betas of 39,548 fsaverage surface vertices (lh 19,004, rh 20,544),
+z-scored per vertex, from the same preprocessed NSD release that Brain-IT uses (Allen et al., 2022;
+Beliy et al., 2026); we do not resample or select voxels, so our readout sees exactly the information
+their readout sees.
+VGG prediction and DIP inversion.
+Following Brain-IT (Beliy et al., 2026), we train a readout
+to predict multi-layer VGG features with an InfoNCE loss (van den Oord et al., 2018), treating each
+position in each layer as a separate token. At inference, the predicted features are inverted by a Deep
+Image Prior (Ulyanov et al., 2018): a convolutional generator is optimized so that its VGG activations
+match the predicted features under an L2 loss. The result is a low-level image that carries the coarse
+layout but no reliable semantics; it is the input to our refiner. We use this branch unchanged, so any
+improvement below is due to the refiner, not to a different low-level model.
+3.2
+SIX-HEAD MLP CONTENT PREDICTOR
+Six heads.
+A bank of six one-hidden-layer MLPs (1024 hidden units, GELU, dropout 0.3) maps
+the same voxel vector to structured fields — scene, main-subject category, count, colour, object
+and layout. The heads read the full 39,548-dimensional vertex vector directly; Brain-IT’s voxel-to-
+cluster mapping is used only by the low-level branch, so there is no cluster-attention or transformer
+block between the betas and the heads. Scene, main-subject category and count are trained with
+categorical cross-entropy (softmax), while colour, object and layout are multi-label fields trained with
+independent binary cross-entropy on sigmoid logits. Every head is deterministic given the betas. The
+predicted fields are assembled into a short content prompt that names the scene, the main subject, the
+4
+
+
+object count, the dominant colours and the layout. Because the heads are deterministic, the attribution
+analysis of Sec. 5.2 reflects the trained weights, not sampling noise.
+Semantic alternatives.
+We compare the heads against two other ways of supplying content, which
+we keep as ablations rather than the main pipeline. The first is Brain-IT’s unCLIP semantic de-
+coder (Beliy et al., 2026; Scotti et al., 2023), which maps a predicted CLIP embedding through a
+diffusion prior. The second is retrieval: a linear readout predicts the CLIP-L image embedding, and
+we return the nearest photograph from a gallery of 66,841 NSD images with the shared 1,000 re-
+moved. Retrieval gives high identity but imports the arrangement of another photograph. Both are
+reported in Sec. 4.
+3.3
+IMAGE-CONDITIONED EDIT REFINER
+A frozen editor.
+The refiner is Qwen-Image-Edit-2511 (Wu et al., 2025), used frozen at 1024 ×
+1024 for 20 denoising steps with guidance 4.0. It takes the low-level image and the content prompt
+and returns the reconstruction. The instruction is instruction-first: “follow the low-level layout and
+render the content below”, followed by the head output. Because the editor is frozen, it adds no
+subject-specific parameters; a new subject needs only the readout and the heads.
+Why the low-level image, not a caption.
+Brain-IT conditions its SDXL refiner on a caption (Beliy
+et al., 2026); a caption cannot carry position or exact colour, so the refiner has to re-infer the layout.
+Conditioning on the low-level image gives the refiner an explicit spatial prior, and the content prompt
+only supplies what the low-level branch lacks. The editor is not required to copy that prior exactly
+— it trades part of it for texture and semantics (Sec. 4.2) — but it starts from the input arrangement
+instead of inventing one. This is the “one step backward” of the title.
+3.4
+DESIGNS WE COMPARED
+We kept three directions separate and evaluate them on the same concepts and ground truth (Sec. 4).
+Text-to-image conditions Qwen-Image-Edit-2511 on the prompt alone; it produces clean images but
+re-invents the scene. Low-level + edit is the pipeline above. Retrieval + edit refines a retrieved pho-
+tograph; it has the highest identity but the lowest layout. The ablations are decided on five diagnostic
+concepts, chosen to cover an easy scene, a cluttered scene, a counting failure, an object substitution
+and a hard animal case; they are not the final pipeline, so a full 930 rerun would not change their
+conclusion.
+3.5
+METRICS
+We call Brain-IT’s released compute_metrics verbatim, so every number in this paper can be
+reproduced by running their code on our arrays. The panel contains PixCorr (Pearson correlation
+of pixels), SSIM (structural similarity), AlexNet(2) and AlexNet(5) two-way identification, Incep-
+tion two-way identification, CLIP two-way identification, and the EffNet-B and SwAV correlation
+distances (lower is better). Because the two-way metrics saturate for strong models, we additionally
+report CLIP image cosine between reconstruction and ground truth; unlike the 2-way decision it does
+not saturate. Note that a 2-way trial compares sim(ˆxi, xi) with the similarity to a random distractor
+xj, so its accuracy depends on both terms, and CLIP cosine is only one of them (we return to this in
+Sec. G). We also report a sharpness proxy (mean gradient magnitude at 224×224); it measures edge
+energy, not perceptual quality, and over-sharpening or edge artefacts can raise it, so we never read it
+as image quality on its own. Finally we decompose content into colour, structure, layout, background
+and detail agreement, so that a method that wins on colour but loses on layout is visible. LPIPS is
+not computed, exactly as in the released Brain-IT code.
+4
+EXPERIMENTAL RESULTS
+We present NeuroRefine in six parts. We first describe the dataset and the metric panel (Sec. 4.1);
+we then place the pipeline next to prior methods and to its own ablations (Sec. 4.2), show qualitative
+reconstructions (Sec. 4.3), study retrieval as a side comparison (Sec. 4.4), replicate the result across
+subjects (Sec. 4.5), report an external check on BOLD5000 (Sec. 4.6), and separate the two data axes
+behind the “one hour” claim (Sec. 4.7).
+5
+
+
+Figure 3: Stages of the pipeline. Rows are concepts where NeuroRefine wins; columns are the seen
+image, the low-level image, Brain-IT semantic, Brain-IT enhanced, caption+Qwen, retrieval+Qwen
+and NeuroRefine.
+4.1
+EXPERIMENTAL SETTINGS
+Dataset and ground truth.
+We use the Natural Scenes Dataset (NSD) (Allen et al., 2022), a 7 T
+dataset in which eight subjects viewed natural photographs drawn from COCO. We evaluate on the
+930 concepts shared by all subjects, with the shared 1,000 images as the test set; subject 1 is used
+unless stated otherwise. The dataset is scene-centric: most images contain a small number of salient
+objects in a natural layout, which is what the low-level branch can outline, while fine texture and
+exact instance identity are limited by the 7 T resolution and by single-trial noise. That asymmetry is
+why a content signal is needed on top of the low-level image. All arms are normalised to 224 × 224
+before scoring, as in Brain-IT, and the betas are the 39,548 fsaverage surface vertices used by Brain-
+IT (Beliy et al., 2026).
+Metrics.
+We call Brain-IT’s released compute_metrics (Beliy et al., 2026) verbatim, so num-
+bers are directly comparable to table 1. The panel is deliberately two-level: PixCorr, SSIM and
+AlexNet(2) measure low-level structure; AlexNet(5) is intermediate; Inception, CLIP 2-way, EffNet-
+B and SwAV are semantic. Because the 2-way metrics saturate for strong models, we additionally
+report CLIP image cosine between reconstruction and ground truth; it is one term of the 2-way trial,
+not a threshold on it (Sec. G). We report the panel factor-wise rather than as a single ranking; Sec. 5.1
+quantifies where the factors disagree. LPIPS is not computed, exactly as in the released Brain-IT
+code.
+4.2
+QUANTITATIVE EVALUATION
+6
+
+
+Figure 4: Same generator, different conditioning. Qwen-Image-Edit conditioned on the fMRI-
+decoded caption, on the ground-truth caption, and on the fMRI-derived low-level image with the
+head content prompt.
+Table 1 lists the prior methods (top block, as reported by Brain-IT) and our arms (bottom block,
+measured by us on the same 930 concepts). NeuroRefine reaches a CLIP image cosine of 0.755
+against 0.735 for Brain-IT enhanced, with a layout correlation of 0.541 and a PixCorr of 0.345. The
+semantic factor improves and the output is markedly sharper, but the layout correlation is lower than
+Brain-IT’s 0.638, and lower than the low-level input’s 0.658 (table 2). We therefore do not claim that
+the refiner preserves the input layout losslessly: the low-level image supplies an explicit spatial prior,
+while the refinement stage trades some layout agreement for semantic fidelity and texture.
+4.3
+QUALITATIVE RESULTS
+7
+
+
+Method
+Low-Level
+High-Level
+PixCorr ↑SSIM ↑Alex(2) ↑Alex(5) ↑Incep ↑CLIP ↑Eff ↓SwAV ↓
+MindEye (Scotti et al., 2023)
+0.319
+0.360
+92.8%
+96.9%
+94.6% 93.3% 0.648 0.377
+Brain-Diffuser (Ozcelik & VanRullen, 2023)
+0.273
+0.365
+94.4%
+96.6%
+91.3% 90.9% 0.728 0.421
+Takagi & Nishimoto (Takagi & Nishimoto, 2023)
+0.246
+0.410
+78.9%
+85.6%
+83.8% 82.1% 0.811 0.504
+DREAM (Xia et al., 2024a)
+0.274
+0.328
+93.9%
+96.7%
+93.4% 94.1% 0.645 0.418
+UMBRAE (Xia et al., 2024b)
+0.283
+0.341
+95.5%
+97.0%
+91.7% 93.5% 0.700 0.393
+NeuroVLA (Shen et al., 2024)
+0.265
+0.357
+93.1%
+97.1%
+96.8% 97.5% 0.633 0.321
+MindBridge (Wang et al., 2024)
+0.151
+0.263
+87.7%
+95.5%
+92.4% 94.7% 0.712 0.418
+NeuroPictor (Huo et al., 2024)
+0.229
+0.375
+96.5%
+98.4%
+94.5% 93.3% 0.639 0.350
+MindEye2 (Scotti et al., 2024)
+0.322
+0.431
+96.1%
+98.6%
+95.4% 93.0% 0.619 0.344
+MindTuner (Gong et al., 2025)
+0.322
+0.421
+95.8%
+98.8%
+95.6% 93.8% 0.612 0.340
+Brain-IT (Beliy et al., 2026)
+0.386
+0.486
+98.4%
+99.5%
+97.3% 96.4% 0.564
+0.320
+This work
+NeuroRefine
+0.345
+0.426
+93.8%
+97.1%
+97.8% 97.5% 0.554
+0.323
+Table 1: Quantitative comparison. Top block: prior numbers as reported by Brain-IT (Beliy et al.,
+2026) for methods trained on the full 40 h of NSD data, averaged over subjects 1,2,5,7. Bottom
+block: NeuroRefine, measured by us with the same compute_metrics code on the identical 930
+shared-concept ground truth for subject 1 (LPIPS is omitted by the released code). The two blocks
+therefore differ in subject coverage: the prior numbers are four-subject averages as reported by Brain-
+IT, whereas our row is a single-subject measurement and should be read as such. The panel is multi-
+factor (low-level: PixCorr/SSIM/Alex(2); semantic: Inception/CLIP/EffNet/SwAV); we report both
+factors and do not collapse them into one number (Sec. 5.1). Best per column in bold, second best
+underlined; arrows give the direction of improvement.
+Figure 5: Retrieval as conditioning. The retrieved photograph carries the right content in a different
+arrangement; conditioning on the low-level image instead retains far more of the input arrangement.
+Fig. 3 shows the stages of our own pipeline on concepts where NeuroRefine wins, and Fig. 4 isolates
+the conditioning signal with the generator held fixed. The low-level image supplies a spatial prior;
+the six MLP content heads supply the objects and attributes that the low-level branch lacks; the frozen
+8
+
+
+Figure 6: Subject-1 reconstructions on four of the shared concepts: seen image, low-level input,
+Brain-IT enhanced and NeuroRefine. The cross-subject comparison is quantitative (table 3); per-
+subject head-prompt renders exist for subject 1 only, so this figure shows subject 1.
+editor restores texture and colour without re-inventing the scene. The caption-only arm re-composes
+the scene, which is the failure the image-conditioned refiner avoids. These observations are stated
+here, in the text, rather than in the captions.
+4.4
+RETRIEVAL AS A SIDE COMPARISON
+Table 2: Identity versus layout. CLIP image cosine and layout correlation on the shared concepts,
+subject 1.
+Stage
+CLIP cosine ↑
+Layout corr. ↑
+low level (input)
+0.591
+0.658
+Brain-IT enhanced
+0.735
+0.638
+Ablation: retrieval→Qwen
+0.767
+0.207
+Ablation: BIT semantic→Qwen
+0.747
+0.646
+NeuroRefine
+0.755
+0.541
+9
+
+
+Retrieval replaces the content prompt with a retrieved photograph: a linear readout predicts the CLIP-
+L image embedding and returns the nearest photograph from a gallery of 66,841 NSD images with
+the shared 1,000 removed (verified disjoint). It gives high identity but imports the arrangement of
+another photograph. Table 2 reports the trade-off: retrieval has the highest CLIP cosine but a low
+layout correlation, whereas the low-level+edit arm retains far more of the input arrangement (Fig. 5).
+Retrieval is therefore a side comparison, not the main pipeline.
+Table 3: Per-subject reconstruction results on the 930 shared concepts, selector rule per subject
+(CLIP image cosine decides which arm supplies each concept). Sharpness is the mean gradient
+magnitude of the 224 × 224 output: an edge-energy proxy, not a perceptual-quality score. Rows for
+subjects 2 and 5 are measured with the earlier edit arm; their head-prompt renders are in progress.
+CLIP 2-way ↑
+CLIP cosine ↑
+Sharpness ↑
+Subject
+Brain-IT
+Ours
+Brain-IT
+Ours
+Brain-IT
+Ours
+1
+0.972
+97.5%
+0.735
+0.755
+0.27
+0.740
+2
+0.965
+0.965
+0.723
+0.734
+0.25
+1.93
+5
+0.969
+0.967
+0.727
+0.738
+0.22
+1.99
+4.5
+CROSS-SUBJECT REPLICATION
+We retrain only the per-subject readout and keep the frozen generator, so the comparison is subject-
+specific end to end. The CLIP-cosine gain over Brain-IT enhanced replicates on all three subjects
+we ran, while 2-way identification stays tied (table 3, Fig. 6). Because the generator is frozen, no
+additional subject data is needed for the refiner; the per-subject cost is the readout only, and a data-
+eﬀiciency curve for the readout (with and without cross-subject transfer) is reported in Sec. 4.7.
+4.6
+EXTERNAL VALIDATION ON BOLD5000
+Table 4: External check on BOLD5000 (n-way CLIP identification, %). “Frozen” is an NSD-
+trained readout applied without BOLD5000 training; “trained” fits the readout on the target subject;
+“transductive” pools three subjects and normalises at test time. MindLoop is the published number
+under its own protocol. BOLD5000’s low SNR limits every arm.
+CSI1
+CSI2
+CSI3
+CSI4
+mean
+MindLoop-VD (published)
+86.5
+84.0
+84.8
+82.1
+84.4
+Frozen NSD readout
+59.3
+57.7
+55.0
+54.8
+56.7
+Trained readout (oﬀicial)
+74.3
+72.5
+74.0
+69.4
+72.5
+Transductive, 3 subjects
+—
+87.1
+We repeated the evaluation on BOLD5000 (Chang et al., 2019), a 3 T dataset with four subjects and
+a repeated-image test split. BOLD5000 is much weaker than NSD: 3 T, single-trial betas and a low
+split-half reliability, so every arm degrades, including Brain-IT. Table 4 summarises the arms. A
+frozen NSD readout transfers only partially; a readout trained on the target subject does much better,
+i.e. the readout does not transfer for free across scanners. Only a deliberately transductive setting —
+three subjects sharing the test images, with test-time normalisation — exceeds the published Mind-
+Loop number, and we do not claim this as a like-for-like win. The honest reading is that the refiner is
+subject-agnostic (it is frozen), while the readout is what fails to transfer, and the refiner then amplifies
+whatever bias the readout brings.
+4.7
+WHAT DOES “ONE HOUR” REQUIRE?
+Brain-IT reports meaningful reconstructions with about one hour of subject data; that claim must be
+read as one hour with cross-subject initialisation, not as one hour from scratch, and we make the
+distinction explicit here. Since our generator is frozen, the only component that consumes subject
+data is the readout, so we can separate the two axes. Training the readout from scratch on subject 1
+10
+
+
+Figure 7: Where does subject data go? (a) CLIP image cosine of the readout against the number
+of subject-1 images, with and without cross-subject initialisation; (b) retrieval top-1.
+Figure 8: Low-level versus semantic factor across arms. The factors are not redundant: the blur-
+riest arm is high on PixCorr and low on CLIP cosine, and the sharp arms spread along the semantic
+axis; no single arm dominates both axes.
+needs far more than an hour: at the one-hour budget it stays below the trivial mean-image prior, and
+only crosses the prior at a much larger budget. Initialising the same readout from the other subjects
+and fine-tuning changes the picture completely: it is above the prior from the first session and keeps
+improving (table 6, Fig. 7). The “1 h” regime is therefore a property of transfer, not of single-subject
+training, and it is orthogonal to our contribution.
+5
+ANALYSIS
+5.1
+HOW SHOULD THE METRIC PANEL BE READ?
+Table 5: A definition check, not a ranking proof. Blurring the ground truth raises PixCorr but
+lowers CLIP cosine; recolouring does the opposite. The perturbation shows that the two metrics
+respond to different factors; it does not by itself rank real reconstructions.
+Ground-truth variant
+PixCorr ↑
+CLIP cosine ↑
+original
+1.000
+1.000
+blurred
+0.924
+0.737
+recoloured
+0.708
+0.869
+The panel is multi-factor, not a single ranking.
+The standard panel is deliberately two-level:
+PixCorr, SSIM and AlexNet(2) measure low-level structure; AlexNet(5) is intermediate; Inception,
+CLIP 2-way, EffNet-B and SwAV are semantic. These factors are not redundant. Across the 930 con-
+cepts the per-concept ranks of the low-level factor (mean z of PixCorr and SSIM) and of the semantic
+factor (CLIP image cosine) are only weakly related: Spearman ρ = 0.150 (95% CI [0.083, 0.214]),
+and on 183/930 concepts (19.7%) the two factors point in opposite directions with both |z| > 0.5.
+11
+
+
+Figure 9: Head attribution on the inflated fsaverage surface (saliency, row-normalised per head;
+top row left hemisphere, bottom row right hemisphere). All six heads load on visual cortex.
+A PCA over the eight per-concept axes gives one dominant structural factor (42.7% of variance; Pix-
+Corr 0.45, detail 0.46, background 0.44, layout 0.41, SSIM 0.39), then a colour-versus-layout axis
+(14.0%) and a semantic axis dominated by CLIP cosine (12.1%). The panel is therefore multi-factor
+rather than two neat factors, so a single aggregate or a low-level metric alone hides the disagreement;
+we report it factor-wise and add two summaries: CLIP image cosine for the semantic factor and a
+layout correlation for the structural factor (Fig. 8).
+Controlled perturbation is a definition check, not a ranking proof.
+Blurring the ground truth
+raises PixCorr and lowers CLIP cosine, and recolouring does the opposite (table 5). This is exactly
+what the definitions imply, but it is a synthetic manipulation: it does not by itself prove that real
+reconstructions are misranked. On the real arms the same decoupling appears: across the 930 con-
+cepts PixCorr and CLIP cosine correlate at ρ = 0.117 (95% CI [0.055, 0.177]) for NeuroRefine and
+ρ = 0.068 (CI [0.000, 0.137]) for Brain-IT, which is why we read the two factors separately rather
+than declaring one metric invalid.
+Where the factors conflict.
+A paired bootstrap over concepts puts an effect size on the dis-
+agreement: relative to Brain-IT enhanced, NeuroRefine gains CLIP cosine by +0.0202 (95% CI
+[0.0174, 0.0231], paired t p = 1.6 × 10−39, dz = 0.45) while losing PixCorr by −0.0885 (CI
+[−0.102, −0.0749]) and layout by −0.0977 (CI [−0.1154, −0.0807]); the 19.7% conflict set above
+is exactly where these two movements separate. We illustrate them with four case studies rather
+than a single anecdote: the airplane, where a head-conditioned version renders the belly while the
+seen image and Brain-IT are a horizontal seaplane; the cow, where Brain-IT is weak and the content
+prompt helps; the bird, where the head says “field” but the seen image is a bird over blue water; and
+the soccer scene, where the low-level+edit arm genuinely improves. These are case studies, not a
+population estimate, and we say so.
+Recommendation.
+Report the panel factor-wise, with CLIP image cosine as the semantic summary
+and a layout measure as the structural summary, and state the trade-off explicitly. We do not claim
+that PixCorr or SSIM are invalid; they measure a different factor.
+5.2
+WHERE DO THE PROMPT HEADS READ?
+All heads are visually dominant.
+The content prompt is driven by six one-hidden-layer MLPs
+(scene, main-subject category, count, colour, object, layout) that read the same vertices. We attribute
+each head to cortex in two independent ways: the read-out weight energy ∥W1[:, v]∥2, and an input
+saliency obtained analytically by back-propagating the arg-max class through the single hidden layer,
+averaged over 200 images. Both give the same picture: mapped to the inflated fsaverage surface and
+parcellated with Schaefer-2018, the attribution mass sits in the visual network for every head, with
+the expected spread into dorsal and ventral streams (Fig. 9). We can therefore say nothing about
+non-visual contributions of these heads, and we do not.
+12
+
+
+Figure 10: Causal lesion test. Change in head logits when the top-5% salient vertices are zeroed,
+relative to a random 5% (dots: individual subjects).
+The attribution is causally load-bearing.
+Zeroing the most salient vertices changes the head logits
+several-fold more than zeroing a random set, and more than zeroing the least salient set (Fig. 10); the
+effect is strongest for the heads that need spatial and numerical structure. Two ceiling measurements
+frame the interpretation. The split-half reliability of the repeat trials is near one for the head outputs,
+which only says that the heads are deterministic functions of their input; the reliability of the fMRI
+signal itself per vertex is far lower and is the real ceiling for any readout trained on three repeats
+(table 7). Cross-subject agreement of the attribution maps is small but above a spatial spin null
+for every head (table 8): there is a shared, weakly-localised substrate, and we do not claim stable
+individual differences beyond it.
+5.3
+FAILURE MODES
+Our pipeline is faithful to its input: when the content prompt is wrong, the editor sharpens the mistake
+rather than repairing it (Fig. 11). The failures are of four kinds. Object substitution: a bird becomes
+an airplane, a giraffe becomes a zebra. Scene substitution: a fruit basket becomes an indoor scene.
+Count and instance errors: a crowded race field becomes a single rider, two vases become a room
+with two people. Direction: facing and mirroring are frequently wrong because the shared CLIP-like
+representation is largely invariant to reflection. These are limits of the content predictor and of the
+representation, not of the editor; we report them explicitly rather than hiding them in an aggregate.
+6
+DISCUSSION
+What the refiner is and is not.
+The refiner is a faithful sharpener, not a second decoder. The
+low-level branch supplies a spatial prior, and the six MLP content heads supply the content; the
+frozen editor then restores texture and colour on top of that layout. When the content head is wrong,
+the refiner reproduces the error with high fidelity (Sec. 5.3); when the conditioning is text alone,
+it re-composes the scene (Sec. 4.3). Both observations point to the same conclusion: the useful
+information for a refinement stage is the image plus a compact content signal, and the ceiling of the
+method is set by the content predictor, not by the low-level contour.
+Sharpness is not quality.
+Our outputs are much sharper than Brain-IT’s (mean gradient magnitude
+1.85 against 0.27), but that number measures edge energy: over-sharpening and edge artefacts also
+raise it, and no LPIPS or human preference study is available here. We therefore use sharpness only
+to show that the refiner restores texture the low-level branch lacks, never as a standalone claim of
+better perceptual quality.
+Why the metrics disagree.
+The panel is multi-factor: PixCorr/SSIM/Alex(2) measure low-level
+structure, while Inception/CLIP/EffNet/SwAV are semantic. A method can be high on one and low on
+the other, and a high PixCorr can coexist with a different content; we quantify the conflicts in Sec. 5.1.
+We therefore report the panel factor-wise, with CLIP image cosine and layout as summaries. We do
+not claim that the low-level metrics are invalid — they measure a different factor — but a single
+aggregate hides the trade-off.
+Direction.
+Facing and mirroring are the one failure that is not inherited from the content head but
+from the representation both pipelines share. A CLIP-like embedding is approximately invariant
+13
+
+
+Figure 11: Failure modes, one row per type. Object substitution: a bird on a wire becomes an
+airplane (c226). Instance/species substitution: a giraffe becomes a zebra (c832). Scene substitution:
+a fruit basket becomes an indoor scene with a person (c97). Scene and count together: two red vases
+become a room with two people (c563). Count: a crowded race field becomes a single rider in a
+forest (c331). Direction: a walker under a red umbrella becomes a frontal standing figure (c264).
+Columns: seen image, low-level input, Brain-IT enhanced, NeuroRefine.
+to left–right reflection, so a direction readout trained on it cannot recover the sign; a global mirror
+test corrects only a small fraction of the failures. A dedicated direction head, trained on explicitly
+mirrored pairs, and direction-aware evaluation are the natural next step; we do not claim to have
+solved direction here.
+What transfers, and what does not.
+The low-level decoder and the frozen editor are shared across
+subjects; only the content readout needs subject data. One hour of it is enough only with cross-subject
+initialisation (Sec. 4.7); a single subject trained from scratch at that budget stays below the trivial
+mean-image prior, so the “1 h” regime should always be quoted with that qualifier. Whether the
+14
+
+
+same holds on a different scanner or dataset is an open question: our external check on BOLD5000
+(Sec. 4.6) shows that a frozen NSD readout transfers only partially, and that the refiner amplifies
+whatever bias the readout brings.
+LIMITATIONS
+(i) The content predictor is the bottleneck: when it is wrong the editor sharpens the error, and im-
+proving it is future work. The refinement stage also trades layout agreement for semantic fidelity,
+so we do not claim lossless preservation of the low-level arrangement. (ii) LPIPS is not computed,
+following the released Brain-IT code. (iii) Cross-subject replication covers three subjects. (iv) The
+human audit is a curated set, not a random sample. (v) The low-level metrics (PixCorr/SSIM) are
+lower for sharper outputs by construction; we report them as one factor, not as a failure. (vi) The
+external BOLD5000 check is preliminary and not directly comparable to the NSD numbers.
+REFERENCES
+Emily J Allen, Ghislain St-Yves, Yihan Wu, Jesse L Breedlove, Jacob S Prince, Logan T Dowdle,
+Matthias Nau, Brad Caron, Franco Pestilli, Ian Charest, et al. A massive 7t fmri dataset to bridge
+cognitive neuroscience and artificial intelligence. Nature neuroscience, 25(1):116–126, 2022.
+Roman Beliy, Amit Zalcher, Jonathan Kogman, Navve Wasserman, and Michal Irani. Brain-it: Im-
+age reconstruction from fmri via brain-interaction transformer. In International Conference on
+Learning Representations (ICLR), 2026.
+Nadine Chang, John A. Pyles, Austin Marcus, Abhinav Gupta, Michael J. Tarr, and Elissa M.
+Aminoff. BOLD5000, a public fMRI dataset of 5,000 visual scene and object percepts. Scientific
+Data, 6(1):214, 2019.
+Zixuan Gong, Qi Zhang, Guangyin Bao, Lei Zhu, Rongtao Xu, Ke Liu, Liang Hu, and Duoqian
+Miao. Mindtuner: Cross-subject visual decoding with visual fingerprint and semantic correction.
+In Proceedings of the AAAI Conference on Artificial Intelligence, volume 39, pp. 14247–14255,
+2025.
+Jingyang Huo, Yikai Wang, Yun Wang, Xuelin Qian, Chong Li, Yanwei Fu, and Jianfeng Feng.
+Neuropictor: Refining fmri-to-image reconstruction via multi-individual pretraining and multi-
+level modulation. In European Conference on Computer Vision, pp. 56–73. Springer, 2024.
+Furkan Ozcelik and Rufin VanRullen. Natural scene reconstruction from fmri signals using generative
+latent diffusion. Scientific Reports, 13(1):15666, 2023.
+Paul Scotti, Atmadeep Banerjee, Jimmie Goode, Stepan Shabalin, Alex Nguyen, Aidan Dempster,
+Nathalie Verlinde, Elad Yundler, David Weisberg, Kenneth Norman, et al. Reconstructing the
+mind’s eye: fmri-to-image with contrastive learning and diffusion priors. Advances in Neural
+Information Processing Systems, 36:24705–24728, 2023.
+Paul S Scotti, Mihir Tripathy, Cesar Kadir Torrico Villanueva, Reese Kneeland, Tong Chen, Ashutosh
+Narang, Charan Santhirasegaran, Jonathan Xu, Thomas Naselaris, Kenneth A Norman, et al.
+Mindeye2: Shared-subject models enable fmri-to-image with 1 hour of data.
+arXiv preprint
+arXiv:2403.11207, 2024.
+Guobin Shen, Dongcheng Zhao, Xiang He, Linghao Feng, Yiting Dong, Jihang Wang, Qian Zhang,
+and Yi Zeng. Neuro-vision to language: Enhancing brain recording-based visual reconstruction
+and language interaction. Advances in Neural Information Processing Systems, 37:98083–98110,
+2024.
+Yu Takagi and Shinji Nishimoto. High-resolution image reconstruction with latent diffusion models
+from human brain activity. In Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, pp. 14453–14463, 2023.
+Dmitry Ulyanov, Andrea Vedaldi, and Victor Lempitsky. Deep image prior. In Proceedings of the
+IEEE conference on computer vision and pattern recognition, pp. 9446–9454, 2018.
+15
+
+
+Aaron van den Oord, Yazhe Li, and Oriol Vinyals. Representation learning with contrastive predictive
+coding. In Advances in Neural Information Processing Systems, 2018. URL https://arxiv.
+org/abs/1807.03748.
+Shizun Wang, Songhua Liu, Zhenxiong Tan, and Xinchao Wang. Mindbridge: A cross-subject brain
+decoding framework. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pat-
+tern Recognition, pp. 11333–11342, 2024.
+Chenfei Wu et al. Qwen-image-edit: Image editing with multimodal diffusion transformers. arXiv
+preprint arXiv:2508.09230, 2025.
+Weihao Xia, Raoul De Charette, Cengiz Oztireli, and Jing-Hao Xue. Dream: Visual decoding from
+reversing human visual system. In Proceedings of the IEEE/CVF Winter Conference on Applica-
+tions of Computer Vision, pp. 8226–8235, 2024a.
+Weihao Xia, Raoul de Charette, Cengiz Oztireli, and Jing-Hao Xue. Umbrae: Unified multimodal
+brain decoding. In European Conference on Computer Vision, pp. 242–259. Springer, 2024b.
+16
+
+
+A
+ADDITIONAL QUALITATIVE RESULTS
+Fig. 12 continue Fig. 3 over the 28 concepts used in the main figures, one row per concept and one
+column per arm, at the resolution used for scoring. They are meant to be read column-wise: the
+low-level image supplies a spatial prior and little else; the content prompt supplies the objects and
+attributes; and NeuroRefine starts from that arrangement while restoring texture. Failure modes are
+visible as well, notably object substitutions inherited from the content predictor (cat→bear in Fig. 12,
+row c8), which the editor sharpens rather than corrects.
+B
+ADDITIONAL QUANTITATIVE RESULTS
+Table 6: Data eﬀiciency of the semantic readout on subject 1. “Transfer” initialises from subjects
+{2,3,5,7} and fine-tunes with early stopping. One NSD session is ≈250 images (≈1 h of scanning).
+Images
+from scratch (cos)
+transfer (cos)
+transfer top-1
+from scratch top-1
+250
+0.687
+0.737
+0.660
+0.685
+500
+0.714
+0.750
+0.684
+0.708
+1000
+0.728
+0.768
+0.712
+0.719
+2000
+0.743
+0.792
+0.737
+0.728
+8000
+0.762
+0.825
+0.768
+0.746
+The mean-image prior — the cosine obtained by predicting the dataset-mean CLIP embedding —
+is the trivial baseline for this readout. Table 6 therefore says something specific: at the one-hour
+budget a readout trained from scratch sits below that prior, whereas the same readout initialised from
+the other four subjects is already above it, and it stays above at every budget we tried. The “1 h”
+regime that Brain-IT reports is thus a statement about transfer, not about single-subject training, and
+the generator adds no subject data on top because it is frozen.
+C
+HEAD ANATOMY: ADDITIONAL STATISTICS
+Table 7: Repeat-trial reliability of individual vertices (split-half, Spearman–Brown corrected). The
+fMRI ceiling is the upper bound for any readout trained on three repeats.
+Subject
+1
+2
+3
+5
+7
+split-half r
+0.212
+0.232
+0.171
+0.252
+0.143
+ceiling (mean)
+0.332
+0.353
+0.278
+0.383
+0.239
+ceiling (10–90%)
+0.10–0.56
+0.08–0.61
+0.07–0.49
+0.14–0.60
+0.07–0.43
+Table 8: Cross-subject agreement of the head attribution maps. rbetween averages all subject pairs; the
+spin test rotates one map on the sphere (1,000 permutations) and compares the observed agreement
+with the null. The non-zero r is small but consistent.
+scene
+main subj.
+count
+colour
+object
+layout
+rbetween
+0.139
+0.063
+0.039
+0.089
+0.167
+0.090
+spin null (mean)
+−0.006
+0.003
+−0.005
+0.002
+0.000
+0.005
+spin p
+0.010
+0.010
+0.010
+0.010
+0.010
+0.010
+Two caveats belong here. First, the within-subject reliability of the head outputs is weight-trivial
+because the heads are deterministic functions of the betas; it is not evidence of a reproducible brain
+map. Second, the between-subject correlation is computed on smoothed surface maps over visual
+cortex only, so it quantifies agreement within the visual system and says nothing about the rest of the
+brain; the spin null is the appropriate test for spatial maps of this kind, and it is significant for all
+heads at the finest resolution our permutation budget allows.
+17
+
+
+Figure 12: Qualitative comparison (1/2): 14 of the 28 concepts used in the main figures. Columns
+are the seen image, the low-level input, Brain-IT enhanced and NeuroRefine.
+18
+
+
+Figure 12: (continued) Qualitative comparison (2/2): the remaining 14 concepts.
+19
+
+
+Figure 13: Retrieval semantic stage. The retrieved photograph (4th column) is a real image with
+the right content but a different arrangement; the edit refiner (last) keeps the retrieved content and
+recovers some layout from the low-level input.
+20
+
+
+D
+FAILURE CASES
+Our editor sharpens and preserves what the content prompt gives it, so its errors are inherited rather
+than invented: when the content predictor confuses objects (a bird becomes an airplane, a giraffe
+becomes a zebra) or invents a scene (a fruit basket becomes an indoor scene), the editor faithfully
+sharpens the wrong content. Count and instance errors follow the same route: a crowded race field
+becomes a single rider, two vases become a room with two people (Fig. 11). Direction and object
+facing are frequently wrong, because both our pipeline and the baselines pass through a CLIP-like
+embedding that is largely invariant to mirroring; a global mirror test fixes only a small fraction of the
+direction failures, and a dedicated direction readout is future work. These are limits of the content
+predictor and of the representation, not of the editor.
+E
+IMPLEMENTATION DETAILS
+The refiner is Qwen-Image-Edit-2511 at 1024 × 1024, 20 steps, guidance 4.0, used in instruction
+mode with the instruction “follow the low-level layout and render the content below”. The frozen
+generator is shared by every subject and every arm; only the readout and the six heads are subject-
+specific. The retrieval gallery is the union of the NSD images over subjects (66,841 images) minus the
+shared 1,000, and we verified that the test set and the gallery are disjoint. All metrics are computed at
+224 × 224 with Brain-IT’s compute_metrics; 2-way identification uses a fixed random permu-
+tation and is stable to ±0.002 across reruns. Sharpness is the mean gradient magnitude, computed
+identically for every arm.
+Prompt construction across subjects.
+The content prompt is built from the six head outputs with
+one shared template: the colour field contributes its top three colours above a per-class threshold, and
+the scene and object fields contribute their predicted labels. For 71 of the 930 concepts the original
+pipeline leaves the subject/object fields blank (the annotation carries no confident main subject);
+subjects 2 and 5 inherit exactly the same rule, so their prompts differ from subject 1 only through
+the per-subject head predictions. The low-level input is subject-independent: it is Brain-IT’s fused
+low-level image with a fixed unsharp/gamma post-process, used unchanged for every subject.
+F
+CONTENT-HEAD LABEL SPACES
+All six heads are trained on labels parsed from Qwen3-VL annotations of the training images only;
+the 930 shared test concepts are never used for supervision, so no label leaks into evaluation. The
+heads read the same full 39,548-dimensional vertex vector independently — they are six separate
+one-hidden-layer MLPs, not a transformer and not an attention block, and Brain-IT’s voxel-to-cluster
+mapping is used only by the low-level branch — so their only interaction is through the prompt
+string that concatenates their outputs. Three fields are single-label and use categorical cross-entropy
+on softmax logits (scene, main-subject category, count); three are multi-label and use independent
+binary cross-entropy on sigmoid logits (colour, object, layout). The label spaces are:
+• scene: 38-way softmax over canonical scenes (market, kitchen, ocean, beach, street, city, field,
+forest, mountain, airport, train station, stadium, zoo, …) with an other fallback; the class is
+assigned by ordered keyword rules on the annotation’s scene and caption fields, most specific rule
+first.
+• main-subject category: 20-way softmax over the image’s main subject (person, people, man,
+woman, child, dog, cat, bird, horse, cow, bear, sheep, elephant, giraffe, zebra, fish, airplane, train,
+car, food). This is a category of the depicted content, not an NSD participant.
+• count: 3-way (1 / 2 / ≥3), taken from the largest number word or digit in the annotation.
+• colour: 12 independent binary labels (white, black, red, blue, green, yellow, brown, orange, pink,
+grey, purple, gold). It is multi-label: one image can carry several colours, and each head output
+is thresholded independently rather than normalised across classes.
+• object: 150 independent binary labels over a canonical object vocabulary built from the training
+annotations. Multiple objects per image are allowed; the head predicts presence, not a single
+arg-max class.
+21
+
+
+• layout: 8 independent binary labels (left, right, front, behind, above, below, centre, on), parsed
+from the relation clauses of the annotation. They describe where the main subject sits relative to
+other objects; they are not a dense spatial map, which is why the low-level image, not this head,
+carries position.
+Because colour, object and layout are multi-label with independent binary cross-entropy, we report
+their accuracy as per-label average precision rather than top-1, and we never compare them numeri-
+cally with the single-label scene, main-subject and count heads (which use categorical cross-entropy).
+G
+METRIC DEFINITIONS
+2-way identification: for image i and a random other image j, the trial succeeds if sim(ˆxi, xi) >
+sim(ˆxi, xj); we report accuracy over all images (chance 0.5). n-way: top-1 of ˆxi among all n ground-
+truth features. CLIP cosine: cosine between CLIP-L image embeddings of ˆxi and xi. It is one term of
+the 2-way trial above, not its threshold: the trial also depends on sim(ˆxi, xj) for a random distractor,
+so a model can have a high CLIP cosine and still lose trials when the distractor pool happens to
+be close. We report it as the semantic summary because, unlike the 2-way accuracy, it does not
+saturate near 1. PixCorr: Pearson correlation of the two images’ pixels. SSIM: structural similarity.
+EffNet/SwAV: L2 distance in the corresponding feature space (lower is better).
+22
